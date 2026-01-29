@@ -1,0 +1,121 @@
+# generated: 2026-01-29
+# project: tdec-prospect
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog -> in-progress: Automatically when first story is created (via create-story)
+#   - in-progress -> done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-01-29
+project: tdec-prospect
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # Epic 1: Foundation & Authentication
+  epic-1: backlog
+  1-1-project-initialization-with-starter-template: backlog
+  1-2-design-system-theme-configuration: backlog
+  1-3-application-shell-with-navigation: backlog
+  1-4-supabase-authentication-setup: backlog
+  1-5-multi-tenant-database-structure-rls: backlog
+  epic-1-retrospective: optional
+
+  # Epic 2: Administration & Configuration
+  epic-2: backlog
+  2-1-settings-page-structure-api-configuration-ui: backlog
+  2-2-api-keys-storage-encryption: backlog
+  2-3-integration-connection-testing: backlog
+  2-4-knowledge-base-editor-company-profile: backlog
+  2-5-knowledge-base-editor-tone-examples: backlog
+  2-6-knowledge-base-editor-icp-definition: backlog
+  2-7-team-management-invite-remove-users: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: Lead Discovery
+  epic-3: backlog
+  3-1-leads-page-data-model: backlog
+  3-2-apollo-api-integration-service: backlog
+  3-3-traditional-filter-search: backlog
+  3-4-ai-conversational-search: backlog
+  3-5-lead-table-display: backlog
+  3-6-lead-selection-individual-batch: backlog
+  3-7-saved-filters-favorites: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: Lead Management
+  epic-4: backlog
+  4-1-lead-segments-lists: backlog
+  4-2-lead-status-management: backlog
+  4-3-lead-detail-view-interaction-history: backlog
+  4-4-signalhire-integration-service: backlog
+  4-5-phone-number-lookup: backlog
+  4-6-interested-leads-highlighting: backlog
+  4-7-import-campaign-results: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5: Campaign Builder
+  epic-5: backlog
+  5-1-campaigns-page-data-model: backlog
+  5-2-campaign-builder-canvas: backlog
+  5-3-email-block-component: backlog
+  5-4-delay-block-component: backlog
+  5-5-sequence-connector-lines: backlog
+  5-6-block-drag-reorder: backlog
+  5-7-campaign-lead-association: backlog
+  5-8-campaign-preview: backlog
+  5-9-campaign-save-multiple-campaigns: backlog
+  epic-5-retrospective: optional
+
+  # Epic 6: AI Content Generation
+  epic-6: backlog
+  6-1-ai-provider-service-layer: backlog
+  6-2-ai-text-generation-in-builder: backlog
+  6-3-knowledge-base-integration-for-context: backlog
+  6-4-personalized-icebreakers: backlog
+  6-5-inline-text-editing: backlog
+  6-6-text-regeneration: backlog
+  6-7-tone-of-voice-application: backlog
+  6-8-use-of-successful-examples: backlog
+  epic-6-retrospective: optional
+
+  # Epic 7: Campaign Deployment
+  epic-7: backlog
+  7-1-snov-io-integration-service: backlog
+  7-2-instantly-integration-service: backlog
+  7-3-export-dialog-ui: backlog
+  7-4-export-to-instantly: backlog
+  7-5-export-to-snov-io: backlog
+  7-6-manual-export-copy-to-clipboard: backlog
+  7-7-error-messages-fallback: backlog
+  7-8-loading-states-system: backlog
+  7-9-toast-notification-system: backlog
+  epic-7-retrospective: optional
