@@ -39,6 +39,26 @@ project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
 
+# GIT BRANCH TRACKING
+# ===================
+current_branch: epic/1-mvp-prospecting
+base_branch: main
+
+branch_strategy:
+  # Branch naming convention:
+  # - epic/{epic-number}-{epic-name}     → Branch do epic (ex: epic/1-mvp-prospecting)
+  # - feature/{story-id}-{story-name}   → Branch da story (ex: feature/1.1-project-initialization)
+  #
+  # Workflow:
+  # 1. Epic branch criada a partir da main
+  # 2. Feature branches criadas a partir do epic
+  # 3. Ao finalizar story → merge na branch do epic
+  # 4. Ao finalizar epic → PR para main
+
+branches:
+  main: "Branch de produção estável"
+  epic/1-mvp-prospecting: "Epic 1 - Foundation & Authentication"
+
 development_status:
   # Epic 1: Foundation & Authentication
   epic-1: backlog
