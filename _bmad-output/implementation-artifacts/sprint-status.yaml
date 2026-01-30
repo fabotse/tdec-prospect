@@ -41,8 +41,8 @@ story_location: _bmad-output/implementation-artifacts
 
 # GIT BRANCH TRACKING
 # ===================
-current_branch: epic/2-administration-configuration
-base_branch: epic/1-mvp-prospecting
+current_branch: epic/3-lead-discovery
+base_branch: epic/2-administration-configuration
 
 branch_strategy:
   # Branch naming convention:
@@ -58,7 +58,8 @@ branch_strategy:
 branches:
   main: "Branch de produção estável"
   epic/1-mvp-prospecting: "Epic 1 - Foundation & Authentication (DONE)"
-  epic/2-administration-configuration: "Epic 2 - Administration & Configuration (CURRENT)"
+  epic/2-administration-configuration: "Epic 2 - Administration & Configuration (DONE)"
+  epic/3-lead-discovery: "Epic 3 - Lead Discovery (CURRENT)"
 
 development_status:
   # Epic 1: Foundation & Authentication
