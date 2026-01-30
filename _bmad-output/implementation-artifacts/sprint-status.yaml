@@ -41,8 +41,8 @@ story_location: _bmad-output/implementation-artifacts
 
 # GIT BRANCH TRACKING
 # ===================
-current_branch: epic/1-mvp-prospecting
-base_branch: main
+current_branch: epic/2-administration-configuration
+base_branch: epic/1-mvp-prospecting
 
 branch_strategy:
   # Branch naming convention:
@@ -50,14 +50,15 @@ branch_strategy:
   # - feature/{story-id}-{story-name}   → Branch da story (ex: feature/1.1-project-initialization)
   #
   # Workflow:
-  # 1. Epic branch criada a partir da main
+  # 1. Epic branch criada a partir da main (ou epic anterior)
   # 2. Feature branches criadas a partir do epic
   # 3. Ao finalizar story → merge na branch do epic
   # 4. Ao finalizar epic → PR para main
 
 branches:
   main: "Branch de produção estável"
-  epic/1-mvp-prospecting: "Epic 1 - Foundation & Authentication"
+  epic/1-mvp-prospecting: "Epic 1 - Foundation & Authentication (DONE)"
+  epic/2-administration-configuration: "Epic 2 - Administration & Configuration (CURRENT)"
 
 development_status:
   # Epic 1: Foundation & Authentication
