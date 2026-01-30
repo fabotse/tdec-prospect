@@ -108,6 +108,9 @@ async function fetchProfileData(userId: string): Promise<Profile | null> {
   }
 }
 
+// Flag to track if initial load is complete (prevents race condition)
+let isInitialLoadComplete = false;
+
 function initializeAuth() {
   if (isAuthInitialized) return; // Already initialized
   isAuthInitialized = true;
@@ -115,46 +118,93 @@ function initializeAuth() {
   console.log("[useUser] Initializing shared auth state...");
   const supabase = createClient();
 
-  supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, session: Session | null) => {
-    console.log(`[useUser] onAuthStateChange: event=${event}, hasSession=${!!session}`);
-
-    const newUser = session?.user ?? null;
-
-    // IMMEDIATELY mark as initialized to prevent fallback from firing
-    authState = {
-      ...authState,
-      user: newUser,
-      isInitialized: true,
-      isLoading: newUser ? true : false, // Keep loading if we need to fetch profile
-      isProfileLoading: !!newUser,
-    };
-    notifyListeners();
-
-    // Fetch profile if user exists
+  // Helper function to load user and profile
+  async function loadUserAndProfile(user: User | null) {
     let newProfile: Profile | null = null;
-    if (newUser) {
+    if (user) {
       console.log("[useUser] Fetching profile...");
-      newProfile = await fetchProfileData(newUser.id);
+      newProfile = await fetchProfileData(user.id);
       console.log("[useUser] Profile fetched:", newProfile?.role);
     }
 
-    // Update with profile
     authState = {
-      user: newUser,
+      user,
       profile: newProfile,
       isLoading: false,
       isInitialized: true,
       isProfileLoading: false,
     };
 
-    console.log("[useUser] Auth state updated:", { hasUser: !!newUser, hasProfile: !!newProfile, role: newProfile?.role });
+    console.log("[useUser] Auth state updated:", { hasUser: !!user, hasProfile: !!newProfile, role: newProfile?.role });
     notifyListeners();
+  }
+
+  // Register listener FIRST but ignore events until initial load is complete
+  supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, session: Session | null) => {
+    console.log(`[useUser] onAuthStateChange: event=${event}, hasSession=${!!session}, initialLoadComplete=${isInitialLoadComplete}`);
+
+    // Ignore ALL events until getSession() completes (prevents race condition)
+    if (!isInitialLoadComplete) {
+      console.log("[useUser] Ignoring event - waiting for initial getSession() to complete");
+      return;
+    }
+
+    const newUser = session?.user ?? null;
+
+    // Update state for auth change
+    authState = {
+      ...authState,
+      user: newUser,
+      isInitialized: true,
+      isLoading: !!newUser,
+      isProfileLoading: !!newUser,
+    };
+    notifyListeners();
+
+    // Load profile
+    await loadUserAndProfile(newUser);
   });
 
-  // Fallback if no event fires within 5 seconds
+  // CRITICAL: Use getSession() for initial load - this properly syncs the client
+  supabase.auth.getSession().then(async ({ data: { session } }) => {
+    console.log("[useUser] Initial getSession completed:", { hasSession: !!session });
+
+    const initialUser = session?.user ?? null;
+
+    // Set initial state immediately
+    authState = {
+      ...authState,
+      user: initialUser,
+      isInitialized: true,
+      isLoading: !!initialUser,
+      isProfileLoading: !!initialUser,
+    };
+    notifyListeners();
+
+    // Load profile for initial session
+    if (initialUser) {
+      await loadUserAndProfile(initialUser);
+    } else {
+      authState = {
+        user: null,
+        profile: null,
+        isLoading: false,
+        isInitialized: true,
+        isProfileLoading: false,
+      };
+      notifyListeners();
+    }
+
+    // Mark initial load as complete - now onAuthStateChange can process events
+    isInitialLoadComplete = true;
+    console.log("[useUser] Initial load complete - onAuthStateChange now active");
+  });
+
+  // Fallback if no session loads within 5 seconds
   setTimeout(() => {
     if (!authState.isInitialized) {
       console.warn("[useUser] No auth event received after 5s, assuming no session");
+      isInitialLoadComplete = true;
       authState = {
         user: null,
         profile: null,
