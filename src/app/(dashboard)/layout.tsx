@@ -1,11 +1,9 @@
+import { AppShell } from "@/components/common/AppShell";
+
 export default function DashboardLayout({
   children,
 }: {
-  children: React.ReactNode
+  children: React.ReactNode;
 }) {
-  return (
-    <div className="min-h-screen">
-      {children}
-    </div>
-  )
+  return <AppShell>{children}</AppShell>;
 }

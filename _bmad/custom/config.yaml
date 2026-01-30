@@ -1,0 +1,8 @@
+# Custom Module Configuration
+# For standalone custom agents
+
+# Core Configuration Values (inherited from bmb/config.yaml)
+user_name: Fabossi
+communication_language: Portuguese
+document_output_language: Portuguese
+output_folder: "{project-root}/_bmad-output"

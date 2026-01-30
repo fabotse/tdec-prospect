@@ -1,46 +1,38 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from "@playwright/test";
 
-test.describe('Home Page', () => {
-  test('should load successfully', async ({ page }) => {
-    await page.goto('/')
-    await expect(page).toHaveTitle(/TDEC Prospect/)
-  })
+test.describe("Home Page Redirect (Unauthenticated)", () => {
+  test("should redirect from root to /login when unauthenticated", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    // With auth middleware, unauthenticated users are redirected to /login
+    await expect(page).toHaveURL("/login");
+  });
 
-  test('should display Next.js logo', async ({ page }) => {
-    await page.goto('/')
-    const logo = page.getByAltText('Next.js logo')
-    await expect(logo).toBeVisible()
-  })
+  test("should load login page with correct title", async ({ page }) => {
+    await page.goto("/login");
+    await expect(page).toHaveTitle(/TDEC Prospect/);
+  });
+});
 
-  test('should display main heading', async ({ page }) => {
-    await page.goto('/')
-    const heading = page.getByRole('heading', { level: 1 })
-    await expect(heading).toContainText('To get started, edit the page.tsx file')
-  })
+test.describe("Theme System on Login Page", () => {
+  test("should have dark background by default", async ({ page }) => {
+    await page.goto("/login");
+    await page.evaluate(() => localStorage.removeItem("theme"));
+    await page.reload();
+    await page.waitForLoadState("networkidle");
 
-  test('should have Deploy Now button', async ({ page }) => {
-    await page.goto('/')
-    const deployButton = page.getByRole('link', { name: /Deploy Now/i })
-    await expect(deployButton).toBeVisible()
-    await expect(deployButton).toHaveAttribute('href', /vercel.com\/new/)
-  })
+    // The html element should have dark class by default
+    await expect(page.locator("html")).toHaveClass(/dark/);
+  });
 
-  test('should have Documentation link', async ({ page }) => {
-    await page.goto('/')
-    const docsLink = page.getByRole('link', { name: /Documentation/i })
-    await expect(docsLink).toBeVisible()
-    await expect(docsLink).toHaveAttribute('href', /nextjs.org\/docs/)
-  })
+  test("should persist theme preference after reload", async ({ page }) => {
+    await page.goto("/login");
+    await page.evaluate(() => localStorage.setItem("theme", "light"));
+    await page.reload();
+    await page.waitForLoadState("networkidle");
 
-  test('should have Templates link', async ({ page }) => {
-    await page.goto('/')
-    const templatesLink = page.getByRole('link', { name: /Templates/i })
-    await expect(templatesLink).toBeVisible()
-  })
-
-  test('should have Learning link', async ({ page }) => {
-    await page.goto('/')
-    const learningLink = page.getByRole('link', { name: /Learning/i })
-    await expect(learningLink).toBeVisible()
-  })
-})
+    // Theme should be light after reload
+    await expect(page.locator("html")).toHaveClass(/light/);
+  });
+});

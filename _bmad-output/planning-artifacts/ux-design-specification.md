@@ -1196,6 +1196,23 @@ components/
 
 ### Form Patterns
 
+**Espaçamento label → input:**
+
+| Elemento | Classe | Valor | Nota |
+|----------|--------|-------|------|
+| Label | `mb-2 block` | 8px margin-bottom | Cria espaço entre label e input |
+| Container do campo | `space-y-1` | 4px | Para mensagem de erro abaixo do input |
+| Entre campos | `space-y-4` | 16px | Separação entre campos do form |
+
+**Exemplo de estrutura:**
+```html
+<div class="space-y-1">
+  <Label class="mb-2 block">Email</Label>
+  <Input />
+  {error && <p class="text-xs text-destructive">Mensagem de erro</p>}
+</div>
+```
+
 **Input padrão:**
 
 | Estado | Visual |
