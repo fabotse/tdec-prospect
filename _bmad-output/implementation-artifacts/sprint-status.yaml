@@ -73,8 +73,8 @@ development_status:
   # Epic 2: Administration & Configuration
   epic-2: in-progress
   2-1-settings-page-structure-api-configuration-ui: done
-  2-2-api-keys-storage-encryption: backlog
-  2-3-integration-connection-testing: backlog
+  2-2-api-keys-storage-encryption: done
+  2-3-integration-connection-testing: done
   2-4-knowledge-base-editor-company-profile: backlog
   2-5-knowledge-base-editor-tone-examples: backlog
   2-6-knowledge-base-editor-icp-definition: backlog

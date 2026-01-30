@@ -1,10 +1,15 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import type { User } from "@supabase/supabase-js";
+import { useEffect, useState, useCallback, useRef } from "react";
+import type { User, AuthError, AuthChangeEvent, Session } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/client";
 import type { Profile, UserRole } from "@/types/database";
+
+/**
+ * Timeout for auth operations in milliseconds
+ */
+const AUTH_TIMEOUT_MS = 10000;
 
 /**
  * Extended return type with profile data
@@ -23,6 +28,27 @@ interface UseUserReturn {
 }
 
 /**
+ * Wrap a promise with a timeout
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error("Timeout: auth operation took too long"));
+    }, ms);
+
+    promise
+      .then((result) => {
+        clearTimeout(timeoutId);
+        resolve(result);
+      })
+      .catch((error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
+}
+
+/**
  * Hook for managing user session and profile data
  * Story: 1.5 - Multi-tenant Database Structure & RLS
  */
@@ -32,42 +58,54 @@ export function useUser(): UseUserReturn {
   const [isLoading, setIsLoading] = useState(true);
   const [isProfileLoading, setIsProfileLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const isMountedRef = useRef(true);
 
-  const fetchProfile = useCallback(async (userId: string) => {
-    setIsProfileLoading(true);
-    try {
-      const supabase = createClient();
-      const { data, error: profileError } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", userId)
-        .single();
+  const fetchProfile = useCallback(
+    async (userId: string, checkMounted = true) => {
+      if (checkMounted && !isMountedRef.current) return;
 
-      if (profileError) {
-        // Profile might not exist yet (trigger not fired or new user)
-        // This is not necessarily an error - PGRST116 means no rows returned
-        if (profileError.code !== "PGRST116") {
-          console.error("Error fetching profile:", profileError);
+      setIsProfileLoading(true);
+      try {
+        const supabase = createClient();
+        const { data, error: profileError } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", userId)
+          .single();
+
+        if (!isMountedRef.current) return;
+
+        if (profileError) {
+          // Profile might not exist yet (trigger not fired or new user)
+          // This is not necessarily an error - PGRST116 means no rows returned
+          if (profileError.code !== "PGRST116") {
+            console.error("Error fetching profile:", profileError);
+          }
+          setProfile(null);
+        } else {
+          setProfile(data);
         }
+      } catch (e) {
+        if (!isMountedRef.current) return;
+        console.error("Error fetching profile:", e);
         setProfile(null);
-      } else {
-        setProfile(data);
+      } finally {
+        if (isMountedRef.current) {
+          setIsProfileLoading(false);
+        }
       }
-    } catch (e) {
-      console.error("Error fetching profile:", e);
-      setProfile(null);
-    } finally {
-      setIsProfileLoading(false);
-    }
-  }, []);
+    },
+    []
+  );
 
   const refetchProfile = useCallback(async () => {
     if (user?.id) {
-      await fetchProfile(user.id);
+      await fetchProfile(user.id, false);
     }
   }, [user?.id, fetchProfile]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     const supabase = createClient();
 
     // Get initial user
@@ -76,7 +114,12 @@ export function useUser(): UseUserReturn {
         const {
           data: { user },
           error,
-        } = await supabase.auth.getUser();
+        } = await withTimeout<{ data: { user: User | null }; error: AuthError | null }>(
+          supabase.auth.getUser(),
+          AUTH_TIMEOUT_MS
+        );
+
+        if (!isMountedRef.current) return;
 
         if (error) {
           throw error;
@@ -89,9 +132,20 @@ export function useUser(): UseUserReturn {
           await fetchProfile(user.id);
         }
       } catch (e) {
-        setError(e instanceof Error ? e : new Error("Failed to get user"));
+        if (!isMountedRef.current) return;
+
+        // Don't treat timeout as fatal error - just log and continue
+        if (e instanceof Error && e.message.includes("Timeout")) {
+          console.warn("Auth timeout - continuing without user data");
+          setUser(null);
+          setProfile(null);
+        } else {
+          setError(e instanceof Error ? e : new Error("Failed to get user"));
+        }
       } finally {
-        setIsLoading(false);
+        if (isMountedRef.current) {
+          setIsLoading(false);
+        }
       }
     }
 
@@ -100,7 +154,9 @@ export function useUser(): UseUserReturn {
     // Listen for auth state changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (_event: AuthChangeEvent, session: Session | null) => {
+      if (!isMountedRef.current) return;
+
       const newUser = session?.user ?? null;
       setUser(newUser);
       setIsLoading(false);
@@ -114,6 +170,7 @@ export function useUser(): UseUserReturn {
     });
 
     return () => {
+      isMountedRef.current = false;
       subscription.unsubscribe();
     };
   }, [fetchProfile]);
