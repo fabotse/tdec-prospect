@@ -1,21 +1,71 @@
-import { Card, CardContent } from "@/components/ui/card";
+"use client";
 
 /**
- * Team settings placeholder page
- * Story: 2.1 - Settings Page Structure & API Configuration UI
- * AC: #1 - Settings page with tab for Equipe
+ * Team Management Page
+ * Story: 2.7 - Team Management - Invite & Remove Users
+ *
+ * AC: All - Complete team management functionality
  */
+
+import { useState } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { AdminGuard } from "@/components/settings/AdminGuard";
+import { TeamMemberList } from "@/components/settings/TeamMemberList";
+import { InviteUserDialog } from "@/components/settings/InviteUserDialog";
+import { RemoveUserDialog } from "@/components/settings/RemoveUserDialog";
+import { useUser } from "@/hooks/use-user";
+import type { TeamMember } from "@/types/team";
+
 export default function TeamPage() {
+  const { profile } = useUser();
+  const [memberToRemove, setMemberToRemove] = useState<TeamMember | null>(null);
+  const [dialogMode, setDialogMode] = useState<"remove" | "cancel-invite">(
+    "remove"
+  );
+
+  const handleRemove = (member: TeamMember) => {
+    setMemberToRemove(member);
+    setDialogMode("remove");
+  };
+
+  const handleCancelInvite = (member: TeamMember) => {
+    setMemberToRemove(member);
+    setDialogMode("cancel-invite");
+  };
+
   return (
-    <Card className="bg-background-secondary border-border">
-      <CardContent className="flex flex-col items-center justify-center py-12">
-        <span className="text-4xl mb-4">👥</span>
-        <h2 className="text-h2 text-foreground mb-2">Gestão de Equipe</h2>
-        <p className="text-body text-foreground-muted text-center max-w-md">
-          Em breve você poderá convidar e gerenciar membros da equipe,
-          definindo permissões e papéis.
-        </p>
-      </CardContent>
-    </Card>
+    <AdminGuard>
+      <Card className="bg-background-secondary border-border">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-h3">Gestão de Equipe</CardTitle>
+            <CardDescription className="text-body-small text-foreground-muted">
+              Gerencie os membros da sua equipe e envie convites.
+            </CardDescription>
+          </div>
+          <InviteUserDialog />
+        </CardHeader>
+        <CardContent>
+          <TeamMemberList
+            onRemove={handleRemove}
+            onCancelInvite={handleCancelInvite}
+            currentUserId={profile?.id ?? ""}
+          />
+        </CardContent>
+      </Card>
+
+      <RemoveUserDialog
+        member={memberToRemove}
+        open={!!memberToRemove}
+        onOpenChange={(open) => !open && setMemberToRemove(null)}
+        mode={dialogMode}
+      />
+    </AdminGuard>
   );
 }

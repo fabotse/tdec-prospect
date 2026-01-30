@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -44,6 +45,28 @@ export default function LoginPage() {
   // Initialize error from URL param (callback error) or null
   const initialError = getErrorMessage(searchParams.get("error"));
   const [serverError, setServerError] = useState<string | null>(initialError);
+
+  // Show toast for invite acceptance or email verification
+  useEffect(() => {
+    const invite = searchParams.get("invite");
+    const verified = searchParams.get("verified");
+
+    if (invite === "accepted") {
+      toast.success("Convite aceito com sucesso!", {
+        description:
+          'Use "Esqueci minha senha" para definir sua senha e fazer login.',
+        duration: 8000,
+      });
+      // Clean URL without reloading
+      window.history.replaceState({}, "", "/login");
+    } else if (verified === "true") {
+      toast.success("Email verificado!", {
+        description: "Você já pode fazer login.",
+        duration: 5000,
+      });
+      window.history.replaceState({}, "", "/login");
+    }
+  }, [searchParams]);
 
   const {
     register,
@@ -136,6 +159,15 @@ export default function LoginPage() {
           )}
         </Button>
       </form>
+
+      <div className="text-center">
+        <a
+          href="/forgot-password"
+          className="text-sm text-muted-foreground hover:text-foreground underline-offset-4 hover:underline"
+        >
+          Esqueci minha senha
+        </a>
+      </div>
     </div>
   );
 }
