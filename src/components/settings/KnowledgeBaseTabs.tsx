@@ -2,16 +2,20 @@
 
 /**
  * Knowledge Base Sub-Tabs
- * Story: 2.4 - Knowledge Base Editor - Company Profile
+ * Story: 2.4, 2.5, 2.6 - Knowledge Base Editor
  *
  * AC: #1 - Sections: Empresa, Tom de Voz, Exemplos, ICP
- * AC: #1 - Empresa section functional, others show "Em breve"
+ * Story 2.4: Empresa section
+ * Story 2.5: Tom de Voz, Exemplos sections
+ * Story 2.6: ICP section
  */
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CompanyProfileForm } from "./CompanyProfileForm";
-import { ComingSoonCard } from "./ComingSoonCard";
+import { ToneOfVoiceForm } from "./ToneOfVoiceForm";
+import { EmailExamplesForm } from "./EmailExamplesForm";
+import { ICPDefinitionForm } from "./ICPDefinitionForm";
 
 export function KnowledgeBaseTabs() {
   return (
@@ -38,24 +42,45 @@ export function KnowledgeBaseTabs() {
       </TabsContent>
 
       <TabsContent value="tone" className="mt-4">
-        <ComingSoonCard
-          title="Tom de Voz"
-          description="Configure o estilo e tom de comunicação da sua empresa para os emails gerados."
-        />
+        <Card className="bg-background-secondary border-border">
+          <CardHeader>
+            <CardTitle className="text-h3">Tom de Voz</CardTitle>
+            <CardDescription className="text-body-small text-foreground-muted">
+              Configure o estilo e tom de comunicação da sua empresa para os emails gerados.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ToneOfVoiceForm />
+          </CardContent>
+        </Card>
       </TabsContent>
 
       <TabsContent value="examples" className="mt-4">
-        <ComingSoonCard
-          title="Exemplos de Email"
-          description="Adicione exemplos de emails bem-sucedidos para a IA aprender o seu estilo."
-        />
+        <Card className="bg-background-secondary border-border">
+          <CardHeader>
+            <CardTitle className="text-h3">Exemplos de Email</CardTitle>
+            <CardDescription className="text-body-small text-foreground-muted">
+              Adicione exemplos de emails bem-sucedidos para a IA aprender o seu estilo.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <EmailExamplesForm />
+          </CardContent>
+        </Card>
       </TabsContent>
 
       <TabsContent value="icp" className="mt-4">
-        <ComingSoonCard
-          title="ICP - Perfil de Cliente Ideal"
-          description="Defina as características do seu cliente ideal para melhorar a segmentação."
-        />
+        <Card className="bg-background-secondary border-border">
+          <CardHeader>
+            <CardTitle className="text-h3">ICP (Ideal Customer Profile)</CardTitle>
+            <CardDescription className="text-body-small text-foreground-muted">
+              Defina o perfil do seu cliente ideal para personalização de conteúdo.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ICPDefinitionForm />
+          </CardContent>
+        </Card>
       </TabsContent>
     </Tabs>
   );

@@ -4,10 +4,64 @@ import {
   SECTION_LABELS,
   isValidSection,
   companyProfileSchema,
+  toneOfVoiceSchema,
+  emailExampleSchema,
+  uuidSchema,
+  TONE_PRESETS,
+  TONE_PRESET_LABELS,
+  COMPANY_SIZES,
+  COMPANY_SIZE_LABELS,
+  icpDefinitionSchema,
   type KnowledgeBaseSection,
+  type TonePreset,
+  type CompanySize,
 } from "@/types/knowledge-base";
 
 describe("knowledge-base types", () => {
+  // ==============================================
+  // UUID SCHEMA (Story 2.5 - Security Enhancement)
+  // ==============================================
+
+  describe("uuidSchema", () => {
+    it("should accept valid UUID v4", () => {
+      const validUUIDs = [
+        "550e8400-e29b-41d4-a716-446655440000",
+        "123e4567-e89b-12d3-a456-426614174000",
+        "00000000-0000-0000-0000-000000000000",
+      ];
+
+      validUUIDs.forEach((uuid) => {
+        const result = uuidSchema.safeParse(uuid);
+        expect(result.success).toBe(true);
+      });
+    });
+
+    it("should reject invalid UUID formats", () => {
+      const invalidUUIDs = [
+        "1",
+        "not-a-uuid",
+        "123",
+        "550e8400-e29b-41d4-a716",
+        "550e8400e29b41d4a716446655440000",
+        "",
+      ];
+
+      invalidUUIDs.forEach((uuid) => {
+        const result = uuidSchema.safeParse(uuid);
+        expect(result.success).toBe(false);
+      });
+    });
+
+    it("should provide Portuguese error message", () => {
+      const result = uuidSchema.safeParse("invalid");
+      expect(result.success).toBe(false);
+
+      if (!result.success) {
+        expect(result.error.issues[0]?.message).toBe("ID inválido");
+      }
+    });
+  });
+
   describe("KNOWLEDGE_BASE_SECTIONS", () => {
     it("should contain all supported sections", () => {
       expect(KNOWLEDGE_BASE_SECTIONS).toContain("company");
@@ -139,6 +193,424 @@ describe("knowledge-base types", () => {
         const error = result.error.issues[0];
         expect(error?.message).toContain("obrigatório");
       }
+    });
+  });
+
+  // ==============================================
+  // TONE OF VOICE TYPES (Story 2.5)
+  // ==============================================
+
+  describe("TONE_PRESETS", () => {
+    it("should contain all supported presets", () => {
+      expect(TONE_PRESETS).toContain("formal");
+      expect(TONE_PRESETS).toContain("casual");
+      expect(TONE_PRESETS).toContain("technical");
+    });
+
+    it("should have exactly 3 presets", () => {
+      expect(TONE_PRESETS).toHaveLength(3);
+    });
+  });
+
+  describe("TONE_PRESET_LABELS", () => {
+    it("should have labels for all presets", () => {
+      expect(TONE_PRESET_LABELS.formal).toBe("Formal");
+      expect(TONE_PRESET_LABELS.casual).toBe("Casual");
+      expect(TONE_PRESET_LABELS.technical).toBe("Técnico");
+    });
+
+    it("should have a label for every preset", () => {
+      TONE_PRESETS.forEach((preset) => {
+        expect(TONE_PRESET_LABELS[preset]).toBeDefined();
+        expect(typeof TONE_PRESET_LABELS[preset]).toBe("string");
+      });
+    });
+  });
+
+  describe("toneOfVoiceSchema", () => {
+    it("should validate a complete tone of voice", () => {
+      const validTone = {
+        preset: "formal",
+        custom_description: "Professional and courteous",
+        writing_guidelines: "Use formal language",
+      };
+
+      const result = toneOfVoiceSchema.safeParse(validTone);
+      expect(result.success).toBe(true);
+    });
+
+    it("should validate all preset options", () => {
+      const presets: TonePreset[] = ["formal", "casual", "technical"];
+
+      presets.forEach((preset) => {
+        const tone = {
+          preset,
+          custom_description: "",
+          writing_guidelines: "",
+        };
+
+        const result = toneOfVoiceSchema.safeParse(tone);
+        expect(result.success).toBe(true);
+      });
+    });
+
+    it("should reject invalid preset values", () => {
+      const invalidTone = {
+        preset: "invalid",
+        custom_description: "",
+        writing_guidelines: "",
+      };
+
+      const result = toneOfVoiceSchema.safeParse(invalidTone);
+      expect(result.success).toBe(false);
+    });
+
+    it("should allow empty custom_description and writing_guidelines", () => {
+      const minimalTone = {
+        preset: "formal",
+        custom_description: "",
+        writing_guidelines: "",
+      };
+
+      const result = toneOfVoiceSchema.safeParse(minimalTone);
+      expect(result.success).toBe(true);
+    });
+
+    it("should reject custom_description longer than 2000 characters", () => {
+      const longDescTone = {
+        preset: "formal",
+        custom_description: "a".repeat(2001),
+        writing_guidelines: "",
+      };
+
+      const result = toneOfVoiceSchema.safeParse(longDescTone);
+      expect(result.success).toBe(false);
+    });
+
+    it("should reject writing_guidelines longer than 5000 characters", () => {
+      const longGuidelinesTone = {
+        preset: "formal",
+        custom_description: "",
+        writing_guidelines: "a".repeat(5001),
+      };
+
+      const result = toneOfVoiceSchema.safeParse(longGuidelinesTone);
+      expect(result.success).toBe(false);
+    });
+  });
+
+  // ==============================================
+  // EMAIL EXAMPLES TYPES (Story 2.5)
+  // ==============================================
+
+  describe("emailExampleSchema", () => {
+    it("should validate a complete email example", () => {
+      const validExample = {
+        subject: "Introduction Email",
+        body: "Hello, I am reaching out...",
+        context: "First contact after meeting",
+      };
+
+      const result = emailExampleSchema.safeParse(validExample);
+      expect(result.success).toBe(true);
+    });
+
+    it("should require subject", () => {
+      const noSubject = {
+        subject: "",
+        body: "Body content",
+      };
+
+      const result = emailExampleSchema.safeParse(noSubject);
+      expect(result.success).toBe(false);
+
+      if (!result.success) {
+        const error = result.error.issues[0];
+        expect(error?.message).toContain("obrigatório");
+      }
+    });
+
+    it("should require body", () => {
+      const noBody = {
+        subject: "Subject",
+        body: "",
+      };
+
+      const result = emailExampleSchema.safeParse(noBody);
+      expect(result.success).toBe(false);
+
+      if (!result.success) {
+        const error = result.error.issues[0];
+        expect(error?.message).toContain("obrigatório");
+      }
+    });
+
+    it("should allow optional context", () => {
+      const noContext = {
+        subject: "Subject",
+        body: "Body content",
+      };
+
+      const result = emailExampleSchema.safeParse(noContext);
+      expect(result.success).toBe(true);
+    });
+
+    it("should allow empty context", () => {
+      const emptyContext = {
+        subject: "Subject",
+        body: "Body content",
+        context: "",
+      };
+
+      const result = emailExampleSchema.safeParse(emptyContext);
+      expect(result.success).toBe(true);
+    });
+
+    it("should reject subject longer than 200 characters", () => {
+      const longSubject = {
+        subject: "a".repeat(201),
+        body: "Body",
+      };
+
+      const result = emailExampleSchema.safeParse(longSubject);
+      expect(result.success).toBe(false);
+    });
+
+    it("should reject body longer than 10000 characters", () => {
+      const longBody = {
+        subject: "Subject",
+        body: "a".repeat(10001),
+      };
+
+      const result = emailExampleSchema.safeParse(longBody);
+      expect(result.success).toBe(false);
+    });
+
+    it("should reject context longer than 1000 characters", () => {
+      const longContext = {
+        subject: "Subject",
+        body: "Body",
+        context: "a".repeat(1001),
+      };
+
+      const result = emailExampleSchema.safeParse(longContext);
+      expect(result.success).toBe(false);
+    });
+  });
+
+  // ==============================================
+  // ICP DEFINITION TYPES (Story 2.6)
+  // ==============================================
+
+  describe("COMPANY_SIZES", () => {
+    it("should contain all supported size ranges", () => {
+      expect(COMPANY_SIZES).toContain("1-10");
+      expect(COMPANY_SIZES).toContain("11-50");
+      expect(COMPANY_SIZES).toContain("51-200");
+      expect(COMPANY_SIZES).toContain("201-500");
+      expect(COMPANY_SIZES).toContain("501-1000");
+      expect(COMPANY_SIZES).toContain("1000+");
+    });
+
+    it("should have exactly 6 size ranges", () => {
+      expect(COMPANY_SIZES).toHaveLength(6);
+    });
+  });
+
+  describe("COMPANY_SIZE_LABELS", () => {
+    it("should have labels for all sizes", () => {
+      expect(COMPANY_SIZE_LABELS["1-10"]).toBe("1-10 funcionários");
+      expect(COMPANY_SIZE_LABELS["11-50"]).toBe("11-50 funcionários");
+      expect(COMPANY_SIZE_LABELS["51-200"]).toBe("51-200 funcionários");
+      expect(COMPANY_SIZE_LABELS["201-500"]).toBe("201-500 funcionários");
+      expect(COMPANY_SIZE_LABELS["501-1000"]).toBe("501-1000 funcionários");
+      expect(COMPANY_SIZE_LABELS["1000+"]).toBe("1000+ funcionários");
+    });
+
+    it("should have a label for every size", () => {
+      COMPANY_SIZES.forEach((size) => {
+        expect(COMPANY_SIZE_LABELS[size]).toBeDefined();
+        expect(typeof COMPANY_SIZE_LABELS[size]).toBe("string");
+      });
+    });
+  });
+
+  describe("icpDefinitionSchema", () => {
+    it("should validate a complete ICP definition", () => {
+      const validICP = {
+        company_sizes: ["11-50", "51-200"],
+        industries: ["Tecnologia", "SaaS"],
+        job_titles: ["CEO", "CTO"],
+        geographic_focus: ["São Paulo", "Brasil"],
+        pain_points: "Dores do cliente",
+        common_objections: "Objeções comuns",
+      };
+
+      const result = icpDefinitionSchema.safeParse(validICP);
+      expect(result.success).toBe(true);
+    });
+
+    it("should validate all company size options", () => {
+      const sizes: CompanySize[] = ["1-10", "11-50", "51-200", "201-500", "501-1000", "1000+"];
+
+      sizes.forEach((size) => {
+        const icp = {
+          company_sizes: [size],
+          industries: [],
+          job_titles: [],
+          geographic_focus: [],
+          pain_points: "",
+          common_objections: "",
+        };
+
+        const result = icpDefinitionSchema.safeParse(icp);
+        expect(result.success).toBe(true);
+      });
+    });
+
+    it("should require at least one company size", () => {
+      const noSizes = {
+        company_sizes: [],
+        industries: [],
+        job_titles: [],
+        geographic_focus: [],
+        pain_points: "",
+        common_objections: "",
+      };
+
+      const result = icpDefinitionSchema.safeParse(noSizes);
+      expect(result.success).toBe(false);
+
+      if (!result.success) {
+        const error = result.error.issues[0];
+        expect(error?.message).toContain("ao menos um tamanho");
+      }
+    });
+
+    it("should reject invalid company size values", () => {
+      const invalidSize = {
+        company_sizes: ["invalid-size"],
+        industries: [],
+        job_titles: [],
+        geographic_focus: [],
+        pain_points: "",
+        common_objections: "",
+      };
+
+      const result = icpDefinitionSchema.safeParse(invalidSize);
+      expect(result.success).toBe(false);
+    });
+
+    it("should allow empty arrays for industries, job_titles, and geographic_focus", () => {
+      const minimalICP = {
+        company_sizes: ["11-50"],
+        industries: [],
+        job_titles: [],
+        geographic_focus: [],
+        pain_points: "",
+        common_objections: "",
+      };
+
+      const result = icpDefinitionSchema.safeParse(minimalICP);
+      expect(result.success).toBe(true);
+    });
+
+    it("should accept valid industries array", () => {
+      const icp = {
+        company_sizes: ["11-50"],
+        industries: ["Tecnologia", "SaaS", "Fintech"],
+        job_titles: [],
+        geographic_focus: [],
+        pain_points: "",
+        common_objections: "",
+      };
+
+      const result = icpDefinitionSchema.safeParse(icp);
+      expect(result.success).toBe(true);
+    });
+
+    it("should accept valid job_titles array", () => {
+      const icp = {
+        company_sizes: ["11-50"],
+        industries: [],
+        job_titles: ["CEO", "CTO", "VP de Vendas"],
+        geographic_focus: [],
+        pain_points: "",
+        common_objections: "",
+      };
+
+      const result = icpDefinitionSchema.safeParse(icp);
+      expect(result.success).toBe(true);
+    });
+
+    it("should accept valid geographic_focus array", () => {
+      const icp = {
+        company_sizes: ["11-50"],
+        industries: [],
+        job_titles: [],
+        geographic_focus: ["São Paulo", "Brasil", "América Latina"],
+        pain_points: "",
+        common_objections: "",
+      };
+
+      const result = icpDefinitionSchema.safeParse(icp);
+      expect(result.success).toBe(true);
+    });
+
+    it("should reject pain_points longer than 5000 characters", () => {
+      const longPainPoints = {
+        company_sizes: ["11-50"],
+        industries: [],
+        job_titles: [],
+        geographic_focus: [],
+        pain_points: "a".repeat(5001),
+        common_objections: "",
+      };
+
+      const result = icpDefinitionSchema.safeParse(longPainPoints);
+      expect(result.success).toBe(false);
+    });
+
+    it("should reject common_objections longer than 5000 characters", () => {
+      const longObjections = {
+        company_sizes: ["11-50"],
+        industries: [],
+        job_titles: [],
+        geographic_focus: [],
+        pain_points: "",
+        common_objections: "a".repeat(5001),
+      };
+
+      const result = icpDefinitionSchema.safeParse(longObjections);
+      expect(result.success).toBe(false);
+    });
+
+    it("should reject individual industry string longer than 100 characters", () => {
+      const longIndustry = {
+        company_sizes: ["11-50"],
+        industries: ["a".repeat(101)],
+        job_titles: [],
+        geographic_focus: [],
+        pain_points: "",
+        common_objections: "",
+      };
+
+      const result = icpDefinitionSchema.safeParse(longIndustry);
+      expect(result.success).toBe(false);
+    });
+
+    it("should reject empty string in industries array", () => {
+      const emptyIndustry = {
+        company_sizes: ["11-50"],
+        industries: [""],
+        job_titles: [],
+        geographic_focus: [],
+        pain_points: "",
+        common_objections: "",
+      };
+
+      const result = icpDefinitionSchema.safeParse(emptyIndustry);
+      expect(result.success).toBe(false);
     });
   });
 });

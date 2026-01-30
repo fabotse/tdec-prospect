@@ -166,7 +166,7 @@ function initializeAuth() {
   });
 
   // CRITICAL: Use getSession() for initial load - this properly syncs the client
-  supabase.auth.getSession().then(async ({ data: { session } }) => {
+  supabase.auth.getSession().then(async ({ data: { session } }: { data: { session: Session | null } }) => {
     console.log("[useUser] Initial getSession completed:", { hasSession: !!session });
 
     const initialUser = session?.user ?? null;

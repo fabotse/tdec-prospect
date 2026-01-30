@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Mock Supabase client before importing the hook
 const mockOnAuthStateChange = vi.fn();
+const mockGetSession = vi.fn();
 const mockUnsubscribe = vi.fn();
 const mockFrom = vi.fn();
 const mockSelect = vi.fn();
@@ -13,6 +14,7 @@ vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({
     auth: {
       onAuthStateChange: mockOnAuthStateChange,
+      getSession: mockGetSession,
     },
     from: mockFrom,
   }),
@@ -30,6 +32,12 @@ describe("useUser", () => {
 
     mockOnAuthStateChange.mockReturnValue({
       data: { subscription: { unsubscribe: mockUnsubscribe } },
+    });
+
+    // Default: getSession returns no session (logged out)
+    mockGetSession.mockResolvedValue({
+      data: { session: null },
+      error: null,
     });
 
     // Setup profile query chain mock
@@ -72,14 +80,10 @@ describe("useUser", () => {
         user_metadata: { name: "Test User" },
       };
 
-      // Trigger auth callback immediately when registered
-      mockOnAuthStateChange.mockImplementation((callback) => {
-        setTimeout(() => {
-          callback("SIGNED_IN", { user: mockUser });
-        }, 0);
-        return {
-          data: { subscription: { unsubscribe: mockUnsubscribe } },
-        };
+      // getSession returns session with user (simulates logged in state)
+      mockGetSession.mockResolvedValue({
+        data: { session: { user: mockUser } },
+        error: null,
       });
 
       const { result } = renderHook(() => useUser());
@@ -92,13 +96,10 @@ describe("useUser", () => {
     });
 
     it("should return null user when not authenticated", async () => {
-      mockOnAuthStateChange.mockImplementation((callback) => {
-        setTimeout(() => {
-          callback("SIGNED_OUT", null);
-        }, 0);
-        return {
-          data: { subscription: { unsubscribe: mockUnsubscribe } },
-        };
+      // getSession returns no session (logged out - default setup)
+      mockGetSession.mockResolvedValue({
+        data: { session: null },
+        error: null,
       });
 
       const { result } = renderHook(() => useUser());
@@ -133,13 +134,9 @@ describe("useUser", () => {
         error: null,
       });
 
-      mockOnAuthStateChange.mockImplementation((callback) => {
-        setTimeout(() => {
-          callback("SIGNED_IN", { user: mockUser });
-        }, 0);
-        return {
-          data: { subscription: { unsubscribe: mockUnsubscribe } },
-        };
+      mockGetSession.mockResolvedValue({
+        data: { session: { user: mockUser } },
+        error: null,
       });
 
       const { result } = renderHook(() => useUser());
@@ -172,13 +169,9 @@ describe("useUser", () => {
         error: null,
       });
 
-      mockOnAuthStateChange.mockImplementation((callback) => {
-        setTimeout(() => {
-          callback("SIGNED_IN", { user: mockUser });
-        }, 0);
-        return {
-          data: { subscription: { unsubscribe: mockUnsubscribe } },
-        };
+      mockGetSession.mockResolvedValue({
+        data: { session: { user: mockUser } },
+        error: null,
       });
 
       const { result } = renderHook(() => useUser());
@@ -203,13 +196,9 @@ describe("useUser", () => {
         error: { code: "PGRST116", message: "No rows found" },
       });
 
-      mockOnAuthStateChange.mockImplementation((callback) => {
-        setTimeout(() => {
-          callback("SIGNED_IN", { user: mockUser });
-        }, 0);
-        return {
-          data: { subscription: { unsubscribe: mockUnsubscribe } },
-        };
+      mockGetSession.mockResolvedValue({
+        data: { session: { user: mockUser } },
+        error: null,
       });
 
       const { result } = renderHook(() => useUser());
@@ -227,11 +216,10 @@ describe("useUser", () => {
 
   describe("Auth State Changes", () => {
     it("should subscribe to auth state changes", async () => {
-      mockOnAuthStateChange.mockImplementation((callback) => {
-        setTimeout(() => callback("SIGNED_OUT", null), 0);
-        return {
-          data: { subscription: { unsubscribe: mockUnsubscribe } },
-        };
+      // getSession returns no session
+      mockGetSession.mockResolvedValue({
+        data: { session: null },
+        error: null,
       });
 
       const { result } = renderHook(() => useUser());
@@ -263,10 +251,15 @@ describe("useUser", () => {
         error: null,
       });
 
+      // Start with logged in session
+      mockGetSession.mockResolvedValue({
+        data: { session: { user: mockUser } },
+        error: null,
+      });
+
       let authStateCallback: (event: string, session: unknown) => void;
       mockOnAuthStateChange.mockImplementation((callback) => {
         authStateCallback = callback;
-        setTimeout(() => callback("SIGNED_IN", { user: mockUser }), 0);
         return {
           data: { subscription: { unsubscribe: mockUnsubscribe } },
         };
@@ -278,9 +271,11 @@ describe("useUser", () => {
         expect(result.current.profile).toEqual(mockProfile);
       });
 
-      // Simulate sign out wrapped in act()
+      // Simulate sign out wrapped in act() - after initial load is complete
       await act(async () => {
         authStateCallback!("SIGNED_OUT", null);
+        // Allow async operations to complete
+        await new Promise((resolve) => setTimeout(resolve, 10));
       });
 
       await waitFor(() => {
@@ -297,11 +292,9 @@ describe("useUser", () => {
         email: "test@example.com",
       };
 
-      mockOnAuthStateChange.mockImplementation((callback) => {
-        setTimeout(() => callback("SIGNED_IN", { user: mockUser }), 0);
-        return {
-          data: { subscription: { unsubscribe: mockUnsubscribe } },
-        };
+      mockGetSession.mockResolvedValue({
+        data: { session: { user: mockUser } },
+        error: null,
       });
 
       const { result } = renderHook(() => useUser());
@@ -325,11 +318,9 @@ describe("useUser", () => {
 
   describe("Return Value Structure", () => {
     it("should return object with all expected properties", async () => {
-      mockOnAuthStateChange.mockImplementation((callback) => {
-        setTimeout(() => callback("SIGNED_OUT", null), 0);
-        return {
-          data: { subscription: { unsubscribe: mockUnsubscribe } },
-        };
+      mockGetSession.mockResolvedValue({
+        data: { session: null },
+        error: null,
       });
 
       const { result } = renderHook(() => useUser());
@@ -349,11 +340,9 @@ describe("useUser", () => {
     });
 
     it("should have refetchProfile as a function", async () => {
-      mockOnAuthStateChange.mockImplementation((callback) => {
-        setTimeout(() => callback("SIGNED_OUT", null), 0);
-        return {
-          data: { subscription: { unsubscribe: mockUnsubscribe } },
-        };
+      mockGetSession.mockResolvedValue({
+        data: { session: null },
+        error: null,
       });
 
       const { result } = renderHook(() => useUser());
@@ -366,11 +355,9 @@ describe("useUser", () => {
     });
 
     it("should return null error in current implementation", async () => {
-      mockOnAuthStateChange.mockImplementation((callback) => {
-        setTimeout(() => callback("SIGNED_OUT", null), 0);
-        return {
-          data: { subscription: { unsubscribe: mockUnsubscribe } },
-        };
+      mockGetSession.mockResolvedValue({
+        data: { session: null },
+        error: null,
       });
 
       const { result } = renderHook(() => useUser());
