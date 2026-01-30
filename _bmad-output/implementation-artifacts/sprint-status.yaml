@@ -67,7 +67,7 @@ development_status:
   1-3-application-shell-with-navigation: done
   1-4-supabase-authentication-setup: done
   1-5-multi-tenant-database-structure-rls: done
-  epic-1-retrospective: optional
+  epic-1-retrospective: done
 
   # Epic 2: Administration & Configuration
   epic-2: backlog
