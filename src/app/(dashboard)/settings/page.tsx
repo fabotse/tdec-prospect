@@ -1,10 +1,10 @@
+import { redirect } from "next/navigation";
+
+/**
+ * Settings root page - redirects to integrations tab
+ * Story: 2.1 - Settings Page Structure & API Configuration UI
+ * AC: #1 - Settings page with tabs, defaults to first available tab
+ */
 export default function SettingsPage() {
-  return (
-    <div className="p-6">
-      <h1 className="text-h1 text-foreground">Configurações</h1>
-      <p className="text-body text-foreground-muted mt-2">
-        Configure sua conta e integrações.
-      </p>
-    </div>
-  );
+  redirect("/settings/integrations");
 }

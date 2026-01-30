@@ -23,7 +23,13 @@ CREATE POLICY "Users can view own tenant"
 -- 3. Enable RLS on profiles table
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
--- 4. Users can view profiles from their own tenant
+-- 4. Users can view their own profile (required for auth checks)
+CREATE POLICY "Users can view own profile"
+  ON public.profiles
+  FOR SELECT
+  USING (id = auth.uid());
+
+-- 5. Users can view profiles from their own tenant
 CREATE POLICY "Users can view own tenant profiles"
   ON public.profiles
   FOR SELECT

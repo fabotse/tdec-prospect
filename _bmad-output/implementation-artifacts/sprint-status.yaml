@@ -71,8 +71,8 @@ development_status:
   epic-1-retrospective: done
 
   # Epic 2: Administration & Configuration
-  epic-2: backlog
-  2-1-settings-page-structure-api-configuration-ui: backlog
+  epic-2: in-progress
+  2-1-settings-page-structure-api-configuration-ui: done
   2-2-api-keys-storage-encryption: backlog
   2-3-integration-connection-testing: backlog
   2-4-knowledge-base-editor-company-profile: backlog

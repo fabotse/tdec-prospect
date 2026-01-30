@@ -41,6 +41,9 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/campaigns") ||
     request.nextUrl.pathname.startsWith("/settings");
 
+  // Admin-only routes require admin role
+  const isAdminRoute = request.nextUrl.pathname.startsWith("/settings");
+
   const isAuthRoute =
     request.nextUrl.pathname.startsWith("/login") ||
     request.nextUrl.pathname.startsWith("/signup") ||
@@ -58,6 +61,22 @@ export async function updateSession(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/leads";
     return NextResponse.redirect(url);
+  }
+
+  // Server-side admin check for /settings routes
+  // Story 2.1 - AC #5: Non-admin users cannot access admin tabs
+  if (user && isAdminRoute) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
+    if (profile?.role !== "admin") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/leads";
+      return NextResponse.redirect(url);
+    }
   }
 
   return supabaseResponse;
