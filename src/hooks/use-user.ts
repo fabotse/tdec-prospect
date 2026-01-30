@@ -1,15 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
-import type { User, AuthError, AuthChangeEvent, Session } from "@supabase/supabase-js";
+import { useEffect, useCallback, useSyncExternalStore } from "react";
+import type { User, AuthChangeEvent, Session } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/client";
 import type { Profile, UserRole } from "@/types/database";
-
-/**
- * Timeout for auth operations in milliseconds
- */
-const AUTH_TIMEOUT_MS = 10000;
 
 /**
  * Extended return type with profile data
@@ -27,162 +22,189 @@ interface UseUserReturn {
   refetchProfile: () => Promise<void>;
 }
 
-/**
- * Wrap a promise with a timeout
- */
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timeoutId = setTimeout(() => {
-      reject(new Error("Timeout: auth operation took too long"));
-    }, ms);
+// ==============================================
+// SHARED AUTH STATE (module-level singleton)
+// Prevents race conditions between multiple useUser instances
+// ==============================================
+interface AuthState {
+  user: User | null;
+  profile: Profile | null;
+  isLoading: boolean;
+  isInitialized: boolean;
+  isProfileLoading: boolean;
+}
 
-    promise
-      .then((result) => {
-        clearTimeout(timeoutId);
-        resolve(result);
-      })
-      .catch((error) => {
-        clearTimeout(timeoutId);
-        reject(error);
-      });
+let authState: AuthState = {
+  user: null,
+  profile: null,
+  isLoading: true,
+  isInitialized: false,
+  isProfileLoading: false,
+};
+
+let authListeners: Array<() => void> = [];
+let isAuthInitialized = false;
+
+function notifyListeners() {
+  authListeners.forEach((listener) => listener());
+}
+
+function subscribeToAuth(callback: () => void) {
+  authListeners.push(callback);
+  return () => {
+    authListeners = authListeners.filter((l) => l !== callback);
+  };
+}
+
+function getAuthSnapshot(): AuthState {
+  return authState;
+}
+
+// Cached server snapshot to avoid infinite loop
+const serverAuthSnapshot: AuthState = {
+  user: null,
+  profile: null,
+  isLoading: true,
+  isInitialized: false,
+  isProfileLoading: false,
+};
+
+function getServerAuthSnapshot(): AuthState {
+  return serverAuthSnapshot;
+}
+
+/**
+ * Reset auth state to logged out state
+ * Used during logout to ensure clean state before redirect
+ */
+export function resetAuthState() {
+  console.log("[useUser] Resetting auth state for logout");
+  authState = {
+    user: null,
+    profile: null,
+    isLoading: false,
+    isInitialized: true,
+    isProfileLoading: false,
+  };
+  notifyListeners();
+}
+
+async function fetchProfileData(userId: string): Promise<Profile | null> {
+  try {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", userId)
+      .single();
+
+    if (error && error.code !== "PGRST116") {
+      console.error("[useUser] Error fetching profile:", error);
+    }
+    return data;
+  } catch (e) {
+    console.error("[useUser] Error fetching profile:", e);
+    return null;
+  }
+}
+
+function initializeAuth() {
+  if (isAuthInitialized) return; // Already initialized
+  isAuthInitialized = true;
+
+  console.log("[useUser] Initializing shared auth state...");
+  const supabase = createClient();
+
+  supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, session: Session | null) => {
+    console.log(`[useUser] onAuthStateChange: event=${event}, hasSession=${!!session}`);
+
+    const newUser = session?.user ?? null;
+
+    // IMMEDIATELY mark as initialized to prevent fallback from firing
+    authState = {
+      ...authState,
+      user: newUser,
+      isInitialized: true,
+      isLoading: newUser ? true : false, // Keep loading if we need to fetch profile
+      isProfileLoading: !!newUser,
+    };
+    notifyListeners();
+
+    // Fetch profile if user exists
+    let newProfile: Profile | null = null;
+    if (newUser) {
+      console.log("[useUser] Fetching profile...");
+      newProfile = await fetchProfileData(newUser.id);
+      console.log("[useUser] Profile fetched:", newProfile?.role);
+    }
+
+    // Update with profile
+    authState = {
+      user: newUser,
+      profile: newProfile,
+      isLoading: false,
+      isInitialized: true,
+      isProfileLoading: false,
+    };
+
+    console.log("[useUser] Auth state updated:", { hasUser: !!newUser, hasProfile: !!newProfile, role: newProfile?.role });
+    notifyListeners();
   });
+
+  // Fallback if no event fires within 5 seconds
+  setTimeout(() => {
+    if (!authState.isInitialized) {
+      console.warn("[useUser] No auth event received after 5s, assuming no session");
+      authState = {
+        user: null,
+        profile: null,
+        isLoading: false,
+        isInitialized: true,
+        isProfileLoading: false,
+      };
+      notifyListeners();
+    }
+  }, 5000);
 }
 
 /**
  * Hook for managing user session and profile data
  * Story: 1.5 - Multi-tenant Database Structure & RLS
+ *
+ * IMPORTANT: Uses shared module-level state to prevent race conditions
+ * between multiple hook instances.
+ * @see https://github.com/supabase/supabase/issues/35754
  */
 export function useUser(): UseUserReturn {
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isProfileLoading, setIsProfileLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-  const isMountedRef = useRef(true);
-
-  const fetchProfile = useCallback(
-    async (userId: string, checkMounted = true) => {
-      if (checkMounted && !isMountedRef.current) return;
-
-      setIsProfileLoading(true);
-      try {
-        const supabase = createClient();
-        const { data, error: profileError } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", userId)
-          .single();
-
-        if (!isMountedRef.current) return;
-
-        if (profileError) {
-          // Profile might not exist yet (trigger not fired or new user)
-          // This is not necessarily an error - PGRST116 means no rows returned
-          if (profileError.code !== "PGRST116") {
-            console.error("Error fetching profile:", profileError);
-          }
-          setProfile(null);
-        } else {
-          setProfile(data);
-        }
-      } catch (e) {
-        if (!isMountedRef.current) return;
-        console.error("Error fetching profile:", e);
-        setProfile(null);
-      } finally {
-        if (isMountedRef.current) {
-          setIsProfileLoading(false);
-        }
-      }
-    },
-    []
-  );
-
-  const refetchProfile = useCallback(async () => {
-    if (user?.id) {
-      await fetchProfile(user.id, false);
-    }
-  }, [user?.id, fetchProfile]);
-
+  // Initialize auth on first hook mount (only happens once globally)
   useEffect(() => {
-    isMountedRef.current = true;
-    const supabase = createClient();
+    initializeAuth();
+  }, []);
 
-    // Get initial user
-    async function getUser() {
-      try {
-        const {
-          data: { user },
-          error,
-        } = await withTimeout<{ data: { user: User | null }; error: AuthError | null }>(
-          supabase.auth.getUser(),
-          AUTH_TIMEOUT_MS
-        );
+  // Subscribe to shared auth state
+  const state = useSyncExternalStore(subscribeToAuth, getAuthSnapshot, getServerAuthSnapshot);
 
-        if (!isMountedRef.current) return;
+  // Refetch profile function
+  const refetchProfile = useCallback(async () => {
+    if (state.user?.id) {
+      authState = { ...authState, isProfileLoading: true };
+      notifyListeners();
 
-        if (error) {
-          throw error;
-        }
+      const profile = await fetchProfileData(state.user.id);
 
-        setUser(user);
-
-        // Fetch profile if user exists
-        if (user) {
-          await fetchProfile(user.id);
-        }
-      } catch (e) {
-        if (!isMountedRef.current) return;
-
-        // Don't treat timeout as fatal error - just log and continue
-        if (e instanceof Error && e.message.includes("Timeout")) {
-          console.warn("Auth timeout - continuing without user data");
-          setUser(null);
-          setProfile(null);
-        } else {
-          setError(e instanceof Error ? e : new Error("Failed to get user"));
-        }
-      } finally {
-        if (isMountedRef.current) {
-          setIsLoading(false);
-        }
-      }
+      authState = { ...authState, profile, isProfileLoading: false };
+      notifyListeners();
     }
-
-    getUser();
-
-    // Listen for auth state changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event: AuthChangeEvent, session: Session | null) => {
-      if (!isMountedRef.current) return;
-
-      const newUser = session?.user ?? null;
-      setUser(newUser);
-      setIsLoading(false);
-
-      // Fetch or clear profile based on auth state
-      if (newUser) {
-        await fetchProfile(newUser.id);
-      } else {
-        setProfile(null);
-      }
-    });
-
-    return () => {
-      isMountedRef.current = false;
-      subscription.unsubscribe();
-    };
-  }, [fetchProfile]);
+  }, [state.user?.id]);
 
   return {
-    user,
-    profile,
-    isLoading,
-    isProfileLoading,
-    error,
-    isAdmin: profile?.role === "admin",
-    role: profile?.role ?? null,
+    user: state.user,
+    profile: state.profile,
+    isLoading: state.isLoading,
+    isProfileLoading: state.isProfileLoading,
+    error: null,
+    isAdmin: state.profile?.role === "admin",
+    role: state.profile?.role ?? null,
     refetchProfile,
   };
 }

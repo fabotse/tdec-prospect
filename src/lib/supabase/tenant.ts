@@ -14,10 +14,16 @@ import type { Profile } from "@/types/database";
  * Returns null if not authenticated or profile not found
  */
 export async function getCurrentUserProfile(): Promise<Profile | null> {
+  console.log("[tenant] getCurrentUserProfile called");
+  const startTime = Date.now();
+
   const supabase = await createClient();
+  console.log(`[tenant] createClient completed in ${Date.now() - startTime}ms`);
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  console.log(`[tenant] getUser completed in ${Date.now() - startTime}ms, hasUser: ${!!user}`);
 
   if (!user) return null;
 
@@ -26,6 +32,7 @@ export async function getCurrentUserProfile(): Promise<Profile | null> {
     .select("*")
     .eq("id", user.id)
     .single();
+  console.log(`[tenant] profile query completed in ${Date.now() - startTime}ms, hasProfile: ${!!profile}`);
 
   return profile;
 }

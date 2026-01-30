@@ -61,16 +61,25 @@ type ActionResult<T> =
 export async function getApiConfigs(): Promise<
   ActionResult<ApiConfigResponse[]>
 > {
+  console.log("[SERVER] getApiConfigs called");
+  const startTime = Date.now();
   try {
     // 1. Check authentication
+    console.log("[SERVER] Getting current user profile...");
     const profile = await getCurrentUserProfile();
+    console.log(`[SERVER] getCurrentUserProfile completed in ${Date.now() - startTime}ms`, {
+      hasProfile: !!profile,
+      role: profile?.role
+    });
 
     if (!profile) {
+      console.log("[SERVER] No profile - returning not authenticated");
       return { success: false, error: "Não autenticado" };
     }
 
     // 2. Check admin role
     if (profile.role !== "admin") {
+      console.log("[SERVER] Not admin - returning forbidden");
       return {
         success: false,
         error: "Apenas administradores podem visualizar configurações",
@@ -78,14 +87,17 @@ export async function getApiConfigs(): Promise<
     }
 
     // 3. Fetch configs from database
+    console.log("[SERVER] Fetching configs from database...");
     const supabase = await createClient();
     const { data: configs, error } = await supabase
       .from("api_configs")
       .select("service_name, key_suffix, updated_at")
       .eq("tenant_id", profile.tenant_id);
 
+    console.log(`[SERVER] Database query completed in ${Date.now() - startTime}ms`);
+
     if (error) {
-      console.error("Error fetching api_configs:", error);
+      console.error("[SERVER] Error fetching api_configs:", error);
       return { success: false, error: "Erro ao buscar configurações" };
     }
 
@@ -119,9 +131,10 @@ export async function getApiConfigs(): Promise<
       };
     });
 
+    console.log(`[SERVER] getApiConfigs completed successfully in ${Date.now() - startTime}ms`);
     return { success: true, data: response };
   } catch (error) {
-    console.error("getApiConfigs error:", error);
+    console.error("[SERVER] getApiConfigs error:", error);
     return { success: false, error: "Erro interno do servidor" };
   }
 }

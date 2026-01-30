@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Header } from "@/components/common/Header";
 
 // Mock next/navigation
@@ -14,6 +14,7 @@ vi.mock("next/navigation", () => ({
 
 // Mock useUser hook
 const mockSignOut = vi.fn().mockResolvedValue({});
+const mockResetAuthState = vi.fn();
 vi.mock("@/hooks/use-user", () => ({
   useUser: () => ({
     user: {
@@ -23,6 +24,7 @@ vi.mock("@/hooks/use-user", () => ({
     isLoading: false,
     error: null,
   }),
+  resetAuthState: () => mockResetAuthState(),
 }));
 
 // Mock Supabase client
@@ -41,9 +43,25 @@ vi.mock("@/components/common/ThemeToggle", () => ({
   ),
 }));
 
+// Store original location
+const originalLocation = window.location;
+
 describe("Header", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Mock window.location for logout redirect test
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { href: "" },
+    });
+  });
+
+  afterEach(() => {
+    // Restore original location
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: originalLocation,
+    });
   });
 
   describe("Rendering", () => {
@@ -168,9 +186,20 @@ describe("Header", () => {
       const logoutButton = screen.getByRole("button", { name: /sair/i });
       fireEvent.click(logoutButton);
 
-      // Wait for async operation
+      // Wait for async operation - now uses window.location.href
       await vi.waitFor(() => {
-        expect(mockPush).toHaveBeenCalledWith("/login");
+        expect(window.location.href).toBe("/login");
+      });
+    });
+
+    it("should reset auth state on logout", async () => {
+      render(<Header />);
+
+      const logoutButton = screen.getByRole("button", { name: /sair/i });
+      fireEvent.click(logoutButton);
+
+      await vi.waitFor(() => {
+        expect(mockResetAuthState).toHaveBeenCalled();
       });
     });
   });

@@ -1,10 +1,9 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { LogOut, User } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/client";
-import { useUser } from "@/hooks/use-user";
+import { useUser, resetAuthState } from "@/hooks/use-user";
 import { ThemeToggle } from "./ThemeToggle";
 import { Button } from "@/components/ui/button";
 
@@ -13,14 +12,24 @@ interface HeaderProps {
 }
 
 export function Header({ sidebarWidth = 240 }: HeaderProps) {
-  const router = useRouter();
   const { user, isLoading } = useUser();
 
   async function handleLogout() {
+    console.log("[Header] Starting logout...");
     const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/login");
-    router.refresh();
+
+    // 1. Sign out from Supabase (clears server-side cookies)
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error("[Header] Logout error:", error);
+    }
+
+    // 2. Reset shared auth state immediately
+    resetAuthState();
+
+    // 3. Use window.location for full page reload to ensure middleware sees cleared cookies
+    console.log("[Header] Redirecting to login...");
+    window.location.href = "/login";
   }
 
   // Get display name: user_metadata.name, email, or fallback

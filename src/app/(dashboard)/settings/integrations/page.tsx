@@ -1,7 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { IntegrationCard } from "@/components/settings/IntegrationCard";
 import { useIntegrationConfig } from "@/hooks/use-integration-config";
+import { useUser } from "@/hooks/use-user";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import type { ServiceName } from "@/types/integration";
 
@@ -78,10 +81,51 @@ function IntegrationCardSkeleton() {
  * AC: 2.3#2 - Status of each service
  */
 export default function IntegrationsPage() {
+  const router = useRouter();
+  const { user, isLoading: isUserLoading, profile } = useUser();
   const { configs, isLoading, saveConfig, testConnection } = useIntegrationConfig();
 
-  // Show loading skeletons while fetching
+  // Debug logging
+  useEffect(() => {
+    console.log("[IntegrationsPage] Render state:", {
+      isUserLoading,
+      isConfigLoading: isLoading,
+      hasUser: !!user,
+      hasProfile: !!profile,
+      profileRole: profile?.role
+    });
+  }, [isUserLoading, isLoading, user, profile]);
+
+  // Redirect to login if not authenticated (after user loading completes)
+  useEffect(() => {
+    if (!isUserLoading && !user) {
+      console.log("[IntegrationsPage] No user after loading - redirecting to login");
+      router.push("/login");
+    }
+  }, [isUserLoading, user, router]);
+
+  // Show loading while checking auth
+  if (isUserLoading) {
+    console.log("[IntegrationsPage] Waiting for user auth check...");
+    return (
+      <div className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2">
+          {integrations.map((integration) => (
+            <IntegrationCardSkeleton key={integration.name} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // If no user, show nothing (redirect will happen)
+  if (!user) {
+    return null;
+  }
+
+  // Show loading skeletons while fetching configs
   if (isLoading) {
+    console.log("[IntegrationsPage] Showing loading skeleton (isLoading=true)");
     return (
       <div className="space-y-4">
         <div className="grid gap-4 md:grid-cols-2">
