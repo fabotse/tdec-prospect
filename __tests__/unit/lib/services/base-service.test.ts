@@ -135,6 +135,33 @@ describe("ExternalService", () => {
       expect(result).toEqual({ status: "ok" });
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
+
+    it("retries once on network error then succeeds (Story 3.2 fix)", async () => {
+      vi.useRealTimers();
+
+      let callCount = 0;
+      const fetchMock = vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          // First call - network error
+          return Promise.reject(new TypeError("Failed to fetch"));
+        }
+        // Second call succeeds
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ status: "recovered" }),
+        });
+      });
+      global.fetch = fetchMock;
+
+      const result = await service.testRequest<{ status: string }>(
+        "https://api.test.com/network-flaky",
+        {}
+      );
+
+      expect(result).toEqual({ status: "recovered" });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe("error handling", () => {
@@ -252,6 +279,31 @@ describe("ExternalServiceError", () => {
     const error = new ExternalServiceError("apollo", 401);
 
     expect(error.message).toBe(ERROR_MESSAGES.UNAUTHORIZED);
+  });
+
+  // Story 3.2: Tests for new properties
+  it("contains userMessage property (Story 3.2)", () => {
+    const error = new ExternalServiceError("apollo", 401, "Erro personalizado");
+
+    expect(error.userMessage).toBe("Erro personalizado");
+  });
+
+  it("contains details property (Story 3.2)", () => {
+    const originalError = new Error("Original error");
+    const error = new ExternalServiceError(
+      "apollo",
+      500,
+      "Erro com detalhes",
+      originalError
+    );
+
+    expect(error.details).toBe(originalError);
+  });
+
+  it("details is undefined when not provided (Story 3.2)", () => {
+    const error = new ExternalServiceError("apollo", 500);
+
+    expect(error.details).toBeUndefined();
   });
 });
 

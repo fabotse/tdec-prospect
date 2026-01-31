@@ -57,17 +57,27 @@ export interface TestConnectionResult {
 /**
  * Error thrown by external service calls
  * Contains service name and HTTP status code for debugging
+ * Story 3.2: Added userMessage and details for better error handling
  */
 export class ExternalServiceError extends Error {
   readonly name = "ExternalServiceError";
   readonly serviceName: string;
   readonly statusCode: number;
+  readonly userMessage: string;
+  readonly details?: unknown;
 
-  constructor(serviceName: string, statusCode: number, message?: string) {
+  constructor(
+    serviceName: string,
+    statusCode: number,
+    message?: string,
+    details?: unknown
+  ) {
     const errorMessage = message ?? getErrorMessageByStatus(statusCode);
     super(errorMessage);
     this.serviceName = serviceName;
     this.statusCode = statusCode;
+    this.userMessage = errorMessage;
+    this.details = details;
   }
 }
 
@@ -105,6 +115,8 @@ const MAX_RETRIES = 1; // 1 retry on timeout
  *
  * All external integrations (Apollo, SignalHire, Snov.io, Instantly)
  * must extend this class and implement testConnection().
+ *
+ * Story 3.2: Added handleError() method for service-specific error translation
  */
 export abstract class ExternalService {
   /**
@@ -119,7 +131,54 @@ export abstract class ExternalService {
   abstract testConnection(apiKey: string): Promise<TestConnectionResult>;
 
   /**
+   * Handle and translate errors to ExternalServiceError
+   * Override in subclass for service-specific error translation
+   * Story 3.2: AC#5 - Error translation with Portuguese messages
+   */
+  protected handleError(error: unknown): ExternalServiceError {
+    if (error instanceof ExternalServiceError) {
+      return error;
+    }
+
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+    // Handle abort (timeout)
+    if (error instanceof Error && error.name === "AbortError") {
+      return new ExternalServiceError(
+        this.name,
+        408,
+        ERROR_MESSAGES.TIMEOUT,
+        error
+      );
+    }
+
+    // Handle network errors
+    if (error instanceof TypeError) {
+      return new ExternalServiceError(
+        this.name,
+        0,
+        ERROR_MESSAGES.NETWORK_ERROR,
+        error
+      );
+    }
+
+    // Check for HTTP status codes in error message
+    if (errorMessage.includes("401")) {
+      return new ExternalServiceError(this.name, 401, ERROR_MESSAGES.UNAUTHORIZED, error);
+    }
+    if (errorMessage.includes("403")) {
+      return new ExternalServiceError(this.name, 403, ERROR_MESSAGES.FORBIDDEN, error);
+    }
+    if (errorMessage.includes("429")) {
+      return new ExternalServiceError(this.name, 429, ERROR_MESSAGES.RATE_LIMITED, error);
+    }
+
+    return new ExternalServiceError(this.name, 500, ERROR_MESSAGES.INTERNAL_ERROR, error);
+  }
+
+  /**
    * Make an HTTP request with timeout and retry handling
+   * AC: #3 - Retries once on timeout OR network error
    *
    * @param url - The URL to fetch
    * @param options - Fetch options (headers, method, body)
@@ -135,15 +194,16 @@ export abstract class ExternalService {
       } catch (error) {
         lastError = error as Error;
 
-        // Only retry on timeout
-        const isTimeout =
-          error instanceof ExternalServiceError && error.statusCode === 408;
+        // Retry on timeout (408) or network error (0)
+        const isRetryable =
+          error instanceof ExternalServiceError &&
+          (error.statusCode === 408 || error.statusCode === 0);
 
-        if (!isTimeout || attempt === MAX_RETRIES) {
+        if (!isRetryable || attempt === MAX_RETRIES) {
           throw error;
         }
 
-        // Retry on timeout
+        // Retry on timeout or network error
       }
     }
 
@@ -153,6 +213,7 @@ export abstract class ExternalService {
 
   /**
    * Execute a single request with timeout
+   * Story 3.2: Updated to use handleError() for service-specific translation
    */
   private async executeRequest<T>(
     url: string,
@@ -168,36 +229,18 @@ export abstract class ExternalService {
       });
 
       if (!response.ok) {
-        throw new ExternalServiceError(this.name, response.status);
+        throw this.handleError(new Error(`HTTP ${response.status}`));
       }
 
       return await response.json();
     } catch (error) {
-      // Handle abort (timeout)
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new ExternalServiceError(
-          this.name,
-          408,
-          ERROR_MESSAGES.TIMEOUT
-        );
-      }
-
-      // Handle network errors
-      if (error instanceof TypeError) {
-        throw new ExternalServiceError(
-          this.name,
-          0,
-          ERROR_MESSAGES.NETWORK_ERROR
-        );
-      }
-
       // Re-throw ExternalServiceError as-is
       if (error instanceof ExternalServiceError) {
         throw error;
       }
 
-      // Unknown error
-      throw new ExternalServiceError(this.name, 500, ERROR_MESSAGES.INTERNAL_ERROR);
+      // Use handleError for all other errors
+      throw this.handleError(error);
     } finally {
       clearTimeout(timeoutId);
     }
