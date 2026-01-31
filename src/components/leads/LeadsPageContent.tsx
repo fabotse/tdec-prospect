@@ -4,6 +4,7 @@
  * Story: 3.3 - Traditional Filter Search
  * Story: 3.4 - AI Conversational Search
  * Story: 3.5 - Lead Table Display
+ * Story: 3.6 - Lead Selection (Individual & Batch)
  *
  * AC: #1 - Filter panel integration
  * AC: #2 - Search with filters, loading state
@@ -12,11 +13,12 @@
  * AC (3.4): #1 - AI search input above filter panel
  * AC (3.4): #5 - Populate FilterPanel with AI-extracted values
  * AC (3.5): #1-8 - Lead table with sorting, resizing, accessibility
+ * AC (3.6): #1, #6 - Selection bar appears when leads selected
  */
 
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useSearchLeads } from "@/hooks/use-leads";
 import { useAISearch } from "@/hooks/use-ai-search";
 import { useFilterStore } from "@/stores/use-filter-store";
@@ -27,6 +29,7 @@ import { LeadsEmptyState } from "@/components/leads/LeadsEmptyState";
 import { LeadsSearchEmptyState } from "@/components/leads/LeadsSearchEmptyState";
 import { LeadsPageSkeleton } from "@/components/leads/LeadsPageSkeleton";
 import { LeadTable } from "@/components/leads/LeadTable";
+import { LeadSelectionBar } from "@/components/leads/LeadSelectionBar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ApolloSearchFilters } from "@/types/apollo";
 import type { Lead } from "@/types/lead";
@@ -111,6 +114,12 @@ export function LeadsPageContent() {
     setExpanded(true);
   }, [setExpanded]);
 
+  // Story 3.6: Count visible selected leads (intersection of selectedIds and current leads)
+  const visibleSelectedCount = useMemo(() => {
+    const visibleIds = new Set(leads.map((l) => l.id));
+    return selectedIds.filter((id) => visibleIds.has(id)).length;
+  }, [selectedIds, leads]);
+
   return (
     <div className="space-y-6">
       {/* AI Search Input - Primary (Story 3.4) */}
@@ -176,6 +185,9 @@ export function LeadsPageContent() {
           </CardContent>
         </Card>
       )}
+
+      {/* Story 3.6: Selection Bar - Fixed at bottom */}
+      <LeadSelectionBar visibleSelectedCount={visibleSelectedCount} />
     </div>
   );
 }
