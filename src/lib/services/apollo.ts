@@ -270,6 +270,7 @@ export class ApolloService extends ExternalService {
   /**
    * Build query string for Apollo API
    * Apollo uses array notation: param[]=value1&param[]=value2
+   * Story 3.5.1: Added contact_email_status[] parameter
    */
   private buildQueryString(filters: ApolloSearchFilters): string {
     const params = new URLSearchParams();
@@ -310,6 +311,13 @@ export class ApolloService extends ExternalService {
 
     if (filters.keywords) {
       params.append("q_keywords", filters.keywords);
+    }
+
+    // Story 3.5.1: AC #4 - Email status filter
+    if (filters.contactEmailStatuses?.length) {
+      filters.contactEmailStatuses.forEach((status) =>
+        params.append("contact_email_status[]", status)
+      );
     }
 
     return params.toString();

@@ -90,7 +90,7 @@ development_status:
   3-3-traditional-filter-search: done
   3-4-ai-conversational-search: done
   3-5-lead-table-display: done
-  3-5-1-contact-availability-indicators: ready-for-dev  # Added: Email/phone availability icons + email status filter
+  3-5-1-contact-availability-indicators: done  # Added: Email/phone availability icons + email status filter
   3-6-lead-selection-individual-batch: backlog
   3-7-saved-filters-favorites: backlog
   epic-3-retrospective: optional

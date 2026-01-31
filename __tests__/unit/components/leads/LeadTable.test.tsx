@@ -42,6 +42,8 @@ const mockLeads: Lead[] = [
     title: "Diretor de Tecnologia",
     linkedinUrl: "https://linkedin.com/in/joaosilva",
     status: "novo",
+    hasEmail: true,
+    hasDirectPhone: "Yes",
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
   },
@@ -60,6 +62,8 @@ const mockLeads: Lead[] = [
     title: "CEO",
     linkedinUrl: null,
     status: "interessado",
+    hasEmail: true,
+    hasDirectPhone: "Maybe: please request direct dial",
     createdAt: "2026-01-02T00:00:00Z",
     updatedAt: "2026-01-02T00:00:00Z",
   },
@@ -78,6 +82,8 @@ const mockLeads: Lead[] = [
     title: null,
     linkedinUrl: null,
     status: "oportunidade",
+    hasEmail: false,
+    hasDirectPhone: null,
     createdAt: "2026-01-03T00:00:00Z",
     updatedAt: "2026-01-03T00:00:00Z",
   },
@@ -112,6 +118,8 @@ describe("LeadTable", () => {
       expect(screen.getByText("Empresa")).toBeInTheDocument();
       expect(screen.getByText("Cargo")).toBeInTheDocument();
       expect(screen.getByText("Localização")).toBeInTheDocument();
+      // Story 3.5.1: Contato column between Localização and Status
+      expect(screen.getByText("Contato")).toBeInTheDocument();
       expect(screen.getByText("Status")).toBeInTheDocument();
     });
 
@@ -421,7 +429,8 @@ describe("LeadTable", () => {
 
       const table = screen.getByRole("grid");
       expect(table).toHaveAttribute("aria-rowcount", "4"); // header + 3 rows
-      expect(table).toHaveAttribute("aria-colcount", "6");
+      // Story 3.5.1: Updated column count to 7 (added Contato column)
+      expect(table).toHaveAttribute("aria-colcount", "7");
     });
 
     it("has columnheader role on headers", () => {
@@ -434,7 +443,8 @@ describe("LeadTable", () => {
       );
 
       const headers = screen.getAllByRole("columnheader");
-      expect(headers.length).toBe(6); // checkbox + 5 data columns
+      // Story 3.5.1: Updated to 7 columns (checkbox + 5 data columns + Contato)
+      expect(headers.length).toBe(7);
     });
 
     it("has gridcell role on cells", () => {
@@ -447,7 +457,8 @@ describe("LeadTable", () => {
       );
 
       const cells = screen.getAllByRole("gridcell");
-      expect(cells.length).toBe(18); // 3 rows * 6 columns
+      // Story 3.5.1: Updated to 21 cells (3 rows * 7 columns)
+      expect(cells.length).toBe(21);
     });
 
     it("has accessible labels on checkboxes", () => {
@@ -545,7 +556,8 @@ describe("LeadTable", () => {
 
       // Resize handles have role="separator"
       const resizeHandles = screen.getAllByRole("separator");
-      expect(resizeHandles.length).toBe(5); // 5 data columns (not checkbox)
+      // Story 3.5.1: Updated to 6 (5 data columns + Contato, not checkbox)
+      expect(resizeHandles.length).toBe(6);
     });
 
     it("resize handles have correct aria attributes", () => {
@@ -582,6 +594,97 @@ describe("LeadTable", () => {
       // Cells with values should have truncate class
       const truncatedCells = document.querySelectorAll(".truncate");
       expect(truncatedCells.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ==============================================
+  // CONTACT AVAILABILITY TESTS (Story 3.5.1)
+  // ==============================================
+
+  describe("Contact Availability Column", () => {
+    it("renders Contato column header", () => {
+      render(
+        <LeadTable
+          leads={mockLeads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      expect(screen.getByText("Contato")).toBeInTheDocument();
+    });
+
+    it("renders email and phone icons for each row", () => {
+      render(
+        <LeadTable
+          leads={mockLeads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      // There should be 3 email icons and 3 phone icons (one per lead)
+      const table = screen.getByRole("grid");
+      expect(table).toBeInTheDocument();
+    });
+
+    it("shows green email icon when hasEmail is true", async () => {
+      const user = userEvent.setup();
+      render(
+        <LeadTable
+          leads={[mockLeads[0]]} // Lead with hasEmail: true
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      // Find email icon and hover to check tooltip
+      const emailIcon = document.querySelector("svg.text-green-500");
+      expect(emailIcon).toBeInTheDocument();
+    });
+
+    it("shows gray email icon when hasEmail is false", () => {
+      render(
+        <LeadTable
+          leads={[mockLeads[2]]} // Lead with hasEmail: false
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      // The icon should have muted color class
+      const grayIcons = document.querySelectorAll("svg.text-muted-foreground\\/40");
+      expect(grayIcons.length).toBeGreaterThan(0);
+    });
+
+    it("shows green phone icon when hasDirectPhone is 'Yes'", () => {
+      render(
+        <LeadTable
+          leads={[mockLeads[0]]} // Lead with hasDirectPhone: "Yes"
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      // Should have 2 green icons (email + phone)
+      const greenIcons = document.querySelectorAll("svg.text-green-500");
+      expect(greenIcons.length).toBe(2);
+    });
+
+    it("shows gray phone icon when hasDirectPhone is not 'Yes'", () => {
+      render(
+        <LeadTable
+          leads={[mockLeads[1]]} // Lead with hasDirectPhone: "Maybe..."
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      // Should have 1 green icon (email) and 1 gray icon (phone)
+      const greenIcons = document.querySelectorAll("svg.text-green-500");
+      const grayIcons = document.querySelectorAll("svg.text-muted-foreground\\/40");
+      expect(greenIcons.length).toBe(1);
+      expect(grayIcons.length).toBe(1);
     });
   });
 

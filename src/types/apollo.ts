@@ -16,6 +16,7 @@ import type { LeadRow } from "./lead";
 /**
  * Search filters in frontend format (camelCase)
  * Used by React components and hooks
+ * Story 3.5.1: Added contactEmailStatuses for email status filter
  */
 export interface ApolloSearchFilters {
   industries?: string[];
@@ -24,6 +25,7 @@ export interface ApolloSearchFilters {
   titles?: string[]; // e.g., ["CEO", "CTO"]
   keywords?: string;
   domains?: string[]; // Company domains
+  contactEmailStatuses?: string[]; // e.g., ["verified", "likely to engage"]
   page?: number;
   perPage?: number;
 }
@@ -35,6 +37,7 @@ export interface ApolloSearchFilters {
 /**
  * Apollo API filter format
  * Maps to Apollo's /v1/mixed_people/search request body
+ * Story 3.5.1: Added contact_email_status for email availability filter
  */
 export interface ApolloAPIFilters {
   q_organization_domains?: string[];
@@ -43,6 +46,7 @@ export interface ApolloAPIFilters {
   organization_locations?: string[];
   organization_num_employees_ranges?: string[];
   q_keywords?: string;
+  contact_email_status?: string[]; // Story 3.5.1: e.g., ["verified", "likely to engage"]
   page?: number;
   per_page?: number;
 }
@@ -103,6 +107,7 @@ export interface ApolloSearchResponse {
 /**
  * Transform frontend filters to Apollo API format
  * AC: #6 - Transform frontend filters to Apollo API format
+ * Story 3.5.1: Added contactEmailStatuses mapping
  *
  * Note: Currently ApolloService uses buildQueryString() internally for api_search endpoint.
  * This function is retained for:
@@ -137,6 +142,10 @@ export function transformFiltersToApollo(
   if (filters.keywords) {
     apolloFilters.q_keywords = filters.keywords;
   }
+  // Story 3.5.1: Add email status filter
+  if (filters.contactEmailStatuses?.length) {
+    apolloFilters.contact_email_status = filters.contactEmailStatuses;
+  }
 
   return apolloFilters;
 }
@@ -144,6 +153,7 @@ export function transformFiltersToApollo(
 /**
  * Transform Apollo person to LeadRow format
  * AC: #6 - Returns leads in LeadRow format (snake_case)
+ * Story 3.5.1: Added has_email, has_direct_phone mapping for availability indicators
  *
  * Note: api_search endpoint returns limited data for prospecting.
  * Fields like email, phone, full last_name require People Enrichment endpoint.
@@ -175,6 +185,9 @@ export function transformApolloToLeadRow(
     // api_search doesn't return linkedin_url
     linkedin_url: null,
     status: "novo",
+    // Story 3.5.1: Map availability flags for contact indicators
+    has_email: person.has_email,
+    has_direct_phone: person.has_direct_phone,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };

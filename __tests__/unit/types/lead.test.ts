@@ -289,6 +289,8 @@ describe("lead types", () => {
       title: "CTO",
       linkedin_url: "https://linkedin.com/in/joaosilva",
       status: "novo",
+      has_email: true,
+      has_direct_phone: "Yes",
       created_at: "2026-01-30T10:00:00Z",
       updated_at: "2026-01-30T12:00:00Z",
     };
@@ -353,8 +355,42 @@ describe("lead types", () => {
       expect(result.title).toBe("CTO");
       expect(result.linkedinUrl).toBe("https://linkedin.com/in/joaosilva");
       expect(result.status).toBe("novo");
+      expect(result.hasEmail).toBe(true);
+      expect(result.hasDirectPhone).toBe("Yes");
       expect(result.createdAt).toBe("2026-01-30T10:00:00Z");
       expect(result.updatedAt).toBe("2026-01-30T12:00:00Z");
+    });
+
+    // Story 3.5.1: Tests for contact availability fields
+    it("should transform hasEmail and hasDirectPhone correctly", () => {
+      const result = transformLeadRow(mockLeadRow);
+
+      expect(result.hasEmail).toBe(true);
+      expect(result.hasDirectPhone).toBe("Yes");
+    });
+
+    it("should handle false hasEmail and null hasDirectPhone", () => {
+      const rowWithNoContact: LeadRow = {
+        ...mockLeadRow,
+        has_email: false,
+        has_direct_phone: null,
+      };
+
+      const result = transformLeadRow(rowWithNoContact);
+
+      expect(result.hasEmail).toBe(false);
+      expect(result.hasDirectPhone).toBeNull();
+    });
+
+    it("should handle 'Maybe' hasDirectPhone value", () => {
+      const rowMaybePhone: LeadRow = {
+        ...mockLeadRow,
+        has_direct_phone: "Maybe: please request direct dial via people/bulk_match",
+      };
+
+      const result = transformLeadRow(rowMaybePhone);
+
+      expect(result.hasDirectPhone).toBe("Maybe: please request direct dial via people/bulk_match");
     });
 
     it("should return Lead interface type", () => {

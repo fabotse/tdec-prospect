@@ -58,6 +58,7 @@ export const leadStatusVariants: Record<
 /**
  * Main Lead interface (camelCase for TypeScript)
  * AC: #3, #6 - Lead data structure
+ * Story 3.5.1: Added hasEmail, hasDirectPhone for availability indicators
  */
 export interface Lead {
   id: string;
@@ -74,6 +75,8 @@ export interface Lead {
   title: string | null;
   linkedinUrl: string | null;
   status: LeadStatus;
+  hasEmail: boolean;
+  hasDirectPhone: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -81,6 +84,7 @@ export interface Lead {
 /**
  * Database row type (snake_case, for internal use)
  * Matches database schema exactly
+ * Story 3.5.1: Added has_email, has_direct_phone for availability indicators
  */
 export interface LeadRow {
   id: string;
@@ -97,6 +101,8 @@ export interface LeadRow {
   title: string | null;
   linkedin_url: string | null;
   status: LeadStatus;
+  has_email: boolean;
+  has_direct_phone: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -108,6 +114,7 @@ export interface LeadRow {
 /**
  * Transform database row to Lead interface
  * Converts snake_case to camelCase
+ * Story 3.5.1: Added hasEmail, hasDirectPhone mapping
  */
 export function transformLeadRow(row: LeadRow): Lead {
   return {
@@ -125,6 +132,8 @@ export function transformLeadRow(row: LeadRow): Lead {
     title: row.title,
     linkedinUrl: row.linkedin_url,
     status: row.status,
+    hasEmail: row.has_email,
+    hasDirectPhone: row.has_direct_phone,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

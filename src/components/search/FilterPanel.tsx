@@ -31,6 +31,7 @@ import {
   useFilterStore,
   INDUSTRIES,
   COMPANY_SIZES,
+  EMAIL_STATUSES,
   getActiveFilterCount,
 } from "@/stores/use-filter-store";
 
@@ -185,6 +186,7 @@ export function FilterPanel({ onSearch, isLoading }: FilterPanelProps) {
     setLocations,
     setTitles,
     setKeywords,
+    setContactEmailStatuses,
     clearFilters,
   } = useFilterStore();
 
@@ -399,6 +401,16 @@ export function FilterPanel({ onSearch, isLoading }: FilterPanelProps) {
                   data-testid="keywords-input"
                 />
               </div>
+
+              {/* Email Status Multi-Select (Story 3.5.1: AC #3, #4) */}
+              <MultiSelect
+                label="Status do Email"
+                options={EMAIL_STATUSES}
+                selected={filters.contactEmailStatuses}
+                onChange={setContactEmailStatuses}
+                placeholder="Selecione status"
+                testId="email-status-select"
+              />
             </div>
 
             {/* Action Buttons */}

@@ -12,7 +12,9 @@ import { describe, it, expect } from "vitest";
 import {
   transformApolloToLeadRow,
   transformEnrichmentToLead,
+  transformFiltersToApollo,
   type ApolloSearchFilters,
+  type ApolloAPIFilters,
   type ApolloPerson,
   type ApolloOrganization,
   type ApolloEnrichedPerson,
@@ -46,6 +48,131 @@ describe("Apollo Types", () => {
     it("should allow empty filters", () => {
       const filters: ApolloSearchFilters = {};
       expect(filters.page).toBeUndefined();
+    });
+
+    // Story 3.5.1: Test contactEmailStatuses filter option
+    it("should accept contactEmailStatuses filter", () => {
+      const filters: ApolloSearchFilters = {
+        contactEmailStatuses: ["verified", "likely to engage"],
+      };
+
+      expect(filters.contactEmailStatuses).toEqual(["verified", "likely to engage"]);
+    });
+  });
+
+  // ==============================================
+  // TRANSFORM FILTERS TO APOLLO (Story 3.5.1)
+  // ==============================================
+
+  describe("transformFiltersToApollo", () => {
+    it("transforms basic filters to Apollo API format", () => {
+      const filters: ApolloSearchFilters = {
+        titles: ["CEO", "CTO"],
+        keywords: "software",
+        page: 1,
+        perPage: 25,
+      };
+
+      const result = transformFiltersToApollo(filters);
+
+      expect(result.person_titles).toEqual(["CEO", "CTO"]);
+      expect(result.q_keywords).toBe("software");
+      expect(result.page).toBe(1);
+      expect(result.per_page).toBe(25);
+    });
+
+    it("transforms companySizes from dash to comma format", () => {
+      const filters: ApolloSearchFilters = {
+        companySizes: ["11-50", "51-200"],
+      };
+
+      const result = transformFiltersToApollo(filters);
+
+      expect(result.organization_num_employees_ranges).toEqual(["11,50", "51,200"]);
+    });
+
+    it("maps locations to both person and organization locations", () => {
+      const filters: ApolloSearchFilters = {
+        locations: ["Sao Paulo, Brazil"],
+      };
+
+      const result = transformFiltersToApollo(filters);
+
+      expect(result.person_locations).toEqual(["Sao Paulo, Brazil"]);
+      expect(result.organization_locations).toEqual(["Sao Paulo, Brazil"]);
+    });
+
+    // Story 3.5.1: contactEmailStatuses transformation
+    it("transforms contactEmailStatuses to contact_email_status", () => {
+      const filters: ApolloSearchFilters = {
+        contactEmailStatuses: ["verified", "likely to engage"],
+      };
+
+      const result = transformFiltersToApollo(filters);
+
+      expect(result.contact_email_status).toEqual(["verified", "likely to engage"]);
+    });
+
+    it("includes all valid email status values", () => {
+      const filters: ApolloSearchFilters = {
+        contactEmailStatuses: ["verified", "unverified", "likely to engage", "unavailable"],
+      };
+
+      const result = transformFiltersToApollo(filters);
+
+      expect(result.contact_email_status).toEqual([
+        "verified",
+        "unverified",
+        "likely to engage",
+        "unavailable",
+      ]);
+    });
+
+    it("omits contact_email_status when contactEmailStatuses is empty", () => {
+      const filters: ApolloSearchFilters = {
+        contactEmailStatuses: [],
+      };
+
+      const result = transformFiltersToApollo(filters);
+
+      expect(result.contact_email_status).toBeUndefined();
+    });
+
+    it("omits contact_email_status when contactEmailStatuses is undefined", () => {
+      const filters: ApolloSearchFilters = {
+        titles: ["CEO"],
+      };
+
+      const result = transformFiltersToApollo(filters);
+
+      expect(result.contact_email_status).toBeUndefined();
+    });
+
+    it("combines contactEmailStatuses with other filters", () => {
+      const filters: ApolloSearchFilters = {
+        titles: ["CEO"],
+        locations: ["Sao Paulo, Brazil"],
+        contactEmailStatuses: ["verified"],
+        page: 1,
+        perPage: 25,
+      };
+
+      const result = transformFiltersToApollo(filters);
+
+      expect(result.person_titles).toEqual(["CEO"]);
+      expect(result.person_locations).toEqual(["Sao Paulo, Brazil"]);
+      expect(result.contact_email_status).toEqual(["verified"]);
+      expect(result.page).toBe(1);
+      expect(result.per_page).toBe(25);
+    });
+
+    it("sets default page and per_page values", () => {
+      const filters: ApolloSearchFilters = {};
+
+      const result = transformFiltersToApollo(filters);
+
+      expect(result.page).toBe(1);
+      expect(result.per_page).toBe(25);
     });
   });
 
@@ -103,6 +230,36 @@ describe("Apollo Types", () => {
       expect(result.location).toBeNull();
       expect(result.company_size).toBeNull();
       expect(result.linkedin_url).toBeNull();
+    });
+
+    // Story 3.5.1: Tests for contact availability flags
+    it("should map has_email and has_direct_phone from ApolloPerson", () => {
+      const result = transformApolloToLeadRow(mockPerson, tenantId);
+
+      expect(result.has_email).toBe(true);
+      expect(result.has_direct_phone).toBe("Yes");
+    });
+
+    it("should map has_email false correctly", () => {
+      const personNoEmail: ApolloPerson = {
+        ...mockPerson,
+        has_email: false,
+      };
+
+      const result = transformApolloToLeadRow(personNoEmail, tenantId);
+
+      expect(result.has_email).toBe(false);
+    });
+
+    it("should map has_direct_phone 'Maybe' correctly", () => {
+      const personMaybePhone: ApolloPerson = {
+        ...mockPerson,
+        has_direct_phone: "Maybe: please request direct dial via people/bulk_match",
+      };
+
+      const result = transformApolloToLeadRow(personMaybePhone, tenantId);
+
+      expect(result.has_direct_phone).toBe("Maybe: please request direct dial via people/bulk_match");
     });
 
     it("should generate new UUID for id", () => {

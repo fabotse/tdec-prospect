@@ -262,3 +262,122 @@ describe("Filter Search Flow", () => {
     expect(state.isDirty).toBe(false);
   });
 });
+
+// ==============================================
+// STORY 3.5.1: EMAIL STATUS FILTER INTEGRATION TESTS
+// ==============================================
+
+describe("Email Status Filter Search Flow (Story 3.5.1)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFetch.mockReset();
+    const store = useFilterStore.getState();
+    store.clearFilters();
+    store.setExpanded(false);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("sends contactEmailStatuses in search request", async () => {
+    const mockLeads = [
+      {
+        id: "1",
+        tenant_id: "t1",
+        first_name: "João",
+        last_name: "Silva",
+        email: "joao@test.com",
+        status: "novo",
+        has_email: true,
+        has_direct_phone: "Yes",
+      },
+    ];
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ data: mockLeads, meta: { total: 1 } }),
+    });
+
+    render(<LeadsPageContent />, { wrapper: createWrapper() });
+
+    // Expand filter panel
+    await userEvent.click(screen.getByTestId("filter-toggle-button"));
+
+    // Set email status filters via the store
+    useFilterStore.getState().setContactEmailStatuses(["verified", "likely to engage"]);
+
+    // Click search
+    await userEvent.click(screen.getByTestId("search-button"));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalled();
+    });
+
+    // Verify email status filters were sent
+    const callArgs = mockFetch.mock.calls[0];
+    const requestBody = JSON.parse(callArgs[1].body);
+    expect(requestBody.contactEmailStatuses).toEqual(["verified", "likely to engage"]);
+  });
+
+  it("combines email status with other filters in search", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ data: [], meta: { total: 0 } }),
+    });
+
+    render(<LeadsPageContent />, { wrapper: createWrapper() });
+
+    // Expand filter panel
+    await userEvent.click(screen.getByTestId("filter-toggle-button"));
+
+    // Set multiple filters including email status
+    useFilterStore.getState().setTitles(["CEO"]);
+    useFilterStore.getState().setContactEmailStatuses(["verified"]);
+
+    // Click search
+    await userEvent.click(screen.getByTestId("search-button"));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalled();
+    });
+
+    // Verify all filters were sent
+    const callArgs = mockFetch.mock.calls[0];
+    const requestBody = JSON.parse(callArgs[1].body);
+    expect(requestBody.titles).toEqual(["CEO"]);
+    expect(requestBody.contactEmailStatuses).toEqual(["verified"]);
+  });
+
+  it("clears email status filter with other filters", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: [{ id: "1", first_name: "João", status: "novo" }],
+          meta: { total: 1 },
+        }),
+    });
+
+    render(<LeadsPageContent />, { wrapper: createWrapper() });
+
+    // Set filters including email status
+    useFilterStore.getState().setKeywords("test");
+    useFilterStore.getState().setContactEmailStatuses(["verified"]);
+
+    await userEvent.click(screen.getByTestId("filter-toggle-button"));
+    await userEvent.click(screen.getByTestId("search-button"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("result-count")).toBeInTheDocument();
+    });
+
+    // Clear all filters
+    await userEvent.click(screen.getByTestId("clear-filters-button"));
+
+    // Email status should be cleared along with other filters
+    const state = useFilterStore.getState();
+    expect(state.filters.contactEmailStatuses).toEqual([]);
+    expect(state.filters.keywords).toBe("");
+  });
+});

@@ -30,7 +30,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ChevronUp, ChevronDown, ChevronsUpDown, SearchX } from "lucide-react";
+import {
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
+  SearchX,
+  Mail,
+  Phone,
+} from "lucide-react";
 import { Lead } from "@/types/lead";
 import { LeadStatusBadge } from "./LeadStatusBadge";
 import { cn } from "@/lib/utils";
@@ -47,7 +54,7 @@ interface SortState {
 }
 
 interface Column {
-  key: keyof Lead | "select";
+  key: keyof Lead | "select" | "contact";
   label: string;
   defaultWidth: number;
   minWidth: number;
@@ -106,6 +113,15 @@ const COLUMNS: Column[] = [
     minWidth: 80,
     sortable: true,
     truncate: true,
+  },
+  // Story 3.5.1: AC #5 - Contact availability column between Localização and Status
+  {
+    key: "contact",
+    label: "Contato",
+    defaultWidth: 100,
+    minWidth: 80,
+    sortable: false,
+    truncate: false,
   },
   {
     key: "status",
@@ -545,15 +561,30 @@ export function LeadTable({
                   }
                 />
 
-                {/* Status column */}
-                <TableCell
-                  role="gridcell"
+                {/* Contato column (Story 3.5.1: AC #1, #2, #5) */}
+                <ContactAvailabilityCell
+                  hasEmail={lead.hasEmail}
+                  hasDirectPhone={lead.hasDirectPhone}
                   onFocus={() =>
                     setFocusedCell({ row: rowIndex + 1, col: 5 })
                   }
                   tabIndex={
                     focusedCell?.row === rowIndex + 1 &&
                     focusedCell?.col === 5
+                      ? 0
+                      : -1
+                  }
+                />
+
+                {/* Status column */}
+                <TableCell
+                  role="gridcell"
+                  onFocus={() =>
+                    setFocusedCell({ row: rowIndex + 1, col: 6 })
+                  }
+                  tabIndex={
+                    focusedCell?.row === rowIndex + 1 &&
+                    focusedCell?.col === 6
                       ? 0
                       : -1
                   }
@@ -678,5 +709,71 @@ function ResizeHandle({ onResize }: ResizeHandleProps) {
       aria-orientation="vertical"
       aria-label="Redimensionar coluna"
     />
+  );
+}
+
+// ==============================================
+// CONTACT AVAILABILITY CELL SUB-COMPONENT
+// Story 3.5.1: AC #1, #2, #5
+// ==============================================
+
+interface ContactAvailabilityCellProps {
+  hasEmail: boolean;
+  hasDirectPhone: string | null;
+  onFocus?: () => void;
+  tabIndex?: number;
+}
+
+/**
+ * Displays email and phone availability icons with tooltips
+ * Story 3.5.1: AC #1 - Green email icon if hasEmail, gray otherwise
+ * Story 3.5.1: AC #2 - Green phone icon if hasDirectPhone === "Yes", gray otherwise
+ */
+function ContactAvailabilityCell({
+  hasEmail,
+  hasDirectPhone,
+  onFocus,
+  tabIndex,
+}: ContactAvailabilityCellProps) {
+  const phoneAvailable = hasDirectPhone === "Yes";
+
+  return (
+    <TableCell
+      role="gridcell"
+      onFocus={onFocus}
+      tabIndex={tabIndex}
+    >
+      <div className="flex items-center gap-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Mail
+              className={cn(
+                "h-4 w-4",
+                hasEmail ? "text-green-500" : "text-muted-foreground/40"
+              )}
+              aria-hidden="true"
+            />
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            {hasEmail ? "Email disponível" : "Email não disponível"}
+          </TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Phone
+              className={cn(
+                "h-4 w-4",
+                phoneAvailable ? "text-green-500" : "text-muted-foreground/40"
+              )}
+              aria-hidden="true"
+            />
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            {phoneAvailable ? "Telefone disponível" : "Telefone não disponível"}
+          </TooltipContent>
+        </Tooltip>
+      </div>
+    </TableCell>
   );
 }

@@ -36,16 +36,32 @@ export const COMPANY_SIZES = [
   { value: "10001+", label: "10001+ funcionários" },
 ] as const;
 
+/**
+ * Email status filter options for Apollo API
+ * Story 3.5.1: AC #3, #4 - Filter leads by email availability status
+ */
+export const EMAIL_STATUSES = [
+  { value: "verified", label: "Verificado" },
+  { value: "unverified", label: "Não Verificado" },
+  { value: "likely to engage", label: "Provável Engajamento" },
+  { value: "unavailable", label: "Indisponível" },
+] as const;
+
 // ==============================================
 // FILTER STATE TYPES
 // ==============================================
 
+/**
+ * Filter values interface
+ * Story 3.5.1: Added contactEmailStatuses for email status filter
+ */
 export interface FilterValues {
   industries: string[];
   companySizes: string[];
   locations: string[];
   titles: string[];
   keywords: string;
+  contactEmailStatuses: string[];
 }
 
 interface FilterState {
@@ -60,6 +76,7 @@ interface FilterActions {
   setLocations: (locations: string[]) => void;
   setTitles: (titles: string[]) => void;
   setKeywords: (keywords: string) => void;
+  setContactEmailStatuses: (statuses: string[]) => void;
   setFilters: (filters: Partial<FilterValues>) => void;
   clearFilters: () => void;
   togglePanel: () => void;
@@ -76,6 +93,7 @@ const initialFilters: FilterValues = {
   locations: [],
   titles: [],
   keywords: "",
+  contactEmailStatuses: [],
 };
 
 // ==============================================
@@ -117,6 +135,12 @@ export const useFilterStore = create<FilterState & FilterActions>((set) => ({
       isDirty: true,
     })),
 
+  setContactEmailStatuses: (contactEmailStatuses) =>
+    set((state) => ({
+      filters: { ...state.filters, contactEmailStatuses },
+      isDirty: true,
+    })),
+
   setFilters: (newFilters) =>
     set((state) => ({
       filters: {
@@ -125,6 +149,8 @@ export const useFilterStore = create<FilterState & FilterActions>((set) => ({
         locations: newFilters.locations ?? state.filters.locations,
         titles: newFilters.titles ?? state.filters.titles,
         keywords: newFilters.keywords ?? state.filters.keywords,
+        contactEmailStatuses:
+          newFilters.contactEmailStatuses ?? state.filters.contactEmailStatuses,
       },
       isDirty: true,
     })),
@@ -152,6 +178,7 @@ export const useFilterStore = create<FilterState & FilterActions>((set) => ({
 
 /**
  * Get count of active filters
+ * Story 3.5.1: Added contactEmailStatuses to count
  */
 export function getActiveFilterCount(filters: FilterValues): number {
   let count = 0;
@@ -160,5 +187,6 @@ export function getActiveFilterCount(filters: FilterValues): number {
   if (filters.locations.length > 0) count++;
   if (filters.titles.length > 0) count++;
   if (filters.keywords.trim() !== "") count++;
+  if (filters.contactEmailStatuses.length > 0) count++;
   return count;
 }

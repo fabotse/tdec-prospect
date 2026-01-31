@@ -336,3 +336,121 @@ describe("FilterPanel Accessibility", () => {
     expect(industrySelect).toHaveAttribute("aria-haspopup", "listbox");
   });
 });
+
+// ==============================================
+// STORY 3.5.1: EMAIL STATUS FILTER TESTS
+// ==============================================
+
+describe("FilterPanel Email Status Filter (Story 3.5.1)", () => {
+  const mockOnSearch = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    const store = useFilterStore.getState();
+    store.clearFilters();
+    store.setExpanded(true);
+  });
+
+  it("displays Status do Email filter when panel is expanded", () => {
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+
+    expect(screen.getByText("Status do Email")).toBeInTheDocument();
+  });
+
+  it("renders email status multi-select with correct test id", () => {
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+
+    expect(screen.getByTestId("email-status-select")).toBeInTheDocument();
+  });
+
+  it("has aria-haspopup on email status multi-select", () => {
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+
+    const emailStatusSelect = screen.getByTestId("email-status-select");
+    expect(emailStatusSelect).toHaveAttribute("aria-haspopup", "listbox");
+  });
+
+  it("opens dropdown and shows all email status options", async () => {
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+
+    const emailStatusSelect = screen.getByTestId("email-status-select");
+    await userEvent.click(emailStatusSelect);
+
+    // Check for all Portuguese labels
+    expect(screen.getByText("Verificado")).toBeInTheDocument();
+    expect(screen.getByText("Não Verificado")).toBeInTheDocument();
+    expect(screen.getByText("Provável Engajamento")).toBeInTheDocument();
+    expect(screen.getByText("Indisponível")).toBeInTheDocument();
+  });
+
+  it("updates store when email status is selected", async () => {
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+
+    const emailStatusSelect = screen.getByTestId("email-status-select");
+    await userEvent.click(emailStatusSelect);
+
+    // Select "Verificado"
+    const verifiedOption = screen.getByText("Verificado");
+    await userEvent.click(verifiedOption);
+
+    expect(useFilterStore.getState().filters.contactEmailStatuses).toContain("verified");
+  });
+
+  it("allows multiple email status selections", async () => {
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+
+    const emailStatusSelect = screen.getByTestId("email-status-select");
+    await userEvent.click(emailStatusSelect);
+
+    // Select multiple options
+    await userEvent.click(screen.getByText("Verificado"));
+    await userEvent.click(screen.getByText("Provável Engajamento"));
+
+    const statuses = useFilterStore.getState().filters.contactEmailStatuses;
+    expect(statuses).toContain("verified");
+    expect(statuses).toContain("likely to engage");
+  });
+
+  it("shows selected count in trigger button", async () => {
+    useFilterStore.getState().setContactEmailStatuses(["verified", "unverified"]);
+
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+
+    expect(screen.getByText("2 selecionados")).toBeInTheDocument();
+  });
+
+  it("clears email status filter when clearFilters is clicked", async () => {
+    useFilterStore.getState().setContactEmailStatuses(["verified"]);
+
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+
+    const clearButton = screen.getByTestId("clear-filters-button");
+    await userEvent.click(clearButton);
+
+    expect(useFilterStore.getState().filters.contactEmailStatuses).toEqual([]);
+  });
+
+  it("includes email status in active filter count", () => {
+    useFilterStore.getState().setContactEmailStatuses(["verified"]);
+
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+
+    // Badge should show "1" for the email status filter
+    expect(screen.getByText("1")).toBeInTheDocument();
+  });
+
+  it("deselects email status when clicked again", async () => {
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+
+    const emailStatusSelect = screen.getByTestId("email-status-select");
+    await userEvent.click(emailStatusSelect);
+
+    // Select "Verificado"
+    await userEvent.click(screen.getByText("Verificado"));
+    expect(useFilterStore.getState().filters.contactEmailStatuses).toContain("verified");
+
+    // Deselect "Verificado"
+    await userEvent.click(screen.getByText("Verificado"));
+    expect(useFilterStore.getState().filters.contactEmailStatuses).not.toContain("verified");
+  });
+});

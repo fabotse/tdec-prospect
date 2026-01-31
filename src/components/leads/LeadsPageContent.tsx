@@ -62,6 +62,7 @@ export function LeadsPageContent() {
   const error = searchMode === "ai" ? aiSearch.error : manualSearch.error;
 
   // AC: #2 - Handle manual search with current filters
+  // Story 3.5.1: Added contactEmailStatuses to filter mapping
   const handleManualSearch = useCallback(() => {
     const apolloFilters: ApolloSearchFilters = {
       industries:
@@ -71,6 +72,10 @@ export function LeadsPageContent() {
       locations: filters.locations.length > 0 ? filters.locations : undefined,
       titles: filters.titles.length > 0 ? filters.titles : undefined,
       keywords: filters.keywords || undefined,
+      contactEmailStatuses:
+        filters.contactEmailStatuses.length > 0
+          ? filters.contactEmailStatuses
+          : undefined,
     };
     setSearchMode("manual");
     manualSearch.search(apolloFilters);
@@ -78,6 +83,7 @@ export function LeadsPageContent() {
   }, [filters, manualSearch]);
 
   // AC (3.4): #5 - When AI extracts filters, populate manual filter panel
+  // Story 3.5.1: Added contactEmailStatuses to extracted filters
   const handleFiltersExtracted = useCallback(
     (extractedFilters: ApolloSearchFilters) => {
       setFilters({
@@ -86,6 +92,7 @@ export function LeadsPageContent() {
         locations: extractedFilters.locations ?? [],
         titles: extractedFilters.titles ?? [],
         keywords: extractedFilters.keywords ?? "",
+        contactEmailStatuses: extractedFilters.contactEmailStatuses ?? [],
       });
       setExpanded(true);
       setSearchMode("manual");
