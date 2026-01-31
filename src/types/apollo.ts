@@ -1,8 +1,9 @@
 /**
  * Apollo API Types
  * Story: 3.2 - Apollo API Integration Service
+ * Story: 3.2.1 - People Enrichment Integration
  *
- * Types for Apollo.io API integration for lead search.
+ * Types for Apollo.io API integration for lead search and enrichment.
  * AC: #6 - Filter and response type definitions
  */
 
@@ -175,6 +176,177 @@ export function transformApolloToLeadRow(
     linkedin_url: null,
     status: "novo",
     created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+}
+
+// ==============================================
+// PEOPLE ENRICHMENT TYPES (Story 3.2.1)
+// ==============================================
+
+/**
+ * Options for enrichment API calls
+ * AC: #2, #3 - Email and phone enrichment options
+ */
+export interface EnrichmentOptions {
+  revealPersonalEmails?: boolean;
+  revealPhoneNumber?: boolean;
+  webhookUrl?: string; // Required if revealPhoneNumber=true
+}
+
+/**
+ * Request body for Apollo People Enrichment API
+ * AC: #1, #2, #3 - Enrichment request parameters
+ */
+export interface ApolloEnrichmentRequest {
+  id?: string; // Apollo person ID (preferred)
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  linkedin_url?: string;
+  domain?: string;
+  organization_name?: string;
+  reveal_personal_emails?: boolean;
+  reveal_phone_number?: boolean;
+  webhook_url?: string;
+}
+
+/**
+ * Employment history entry in enrichment response
+ */
+export interface ApolloEmployment {
+  id: string;
+  organization_name: string | null;
+  title: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  current: boolean;
+}
+
+/**
+ * Enriched person object from People Enrichment API
+ * AC: #1 - Complete lead data (email, phone, full last_name)
+ */
+export interface ApolloEnrichedPerson {
+  id: string;
+  first_name: string;
+  last_name: string; // FULL last name (not obfuscated)
+  email: string | null;
+  email_status: "verified" | "invalid" | null;
+  title: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  linkedin_url: string | null;
+  photo_url: string | null;
+  employment_history: ApolloEmployment[];
+  phone_numbers?: Array<{
+    raw_number: string;
+    sanitized_number: string;
+    type: string;
+  }>;
+}
+
+/**
+ * Enriched organization data
+ */
+export interface ApolloEnrichedOrganization {
+  id: string;
+  name: string;
+  domain: string | null;
+  industry: string | null;
+  estimated_num_employees: number | null;
+}
+
+/**
+ * Waterfall status for async phone delivery
+ * AC: #3 - Webhook-based phone delivery tracking
+ */
+export interface ApolloWaterfallStatus {
+  status: "accepted" | "pending" | "completed";
+  message: string;
+}
+
+/**
+ * Response from Apollo People Enrichment API
+ * AC: #1, #2, #3 - Complete enrichment response
+ */
+export interface ApolloEnrichmentResponse {
+  person: ApolloEnrichedPerson | null;
+  organization: ApolloEnrichedOrganization | null;
+  waterfall?: ApolloWaterfallStatus;
+}
+
+/**
+ * Request body for Apollo Bulk People Enrichment API
+ * AC: #4 - Bulk enrichment up to 10 leads per call
+ */
+export interface ApolloBulkEnrichmentRequest {
+  details: ApolloEnrichmentRequest[];
+  reveal_personal_emails?: boolean;
+  reveal_phone_number?: boolean;
+  webhook_url?: string;
+}
+
+/**
+ * Response from Apollo Bulk People Enrichment API
+ * AC: #4 - Bulk enrichment response
+ */
+export interface ApolloBulkEnrichmentResponse {
+  matches: ApolloEnrichmentResponse[];
+  missing: number;
+}
+
+// ==============================================
+// ENRICHMENT TRANSFORM FUNCTIONS (Story 3.2.1)
+// ==============================================
+
+/**
+ * Transform enriched Apollo person to partial LeadRow update
+ * AC: #1 - Updates lead with complete data (email, phone, last_name, location, industry)
+ *
+ * Returns only the fields that can be enriched, for partial updates
+ */
+export function transformEnrichmentToLead(
+  enrichedPerson: ApolloEnrichedPerson,
+  organization: ApolloEnrichedOrganization | null
+): Partial<LeadRow> {
+  // Build location from city, state, country
+  let location: string | null = null;
+  const locationParts = [
+    enrichedPerson.city,
+    enrichedPerson.state,
+    enrichedPerson.country,
+  ].filter(Boolean);
+  if (locationParts.length > 0) {
+    location = locationParts.join(", ");
+  }
+
+  // Get primary phone if available
+  const phone = enrichedPerson.phone_numbers?.[0]?.sanitized_number ?? null;
+
+  // Get employee count as company_size
+  let companySize: string | null = null;
+  if (organization?.estimated_num_employees) {
+    const count = organization.estimated_num_employees;
+    if (count <= 10) companySize = "1-10";
+    else if (count <= 50) companySize = "11-50";
+    else if (count <= 200) companySize = "51-200";
+    else if (count <= 500) companySize = "201-500";
+    else if (count <= 1000) companySize = "501-1000";
+    else companySize = "1000+";
+  }
+
+  return {
+    last_name: enrichedPerson.last_name,
+    email: enrichedPerson.email,
+    phone,
+    linkedin_url: enrichedPerson.linkedin_url,
+    location,
+    title: enrichedPerson.title,
+    company_name: organization?.name ?? null,
+    company_size: companySize,
+    industry: organization?.industry ?? null,
     updated_at: new Date().toISOString(),
   };
 }

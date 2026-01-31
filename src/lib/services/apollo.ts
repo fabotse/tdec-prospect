@@ -27,6 +27,12 @@ import type { LeadRow } from "@/types/lead";
 import type {
   ApolloSearchFilters,
   ApolloSearchResponse,
+  EnrichmentOptions,
+  ApolloEnrichmentRequest,
+  ApolloEnrichmentResponse,
+  ApolloBulkEnrichmentRequest,
+  ApolloBulkEnrichmentResponse,
+  ApolloEnrichedPerson,
 } from "@/types/apollo";
 import { transformApolloToLeadRow } from "@/types/apollo";
 
@@ -37,6 +43,9 @@ import { transformApolloToLeadRow } from "@/types/apollo";
 const APOLLO_API_BASE = "https://api.apollo.io";
 const APOLLO_HEALTH_ENDPOINT = "/v1/auth/health";
 const APOLLO_SEARCH_ENDPOINT = "/v1/mixed_people/api_search";
+const APOLLO_ENRICH_ENDPOINT = "/v1/people/match";
+const APOLLO_BULK_ENRICH_ENDPOINT = "/v1/people/bulk_match";
+const APOLLO_BULK_LIMIT = 10;
 
 // ==============================================
 // APOLLO ERROR MESSAGES (Portuguese)
@@ -53,6 +62,14 @@ const APOLLO_ERROR_MESSAGES = {
   TIMEOUT: "Tempo limite excedido ao conectar com Apollo. Tente novamente.",
   GENERIC: "Erro ao comunicar com Apollo. Tente novamente.",
   DECRYPT_ERROR: "Erro ao descriptografar API key. Reconfigure a chave.",
+  // Enrichment-specific errors (Story 3.2.1)
+  ENRICHMENT_NOT_FOUND: "Pessoa não encontrada no Apollo para enriquecimento.",
+  ENRICHMENT_GDPR:
+    "Email pessoal não disponível devido a regulamentações GDPR.",
+  BULK_LIMIT_EXCEEDED:
+    "Máximo de 10 leads por requisição de enriquecimento em lote.",
+  WEBHOOK_REQUIRED: "Webhook URL obrigatória para obter telefone.",
+  CREDITS_INSUFFICIENT: "Créditos insuficientes no Apollo para enriquecimento.",
 };
 
 // ==============================================
@@ -296,6 +313,136 @@ export class ApolloService extends ExternalService {
     }
 
     return params.toString();
+  }
+
+  // ==============================================
+  // PEOPLE ENRICHMENT METHODS (Story 3.2.1)
+  // ==============================================
+
+  /**
+   * Enrich a single person with complete data
+   * AC: #1 - Calls People Enrichment API with apollo_id
+   * AC: #2 - Handles reveal_personal_emails flag
+   * AC: #3 - Handles reveal_phone_number flag and webhook_url
+   *
+   * @param apolloId - Apollo person ID from api_search
+   * @param options - Enrichment options (emails, phone, webhook)
+   * @returns Enriched person data or null if not found
+   */
+  async enrichPerson(
+    apolloId: string,
+    options?: EnrichmentOptions
+  ): Promise<ApolloEnrichmentResponse> {
+    const apiKey = await this.getApiKey();
+
+    // Validate webhook requirement for phone
+    if (options?.revealPhoneNumber && !options?.webhookUrl) {
+      throw new ExternalServiceError(
+        this.name,
+        400,
+        APOLLO_ERROR_MESSAGES.WEBHOOK_REQUIRED
+      );
+    }
+
+    const body: ApolloEnrichmentRequest = {
+      id: apolloId,
+      reveal_personal_emails: options?.revealPersonalEmails ?? false,
+      reveal_phone_number: options?.revealPhoneNumber ?? false,
+    };
+
+    if (options?.webhookUrl) {
+      body.webhook_url = options.webhookUrl;
+    }
+
+    const response = await this.request<ApolloEnrichmentResponse>(
+      `${APOLLO_API_BASE}${APOLLO_ENRICH_ENDPOINT}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache",
+          "x-api-key": apiKey,
+        },
+        body: JSON.stringify(body),
+      }
+    );
+
+    // Handle not found case
+    if (!response.person) {
+      throw new ExternalServiceError(
+        this.name,
+        404,
+        APOLLO_ERROR_MESSAGES.ENRICHMENT_NOT_FOUND
+      );
+    }
+
+    return response;
+  }
+
+  /**
+   * Bulk enrich up to 10 people
+   * AC: #4 - Up to 10 leads per API call, respects rate limits
+   * AC: #6 - Follows ExternalService patterns
+   *
+   * @param apolloIds - Array of Apollo person IDs (max 10)
+   * @param options - Enrichment options
+   * @returns Array of enriched person data
+   */
+  async enrichPeople(
+    apolloIds: string[],
+    options?: EnrichmentOptions
+  ): Promise<ApolloEnrichedPerson[]> {
+    // Validate bulk limit
+    if (apolloIds.length > APOLLO_BULK_LIMIT) {
+      throw new ExternalServiceError(
+        this.name,
+        400,
+        APOLLO_ERROR_MESSAGES.BULK_LIMIT_EXCEEDED
+      );
+    }
+
+    if (apolloIds.length === 0) {
+      return [];
+    }
+
+    // Validate webhook requirement for phone
+    if (options?.revealPhoneNumber && !options?.webhookUrl) {
+      throw new ExternalServiceError(
+        this.name,
+        400,
+        APOLLO_ERROR_MESSAGES.WEBHOOK_REQUIRED
+      );
+    }
+
+    const apiKey = await this.getApiKey();
+
+    const body: ApolloBulkEnrichmentRequest = {
+      details: apolloIds.map((id) => ({ id })),
+      reveal_personal_emails: options?.revealPersonalEmails ?? false,
+      reveal_phone_number: options?.revealPhoneNumber ?? false,
+    };
+
+    if (options?.webhookUrl) {
+      body.webhook_url = options.webhookUrl;
+    }
+
+    const response = await this.request<ApolloBulkEnrichmentResponse>(
+      `${APOLLO_API_BASE}${APOLLO_BULK_ENRICH_ENDPOINT}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache",
+          "x-api-key": apiKey,
+        },
+        body: JSON.stringify(body),
+      }
+    );
+
+    // Filter out null results and return only enriched persons
+    return response.matches
+      .filter((match) => match.person !== null)
+      .map((match) => match.person!);
   }
 }
 

@@ -1,17 +1,22 @@
 /**
  * Apollo Types Tests
  * Story: 3.2 - Apollo API Integration Service
+ * Story: 3.2.1 - People Enrichment Integration
  * AC: #6 - Filter and response type definitions
  *
  * Updated for api_search endpoint which returns limited data for prospecting.
+ * Story 3.2.1: Added tests for enrichment transform function.
  */
 
 import { describe, it, expect } from "vitest";
 import {
   transformApolloToLeadRow,
+  transformEnrichmentToLead,
   type ApolloSearchFilters,
   type ApolloPerson,
   type ApolloOrganization,
+  type ApolloEnrichedPerson,
+  type ApolloEnrichedOrganization,
 } from "@/types/apollo";
 import type { LeadRow } from "@/types/lead";
 
@@ -190,6 +195,212 @@ describe("Apollo Types", () => {
 
       const result = transformApolloToLeadRow(personObfuscated, tenantId);
       expect(result.last_name).toBe("Hu***n");
+    });
+  });
+
+  // ==============================================
+  // ENRICHMENT TRANSFORM (Story 3.2.1)
+  // ==============================================
+
+  describe("transformEnrichmentToLead (Story 3.2.1)", () => {
+    const mockEnrichedPerson: ApolloEnrichedPerson = {
+      id: "apollo-123",
+      first_name: "João",
+      last_name: "Silva Costa", // Full name, not obfuscated
+      email: "joao@empresa.com",
+      email_status: "verified",
+      title: "CEO",
+      city: "São Paulo",
+      state: "SP",
+      country: "Brazil",
+      linkedin_url: "https://linkedin.com/in/joaosilva",
+      photo_url: "https://example.com/photo.jpg",
+      employment_history: [],
+      phone_numbers: [
+        {
+          raw_number: "+55 11 99999-9999",
+          sanitized_number: "+5511999999999",
+          type: "mobile",
+        },
+      ],
+    };
+
+    const mockEnrichedOrganization: ApolloEnrichedOrganization = {
+      id: "org-456",
+      name: "Empresa SA",
+      domain: "empresa.com",
+      industry: "Technology",
+      estimated_num_employees: 150,
+    };
+
+    it("maps all enriched fields to LeadRow", () => {
+      const result = transformEnrichmentToLead(
+        mockEnrichedPerson,
+        mockEnrichedOrganization
+      );
+
+      expect(result.last_name).toBe("Silva Costa");
+      expect(result.email).toBe("joao@empresa.com");
+      expect(result.phone).toBe("+5511999999999");
+      expect(result.linkedin_url).toBe("https://linkedin.com/in/joaosilva");
+      expect(result.title).toBe("CEO");
+      expect(result.company_name).toBe("Empresa SA");
+      expect(result.industry).toBe("Technology");
+    });
+
+    it("handles null optional fields", () => {
+      const personMinimal: ApolloEnrichedPerson = {
+        id: "apollo-min",
+        first_name: "Test",
+        last_name: "User",
+        email: null,
+        email_status: null,
+        title: null,
+        city: null,
+        state: null,
+        country: null,
+        linkedin_url: null,
+        photo_url: null,
+        employment_history: [],
+      };
+
+      const result = transformEnrichmentToLead(personMinimal, null);
+
+      expect(result.last_name).toBe("User");
+      expect(result.email).toBeNull();
+      expect(result.phone).toBeNull();
+      expect(result.linkedin_url).toBeNull();
+      expect(result.title).toBeNull();
+      expect(result.company_name).toBeNull();
+    });
+
+    it("builds location from city, state, country", () => {
+      const result = transformEnrichmentToLead(
+        mockEnrichedPerson,
+        mockEnrichedOrganization
+      );
+
+      expect(result.location).toBe("São Paulo, SP, Brazil");
+    });
+
+    it("handles partial location data", () => {
+      const personPartialLocation: ApolloEnrichedPerson = {
+        ...mockEnrichedPerson,
+        city: "Rio de Janeiro",
+        state: null,
+        country: "Brazil",
+      };
+
+      const result = transformEnrichmentToLead(personPartialLocation, null);
+
+      expect(result.location).toBe("Rio de Janeiro, Brazil");
+    });
+
+    it("handles missing location data", () => {
+      const personNoLocation: ApolloEnrichedPerson = {
+        ...mockEnrichedPerson,
+        city: null,
+        state: null,
+        country: null,
+      };
+
+      const result = transformEnrichmentToLead(personNoLocation, null);
+
+      expect(result.location).toBeNull();
+    });
+
+    it("maps company_size from estimated_num_employees", () => {
+      // Test various employee count ranges
+      const testCases = [
+        { count: 5, expected: "1-10" },
+        { count: 25, expected: "11-50" },
+        { count: 100, expected: "51-200" },
+        { count: 300, expected: "201-500" },
+        { count: 750, expected: "501-1000" },
+        { count: 5000, expected: "1000+" },
+      ];
+
+      for (const { count, expected } of testCases) {
+        const org: ApolloEnrichedOrganization = {
+          ...mockEnrichedOrganization,
+          estimated_num_employees: count,
+        };
+        const result = transformEnrichmentToLead(mockEnrichedPerson, org);
+        expect(result.company_size).toBe(expected);
+      }
+    });
+
+    it("sets updated_at timestamp", () => {
+      const before = new Date().toISOString();
+      const result = transformEnrichmentToLead(
+        mockEnrichedPerson,
+        mockEnrichedOrganization
+      );
+      const after = new Date().toISOString();
+
+      expect(result.updated_at).toBeDefined();
+      expect(result.updated_at! >= before).toBe(true);
+      expect(result.updated_at! <= after).toBe(true);
+    });
+
+    it("gets first phone from phone_numbers array", () => {
+      const personMultiplePhones: ApolloEnrichedPerson = {
+        ...mockEnrichedPerson,
+        phone_numbers: [
+          {
+            raw_number: "+55 11 99999-9999",
+            sanitized_number: "+5511999999999",
+            type: "mobile",
+          },
+          {
+            raw_number: "+55 11 88888-8888",
+            sanitized_number: "+5511888888888",
+            type: "work",
+          },
+        ],
+      };
+
+      const result = transformEnrichmentToLead(personMultiplePhones, null);
+
+      expect(result.phone).toBe("+5511999999999");
+    });
+
+    it("handles empty phone_numbers array", () => {
+      const personNoPhone: ApolloEnrichedPerson = {
+        ...mockEnrichedPerson,
+        phone_numbers: [],
+      };
+
+      const result = transformEnrichmentToLead(personNoPhone, null);
+
+      expect(result.phone).toBeNull();
+    });
+
+    it("handles undefined phone_numbers", () => {
+      const personUndefinedPhone: ApolloEnrichedPerson = {
+        ...mockEnrichedPerson,
+        phone_numbers: undefined,
+      };
+
+      const result = transformEnrichmentToLead(personUndefinedPhone, null);
+
+      expect(result.phone).toBeNull();
+    });
+
+    it("returns partial LeadRow for updates", () => {
+      const result = transformEnrichmentToLead(
+        mockEnrichedPerson,
+        mockEnrichedOrganization
+      );
+
+      // Should not include id, tenant_id, apollo_id, first_name, status, created_at
+      // These are not part of enrichment updates
+      expect(result).not.toHaveProperty("id");
+      expect(result).not.toHaveProperty("tenant_id");
+      expect(result).not.toHaveProperty("apollo_id");
+      expect(result).not.toHaveProperty("first_name");
+      expect(result).not.toHaveProperty("status");
+      expect(result).not.toHaveProperty("created_at");
     });
   });
 });

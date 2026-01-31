@@ -86,7 +86,7 @@ development_status:
   epic-3: in-progress
   3-1-leads-page-data-model: done
   3-2-apollo-api-integration-service: done
-  3-2-1-people-enrichment-integration: ready-for-dev  # Added: Enrich leads with complete data (email, phone, full last_name)
+  3-2-1-people-enrichment-integration: done  # Added: Enrich leads with complete data (email, phone, full last_name)
   3-3-traditional-filter-search: backlog
   3-4-ai-conversational-search: backlog
   3-5-lead-table-display: backlog

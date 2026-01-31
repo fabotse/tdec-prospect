@@ -1,6 +1,6 @@
 # Story 3.2.1: People Enrichment Integration
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -53,44 +53,44 @@ Esta story é uma **extensão da Story 3.2** identificada durante a implementaç
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Extend Apollo types for Enrichment API (AC: #1, #2, #3)
-  - [ ] Add `ApolloEnrichmentRequest` interface
-  - [ ] Add `ApolloEnrichmentResponse` interface
-  - [ ] Add `ApolloBulkEnrichmentRequest` interface
-  - [ ] Add `ApolloBulkEnrichmentResponse` interface
-  - [ ] Add `transformEnrichmentToLead()` function
+- [x] Task 1: Extend Apollo types for Enrichment API (AC: #1, #2, #3)
+  - [x] Add `ApolloEnrichmentRequest` interface
+  - [x] Add `ApolloEnrichmentResponse` interface
+  - [x] Add `ApolloBulkEnrichmentRequest` interface
+  - [x] Add `ApolloBulkEnrichmentResponse` interface
+  - [x] Add `transformEnrichmentToLead()` function
 
-- [ ] Task 2: Extend ApolloService with enrichment methods (AC: #1, #6)
-  - [ ] Add `enrichPerson(apolloId: string, options: EnrichmentOptions)` method
-  - [ ] Add `enrichPeople(apolloIds: string[], options: EnrichmentOptions)` bulk method
-  - [ ] Add Portuguese error messages for enrichment-specific errors
-  - [ ] Handle GDPR compliance response (no personal email returned)
+- [x] Task 2: Extend ApolloService with enrichment methods (AC: #1, #6)
+  - [x] Add `enrichPerson(apolloId: string, options: EnrichmentOptions)` method
+  - [x] Add `enrichPeople(apolloIds: string[], options: EnrichmentOptions)` bulk method
+  - [x] Add Portuguese error messages for enrichment-specific errors
+  - [x] Handle GDPR compliance response (no personal email returned)
 
-- [ ] Task 3: Create API Routes for enrichment (AC: #1, #4)
-  - [ ] Create `src/app/api/integrations/apollo/enrich/route.ts` - Single person
-  - [ ] Create `src/app/api/integrations/apollo/enrich/bulk/route.ts` - Up to 10 people
-  - [ ] Implement rate limiting awareness
+- [x] Task 3: Create API Routes for enrichment (AC: #1, #4)
+  - [x] Create `src/app/api/integrations/apollo/enrich/route.ts` - Single person
+  - [x] Create `src/app/api/integrations/apollo/enrich/bulk/route.ts` - Up to 10 people
+  - [x] Implement rate limiting awareness
 
-- [ ] Task 4: Update Lead service to use enrichment (AC: #1)
-  - [ ] Create function to update lead record after enrichment
-  - [ ] Handle partial data updates (only update fields that were enriched)
-  - [ ] Log enrichment activity
+- [x] Task 4: Update Lead service to use enrichment (AC: #1)
+  - [x] Create function to update lead record after enrichment
+  - [x] Handle partial data updates (only update fields that were enriched)
+  - [x] Log enrichment activity
 
-- [ ] Task 5: Create useEnrichLead hook (AC: #1)
-  - [ ] TanStack Query mutation for single lead enrichment
-  - [ ] TanStack Query mutation for bulk enrichment
-  - [ ] Optimistic updates for UX
+- [x] Task 5: Create useEnrichLead hook (AC: #1)
+  - [x] TanStack Query mutation for single lead enrichment
+  - [x] TanStack Query mutation for bulk enrichment
+  - [x] Optimistic updates for UX
 
-- [ ] Task 6: Write tests
-  - [ ] Unit tests for enrichment types and transforms
-  - [ ] Unit tests for ApolloService enrichment methods (mocked)
-  - [ ] Integration tests for API routes
+- [x] Task 6: Write tests
+  - [x] Unit tests for enrichment types and transforms
+  - [x] Unit tests for ApolloService enrichment methods (mocked)
+  - [x] Integration tests for API routes
 
-- [ ] Task 7: Run tests and verify build
-  - [ ] All new tests pass
-  - [ ] Existing tests still pass
-  - [ ] Build succeeds
-  - [ ] TypeScript passes
+- [x] Task 7: Run tests and verify build
+  - [x] All new tests pass
+  - [x] Existing tests still pass
+  - [x] Build succeeds
+  - [x] TypeScript passes
 
 ## Dev Notes
 
@@ -441,11 +441,48 @@ describe('Apollo Enrichment Types', () => {
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
+N/A - Implementation completed without issues.
+
 ### Completion Notes List
 
+- ✅ Extended `src/types/apollo.ts` with 10+ new enrichment types including `EnrichmentOptions`, `ApolloEnrichmentRequest`, `ApolloEnrichedPerson`, `ApolloEnrichmentResponse`, `ApolloBulkEnrichmentRequest`, `ApolloBulkEnrichmentResponse`, and `transformEnrichmentToLead()` function
+- ✅ Extended `src/lib/services/apollo.ts` with `enrichPerson()` and `enrichPeople()` methods following ExternalService pattern with Portuguese error messages
+- ✅ Added 5 new enrichment-specific error codes to `src/lib/constants/error-codes.ts`
+- ✅ Created API routes for single and bulk enrichment with Zod validation
+- ✅ Created `LeadService` class with `updateLeadFromEnrichment()` method for partial updates (uses Promise.all for parallel bulk updates)
+- ✅ Created `useEnrichLead` and `useBulkEnrichLeads` hooks with TanStack Query mutations and optimistic updates
+- ✅ Added 17 new tests for enrichment service methods (enrichPerson, enrichPeople)
+- ✅ Added 14 new tests for `transformEnrichmentToLead()` function
+- ✅ Added 11 integration tests for enrichment API routes (POST /api/integrations/apollo/enrich and /enrich/bulk)
+- ✅ Added 10 unit tests for LeadService class
+- ✅ Added 12 unit tests for useEnrichLead and useBulkEnrichLeads hooks
+- ✅ All tests pass, build succeeds
+
 ### File List
+
+**New Files:**
+- `src/app/api/integrations/apollo/enrich/route.ts` - Single person enrichment API route
+- `src/app/api/integrations/apollo/enrich/bulk/route.ts` - Bulk enrichment API route (max 10)
+- `src/lib/services/lead.ts` - LeadService with enrichment update functionality
+- `src/hooks/use-enrich-lead.ts` - TanStack Query hooks for enrichment mutations
+- `__tests__/unit/lib/services/lead.test.ts` - LeadService unit tests (10 tests)
+- `__tests__/unit/hooks/use-enrich-lead.test.tsx` - useEnrichLead hooks unit tests (12 tests)
+
+**Modified Files:**
+- `src/types/apollo.ts` - Added enrichment types and `transformEnrichmentToLead()` function
+- `src/lib/services/apollo.ts` - Added `enrichPerson()` and `enrichPeople()` methods
+- `src/lib/constants/error-codes.ts` - Added 5 enrichment error codes with Portuguese messages
+- `__tests__/unit/lib/services/apollo.test.ts` - Added 17 enrichment service tests
+- `__tests__/unit/types/apollo.test.ts` - Added 14 transform function tests
+- `__tests__/integration/apollo-api.test.ts` - Added 11 integration tests for enrichment API routes
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` - Updated story status
+
+### Change Log
+
+- **2026-01-31**: Story 3.2.1 implementation complete - Apollo People Enrichment Integration
+- **2026-01-31**: Code review fixes - Added missing tests (integration, LeadService, hooks), improved bulkUpdateFromEnrichment performance
 

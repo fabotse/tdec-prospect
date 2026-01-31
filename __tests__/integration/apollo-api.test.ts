@@ -1,8 +1,9 @@
 /**
- * Integration tests for Apollo API Route
+ * Integration tests for Apollo API Routes
  * Story: 3.2 - Apollo API Integration Service
+ * Story: 3.2.1 - People Enrichment Integration
  *
- * Tests the full request/response flow of the Apollo API route
+ * Tests the full request/response flow of the Apollo API routes
  * with mocked external Apollo API calls.
  *
  * AC: #2 - Requests proxied through API Routes
@@ -11,6 +12,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { POST } from "@/app/api/integrations/apollo/route";
+import { POST as EnrichPOST } from "@/app/api/integrations/apollo/enrich/route";
+import { POST as BulkEnrichPOST } from "@/app/api/integrations/apollo/enrich/bulk/route";
 import { NextRequest } from "next/server";
 
 // ==============================================
@@ -290,6 +293,347 @@ describe("Apollo API Route Integration", () => {
       expect(response.status).toBe(403);
       expect(data.error.code).toBe("FORBIDDEN");
       expect(data.error.message).toBe("Tenant não encontrado");
+    });
+  });
+
+  // ==============================================
+  // ENRICHMENT ROUTES (Story 3.2.1)
+  // ==============================================
+
+  describe("POST /api/integrations/apollo/enrich", () => {
+    it("returns enriched person on successful Apollo API call", async () => {
+      const mockEnrichmentResponse = {
+        person: {
+          id: "apollo-person-1",
+          first_name: "João",
+          last_name: "Silva",
+          email: "joao@empresa.com",
+          email_status: "verified",
+          title: "CEO",
+          city: "São Paulo",
+          state: "SP",
+          country: "Brazil",
+          linkedin_url: "https://linkedin.com/in/joao",
+          photo_url: null,
+          employment_history: [],
+        },
+        organization: {
+          id: "org-1",
+          name: "Empresa SA",
+          domain: "empresa.com",
+          industry: "Technology",
+          estimated_num_employees: 150,
+        },
+      };
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockEnrichmentResponse),
+      });
+
+      const request = new NextRequest(
+        "http://localhost:3000/api/integrations/apollo/enrich",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            apolloId: "apollo-person-1",
+            revealPersonalEmails: true,
+          }),
+        }
+      );
+
+      const response = await EnrichPOST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.data.person.last_name).toBe("Silva");
+      expect(data.data.person.email).toBe("joao@empresa.com");
+      expect(data.data.organization.name).toBe("Empresa SA");
+    });
+
+    it("returns validation error when apolloId is missing", async () => {
+      const request = new NextRequest(
+        "http://localhost:3000/api/integrations/apollo/enrich",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            revealPersonalEmails: true,
+          }),
+        }
+      );
+
+      const response = await EnrichPOST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("returns 401 when user is not authenticated", async () => {
+      const { getCurrentUserProfile } = await import("@/lib/supabase/tenant");
+      vi.mocked(getCurrentUserProfile).mockResolvedValueOnce(null);
+
+      const request = new NextRequest(
+        "http://localhost:3000/api/integrations/apollo/enrich",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apolloId: "apollo-1" }),
+        }
+      );
+
+      const response = await EnrichPOST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(401);
+      expect(data.error.code).toBe("UNAUTHORIZED");
+      expect(data.error.message).toBe("Não autenticado");
+    });
+
+    it("returns Portuguese error when person not found", async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ person: null, organization: null }),
+      });
+
+      const request = new NextRequest(
+        "http://localhost:3000/api/integrations/apollo/enrich",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apolloId: "nonexistent-id" }),
+        }
+      );
+
+      const response = await EnrichPOST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(404);
+      expect(data.error.message).toMatch(/não encontrada/i);
+    });
+
+    it("returns Portuguese error when webhook missing for phone", async () => {
+      const request = new NextRequest(
+        "http://localhost:3000/api/integrations/apollo/enrich",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            apolloId: "apollo-1",
+            revealPhoneNumber: true,
+            // missing webhookUrl
+          }),
+        }
+      );
+
+      const response = await EnrichPOST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error.message).toMatch(/webhook/i);
+    });
+  });
+
+  describe("POST /api/integrations/apollo/enrich/bulk", () => {
+    it("returns enriched people on successful bulk Apollo API call", async () => {
+      const mockBulkResponse = {
+        matches: [
+          {
+            person: {
+              id: "apollo-1",
+              first_name: "João",
+              last_name: "Silva",
+              email: "joao@empresa.com",
+              email_status: "verified",
+              title: "CEO",
+              city: "São Paulo",
+              state: "SP",
+              country: "Brazil",
+              linkedin_url: null,
+              photo_url: null,
+              employment_history: [],
+            },
+            organization: null,
+          },
+          {
+            person: {
+              id: "apollo-2",
+              first_name: "Maria",
+              last_name: "Santos",
+              email: "maria@empresa.com",
+              email_status: "verified",
+              title: "CTO",
+              city: "Rio de Janeiro",
+              state: "RJ",
+              country: "Brazil",
+              linkedin_url: null,
+              photo_url: null,
+              employment_history: [],
+            },
+            organization: null,
+          },
+        ],
+        missing: 0,
+      };
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockBulkResponse),
+      });
+
+      const request = new NextRequest(
+        "http://localhost:3000/api/integrations/apollo/enrich/bulk",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            apolloIds: ["apollo-1", "apollo-2"],
+          }),
+        }
+      );
+
+      const response = await BulkEnrichPOST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.data).toHaveLength(2);
+      expect(data.data[0].last_name).toBe("Silva");
+      expect(data.data[1].last_name).toBe("Santos");
+      expect(data.meta.total).toBe(2);
+    });
+
+    it("returns validation error when apolloIds exceeds 10", async () => {
+      const request = new NextRequest(
+        "http://localhost:3000/api/integrations/apollo/enrich/bulk",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            apolloIds: Array.from({ length: 11 }, (_, i) => `apollo-${i}`),
+          }),
+        }
+      );
+
+      const response = await BulkEnrichPOST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error.code).toBe("VALIDATION_ERROR");
+      expect(data.error.message).toMatch(/inválidos|lote/i);
+    });
+
+    it("returns validation error when apolloIds is empty", async () => {
+      const request = new NextRequest(
+        "http://localhost:3000/api/integrations/apollo/enrich/bulk",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            apolloIds: [],
+          }),
+        }
+      );
+
+      const response = await BulkEnrichPOST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("returns 401 when user is not authenticated", async () => {
+      const { getCurrentUserProfile } = await import("@/lib/supabase/tenant");
+      vi.mocked(getCurrentUserProfile).mockResolvedValueOnce(null);
+
+      const request = new NextRequest(
+        "http://localhost:3000/api/integrations/apollo/enrich/bulk",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apolloIds: ["apollo-1"] }),
+        }
+      );
+
+      const response = await BulkEnrichPOST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(401);
+      expect(data.error.code).toBe("UNAUTHORIZED");
+    });
+
+    it("returns Portuguese error when webhook missing for phone", async () => {
+      const request = new NextRequest(
+        "http://localhost:3000/api/integrations/apollo/enrich/bulk",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            apolloIds: ["apollo-1"],
+            revealPhoneNumber: true,
+            // missing webhookUrl
+          }),
+        }
+      );
+
+      const response = await BulkEnrichPOST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error.message).toMatch(/webhook/i);
+    });
+
+    it("filters out null results from bulk response", async () => {
+      const mockBulkResponse = {
+        matches: [
+          {
+            person: {
+              id: "apollo-1",
+              first_name: "João",
+              last_name: "Silva",
+              email: null,
+              email_status: null,
+              title: null,
+              city: null,
+              state: null,
+              country: null,
+              linkedin_url: null,
+              photo_url: null,
+              employment_history: [],
+            },
+            organization: null,
+          },
+          {
+            person: null, // Not found
+            organization: null,
+          },
+        ],
+        missing: 1,
+      };
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockBulkResponse),
+      });
+
+      const request = new NextRequest(
+        "http://localhost:3000/api/integrations/apollo/enrich/bulk",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            apolloIds: ["apollo-1", "apollo-2"],
+          }),
+        }
+      );
+
+      const response = await BulkEnrichPOST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.data).toHaveLength(1);
+      expect(data.data[0].first_name).toBe("João");
     });
   });
 });

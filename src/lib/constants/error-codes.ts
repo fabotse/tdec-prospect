@@ -22,7 +22,13 @@ export type ErrorCode =
   | "APOLLO_RATE_LIMIT"
   | "APOLLO_INVALID_KEY"
   | "APOLLO_TIMEOUT"
-  | "APOLLO_NOT_CONFIGURED";
+  | "APOLLO_NOT_CONFIGURED"
+  // Apollo enrichment errors (Story 3.2.1)
+  | "APOLLO_ENRICHMENT_NOT_FOUND"
+  | "APOLLO_ENRICHMENT_GDPR"
+  | "APOLLO_BULK_LIMIT_EXCEEDED"
+  | "APOLLO_CREDITS_INSUFFICIENT"
+  | "APOLLO_WEBHOOK_REQUIRED";
 
 // ==============================================
 // ERROR MESSAGES (Portuguese)
@@ -45,6 +51,17 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
     "Tempo limite excedido ao conectar com Apollo. Tente novamente.",
   APOLLO_NOT_CONFIGURED:
     "API key do Apollo não configurada. Configure em Configurações > Integrações.",
+
+  // Apollo enrichment errors (Story 3.2.1)
+  APOLLO_ENRICHMENT_NOT_FOUND:
+    "Pessoa não encontrada no Apollo para enriquecimento.",
+  APOLLO_ENRICHMENT_GDPR:
+    "Email pessoal não disponível devido a regulamentações GDPR.",
+  APOLLO_BULK_LIMIT_EXCEEDED:
+    "Máximo de 10 leads por requisição de enriquecimento em lote.",
+  APOLLO_CREDITS_INSUFFICIENT:
+    "Créditos insuficientes no Apollo para enriquecimento.",
+  APOLLO_WEBHOOK_REQUIRED: "Webhook URL obrigatória para obter telefone.",
 };
 
 // ==============================================
