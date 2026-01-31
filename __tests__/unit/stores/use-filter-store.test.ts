@@ -33,6 +33,7 @@ describe("filterStore", () => {
     expect(state.filters.titles).toEqual([]);
     expect(state.filters.keywords).toBe("");
     expect(state.filters.contactEmailStatuses).toEqual([]);
+    expect(state.filters.leadStatuses).toEqual([]);
   });
 
   it("initializes with panel collapsed", () => {
@@ -110,6 +111,24 @@ describe("filterStore", () => {
     expect(useFilterStore.getState().isDirty).toBe(true);
   });
 
+  // Story 4.2: Lead status filter
+  it("updates leadStatuses correctly", () => {
+    act(() => {
+      useFilterStore.getState().setLeadStatuses(["novo", "interessado"]);
+    });
+
+    const state = useFilterStore.getState();
+    expect(state.filters.leadStatuses).toEqual(["novo", "interessado"]);
+  });
+
+  it("marks isDirty as true when leadStatuses change", () => {
+    act(() => {
+      useFilterStore.getState().setLeadStatuses(["novo"]);
+    });
+
+    expect(useFilterStore.getState().isDirty).toBe(true);
+  });
+
   it("marks isDirty as true when filters change", () => {
     act(() => {
       useFilterStore.getState().setIndustries(["technology"]);
@@ -142,6 +161,7 @@ describe("filterStore", () => {
     expect(state.filters.titles).toEqual([]);
     expect(state.filters.keywords).toBe("");
     expect(state.filters.contactEmailStatuses).toEqual([]);
+    expect(state.filters.leadStatuses).toEqual([]);
     expect(state.isDirty).toBe(false);
   });
 
@@ -185,6 +205,7 @@ describe("getActiveFilterCount", () => {
       titles: [],
       keywords: "",
       contactEmailStatuses: [],
+      leadStatuses: [],
     });
 
     expect(count).toBe(0);
@@ -198,6 +219,7 @@ describe("getActiveFilterCount", () => {
       titles: [],
       keywords: "",
       contactEmailStatuses: [],
+      leadStatuses: [],
     });
 
     expect(count).toBe(1);
@@ -211,6 +233,7 @@ describe("getActiveFilterCount", () => {
       titles: ["CEO", "CTO"],
       keywords: "software",
       contactEmailStatuses: [],
+      leadStatuses: [],
     });
 
     expect(count).toBe(5);
@@ -224,6 +247,7 @@ describe("getActiveFilterCount", () => {
       titles: [],
       keywords: "   ",
       contactEmailStatuses: [],
+      leadStatuses: [],
     });
 
     expect(count).toBe(0);
@@ -238,12 +262,28 @@ describe("getActiveFilterCount", () => {
       titles: [],
       keywords: "",
       contactEmailStatuses: ["verified", "likely to engage"],
+      leadStatuses: [],
     });
 
     expect(count).toBe(1);
   });
 
-  it("counts all 6 filter types correctly", () => {
+  // Story 4.2: Test for leadStatuses filter count
+  it("counts leadStatuses as 1 when set", () => {
+    const count = getActiveFilterCount({
+      industries: [],
+      companySizes: [],
+      locations: [],
+      titles: [],
+      keywords: "",
+      contactEmailStatuses: [],
+      leadStatuses: ["novo", "interessado"],
+    });
+
+    expect(count).toBe(1);
+  });
+
+  it("counts all 7 filter types correctly", () => {
     const count = getActiveFilterCount({
       industries: ["technology"],
       companySizes: ["11-50"],
@@ -251,9 +291,10 @@ describe("getActiveFilterCount", () => {
       titles: ["CEO"],
       keywords: "software",
       contactEmailStatuses: ["verified"],
+      leadStatuses: ["novo"],
     });
 
-    expect(count).toBe(6);
+    expect(count).toBe(7);
   });
 });
 

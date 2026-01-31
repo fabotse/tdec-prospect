@@ -1,16 +1,25 @@
 /**
  * Lead Selection Bar
  * Story: 3.6 - Lead Selection (Individual & Batch)
+ * Story: 4.1 - Lead Segments/Lists
+ * Story: 4.2 - Lead Status Management
+ * Story: 4.2.1 - Lead Import Mechanism
  *
  * AC: #1 - Selection bar appears at bottom when leads selected
  * AC: #3 - Action buttons: "Criar Campanha", dropdown menu
  * AC: #5 - Clear selection functionality
  * AC: #6 - Bar not visible when no selection
+ * Story 4.1: AC #2 - "Adicionar ao Segmento" button in selection bar
+ * Story 4.2: AC #4 - Bulk status update from selection bar
+ * Story 4.2.1: AC #1 - "Importar Leads" button in selection bar
  */
 
 "use client";
 
+import { useMemo } from "react";
 import { useSelectionStore } from "@/stores/use-selection-store";
+import { useBulkUpdateStatus } from "@/hooks/use-lead-status";
+import { useImportLeads, type LeadDataForImport } from "@/hooks/use-import-leads";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -18,29 +27,82 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, X } from "lucide-react";
+import { MoreHorizontal, X, RefreshCw, Loader2, Download } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useRouter } from "next/navigation";
+import { SegmentDropdown } from "./SegmentDropdown";
+import { LeadStatusBadge } from "./LeadStatusBadge";
+import { LEAD_STATUSES, type LeadStatus } from "@/types/lead";
+import type { Lead } from "@/types/lead";
 
 interface LeadSelectionBarProps {
   /** Optional: limit count display to visible leads only */
   visibleSelectedCount?: number;
+  /** All available leads to filter selected ones from */
+  leads?: Lead[];
 }
 
 export function LeadSelectionBar({
   visibleSelectedCount,
+  leads = [],
 }: LeadSelectionBarProps) {
   const { selectedIds, clearSelection } = useSelectionStore();
   const router = useRouter();
 
+  // Story 4.2: AC #4 - Bulk status update
+  const bulkStatusMutation = useBulkUpdateStatus();
+
+  // Story 4.2.1: AC #1 - Import leads
+  const importMutation = useImportLeads();
+
   // Use visible count if provided, otherwise total selected
   const count = visibleSelectedCount ?? selectedIds.length;
+
+  // Get full lead objects for selected IDs
+  const selectedLeads = useMemo(() => {
+    const selectedIdSet = new Set(selectedIds);
+    return leads.filter((lead) => selectedIdSet.has(lead.id));
+  }, [leads, selectedIds]);
+
+  // Story 4.2.1: AC #1, #4 - Prepare leads data for import
+  const leadsForImport = useMemo((): LeadDataForImport[] => {
+    return selectedLeads.map((lead) => ({
+      apolloId: lead.apolloId || lead.id,
+      firstName: lead.firstName,
+      lastName: lead.lastName,
+      email: lead.email,
+      phone: lead.phone,
+      companyName: lead.companyName,
+      companySize: lead.companySize,
+      industry: lead.industry,
+      location: lead.location,
+      title: lead.title,
+      linkedinUrl: lead.linkedinUrl,
+      hasEmail: lead.hasEmail,
+      hasDirectPhone: lead.hasDirectPhone,
+    }));
+  }, [selectedLeads]);
+
+  // Story 4.2.1: AC #1 - Handle import leads action
+  const handleImportLeads = () => {
+    if (leadsForImport.length > 0) {
+      importMutation.mutate(leadsForImport);
+    }
+  };
 
   // Handle "Criar Campanha" action - pass selected IDs via query param
   const handleCreateCampaign = () => {
     const params = new URLSearchParams();
     params.set("leadIds", selectedIds.join(","));
     router.push(`/campaigns/new?${params.toString()}`);
+  };
+
+  // Story 4.2: AC #4 - Handle bulk status change
+  const handleBulkStatusChange = (status: LeadStatus) => {
+    bulkStatusMutation.mutate(
+      { leadIds: selectedIds, status },
+      { onSuccess: () => clearSelection() }
+    );
   };
 
   return (
@@ -72,7 +134,53 @@ export function LeadSelectionBar({
 
             {/* Action buttons */}
             <div className="flex items-center gap-2">
+              {/* Story 4.2.1: AC #1 - Import leads button */}
+              <Button
+                variant="secondary"
+                onClick={handleImportLeads}
+                disabled={importMutation.isPending || leadsForImport.length === 0}
+                className="gap-2"
+              >
+                {importMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                Importar Leads
+              </Button>
+
               <Button onClick={handleCreateCampaign}>Criar Campanha</Button>
+
+              {/* Story 4.1: AC #2 - Add to segment button */}
+              <SegmentDropdown selectedLeads={selectedLeads} />
+
+              {/* Story 4.2: AC #4 - Bulk status change */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    disabled={bulkStatusMutation.isPending}
+                    className="gap-2"
+                  >
+                    {bulkStatusMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                    Alterar Status
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {LEAD_STATUSES.map((statusConfig) => (
+                    <DropdownMenuItem
+                      key={statusConfig.value}
+                      onClick={() => handleBulkStatusChange(statusConfig.value)}
+                    >
+                      <LeadStatusBadge status={statusConfig.value} />
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -82,9 +190,6 @@ export function LeadSelectionBar({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem disabled>
-                    Adicionar ao Segmento (em breve)
-                  </DropdownMenuItem>
                   <DropdownMenuItem disabled>
                     Exportar CSV (em breve)
                   </DropdownMenuItem>

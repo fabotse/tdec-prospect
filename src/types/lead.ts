@@ -37,19 +37,66 @@ export const leadStatusLabels: Record<LeadStatus, string> = {
 };
 
 /**
- * Status badge variants for UI
- * Uses Badge component variants: default, secondary, destructive, outline, ghost, link
+ * Status badge color variants for UI
+ * Story 4.2: AC #5 - Status colors
+ * - Novo: default/neutral (gray)
+ * - Em Campanha: blue/primary
+ * - Interessado: green/success
+ * - Oportunidade: yellow/warning
+ * - Não Interessado: red/destructive
  */
-export const leadStatusVariants: Record<
-  LeadStatus,
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  novo: "secondary",
-  em_campanha: "default",
-  interessado: "default",
-  oportunidade: "default",
+export type LeadStatusVariant =
+  | "default"
+  | "secondary"
+  | "success"
+  | "warning"
+  | "destructive";
+
+export const leadStatusVariants: Record<LeadStatus, LeadStatusVariant> = {
+  novo: "default",
+  em_campanha: "secondary",
+  interessado: "success",
+  oportunidade: "warning",
   nao_interessado: "destructive",
 };
+
+/**
+ * Status configuration with label and color variant
+ * Story 4.2: AC #1, #5 - Status display configuration
+ */
+export interface LeadStatusConfig {
+  value: LeadStatus;
+  label: string;
+  variant: LeadStatusVariant;
+}
+
+/**
+ * All available lead statuses with their configurations
+ * Story 4.2: AC #2 - Status options for dropdown
+ */
+export const LEAD_STATUSES: LeadStatusConfig[] = leadStatusValues.map(
+  (value) => ({
+    value,
+    label: leadStatusLabels[value],
+    variant: leadStatusVariants[value],
+  })
+);
+
+/**
+ * Get status configuration by value
+ * Story 4.2: Helper function for status display
+ * @param status - Lead status value (defaults to "novo" if undefined/null)
+ */
+export function getStatusConfig(
+  status: LeadStatus | undefined | null
+): LeadStatusConfig {
+  const safeStatus = status ?? "novo";
+  return {
+    value: safeStatus,
+    label: leadStatusLabels[safeStatus],
+    variant: leadStatusVariants[safeStatus],
+  };
+}
 
 // ==============================================
 // LEAD INTERFACES
@@ -59,6 +106,7 @@ export const leadStatusVariants: Record<
  * Main Lead interface (camelCase for TypeScript)
  * AC: #3, #6 - Lead data structure
  * Story 3.5.1: Added hasEmail, hasDirectPhone for availability indicators
+ * Story 4.2.1 Fix: Added _isImported for distinguishing DB leads from Apollo-only
  */
 export interface Lead {
   id: string;
@@ -79,12 +127,19 @@ export interface Lead {
   hasDirectPhone: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Runtime flag indicating if lead exists in database
+   * Set by API after checking apollo_id against DB
+   * undefined = not checked, true = exists in DB, false = Apollo-only
+   */
+  _isImported?: boolean;
 }
 
 /**
  * Database row type (snake_case, for internal use)
  * Matches database schema exactly
  * Story 3.5.1: Added has_email, has_direct_phone for availability indicators
+ * Story 4.2.1 Fix: Added _is_imported for runtime tracking
  */
 export interface LeadRow {
   id: string;
@@ -105,6 +160,11 @@ export interface LeadRow {
   has_direct_phone: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Runtime flag (not in DB) - indicates if lead exists in database
+   * Set by API after checking apollo_id against DB
+   */
+  _is_imported?: boolean;
 }
 
 // ==============================================
@@ -115,6 +175,7 @@ export interface LeadRow {
  * Transform database row to Lead interface
  * Converts snake_case to camelCase
  * Story 3.5.1: Added hasEmail, hasDirectPhone mapping
+ * Story 4.2.1 Fix: Added _isImported mapping
  */
 export function transformLeadRow(row: LeadRow): Lead {
   return {
@@ -136,6 +197,7 @@ export function transformLeadRow(row: LeadRow): Lead {
     hasDirectPhone: row.has_direct_phone,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    _isImported: row._is_imported,
   };
 }
 
@@ -172,3 +234,42 @@ export const updateLeadSchema = createLeadSchema.partial().extend({
 });
 
 export type UpdateLeadInput = z.infer<typeof updateLeadSchema>;
+
+// ==============================================
+// IMPORT TRACKING (Story 4.2.1)
+// ==============================================
+
+/**
+ * Data structure for importing leads from Apollo to database
+ * Story 4.2.1: AC #1 - Import mechanism
+ */
+export interface LeadDataForImport {
+  apolloId: string;
+  firstName: string;
+  lastName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  companyName?: string | null;
+  companySize?: string | null;
+  industry?: string | null;
+  location?: string | null;
+  title?: string | null;
+  linkedinUrl?: string | null;
+  hasEmail?: boolean;
+  hasDirectPhone?: string | null;
+}
+
+/**
+ * Check if a lead has been imported (exists in database)
+ * Story 4.2.1: AC #3 - Import indicator logic
+ *
+ * Uses the _isImported flag set by API after checking apollo_id against DB.
+ * This is more reliable than UUID checking because transformApolloToLeadRow
+ * generates random UUIDs for all leads (for React key purposes).
+ *
+ * @param lead - Lead to check
+ * @returns true if lead has been imported to database
+ */
+export function isLeadImported(lead: Lead): boolean {
+  return lead._isImported === true;
+}

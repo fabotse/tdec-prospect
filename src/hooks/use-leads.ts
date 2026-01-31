@@ -2,16 +2,21 @@
  * Leads Hook
  * Story: 3.1 - Leads Page & Data Model
  * Story: 3.2 - Apollo API Integration Service
+ * Story: 3.8 - Lead Table Pagination
+ * Story: 4.1 - Lead Segments/Lists
  *
  * AC: #6 - TanStack Query structure for fetching leads
  * AC: #6 - Uses Apollo API via /api/integrations/apollo
+ * Story 3.8: AC #2, #5, #6 - Pagination state management
+ * Story 4.1: AC #3 - Segment filtering (client-side via filterLeadsBySegment)
  */
 
 "use client";
 
+import { useCallback, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Lead } from "@/types/lead";
-import type { ApolloSearchFilters } from "@/types/apollo";
+import type { ApolloSearchFilters, PaginationMeta } from "@/types/apollo";
 import type { APISuccessResponse, APIErrorResponse } from "@/types/api";
 import { isAPIError } from "@/types/api";
 
@@ -29,16 +34,36 @@ export interface LeadsFilters {
 }
 
 // ==============================================
+// PAGINATION TYPES (Story 3.8)
+// ==============================================
+
+/**
+ * Result from leads fetch including pagination
+ * Story 3.8: AC #1 - Returns leads with pagination metadata
+ */
+interface LeadsResult {
+  leads: Lead[];
+  pagination: PaginationMeta;
+}
+
+/**
+ * Default pagination values
+ */
+const DEFAULT_PAGE = 1;
+const DEFAULT_PER_PAGE = 25;
+
+// ==============================================
 // API FUNCTIONS
 // ==============================================
 
 /**
  * Fetch leads from Apollo API
+ * Story 3.8: Now returns leads with pagination metadata
  * AC: #6 - Actual fetch call to /api/integrations/apollo
  */
 async function fetchLeadsFromApollo(
   filters: ApolloSearchFilters
-): Promise<Lead[]> {
+): Promise<LeadsResult> {
   const response = await fetch("/api/integrations/apollo", {
     method: "POST",
     headers: {
@@ -55,7 +80,18 @@ async function fetchLeadsFromApollo(
     throw new Error(result.error.message);
   }
 
-  return result.data;
+  // Story 3.8: Extract pagination from meta
+  const pagination: PaginationMeta = {
+    totalEntries: result.meta?.total ?? 0,
+    page: result.meta?.page ?? DEFAULT_PAGE,
+    perPage: result.meta?.limit ?? DEFAULT_PER_PAGE,
+    totalPages: result.meta?.totalPages ?? 1,
+  };
+
+  return {
+    leads: result.data,
+    pagination,
+  };
 }
 
 // ==============================================
@@ -65,6 +101,7 @@ async function fetchLeadsFromApollo(
 /**
  * Hook for fetching leads with optional filters
  * Story 3.2: Now fetches from Apollo API
+ * Story 3.8: Returns pagination metadata
  *
  * @param filters - Apollo search filters (optional)
  * @param options - Query options
@@ -87,7 +124,8 @@ export function useLeads(
   });
 
   return {
-    data: data ?? [],
+    data: data?.leads ?? [],
+    pagination: data?.pagination ?? null,
     isLoading,
     isFetching,
     error: queryError instanceof Error ? queryError.message : null,
@@ -96,11 +134,16 @@ export function useLeads(
 }
 
 /**
- * Hook for searching leads with Apollo filters
+ * Hook for searching leads with Apollo filters and pagination
  * Story 3.2: Provides mutation for on-demand search
+ * Story 3.8: AC #2, #5, #6 - Pagination state management
  */
 export function useSearchLeads() {
   const queryClient = useQueryClient();
+
+  // Story 3.8: AC #5 - Pagination state
+  const [page, setPageState] = useState(DEFAULT_PAGE);
+  const [perPage, setPerPageState] = useState(DEFAULT_PER_PAGE);
 
   const mutation = useMutation({
     mutationFn: fetchLeadsFromApollo,
@@ -110,13 +153,65 @@ export function useSearchLeads() {
     },
   });
 
+  // Story 3.8: AC #2 - Set page with validation
+  const setPage = useCallback((newPage: number) => {
+    setPageState(Math.max(1, Math.min(newPage, 500)));
+  }, []);
+
+  // Story 3.8: AC #3, #5 - Set perPage and reset page to 1
+  const setPerPage = useCallback((newPerPage: number) => {
+    setPerPageState(Math.max(1, Math.min(newPerPage, 100)));
+    setPageState(DEFAULT_PAGE); // Reset to page 1 when changing page size
+  }, []);
+
+  // Story 3.8: AC #5 - Reset page when searching with new filters
+  // Fix: Allow explicit page/perPage override via filters to avoid race condition
+  const search = useCallback(
+    (filters: ApolloSearchFilters) => {
+      // Include current pagination in the request
+      // Explicit page/perPage in filters override internal state (for race condition fix)
+      const filtersWithPagination = {
+        page,
+        perPage,
+        ...filters, // Explicit values override defaults
+      };
+      mutation.mutate(filtersWithPagination);
+    },
+    [mutation, page, perPage]
+  );
+
+  const searchAsync = useCallback(
+    async (filters: ApolloSearchFilters) => {
+      // Explicit page/perPage in filters override internal state (for race condition fix)
+      const filtersWithPagination = {
+        page,
+        perPage,
+        ...filters, // Explicit values override defaults
+      };
+      return mutation.mutateAsync(filtersWithPagination);
+    },
+    [mutation, page, perPage]
+  );
+
+  // Story 3.8: AC #5 - Reset page to 1 (call when filters change)
+  const resetPage = useCallback(() => {
+    setPageState(DEFAULT_PAGE);
+  }, []);
+
   return {
-    search: mutation.mutate,
-    searchAsync: mutation.mutateAsync,
-    data: mutation.data ?? [],
+    search,
+    searchAsync,
+    data: mutation.data?.leads ?? [],
+    pagination: mutation.data?.pagination ?? null,
     isLoading: mutation.isPending,
     error: mutation.error instanceof Error ? mutation.error.message : null,
     reset: mutation.reset,
+    // Story 3.8: Pagination controls
+    page,
+    perPage,
+    setPage,
+    setPerPage,
+    resetPage,
   };
 }
 
@@ -131,11 +226,54 @@ export function useLeadCount() {
   const queryClient = useQueryClient();
 
   // Get all cached leads data (from any filter combination)
-  const cachedData = queryClient.getQueryData<Lead[]>(LEADS_QUERY_KEY);
+  const cachedData = queryClient.getQueryData<LeadsResult>(LEADS_QUERY_KEY);
 
   return {
-    count: cachedData?.length ?? 0,
+    count: cachedData?.leads?.length ?? 0,
+    totalEntries: cachedData?.pagination?.totalEntries ?? 0,
     isLoading: false,
     error: null,
   };
+}
+
+// ==============================================
+// SEGMENT FILTERING UTILITIES (Story 4.1)
+// ==============================================
+
+/**
+ * Filter leads by segment membership
+ * Story 4.1: AC #3 - Client-side filtering for leads in a segment
+ *
+ * @param leads - Array of leads to filter
+ * @param segmentLeadIds - Array of lead IDs that belong to the segment (from useSegmentLeadIds)
+ * @returns Filtered array of leads that are in the segment
+ */
+export function filterLeadsBySegment(
+  leads: Lead[],
+  segmentLeadIds: string[] | null | undefined
+): Lead[] {
+  if (!segmentLeadIds || segmentLeadIds.length === 0) {
+    return leads;
+  }
+  const segmentIdSet = new Set(segmentLeadIds);
+  return leads.filter((lead) => segmentIdSet.has(lead.id));
+}
+
+/**
+ * Filter leads by status
+ * Story 4.2: AC #3 - Client-side filtering for leads by status
+ *
+ * @param leads - Array of leads to filter
+ * @param statuses - Array of lead statuses to filter by
+ * @returns Filtered array of leads with matching status
+ */
+export function filterLeadsByStatus(
+  leads: Lead[],
+  statuses: string[] | null | undefined
+): Lead[] {
+  if (!statuses || statuses.length === 0) {
+    return leads;
+  }
+  const statusSet = new Set(statuses);
+  return leads.filter((lead) => statusSet.has(lead.status));
 }

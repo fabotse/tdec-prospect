@@ -1,6 +1,7 @@
 /**
  * Lead Table Component
  * Story: 3.5 - Lead Table Display
+ * Story: 4.2.1 - Lead Import Mechanism
  *
  * AC: #1 - Table with columns: checkbox, Nome, Empresa, Cargo, Localização, Status
  * AC: #2 - Airtable-inspired styling with hover states
@@ -10,6 +11,7 @@
  * AC: #6 - Keyboard accessibility
  * AC: #7 - Responsive design with sticky column
  * AC: #8 - Empty state
+ * Story 4.2.1: AC #3 - Import indicator column
  */
 
 "use client";
@@ -39,7 +41,8 @@ import {
   Phone,
 } from "lucide-react";
 import { Lead } from "@/types/lead";
-import { LeadStatusBadge } from "./LeadStatusBadge";
+import { LeadStatusDropdown } from "./LeadStatusDropdown";
+import { LeadImportIndicator } from "./LeadImportIndicator";
 import { cn } from "@/lib/utils";
 
 // ==============================================
@@ -54,7 +57,7 @@ interface SortState {
 }
 
 interface Column {
-  key: keyof Lead | "select" | "contact";
+  key: keyof Lead | "select" | "contact" | "import";
   label: string;
   defaultWidth: number;
   minWidth: number;
@@ -79,6 +82,15 @@ const COLUMNS: Column[] = [
     label: "",
     defaultWidth: 48,
     minWidth: 48,
+    sortable: false,
+    truncate: false,
+  },
+  // Story 4.2.1: AC #3 - Import indicator column
+  {
+    key: "import",
+    label: "",
+    defaultWidth: 32,
+    minWidth: 32,
     sortable: false,
     truncate: false,
   },
@@ -474,7 +486,7 @@ export function LeadTable({
                 data-testid={`lead-row-${lead.id}`}
                 className={cn(
                   // AC: #2 - Row height and alternating backgrounds
-                  "h-14",
+                  "h-14 hover:bg-muted/10",
                   rowIndex % 2 === 1 && "bg-muted/5",
                   selectedIds.includes(lead.id) && "bg-primary/5"
                 )}
@@ -483,7 +495,14 @@ export function LeadTable({
               >
                 {/* Checkbox column - sticky */}
                 <TableCell
-                  className="sticky left-0 bg-background"
+                  className={cn(
+                    "sticky left-0",
+                    selectedIds.includes(lead.id)
+                      ? "bg-primary/5"
+                      : rowIndex % 2 === 1
+                        ? "bg-muted/5"
+                        : "bg-background"
+                  )}
                   role="gridcell"
                   onFocus={() =>
                     setFocusedCell({ row: rowIndex + 1, col: 0 })
@@ -504,10 +523,16 @@ export function LeadTable({
                   />
                 </TableCell>
 
-                {/* Nome column - sticky */}
-                <TruncatedCell
-                  value={`${lead.firstName} ${lead.lastName ?? ""}`.trim()}
-                  className="sticky left-12 bg-background font-medium"
+                {/* Story 4.2.1: AC #3 - Import indicator column */}
+                <TableCell
+                  className={cn(
+                    selectedIds.includes(lead.id)
+                      ? "bg-primary/5"
+                      : rowIndex % 2 === 1
+                        ? "bg-muted/5"
+                        : "bg-background"
+                  )}
+                  role="gridcell"
                   onFocus={() =>
                     setFocusedCell({ row: rowIndex + 1, col: 1 })
                   }
@@ -517,11 +542,21 @@ export function LeadTable({
                       ? 0
                       : -1
                   }
-                />
+                >
+                  <LeadImportIndicator lead={lead} />
+                </TableCell>
 
-                {/* Empresa column */}
+                {/* Nome column - sticky */}
                 <TruncatedCell
-                  value={lead.companyName}
+                  value={`${lead.firstName} ${lead.lastName ?? ""}`.trim()}
+                  stickyBackground={
+                    selectedIds.includes(lead.id)
+                      ? "bg-primary/5"
+                      : rowIndex % 2 === 1
+                        ? "bg-muted/5"
+                        : "bg-background"
+                  }
+                  className="sticky left-12 font-medium"
                   onFocus={() =>
                     setFocusedCell({ row: rowIndex + 1, col: 2 })
                   }
@@ -533,9 +568,9 @@ export function LeadTable({
                   }
                 />
 
-                {/* Cargo column */}
+                {/* Empresa column */}
                 <TruncatedCell
-                  value={lead.title}
+                  value={lead.companyName}
                   onFocus={() =>
                     setFocusedCell({ row: rowIndex + 1, col: 3 })
                   }
@@ -547,9 +582,9 @@ export function LeadTable({
                   }
                 />
 
-                {/* Localização column */}
+                {/* Cargo column */}
                 <TruncatedCell
-                  value={lead.location}
+                  value={lead.title}
                   onFocus={() =>
                     setFocusedCell({ row: rowIndex + 1, col: 4 })
                   }
@@ -561,10 +596,9 @@ export function LeadTable({
                   }
                 />
 
-                {/* Contato column (Story 3.5.1: AC #1, #2, #5) */}
-                <ContactAvailabilityCell
-                  hasEmail={lead.hasEmail}
-                  hasDirectPhone={lead.hasDirectPhone}
+                {/* Localização column */}
+                <TruncatedCell
+                  value={lead.location}
                   onFocus={() =>
                     setFocusedCell({ row: rowIndex + 1, col: 5 })
                   }
@@ -576,9 +610,10 @@ export function LeadTable({
                   }
                 />
 
-                {/* Status column */}
-                <TableCell
-                  role="gridcell"
+                {/* Contato column (Story 3.5.1: AC #1, #2, #5) */}
+                <ContactAvailabilityCell
+                  hasEmail={lead.hasEmail}
+                  hasDirectPhone={lead.hasDirectPhone}
                   onFocus={() =>
                     setFocusedCell({ row: rowIndex + 1, col: 6 })
                   }
@@ -588,8 +623,22 @@ export function LeadTable({
                       ? 0
                       : -1
                   }
+                />
+
+                {/* Status column - Story 4.2: AC #2 - Click to change status */}
+                <TableCell
+                  role="gridcell"
+                  onFocus={() =>
+                    setFocusedCell({ row: rowIndex + 1, col: 7 })
+                  }
+                  tabIndex={
+                    focusedCell?.row === rowIndex + 1 &&
+                    focusedCell?.col === 7
+                      ? 0
+                      : -1
+                  }
                 >
-                  <LeadStatusBadge status={lead.status} />
+                  <LeadStatusDropdown lead={lead} currentStatus={lead.status} />
                 </TableCell>
               </TableRow>
             ))}
@@ -626,6 +675,7 @@ function SortIndicator({ direction }: { direction: SortDirection }) {
 interface TruncatedCellProps {
   value?: string | null;
   className?: string;
+  stickyBackground?: string;
   onFocus?: () => void;
   tabIndex?: number;
 }
@@ -634,13 +684,14 @@ interface TruncatedCellProps {
 function TruncatedCell({
   value,
   className,
+  stickyBackground,
   onFocus,
   tabIndex,
 }: TruncatedCellProps) {
   if (!value) {
     return (
       <TableCell
-        className={cn("text-muted-foreground", className)}
+        className={cn("text-muted-foreground", stickyBackground, className)}
         role="gridcell"
         onFocus={onFocus}
         tabIndex={tabIndex}
@@ -652,7 +703,7 @@ function TruncatedCell({
 
   return (
     <TableCell
-      className={cn("max-w-0", className)}
+      className={cn("max-w-0", stickyBackground, className)}
       role="gridcell"
       onFocus={onFocus}
       tabIndex={tabIndex}

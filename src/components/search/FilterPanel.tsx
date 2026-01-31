@@ -1,10 +1,12 @@
 /**
  * Filter Panel Component
  * Story: 3.3 - Traditional Filter Search
+ * Story: 3.7 - Saved Filters / Favorites
  *
  * AC: #1 - Filter panel with all filter fields
  * AC: #2 - Buscar button triggers search
  * AC: #4 - Limpar Filtros clears all values
+ * AC (3.7): #1-#4 - Save, list, apply, delete saved filters
  *
  * Collapsible filter panel for lead search.
  * Code Review Fix: Controlled inputs, accessibility, memory leak prevention.
@@ -32,8 +34,11 @@ import {
   INDUSTRIES,
   COMPANY_SIZES,
   EMAIL_STATUSES,
+  LEAD_STATUS_OPTIONS,
   getActiveFilterCount,
 } from "@/stores/use-filter-store";
+import { SaveFilterDialog } from "./SaveFilterDialog";
+import { SavedFiltersDropdown } from "./SavedFiltersDropdown";
 
 // ==============================================
 // TYPES
@@ -187,6 +192,7 @@ export function FilterPanel({ onSearch, isLoading }: FilterPanelProps) {
     setTitles,
     setKeywords,
     setContactEmailStatuses,
+    setLeadStatuses,
     clearFilters,
   } = useFilterStore();
 
@@ -297,29 +303,39 @@ export function FilterPanel({ onSearch, isLoading }: FilterPanelProps) {
     };
   }, []);
 
+  const hasActiveFilters = activeFilterCount > 0;
+
   return (
     <div className="space-y-4">
-      {/* Toggle Button */}
-      <div className="flex items-center gap-2">
-        <Button
-          variant="outline"
-          onClick={togglePanel}
-          className="gap-2"
-          data-testid="filter-toggle-button"
-        >
-          <Filter className="h-4 w-4" />
-          Filtros
-          {activeFilterCount > 0 && (
-            <Badge variant="secondary" className="ml-1">
-              {activeFilterCount}
-            </Badge>
-          )}
-          {isExpanded ? (
-            <ChevronUp className="h-4 w-4" />
-          ) : (
-            <ChevronDown className="h-4 w-4" />
-          )}
-        </Button>
+      {/* Toggle Button and Saved Filters Row (Story 3.7) */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={togglePanel}
+            className="gap-2"
+            data-testid="filter-toggle-button"
+          >
+            <Filter className="h-4 w-4" />
+            Filtros
+            {activeFilterCount > 0 && (
+              <Badge variant="secondary" className="ml-1">
+                {activeFilterCount}
+              </Badge>
+            )}
+            {isExpanded ? (
+              <ChevronUp className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
+          </Button>
+
+          {/* Story 3.7: Saved Filters Dropdown */}
+          <SavedFiltersDropdown />
+        </div>
+
+        {/* Story 3.7: Save Filter Button */}
+        <SaveFilterDialog disabled={!hasActiveFilters} />
       </div>
 
       {/* Filter Panel */}
@@ -410,6 +426,16 @@ export function FilterPanel({ onSearch, isLoading }: FilterPanelProps) {
                 onChange={setContactEmailStatuses}
                 placeholder="Selecione status"
                 testId="email-status-select"
+              />
+
+              {/* Lead Status Multi-Select (Story 4.2: AC #3) */}
+              <MultiSelect
+                label="Status do Lead"
+                options={LEAD_STATUS_OPTIONS}
+                selected={filters.leadStatuses}
+                onChange={setLeadStatuses}
+                placeholder="Selecione status"
+                testId="lead-status-select"
               />
             </div>
 

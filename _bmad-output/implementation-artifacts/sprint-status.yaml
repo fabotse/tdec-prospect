@@ -92,16 +92,23 @@ development_status:
   3-5-lead-table-display: done
   3-5-1-contact-availability-indicators: done  # Added: Email/phone availability icons + email status filter
   3-6-lead-selection-individual-batch: done
-  3-7-saved-filters-favorites: backlog
-  epic-3-retrospective: optional
+  3-7-saved-filters-favorites: done  # Code review: AC #4 undo fix applied
+  3-8-lead-table-pagination: done  # Code review: race condition fix, dead code removal, pagination tests added
+  epic-3-retrospective: done
 
   # Epic 4: Lead Management
-  epic-4: backlog
-  4-1-lead-segments-lists: backlog
-  4-2-lead-status-management: backlog
+  epic-4: in-progress
+  4-1-lead-segments-lists: done  # Code review: 4 HIGH, 3 MEDIUM fixes applied
+  4-2-lead-status-management: done  # Code review: 2 HIGH, 1 MEDIUM fixes applied (test logic, documentation)
+  # NEW STORIES - Lead Persistence Architecture (identified during 4.2 implementation)
+  # See: _bmad-output/implementation-artifacts/epic-4-lead-persistence-planning.md
+  4-2-1-lead-import-mechanism: done  # P0: Enables lead persistence, fixes 4.2 status bug. Code review: 3 HIGH, 1 MEDIUM fixes applied
+  4-2-2-my-leads-page: backlog  # P1: Dedicated view for saved/imported leads
+  4-2-3-sidebar-navigation-enhancement: backlog  # P1: Expandable Leads submenu (Buscar, Meus Leads)
+  # Original stories continue
   4-3-lead-detail-view-interaction-history: backlog
   4-4-signalhire-integration-service: backlog
-  4-5-phone-number-lookup: backlog
+  4-5-phone-number-lookup: backlog  # Depends on leads being persisted (4.2.1)
   4-6-interested-leads-highlighting: backlog
   4-7-import-campaign-results: backlog
   epic-4-retrospective: optional

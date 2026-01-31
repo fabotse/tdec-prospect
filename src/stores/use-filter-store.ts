@@ -1,14 +1,17 @@
 /**
  * Filter Store
  * Story: 3.3 - Traditional Filter Search
+ * Story: 4.2 - Lead Status Management
  *
  * AC: #1 - Filter state management
  * AC: #4 - Clear filters action
+ * AC (4.2): #3 - Filter by status
  *
  * Zustand store for managing lead search filter state.
  */
 
 import { create } from "zustand";
+import { LEAD_STATUSES } from "@/types/lead";
 
 // ==============================================
 // FILTER CONSTANTS
@@ -47,6 +50,15 @@ export const EMAIL_STATUSES = [
   { value: "unavailable", label: "Indisponível" },
 ] as const;
 
+/**
+ * Lead status filter options
+ * Story 4.2: AC #3 - Filter leads by status
+ */
+export const LEAD_STATUS_OPTIONS = LEAD_STATUSES.map((status) => ({
+  value: status.value,
+  label: status.label,
+}));
+
 // ==============================================
 // FILTER STATE TYPES
 // ==============================================
@@ -54,6 +66,7 @@ export const EMAIL_STATUSES = [
 /**
  * Filter values interface
  * Story 3.5.1: Added contactEmailStatuses for email status filter
+ * Story 4.2: Added leadStatuses for lead status filter
  */
 export interface FilterValues {
   industries: string[];
@@ -62,6 +75,7 @@ export interface FilterValues {
   titles: string[];
   keywords: string;
   contactEmailStatuses: string[];
+  leadStatuses: string[];
 }
 
 interface FilterState {
@@ -77,6 +91,7 @@ interface FilterActions {
   setTitles: (titles: string[]) => void;
   setKeywords: (keywords: string) => void;
   setContactEmailStatuses: (statuses: string[]) => void;
+  setLeadStatuses: (statuses: string[]) => void;
   setFilters: (filters: Partial<FilterValues>) => void;
   clearFilters: () => void;
   togglePanel: () => void;
@@ -94,6 +109,7 @@ const initialFilters: FilterValues = {
   titles: [],
   keywords: "",
   contactEmailStatuses: [],
+  leadStatuses: [],
 };
 
 // ==============================================
@@ -141,6 +157,12 @@ export const useFilterStore = create<FilterState & FilterActions>((set) => ({
       isDirty: true,
     })),
 
+  setLeadStatuses: (leadStatuses) =>
+    set((state) => ({
+      filters: { ...state.filters, leadStatuses },
+      isDirty: true,
+    })),
+
   setFilters: (newFilters) =>
     set((state) => ({
       filters: {
@@ -151,6 +173,7 @@ export const useFilterStore = create<FilterState & FilterActions>((set) => ({
         keywords: newFilters.keywords ?? state.filters.keywords,
         contactEmailStatuses:
           newFilters.contactEmailStatuses ?? state.filters.contactEmailStatuses,
+        leadStatuses: newFilters.leadStatuses ?? state.filters.leadStatuses,
       },
       isDirty: true,
     })),
@@ -179,6 +202,7 @@ export const useFilterStore = create<FilterState & FilterActions>((set) => ({
 /**
  * Get count of active filters
  * Story 3.5.1: Added contactEmailStatuses to count
+ * Story 4.2: Added leadStatuses to count
  */
 export function getActiveFilterCount(filters: FilterValues): number {
   let count = 0;
@@ -188,5 +212,6 @@ export function getActiveFilterCount(filters: FilterValues): number {
   if (filters.titles.length > 0) count++;
   if (filters.keywords.trim() !== "") count++;
   if (filters.contactEmailStatuses.length > 0) count++;
+  if (filters.leadStatuses.length > 0) count++;
   return count;
 }

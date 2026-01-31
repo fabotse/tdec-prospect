@@ -5,6 +5,8 @@
  * Story: 3.4 - AI Conversational Search
  * Story: 3.5 - Lead Table Display
  * Story: 3.6 - Lead Selection (Individual & Batch)
+ * Story: 3.8 - Lead Table Pagination
+ * Story: 4.1 - Lead Segments/Lists
  *
  * AC: #1 - Filter panel integration
  * AC: #2 - Search with filters, loading state
@@ -14,13 +16,16 @@
  * AC (3.4): #5 - Populate FilterPanel with AI-extracted values
  * AC (3.5): #1-8 - Lead table with sorting, resizing, accessibility
  * AC (3.6): #1, #6 - Selection bar appears when leads selected
+ * AC (3.8): #1-7 - Pagination controls with state management
+ * Story 4.1: AC #3 - Segment filter dropdown above results
  */
 
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { useSearchLeads } from "@/hooks/use-leads";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useSearchLeads, filterLeadsBySegment, filterLeadsByStatus } from "@/hooks/use-leads";
 import { useAISearch } from "@/hooks/use-ai-search";
+import { useSegmentLeadIds } from "@/hooks/use-segments";
 import { useFilterStore } from "@/stores/use-filter-store";
 import { useSelectionStore } from "@/stores/use-selection-store";
 import { FilterPanel } from "@/components/search/FilterPanel";
@@ -30,6 +35,8 @@ import { LeadsSearchEmptyState } from "@/components/leads/LeadsSearchEmptyState"
 import { LeadsPageSkeleton } from "@/components/leads/LeadsPageSkeleton";
 import { LeadTable } from "@/components/leads/LeadTable";
 import { LeadSelectionBar } from "@/components/leads/LeadSelectionBar";
+import { LeadTablePagination } from "@/components/leads/LeadTablePagination";
+import { SegmentFilter } from "@/components/leads/SegmentFilter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ApolloSearchFilters } from "@/types/apollo";
 import type { Lead } from "@/types/lead";
@@ -58,14 +65,47 @@ export function LeadsPageContent() {
   const [searchMode, setSearchMode] = useState<SearchMode>("ai");
   const [hasSearched, setHasSearched] = useState(false);
 
+  // Story 4.1: Segment filter state
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
+  const { data: segmentLeadIds } = useSegmentLeadIds(selectedSegmentId);
+
+  // Story 3.8: Store current filters for pagination re-fetch
+  const currentFiltersRef = useRef<ApolloSearchFilters>({});
+
   // Current data based on mode
-  const leads: Lead[] = searchMode === "ai" ? aiSearch.data : manualSearch.data;
+  const rawLeads: Lead[] = searchMode === "ai" ? aiSearch.data : manualSearch.data;
+
+  // Story 4.1: AC #3 - Filter leads by segment if segment is selected
+  // Story 4.2: AC #3 - Filter leads by status if status filter is active
+  // @perf: Client-side filtering is used for MVP. For large datasets (>1000 leads),
+  // consider implementing server-side filtering via API query parameter to avoid
+  // iterating through all leads on every render. See architecture.md for API patterns.
+  const leads = useMemo(() => {
+    let filteredLeads = rawLeads;
+
+    // Apply segment filter
+    if (selectedSegmentId) {
+      filteredLeads = filterLeadsBySegment(filteredLeads, segmentLeadIds);
+    }
+
+    // Apply status filter (Story 4.2: AC #3)
+    if (filters.leadStatuses.length > 0) {
+      filteredLeads = filterLeadsByStatus(filteredLeads, filters.leadStatuses);
+    }
+
+    return filteredLeads;
+  }, [rawLeads, selectedSegmentId, segmentLeadIds, filters.leadStatuses]);
+
   const isLoading =
     searchMode === "ai" ? aiSearch.isLoading : manualSearch.isLoading;
   const error = searchMode === "ai" ? aiSearch.error : manualSearch.error;
 
+  // Story 3.8: Get pagination state from manual search
+  const { pagination, page, perPage, setPage, setPerPage, resetPage } = manualSearch;
+
   // AC: #2 - Handle manual search with current filters
   // Story 3.5.1: Added contactEmailStatuses to filter mapping
+  // Story 3.8: AC #5 - Reset page to 1 when filters change
   const handleManualSearch = useCallback(() => {
     const apolloFilters: ApolloSearchFilters = {
       industries:
@@ -80,10 +120,13 @@ export function LeadsPageContent() {
           ? filters.contactEmailStatuses
           : undefined,
     };
+    // Story 3.8: Store filters for pagination and reset page
+    currentFiltersRef.current = apolloFilters;
+    resetPage();
     setSearchMode("manual");
     manualSearch.search(apolloFilters);
     setHasSearched(true);
-  }, [filters, manualSearch]);
+  }, [filters, manualSearch, resetPage]);
 
   // AC (3.4): #5 - When AI extracts filters, populate manual filter panel
   // Story 3.5.1: Added contactEmailStatuses to extracted filters
@@ -119,6 +162,28 @@ export function LeadsPageContent() {
     const visibleIds = new Set(leads.map((l) => l.id));
     return selectedIds.filter((id) => visibleIds.has(id)).length;
   }, [selectedIds, leads]);
+
+  // Story 3.8: AC #2 - Handle page change
+  // Fix: Pass explicit page value to avoid race condition with React setState
+  const handlePageChange = useCallback(
+    (newPage: number) => {
+      setPage(newPage);
+      // Re-fetch with explicit new page to avoid race condition
+      manualSearch.search({ ...currentFiltersRef.current, page: newPage });
+    },
+    [setPage, manualSearch]
+  );
+
+  // Story 3.8: AC #3 - Handle per page change
+  // Fix: Pass explicit perPage and reset page to 1 to avoid race condition
+  const handlePerPageChange = useCallback(
+    (newPerPage: number) => {
+      setPerPage(newPerPage);
+      // Re-fetch with explicit new perPage and page=1 to avoid race condition
+      manualSearch.search({ ...currentFiltersRef.current, perPage: newPerPage, page: 1 });
+    },
+    [setPerPage, manualSearch]
+  );
 
   return (
     <div className="space-y-6">
@@ -164,30 +229,56 @@ export function LeadsPageContent() {
       )}
 
       {/* Results - AC (3.5): Lead table with sorting, resizing, accessibility */}
+      {/* Story 3.8: AC #1 - Pagination controls below table */}
       {!isLoading && !error && hasSearched && leads.length > 0 && (
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <CardTitle
-              className="text-lg font-semibold"
+              className="text-base font-medium"
               data-testid="result-count"
             >
-              {leads.length} lead{leads.length !== 1 ? "s" : ""} encontrado
-              {leads.length !== 1 ? "s" : ""}
+              {/* Story 3.8: Show total from pagination if available */}
+              {/* Story 4.1: When segment filtered, show filtered count */}
+              {selectedSegmentId
+                ? leads.length.toLocaleString("pt-BR")
+                : (searchMode === "manual" && pagination?.totalEntries
+                    ? pagination.totalEntries.toLocaleString("pt-BR")
+                    : leads.length)}{" "}
+              lead
+              {leads.length !== 1 ? "s" : ""}{" "}
+              {selectedSegmentId ? "no segmento" : "encontrado" + (leads.length !== 1 ? "s" : "")}
             </CardTitle>
+            {/* Story 4.1: AC #3 - Segment filter dropdown */}
+            <SegmentFilter
+              selectedSegmentId={selectedSegmentId}
+              onSegmentChange={setSelectedSegmentId}
+            />
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <LeadTable
               leads={leads}
               selectedIds={selectedIds}
               onSelectionChange={setSelectedIds}
               isLoading={isLoading}
             />
+            {/* Story 3.8: AC #1, #6 - Pagination controls with loading state */}
+            {searchMode === "manual" && (
+              <LeadTablePagination
+                pagination={pagination}
+                page={page}
+                perPage={perPage}
+                onPageChange={handlePageChange}
+                onPerPageChange={handlePerPageChange}
+                isLoading={isLoading}
+              />
+            )}
           </CardContent>
         </Card>
       )}
 
       {/* Story 3.6: Selection Bar - Fixed at bottom */}
-      <LeadSelectionBar visibleSelectedCount={visibleSelectedCount} />
+      {/* Story 4.1: Pass leads for segment functionality */}
+      <LeadSelectionBar visibleSelectedCount={visibleSelectedCount} leads={leads} />
     </div>
   );
 }

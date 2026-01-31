@@ -74,11 +74,13 @@ describe("lead types", () => {
     });
 
     it("should have correct variants for each status", () => {
-      // shadcn/ui Badge only supports: default, secondary, destructive, outline
-      expect(leadStatusVariants.novo).toBe("secondary");
-      expect(leadStatusVariants.em_campanha).toBe("default");
-      expect(leadStatusVariants.interessado).toBe("default");
-      expect(leadStatusVariants.oportunidade).toBe("default");
+      // Story 4.2: AC #5 - Status color scheme
+      // Novo: gray/default, Em Campanha: blue/secondary, Interessado: green/success
+      // Oportunidade: yellow/warning, Não Interessado: red/destructive
+      expect(leadStatusVariants.novo).toBe("default");
+      expect(leadStatusVariants.em_campanha).toBe("secondary");
+      expect(leadStatusVariants.interessado).toBe("success");
+      expect(leadStatusVariants.oportunidade).toBe("warning");
       expect(leadStatusVariants.nao_interessado).toBe("destructive");
     });
   });
@@ -396,6 +398,33 @@ describe("lead types", () => {
     it("should return Lead interface type", () => {
       const result: Lead = transformLeadRow(mockLeadRow);
       expect(result).toBeDefined();
+    });
+
+    // Story 4.2.1 Fix: _isImported field tests
+    it("should transform _is_imported to _isImported when true", () => {
+      const rowImported: LeadRow = {
+        ...mockLeadRow,
+        _is_imported: true,
+      };
+
+      const result = transformLeadRow(rowImported);
+      expect(result._isImported).toBe(true);
+    });
+
+    it("should transform _is_imported to _isImported when false", () => {
+      const rowNotImported: LeadRow = {
+        ...mockLeadRow,
+        _is_imported: false,
+      };
+
+      const result = transformLeadRow(rowNotImported);
+      expect(result._isImported).toBe(false);
+    });
+
+    it("should handle undefined _is_imported", () => {
+      // mockLeadRow doesn't have _is_imported
+      const result = transformLeadRow(mockLeadRow);
+      expect(result._isImported).toBeUndefined();
     });
   });
 

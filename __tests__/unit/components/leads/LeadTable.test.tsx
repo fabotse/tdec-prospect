@@ -1,6 +1,7 @@
 /**
  * LeadTable Component Tests
  * Story: 3.5 - Lead Table Display
+ * Story 4.2: Lead Status Management
  *
  * AC: #1 - Table with columns: checkbox, Nome, Empresa, Cargo, Localização, Status
  * AC: #2 - Airtable-inspired styling with hover states
@@ -9,18 +10,55 @@
  * AC: #5 - Text truncation with tooltips
  * AC: #6 - Keyboard accessibility
  * AC: #8 - Empty state
+ * Story 4.2 AC#2: Status column with dropdown
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
 import * as matchers from "vitest-axe/matchers";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { LeadTable } from "@/components/leads/LeadTable";
 import { Lead } from "@/types/lead";
 
 // Extend Vitest matchers with axe
 expect.extend(matchers);
+
+// Mock sonner toast (used by LeadStatusDropdown via use-lead-status hook)
+vi.mock("sonner", () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
+// Mock fetch for API calls
+const mockFetch = vi.fn();
+global.fetch = mockFetch;
+
+// Create wrapper with QueryClientProvider
+function createWrapper() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+  };
+}
+
+// Custom render function with QueryClient wrapper
+// Story 4.2: LeadStatusDropdown requires QueryClient
+function renderLeadTable(ui: React.ReactElement) {
+  return render(ui, { wrapper: createWrapper() });
+}
 
 // ==============================================
 // TEST DATA
@@ -98,6 +136,15 @@ describe("LeadTable", () => {
 
   beforeEach(() => {
     onSelectionChange = vi.fn();
+    // Mock fetch for API calls (LeadStatusDropdown uses API)
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: {} }),
+    });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
   });
 
   // ==============================================
@@ -106,7 +153,7 @@ describe("LeadTable", () => {
 
   describe("Rendering", () => {
     it("renders table with correct column headers", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -124,7 +171,7 @@ describe("LeadTable", () => {
     });
 
     it("renders all lead rows", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -138,7 +185,7 @@ describe("LeadTable", () => {
     });
 
     it("renders lead data correctly in cells", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -159,7 +206,7 @@ describe("LeadTable", () => {
     });
 
     it("renders dash for null/empty values", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -174,7 +221,7 @@ describe("LeadTable", () => {
     });
 
     it("renders status badges with correct styling", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -194,7 +241,7 @@ describe("LeadTable", () => {
 
   describe("Empty State", () => {
     it("shows empty state when no leads", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={[]}
           selectedIds={[]}
@@ -209,7 +256,7 @@ describe("LeadTable", () => {
     });
 
     it("does not show table when no leads", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={[]}
           selectedIds={[]}
@@ -228,7 +275,7 @@ describe("LeadTable", () => {
   describe("Sorting", () => {
     it("sorts ascending on first header click", async () => {
       const user = userEvent.setup();
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -245,7 +292,7 @@ describe("LeadTable", () => {
 
     it("sorts descending on second header click", async () => {
       const user = userEvent.setup();
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -262,7 +309,7 @@ describe("LeadTable", () => {
 
     it("removes sort on third header click", async () => {
       const user = userEvent.setup();
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -280,7 +327,7 @@ describe("LeadTable", () => {
 
     it("shows sort indicator icons", async () => {
       const user = userEvent.setup();
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -302,7 +349,7 @@ describe("LeadTable", () => {
 
     it("sorts different columns independently", async () => {
       const user = userEvent.setup();
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -334,7 +381,7 @@ describe("LeadTable", () => {
   describe("Selection", () => {
     it("calls onSelectionChange when row checkbox clicked", async () => {
       const user = userEvent.setup();
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -351,7 +398,7 @@ describe("LeadTable", () => {
 
     it("selects all when header checkbox clicked", async () => {
       const user = userEvent.setup();
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -371,7 +418,7 @@ describe("LeadTable", () => {
 
     it("deselects all when header checkbox clicked with all selected", async () => {
       const user = userEvent.setup();
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={["lead-1", "lead-2", "lead-3"]}
@@ -386,7 +433,7 @@ describe("LeadTable", () => {
     });
 
     it("shows selected state on rows", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={["lead-1"]}
@@ -399,7 +446,7 @@ describe("LeadTable", () => {
     });
 
     it("shows indeterminate state when some rows selected", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={["lead-1"]}
@@ -419,7 +466,7 @@ describe("LeadTable", () => {
 
   describe("Accessibility", () => {
     it("has correct ARIA attributes on table", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -429,12 +476,12 @@ describe("LeadTable", () => {
 
       const table = screen.getByRole("grid");
       expect(table).toHaveAttribute("aria-rowcount", "4"); // header + 3 rows
-      // Story 3.5.1: Updated column count to 7 (added Contato column)
-      expect(table).toHaveAttribute("aria-colcount", "7");
+      // Story 4.2.1: Updated column count to 8 (added Import indicator column)
+      expect(table).toHaveAttribute("aria-colcount", "8");
     });
 
     it("has columnheader role on headers", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -443,12 +490,12 @@ describe("LeadTable", () => {
       );
 
       const headers = screen.getAllByRole("columnheader");
-      // Story 3.5.1: Updated to 7 columns (checkbox + 5 data columns + Contato)
-      expect(headers.length).toBe(7);
+      // Story 4.2.1: Updated to 8 columns (checkbox + import indicator + 5 data columns + Contato)
+      expect(headers.length).toBe(8);
     });
 
     it("has gridcell role on cells", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -457,12 +504,37 @@ describe("LeadTable", () => {
       );
 
       const cells = screen.getAllByRole("gridcell");
-      // Story 3.5.1: Updated to 21 cells (3 rows * 7 columns)
-      expect(cells.length).toBe(21);
+      // Story 4.2.1: Updated to 24 cells (3 rows * 8 columns)
+      expect(cells.length).toBe(24);
+    });
+
+    // Story 4.2.1: AC #3 - Import indicator column position
+    it("has import indicator in correct column position (after checkbox)", () => {
+      renderLeadTable(
+        <LeadTable
+          leads={mockLeads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      // Get first data row
+      const lead1Row = screen.getByTestId("lead-row-lead-1");
+      const cells = lead1Row.querySelectorAll("td");
+
+      // Column order: checkbox (0), import indicator (1), name (2), ...
+      // Import indicator cell should contain the indicator aria-label
+      const importIndicatorCell = cells[1];
+      expect(importIndicatorCell).toBeInTheDocument();
+
+      // Check that it contains either "salvo" or "não salvo" aria-label
+      const indicator = importIndicatorCell.querySelector("[aria-label]");
+      expect(indicator).toBeInTheDocument();
+      expect(indicator?.getAttribute("aria-label")).toMatch(/Lead.*salvo|Lead.*Apollo/);
     });
 
     it("has accessible labels on checkboxes", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -476,7 +548,7 @@ describe("LeadTable", () => {
     });
 
     it("supports keyboard navigation with arrow keys", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -501,7 +573,7 @@ describe("LeadTable", () => {
 
     // AC: Task 10 - Accessibility tests (axe-core)
     it("has no accessibility violations with leads", async () => {
-      const { container } = render(
+      const { container } = renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -514,7 +586,7 @@ describe("LeadTable", () => {
     });
 
     it("has no accessibility violations with empty state", async () => {
-      const { container } = render(
+      const { container } = renderLeadTable(
         <LeadTable
           leads={[]}
           selectedIds={[]}
@@ -527,7 +599,7 @@ describe("LeadTable", () => {
     });
 
     it("has no accessibility violations with selected rows", async () => {
-      const { container } = render(
+      const { container } = renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={["lead-1", "lead-2"]}
@@ -546,7 +618,7 @@ describe("LeadTable", () => {
 
   describe("Column Resizing", () => {
     it("renders resize handles on column headers", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -556,12 +628,12 @@ describe("LeadTable", () => {
 
       // Resize handles have role="separator"
       const resizeHandles = screen.getAllByRole("separator");
-      // Story 3.5.1: Updated to 6 (5 data columns + Contato, not checkbox)
-      expect(resizeHandles.length).toBe(6);
+      // Story 4.2.1: Updated to 7 (import indicator + 5 data columns + Contato, not checkbox)
+      expect(resizeHandles.length).toBe(7);
     });
 
     it("resize handles have correct aria attributes", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -583,7 +655,7 @@ describe("LeadTable", () => {
 
   describe("Tooltips", () => {
     it("renders tooltip triggers for truncatable cells", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -603,7 +675,7 @@ describe("LeadTable", () => {
 
   describe("Contact Availability Column", () => {
     it("renders Contato column header", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -615,7 +687,7 @@ describe("LeadTable", () => {
     });
 
     it("renders email and phone icons for each row", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
@@ -630,7 +702,7 @@ describe("LeadTable", () => {
 
     it("shows green email icon when hasEmail is true", async () => {
       const user = userEvent.setup();
-      render(
+      renderLeadTable(
         <LeadTable
           leads={[mockLeads[0]]} // Lead with hasEmail: true
           selectedIds={[]}
@@ -644,7 +716,7 @@ describe("LeadTable", () => {
     });
 
     it("shows gray email icon when hasEmail is false", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={[mockLeads[2]]} // Lead with hasEmail: false
           selectedIds={[]}
@@ -658,7 +730,7 @@ describe("LeadTable", () => {
     });
 
     it("shows green phone icon when hasDirectPhone is 'Yes'", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={[mockLeads[0]]} // Lead with hasDirectPhone: "Yes"
           selectedIds={[]}
@@ -672,7 +744,7 @@ describe("LeadTable", () => {
     });
 
     it("shows gray phone icon when hasDirectPhone is not 'Yes'", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={[mockLeads[1]]} // Lead with hasDirectPhone: "Maybe..."
           selectedIds={[]}
@@ -694,7 +766,7 @@ describe("LeadTable", () => {
 
   describe("Loading State", () => {
     it("does not show empty state when isLoading is true", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={[]}
           selectedIds={[]}
@@ -708,7 +780,7 @@ describe("LeadTable", () => {
     });
 
     it("shows empty state only when not loading and no leads", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={[]}
           selectedIds={[]}
@@ -722,7 +794,7 @@ describe("LeadTable", () => {
     });
 
     it("renders table with leads even when isLoading is true", () => {
-      render(
+      renderLeadTable(
         <LeadTable
           leads={mockLeads}
           selectedIds={[]}
