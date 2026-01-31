@@ -74,10 +74,11 @@ describe("lead types", () => {
     });
 
     it("should have correct variants for each status", () => {
+      // shadcn/ui Badge only supports: default, secondary, destructive, outline
       expect(leadStatusVariants.novo).toBe("secondary");
       expect(leadStatusVariants.em_campanha).toBe("default");
-      expect(leadStatusVariants.interessado).toBe("success");
-      expect(leadStatusVariants.oportunidade).toBe("success");
+      expect(leadStatusVariants.interessado).toBe("default");
+      expect(leadStatusVariants.oportunidade).toBe("default");
       expect(leadStatusVariants.nao_interessado).toBe("destructive");
     });
   });

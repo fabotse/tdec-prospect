@@ -60,6 +60,7 @@ interface FilterActions {
   setLocations: (locations: string[]) => void;
   setTitles: (titles: string[]) => void;
   setKeywords: (keywords: string) => void;
+  setFilters: (filters: Partial<FilterValues>) => void;
   clearFilters: () => void;
   togglePanel: () => void;
   setExpanded: (expanded: boolean) => void;
@@ -113,6 +114,18 @@ export const useFilterStore = create<FilterState & FilterActions>((set) => ({
   setKeywords: (keywords) =>
     set((state) => ({
       filters: { ...state.filters, keywords },
+      isDirty: true,
+    })),
+
+  setFilters: (newFilters) =>
+    set((state) => ({
+      filters: {
+        industries: newFilters.industries ?? state.filters.industries,
+        companySizes: newFilters.companySizes ?? state.filters.companySizes,
+        locations: newFilters.locations ?? state.filters.locations,
+        titles: newFilters.titles ?? state.filters.titles,
+        keywords: newFilters.keywords ?? state.filters.keywords,
+      },
       isDirty: true,
     })),
 

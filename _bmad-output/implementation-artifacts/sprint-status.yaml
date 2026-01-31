@@ -88,7 +88,7 @@ development_status:
   3-2-apollo-api-integration-service: done
   3-2-1-people-enrichment-integration: done  # Added: Enrich leads with complete data (email, phone, full last_name)
   3-3-traditional-filter-search: done
-  3-4-ai-conversational-search: backlog
+  3-4-ai-conversational-search: done
   3-5-lead-table-display: backlog
   3-6-lead-selection-individual-batch: backlog
   3-7-saved-filters-favorites: backlog

@@ -8,5 +8,6 @@ export * from "./integration";
 export * from "./knowledge-base";
 export * from "./lead";
 export * from "./apollo";
+export * from "./ai-search";
 // Note: team.ts exports UserRole which conflicts with database.ts
 // Import directly from "./team" when needed

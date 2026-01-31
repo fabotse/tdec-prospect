@@ -38,15 +38,16 @@ export const leadStatusLabels: Record<LeadStatus, string> = {
 
 /**
  * Status badge variants for UI
+ * Uses Badge component variants: default, secondary, destructive, outline, ghost, link
  */
 export const leadStatusVariants: Record<
   LeadStatus,
-  "default" | "secondary" | "success" | "warning" | "destructive"
+  "default" | "secondary" | "destructive" | "outline"
 > = {
   novo: "secondary",
   em_campanha: "default",
-  interessado: "success",
-  oportunidade: "success",
+  interessado: "default",
+  oportunidade: "default",
   nao_interessado: "destructive",
 };
 
