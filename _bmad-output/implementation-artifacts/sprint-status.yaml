@@ -106,8 +106,8 @@ development_status:
   4-2-2-my-leads-page: done  # P1: Dedicated view for saved/imported leads. Code review: 2 HIGH, 1 MEDIUM fixes applied
   4-2-3-sidebar-navigation-enhancement: done  # P1: Expandable Leads submenu (Buscar, Meus Leads). Code review: 1 HIGH, 4 MEDIUM, 4 LOW fixes applied
   # Original stories continue
-  4-3-lead-detail-view-interaction-history: backlog
-  4-4-signalhire-integration-service: backlog
+  4-3-lead-detail-view-interaction-history: done  # Code review: 2 HIGH, 4 MEDIUM, 4 LOW fixes applied (Zod validation, shared components, test coverage)
+  4-4-signalhire-integration-service: done  # Code review: 1 HIGH, 3 MEDIUM, 2 LOW fixes applied (timeout/retry, console.log, AbortController)
   4-5-phone-number-lookup: backlog  # Depends on leads being persisted (4.2.1)
   4-6-interested-leads-highlighting: backlog
   4-7-import-campaign-results: backlog

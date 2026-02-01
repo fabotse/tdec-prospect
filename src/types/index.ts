@@ -9,5 +9,9 @@ export * from "./knowledge-base";
 export * from "./lead";
 export * from "./apollo";
 export * from "./ai-search";
+export * from "./saved-filter";
+export * from "./segment";
+export * from "./interaction";
+export * from "./signalhire";
 // Note: team.ts exports UserRole which conflicts with database.ts
 // Import directly from "./team" when needed
