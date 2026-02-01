@@ -104,7 +104,7 @@ development_status:
   # See: _bmad-output/implementation-artifacts/epic-4-lead-persistence-planning.md
   4-2-1-lead-import-mechanism: done  # P0: Enables lead persistence, fixes 4.2 status bug. Code review: 3 HIGH, 1 MEDIUM fixes applied
   4-2-2-my-leads-page: done  # P1: Dedicated view for saved/imported leads. Code review: 2 HIGH, 1 MEDIUM fixes applied
-  4-2-3-sidebar-navigation-enhancement: backlog  # P1: Expandable Leads submenu (Buscar, Meus Leads)
+  4-2-3-sidebar-navigation-enhancement: done  # P1: Expandable Leads submenu (Buscar, Meus Leads). Code review: 1 HIGH, 4 MEDIUM, 4 LOW fixes applied
   # Original stories continue
   4-3-lead-detail-view-interaction-history: backlog
   4-4-signalhire-integration-service: backlog
