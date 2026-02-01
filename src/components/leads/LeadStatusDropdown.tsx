@@ -84,10 +84,13 @@ export function LeadStatusDropdown({ lead, currentStatus }: LeadStatusDropdownPr
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild disabled={isPending}>
-        <div className="inline-flex items-center gap-1">
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 bg-transparent border-0 p-0 cursor-pointer"
+        >
           <LeadStatusBadge status={currentStatus} interactive />
           {isPending && <Loader2 className="h-3 w-3 animate-spin" />}
-        </div>
+        </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         {LEAD_STATUSES.map((statusConfig) => (

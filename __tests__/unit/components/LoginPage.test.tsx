@@ -28,6 +28,8 @@ vi.mock("@/lib/supabase/client", () => ({
 describe("LoginPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPush.mockClear();
+    mockRefresh.mockClear();
     mockSignInWithPassword.mockResolvedValue({ error: null });
   });
 
@@ -286,6 +288,8 @@ describe("LoginPage", () => {
     });
 
     it("should not redirect on error", async () => {
+      // Ensure clean mock state before this test
+      mockPush.mockReset();
       mockSignInWithPassword.mockResolvedValue({
         error: { message: "Invalid login credentials" },
       });

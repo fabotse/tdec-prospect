@@ -32,24 +32,52 @@ vi.mock("@/lib/supabase/tenant", () => ({
   ),
 }));
 
-// Mock Supabase client for api_configs
+// Mock Supabase client for api_configs and leads queries
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(() =>
     Promise.resolve({
-      from: vi.fn(() => ({
-        select: vi.fn(() => ({
-          eq: vi.fn(() => ({
+      from: vi.fn((tableName: string) => {
+        if (tableName === "api_configs") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                eq: vi.fn(() => ({
+                  single: vi.fn(() =>
+                    Promise.resolve({
+                      data: { encrypted_key: "encrypted-api-key" },
+                      error: null,
+                    })
+                  ),
+                })),
+              })),
+            })),
+          };
+        }
+        // Handle leads table query for import status check
+        if (tableName === "leads") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                in: vi.fn(() =>
+                  Promise.resolve({
+                    data: [], // No existing leads
+                    error: null,
+                  })
+                ),
+              })),
+            })),
+          };
+        }
+        return {
+          select: vi.fn(() => ({
             eq: vi.fn(() => ({
-              single: vi.fn(() =>
-                Promise.resolve({
-                  data: { encrypted_key: "encrypted-api-key" },
-                  error: null,
-                })
-              ),
+              eq: vi.fn(() => ({
+                single: vi.fn(() => Promise.resolve({ data: null, error: null })),
+              })),
             })),
           })),
-        })),
-      })),
+        };
+      }),
     })
   ),
 }));
@@ -131,6 +159,7 @@ describe("Apollo API Route Integration", () => {
         total: 1,
         page: 1,
         limit: 25,
+        totalPages: 1,
       });
     });
 

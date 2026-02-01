@@ -17,7 +17,7 @@ const bulkUpdateSchema = z.object({
     .array(z.string().uuid("ID de lead inválido"))
     .min(1, "Selecione pelo menos um lead"),
   status: z.enum(leadStatusValues, {
-    errorMap: () => ({ message: "Status inválido" }),
+    message: "Status inválido",
   }),
 });
 
@@ -54,7 +54,7 @@ export async function PATCH(request: NextRequest) {
       {
         error: {
           code: "VALIDATION_ERROR",
-          message: validation.error.errors[0]?.message || "Dados inválidos",
+          message: validation.error.issues[0]?.message || "Dados inválidos",
         },
       },
       { status: 400 }

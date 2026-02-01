@@ -21,7 +21,7 @@ const uuidSchema = z.string().uuid("ID de lead inválido");
 // Status update schema
 const updateStatusSchema = z.object({
   status: z.enum(leadStatusValues, {
-    errorMap: () => ({ message: "Status inválido" }),
+    message: "Status inválido",
   }),
 });
 
@@ -69,7 +69,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       {
         error: {
           code: "VALIDATION_ERROR",
-          message: validation.error.errors[0]?.message || "Status inválido",
+          message: validation.error.issues[0]?.message || "Status inválido",
         },
       },
       { status: 400 }
