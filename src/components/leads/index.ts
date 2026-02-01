@@ -8,6 +8,7 @@
  * Story: 4.1 - Lead Segments/Lists
  * Story: 4.2 - Lead Status Management
  * Story: 4.2.1 - Lead Import Mechanism
+ * Story: 4.2.2 - My Leads Page
  */
 
 export { LeadsPageContent } from "./LeadsPageContent";
@@ -26,3 +27,7 @@ export { SegmentFilter } from "./SegmentFilter";
 // Story 4.2.1: Import indicator component
 // Note: isLeadImported helper function is exported from @/types/lead
 export { LeadImportIndicator } from "./LeadImportIndicator";
+// Story 4.2.2: My Leads page components
+export { MyLeadsPageContent } from "./MyLeadsPageContent";
+export { MyLeadsFilterBar } from "./MyLeadsFilterBar";
+export { MyLeadsEmptyState } from "./MyLeadsEmptyState";

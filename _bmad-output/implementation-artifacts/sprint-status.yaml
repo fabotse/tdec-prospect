@@ -103,7 +103,7 @@ development_status:
   # NEW STORIES - Lead Persistence Architecture (identified during 4.2 implementation)
   # See: _bmad-output/implementation-artifacts/epic-4-lead-persistence-planning.md
   4-2-1-lead-import-mechanism: done  # P0: Enables lead persistence, fixes 4.2 status bug. Code review: 3 HIGH, 1 MEDIUM fixes applied
-  4-2-2-my-leads-page: backlog  # P1: Dedicated view for saved/imported leads
+  4-2-2-my-leads-page: done  # P1: Dedicated view for saved/imported leads. Code review: 2 HIGH, 1 MEDIUM fixes applied
   4-2-3-sidebar-navigation-enhancement: backlog  # P1: Expandable Leads submenu (Buscar, Meus Leads)
   # Original stories continue
   4-3-lead-detail-view-interaction-history: backlog

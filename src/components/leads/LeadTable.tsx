@@ -2,6 +2,7 @@
  * Lead Table Component
  * Story: 3.5 - Lead Table Display
  * Story: 4.2.1 - Lead Import Mechanism
+ * Story: 4.2.2 - My Leads Page
  *
  * AC: #1 - Table with columns: checkbox, Nome, Empresa, Cargo, Localização, Status
  * AC: #2 - Airtable-inspired styling with hover states
@@ -12,6 +13,7 @@
  * AC: #7 - Responsive design with sticky column
  * AC: #8 - Empty state
  * Story 4.2.1: AC #3 - Import indicator column
+ * Story 4.2.2: AC #2 - Optional "Importado em" column
  */
 
 "use client";
@@ -46,6 +48,28 @@ import { LeadImportIndicator } from "./LeadImportIndicator";
 import { cn } from "@/lib/utils";
 
 // ==============================================
+// HELPERS
+// ==============================================
+
+/**
+ * Format date to Brazilian format (dd/MM/yyyy)
+ * Story 4.2.2: AC #2 - "Importado em" column formatting
+ */
+function formatBrazilianDate(dateString: string | null | undefined): string {
+  if (!dateString) return "-";
+  try {
+    const date = new Date(dateString);
+    return date.toLocaleDateString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  } catch {
+    return "-";
+  }
+}
+
+// ==============================================
 // TYPES
 // ==============================================
 
@@ -70,6 +94,8 @@ interface LeadTableProps {
   selectedIds: string[];
   onSelectionChange: (ids: string[]) => void;
   isLoading?: boolean;
+  /** Story 4.2.2: Show "Importado em" column with creation date */
+  showCreatedAt?: boolean;
 }
 
 // ==============================================
@@ -143,6 +169,15 @@ const COLUMNS: Column[] = [
     sortable: true,
     truncate: false,
   },
+  // Story 4.2.2: AC #2 - "Importado em" column (optional, shown via showCreatedAt prop)
+  {
+    key: "createdAt",
+    label: "Importado em",
+    defaultWidth: 130,
+    minWidth: 100,
+    sortable: true,
+    truncate: false,
+  },
 ];
 
 // ==============================================
@@ -154,7 +189,13 @@ export function LeadTable({
   selectedIds,
   onSelectionChange,
   isLoading = false,
+  showCreatedAt = false,
 }: LeadTableProps) {
+  // Story 4.2.2: Filter columns based on showCreatedAt prop
+  const visibleColumns = useMemo(() => {
+    if (showCreatedAt) return COLUMNS;
+    return COLUMNS.filter((col) => col.key !== "createdAt");
+  }, [showCreatedAt]);
   // Sort state
   const [sort, setSort] = useState<SortState>({
     column: null,
@@ -303,7 +344,7 @@ export function LeadTable({
 
       const { row, col } = focusedCell;
       const maxRow = sortedLeads.length;
-      const maxCol = COLUMNS.length - 1;
+      const maxCol = visibleColumns.length - 1;
 
       switch (e.key) {
         case "ArrowDown":
@@ -410,11 +451,11 @@ export function LeadTable({
           onKeyDown={handleKeyDown}
           role="grid"
           aria-rowcount={sortedLeads.length + 1}
-          aria-colcount={COLUMNS.length}
+          aria-colcount={visibleColumns.length}
         >
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
-              {COLUMNS.map((col, colIndex) => (
+              {visibleColumns.map((col, colIndex) => (
                 <TableHead
                   key={col.key}
                   style={{
@@ -640,6 +681,25 @@ export function LeadTable({
                 >
                   <LeadStatusDropdown lead={lead} currentStatus={lead.status} />
                 </TableCell>
+
+                {/* Story 4.2.2: AC #2 - Importado em column (optional) */}
+                {showCreatedAt && (
+                  <TableCell
+                    role="gridcell"
+                    className="text-muted-foreground"
+                    onFocus={() =>
+                      setFocusedCell({ row: rowIndex + 1, col: 8 })
+                    }
+                    tabIndex={
+                      focusedCell?.row === rowIndex + 1 &&
+                      focusedCell?.col === 8
+                        ? 0
+                        : -1
+                    }
+                  >
+                    {formatBrazilianDate(lead.createdAt)}
+                  </TableCell>
+                )}
               </TableRow>
             ))}
           </TableBody>
