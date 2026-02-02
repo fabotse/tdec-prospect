@@ -2,12 +2,14 @@
  * Builder Store
  * Story 5.2: Campaign Builder Canvas
  * Story 5.4: Delay Block Component
+ * Story 5.7: Campaign Lead Association
  *
  * AC: #6 - Builder Store (Zustand)
  * AC 5.4: Default delay data initialization
+ * AC 5.7 #5: Lead count tracking
  *
  * Zustand store for managing campaign builder UI state.
- * Handles block sequence, selection, drag state, and change tracking.
+ * Handles block sequence, selection, drag state, change tracking, and lead count.
  */
 
 import { create } from "zustand";
@@ -35,6 +37,8 @@ interface BuilderState {
   isDragging: boolean;
   /** Whether there are unsaved changes */
   hasChanges: boolean;
+  /** Number of leads associated with campaign (Story 5.7 AC #5) */
+  leadCount: number;
 }
 
 interface BuilderActions {
@@ -56,6 +60,8 @@ interface BuilderActions {
   reset: () => void;
   /** Load blocks from campaign data */
   loadBlocks: (blocks: BuilderBlock[]) => void;
+  /** Set lead count (Story 5.7 AC #5) */
+  setLeadCount: (count: number) => void;
 }
 
 // ==============================================
@@ -67,6 +73,7 @@ const initialState: BuilderState = {
   selectedBlockId: null,
   isDragging: false,
   hasChanges: false,
+  leadCount: 0,
 };
 
 // ==============================================
@@ -141,4 +148,6 @@ export const useBuilderStore = create<BuilderState & BuilderActions>((set) => ({
   reset: () => set(initialState),
 
   loadBlocks: (blocks) => set({ blocks, hasChanges: false }),
+
+  setLeadCount: (count) => set({ leadCount: count }),
 }));

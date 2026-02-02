@@ -1,16 +1,19 @@
 /**
  * Campaign Builder Page
  * Story 5.2: Campaign Builder Canvas
+ * Story 5.7: Campaign Lead Association
  *
  * AC: #1 - Rota do Builder
+ * AC 5.7 #5 - Lead count display
+ * AC 5.7 #6 - Pre-selected leads from /leads page
  *
  * Main page for building campaign sequences with drag-and-drop blocks.
  */
 
 "use client";
 
-import { use, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { use, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   DndContext,
   DragEndEvent,
@@ -22,8 +25,14 @@ import {
 } from "@dnd-kit/core";
 import { Loader2 } from "lucide-react";
 import { useCampaign } from "@/hooks/use-campaigns";
+import { useCampaignLeads } from "@/hooks/use-campaign-leads";
 import { useBuilderStore } from "@/stores/use-builder-store";
-import { BuilderHeader, BuilderSidebar, BuilderCanvas } from "@/components/builder";
+import {
+  BuilderHeader,
+  BuilderSidebar,
+  BuilderCanvas,
+  AddLeadsDialog,
+} from "@/components/builder";
 
 interface PageProps {
   params: Promise<{ campaignId: string }>;
@@ -94,9 +103,42 @@ function ErrorState({ message }: { message: string }) {
  */
 export default function CampaignBuilderPage({ params }: PageProps) {
   const { campaignId } = use(params);
+  const searchParams = useSearchParams();
 
   const { data: campaign, isLoading, isError, error } = useCampaign(campaignId);
-  const { setDragging, addBlock, reorderBlocks, reset } = useBuilderStore();
+  const { setDragging, addBlock, reorderBlocks, reset, setLeadCount, setHasChanges } =
+    useBuilderStore();
+
+  // Story 5.7: Campaign leads management
+  const { leadCount, addLeads } = useCampaignLeads(campaignId);
+  const [isAddLeadsOpen, setIsAddLeadsOpen] = useState(false);
+  const hasAddedLeadsRef = useRef(false);
+
+  // Story 5.7 AC #5: Update store lead count when it changes
+  useEffect(() => {
+    setLeadCount(leadCount);
+  }, [leadCount, setLeadCount]);
+
+  // Story 5.7 AC #6: Auto-add pre-selected leads from query params
+  useEffect(() => {
+    // Prevent multiple executions (React Strict Mode / re-renders)
+    if (hasAddedLeadsRef.current) return;
+
+    const leadsParam = searchParams.get("leads");
+    if (leadsParam && campaignId) {
+      const leadIds = leadsParam.split(",").filter(Boolean);
+      if (leadIds.length > 0) {
+        hasAddedLeadsRef.current = true;
+        // Add leads and clear query params
+        addLeads.mutate(leadIds);
+        // Remove the leads param from URL without reload
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, "", newUrl);
+      }
+    }
+    // Note: addLeads excluded from deps as mutation object changes reference on every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, campaignId]);
 
   // Reset store when component unmounts or campaign changes
   useEffect(() => {
@@ -148,6 +190,16 @@ export default function CampaignBuilderPage({ params }: PageProps) {
     // This will be implemented in a future story
   };
 
+  // Story 5.7 AC #5: Handle opening add leads dialog
+  const handleAddLeads = () => {
+    setIsAddLeadsOpen(true);
+  };
+
+  // Story 5.7 AC #4: Mark hasChanges when leads are added
+  const handleLeadsAdded = () => {
+    setHasChanges(true);
+  };
+
   // Loading state
   if (isLoading) {
     return <LoadingState />;
@@ -180,12 +232,22 @@ export default function CampaignBuilderPage({ params }: PageProps) {
           campaignStatus={campaign.status}
           onNameChange={handleNameChange}
           onSave={handleSave}
+          leadCount={leadCount}
+          onAddLeads={handleAddLeads}
         />
         <div className="flex-1 flex overflow-hidden">
           <BuilderSidebar />
           <BuilderCanvas />
         </div>
       </div>
+
+      {/* Story 5.7: Add Leads Dialog */}
+      <AddLeadsDialog
+        open={isAddLeadsOpen}
+        onOpenChange={setIsAddLeadsOpen}
+        campaignId={campaignId}
+        onLeadsAdded={handleLeadsAdded}
+      />
     </DndContext>
   );
 }

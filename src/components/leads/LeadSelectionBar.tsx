@@ -6,6 +6,7 @@
  * Story: 4.2.1 - Lead Import Mechanism
  * Story: 4.4.1 - Lead Data Enrichment
  * Story: 4.5 - Phone Number Lookup
+ * Story: 5.7 - Campaign Lead Association
  *
  * AC: #1 - Selection bar appears at bottom when leads selected
  * AC: #3 - Action buttons: "Criar Campanha", dropdown menu
@@ -16,6 +17,7 @@
  * Story 4.2.1: AC #1 - "Importar Leads" button in selection bar
  * Story 4.4.1: AC #4 - Bulk enrichment from selection bar
  * Story 4.5: AC #4 - Batch phone lookup from selection bar
+ * Story 5.7: AC #6 - "Criar Campanha" redirects with pre-selected leads
  */
 
 "use client";
@@ -256,7 +258,13 @@ export function LeadSelectionBar({
                   </Button>
                 )}
 
-                <Button onClick={handleCreateCampaign}>Criar Campanha</Button>
+                {/* Story 5.7: AC #6 - Create campaign with selected leads */}
+                <Button
+                  onClick={handleCreateCampaign}
+                  data-testid="create-campaign-button"
+                >
+                  Criar Campanha
+                </Button>
 
                 {/* Story 4.1: AC #2 - Add to segment button */}
                 <SegmentDropdown selectedLeads={selectedLeads} />

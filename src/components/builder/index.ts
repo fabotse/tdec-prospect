@@ -5,6 +5,7 @@
  * Story 5.4: Delay Block Component
  * Story 5.5: Sequence Connector Lines
  * Story 5.6: Block Drag & Reorder
+ * Story 5.7: Campaign Lead Association
  *
  * Exports all builder-related components.
  */
@@ -17,3 +18,4 @@ export { EmailBlock } from "./EmailBlock";
 export { DelayBlock } from "./DelayBlock";
 export { SequenceConnector } from "./SequenceConnector";
 export { SortableBlock } from "./SortableBlock";
+export { AddLeadsDialog } from "./AddLeadsDialog";

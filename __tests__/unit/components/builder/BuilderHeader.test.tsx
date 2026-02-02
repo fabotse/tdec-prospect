@@ -1,8 +1,10 @@
 /**
  * BuilderHeader Component Tests
  * Story 5.2: Campaign Builder Canvas
+ * Story 5.7: Campaign Lead Association
  *
  * AC: #4 - Header do Builder
+ * AC 5.7 #5: Lead count display and add leads button
  */
 
 import { render, screen, fireEvent } from "@testing-library/react";
@@ -190,6 +192,48 @@ describe("BuilderHeader (AC: #4)", () => {
       render(<BuilderHeader {...defaultProps} campaignStatus="completed" />);
 
       expect(screen.getByTestId("campaign-status-badge")).toHaveTextContent("Concluida");
+    });
+  });
+
+  describe("Lead Count Button (Story 5.7 AC #5)", () => {
+    it("displays lead count button", () => {
+      render(<BuilderHeader {...defaultProps} />);
+
+      expect(screen.getByTestId("lead-count-button")).toBeInTheDocument();
+    });
+
+    it("shows 0 leads by default", () => {
+      render(<BuilderHeader {...defaultProps} />);
+
+      expect(screen.getByTestId("lead-count-button")).toHaveTextContent("0 leads");
+    });
+
+    it("shows singular form for 1 lead", () => {
+      render(<BuilderHeader {...defaultProps} leadCount={1} />);
+
+      expect(screen.getByTestId("lead-count-button")).toHaveTextContent("1 lead");
+    });
+
+    it("shows plural form for multiple leads", () => {
+      render(<BuilderHeader {...defaultProps} leadCount={5} />);
+
+      expect(screen.getByTestId("lead-count-button")).toHaveTextContent("5 leads");
+    });
+
+    it("calls onAddLeads when lead count button is clicked", () => {
+      const onAddLeads = vi.fn();
+      render(<BuilderHeader {...defaultProps} leadCount={3} onAddLeads={onAddLeads} />);
+
+      fireEvent.click(screen.getByTestId("lead-count-button"));
+
+      expect(onAddLeads).toHaveBeenCalledTimes(1);
+    });
+
+    it("has accessible aria-label", () => {
+      render(<BuilderHeader {...defaultProps} leadCount={3} />);
+
+      const button = screen.getByTestId("lead-count-button");
+      expect(button).toHaveAttribute("aria-label", expect.stringContaining("3 leads"));
     });
   });
 });

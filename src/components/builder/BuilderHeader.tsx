@@ -1,17 +1,19 @@
 /**
  * BuilderHeader Component
  * Story 5.2: Campaign Builder Canvas
+ * Story 5.7: Campaign Lead Association
  *
  * AC: #4 - Header do Builder
+ * AC 5.7 #5: Lead count display and add leads button
  *
- * Header showing campaign name (editable), status badge, and save button.
+ * Header showing campaign name (editable), status badge, lead count, and save button.
  */
 
 "use client";
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Save } from "lucide-react";
+import { ArrowLeft, Save, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +31,10 @@ interface BuilderHeaderProps {
   onNameChange?: (name: string) => void;
   onSave?: () => void;
   isSaving?: boolean;
+  /** Number of leads in campaign (Story 5.7 AC #5) */
+  leadCount?: number;
+  /** Callback when "Add Leads" button is clicked (Story 5.7 AC #5) */
+  onAddLeads?: () => void;
 }
 
 /**
@@ -59,6 +65,8 @@ export function BuilderHeader({
   onNameChange,
   onSave,
   isSaving = false,
+  leadCount = 0,
+  onAddLeads,
 }: BuilderHeaderProps) {
   const hasChanges = useBuilderStore((state) => state.hasChanges);
   const [isEditing, setIsEditing] = useState(false);
@@ -133,6 +141,21 @@ export function BuilderHeader({
         >
           {campaignStatusLabels[campaignStatus]}
         </Badge>
+
+        <div className="h-6 w-px bg-border" />
+
+        {/* Lead count button - Story 5.7 AC #5 */}
+        <Button
+          data-testid="lead-count-button"
+          variant="ghost"
+          size="sm"
+          onClick={onAddLeads}
+          className="gap-1.5"
+          aria-label={`${leadCount} lead${leadCount !== 1 ? "s" : ""} na campanha. Clique para adicionar ou ver leads.`}
+        >
+          <Users className="h-4 w-4" />
+          {leadCount} lead{leadCount !== 1 ? "s" : ""}
+        </Button>
       </div>
 
       {/* Right section: Save button */}
