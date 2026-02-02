@@ -2,10 +2,12 @@
  * Campaign Builder Page
  * Story 5.2: Campaign Builder Canvas
  * Story 5.7: Campaign Lead Association
+ * Story 5.8: Campaign Preview
  *
  * AC: #1 - Rota do Builder
  * AC 5.7 #5 - Lead count display
  * AC 5.7 #6 - Pre-selected leads from /leads page
+ * AC 5.8 - Preview panel integration
  *
  * Main page for building campaign sequences with drag-and-drop blocks.
  */
@@ -32,6 +34,7 @@ import {
   BuilderSidebar,
   BuilderCanvas,
   AddLeadsDialog,
+  CampaignPreviewPanel,
 } from "@/components/builder";
 
 interface PageProps {
@@ -113,6 +116,11 @@ export default function CampaignBuilderPage({ params }: PageProps) {
   const { leadCount, addLeads } = useCampaignLeads(campaignId);
   const [isAddLeadsOpen, setIsAddLeadsOpen] = useState(false);
   const hasAddedLeadsRef = useRef(false);
+
+  // Story 5.8: Campaign preview
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const blocks = useBuilderStore((state) => state.blocks);
+  const hasBlocks = blocks.length > 0;
 
   // Story 5.7 AC #5: Update store lead count when it changes
   useEffect(() => {
@@ -200,6 +208,11 @@ export default function CampaignBuilderPage({ params }: PageProps) {
     setHasChanges(true);
   };
 
+  // Story 5.8 AC #1: Handle opening preview panel
+  const handlePreview = () => {
+    setIsPreviewOpen(true);
+  };
+
   // Loading state
   if (isLoading) {
     return <LoadingState />;
@@ -234,6 +247,8 @@ export default function CampaignBuilderPage({ params }: PageProps) {
           onSave={handleSave}
           leadCount={leadCount}
           onAddLeads={handleAddLeads}
+          onPreview={handlePreview}
+          hasBlocks={hasBlocks}
         />
         <div className="flex-1 flex overflow-hidden">
           <BuilderSidebar />
@@ -247,6 +262,14 @@ export default function CampaignBuilderPage({ params }: PageProps) {
         onOpenChange={setIsAddLeadsOpen}
         campaignId={campaignId}
         onLeadsAdded={handleLeadsAdded}
+      />
+
+      {/* Story 5.8: Campaign Preview Panel */}
+      <CampaignPreviewPanel
+        open={isPreviewOpen}
+        onOpenChange={setIsPreviewOpen}
+        campaignName={campaign.name}
+        leadCount={leadCount}
       />
     </DndContext>
   );

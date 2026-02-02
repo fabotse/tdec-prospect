@@ -2,9 +2,11 @@
  * BuilderHeader Component Tests
  * Story 5.2: Campaign Builder Canvas
  * Story 5.7: Campaign Lead Association
+ * Story 5.8: Campaign Preview
  *
  * AC: #4 - Header do Builder
  * AC 5.7 #5: Lead count display and add leads button
+ * AC 5.8 #1: Preview button
  */
 
 import { render, screen, fireEvent } from "@testing-library/react";
@@ -234,6 +236,48 @@ describe("BuilderHeader (AC: #4)", () => {
 
       const button = screen.getByTestId("lead-count-button");
       expect(button).toHaveAttribute("aria-label", expect.stringContaining("3 leads"));
+    });
+  });
+
+  describe("Preview Button (Story 5.8 AC #1)", () => {
+    it("displays preview button", () => {
+      render(<BuilderHeader {...defaultProps} />);
+
+      expect(screen.getByTestId("preview-button")).toBeInTheDocument();
+    });
+
+    it("shows 'Preview' text", () => {
+      render(<BuilderHeader {...defaultProps} />);
+
+      expect(screen.getByTestId("preview-button")).toHaveTextContent("Preview");
+    });
+
+    it("disables preview button when no blocks", () => {
+      render(<BuilderHeader {...defaultProps} hasBlocks={false} />);
+
+      expect(screen.getByTestId("preview-button")).toBeDisabled();
+    });
+
+    it("enables preview button when has blocks", () => {
+      render(<BuilderHeader {...defaultProps} hasBlocks={true} />);
+
+      expect(screen.getByTestId("preview-button")).not.toBeDisabled();
+    });
+
+    it("calls onPreview when preview button is clicked", () => {
+      const onPreview = vi.fn();
+      render(<BuilderHeader {...defaultProps} hasBlocks={true} onPreview={onPreview} />);
+
+      fireEvent.click(screen.getByTestId("preview-button"));
+
+      expect(onPreview).toHaveBeenCalledTimes(1);
+    });
+
+    it("has accessible aria-label", () => {
+      render(<BuilderHeader {...defaultProps} hasBlocks={true} />);
+
+      const button = screen.getByTestId("preview-button");
+      expect(button).toHaveAttribute("aria-label", "Preview da campanha");
     });
   });
 });

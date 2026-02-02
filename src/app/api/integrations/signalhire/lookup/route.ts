@@ -1,13 +1,18 @@
 /**
  * SignalHire Phone Lookup API Route
  * Story: 4.4 - SignalHire Integration Service
+ * Story: 4.4.2 - SignalHire Callback Architecture
  *
  * POST /api/integrations/signalhire/lookup
- * Proxies phone lookup requests to SignalHire API.
+ * Initiates a phone lookup request via SignalHire API.
  *
- * AC: #2 - Requests proxied through API Routes
- * AC: #3 - Portuguese error messages
- * AC: #7 - Returns phone, creditsUsed, creditsRemaining
+ * AC 4.4.2 #3 - Iniciar Lookup com Callback URL
+ *
+ * NOVO FLUXO (4.4.2):
+ * 1. Cria registro em signalhire_lookups
+ * 2. Envia requisição para SignalHire com callbackUrl
+ * 3. Retorna lookupId para o frontend fazer polling
+ * 4. Frontend faz polling em GET /api/integrations/signalhire/lookup/[lookupId]
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -16,7 +21,7 @@ import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { SignalHireService } from "@/lib/services/signalhire";
 import { ExternalServiceError } from "@/lib/services/base-service";
 import type { APISuccessResponse, APIErrorResponse } from "@/types/api";
-import type { SignalHireLookupResult } from "@/types/signalhire";
+import type { SignalHireLookupInitResponse } from "@/types/signalhire";
 
 // ==============================================
 // REQUEST VALIDATION
@@ -39,6 +44,7 @@ const lookupSchema = z.object({
           "Identificador deve ser uma URL do LinkedIn, email ou telefone no formato E164",
       }
     ),
+  leadId: z.string().uuid().optional(),
 });
 
 // ==============================================
@@ -86,16 +92,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { identifier } = parseResult.data;
+    const { identifier, leadId } = parseResult.data;
 
-    // 3. Execute phone lookup via SignalHireService
+    // 3. Initiate phone lookup via SignalHireService
+    // AC 4.4.2 #3 - Returns lookupId for polling
     const signalHireService = new SignalHireService(tenantId);
-    const result = await signalHireService.lookupPhone(identifier);
+    const result = await signalHireService.lookupPhone(identifier, leadId);
 
-    // 4. Return success response
-    return NextResponse.json<APISuccessResponse<SignalHireLookupResult>>({
-      data: result,
-    });
+    // 4. Return success response with lookupId
+    return NextResponse.json<APISuccessResponse<SignalHireLookupInitResponse>>(
+      { data: result },
+      { status: 202 } // Accepted - processing started
+    );
   } catch (error) {
     console.error("[SignalHire Lookup API Route] Error:", error);
 
@@ -119,7 +127,7 @@ export async function POST(request: NextRequest) {
       {
         error: {
           code: "INTERNAL_ERROR",
-          message: "Erro interno ao buscar telefone",
+          message: "Erro interno ao iniciar busca de telefone",
         },
       },
       { status: 500 }

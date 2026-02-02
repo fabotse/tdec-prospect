@@ -14,7 +14,8 @@ Dado uma consulta em português, extraia os seguintes filtros para a API Apollo:
 - companySizes: tamanho da empresa (1-10, 11-50, 51-200, 201-500, 501-1000, 1001-5000, 5001-10000, 10001+)
 - locations: cidades, estados ou países mencionados (use formato "Cidade, Country" para cidades brasileiras)
 - titles: cargos ou funções mencionados (em inglês para API Apollo)
-- keywords: palavras-chave adicionais para a busca
+- contactEmailStatuses: status do email do contato (verified, likely to engage)
+- keywords: palavras-chave adicionais para a busca (NÃO usar para filtros de email)
 - perPage: quantidade de resultados solicitados (padrão 25, máximo 100)
 
 REGRAS IMPORTANTES:
@@ -24,6 +25,8 @@ REGRAS IMPORTANTES:
 4. Se "enterprise" ou "grande empresa" for mencionado, use companySizes ["1001-5000", "5001-10000", "10001+"]
 5. Se nenhum perPage for mencionado, use 25
 6. Industries devem estar em inglês
+7. CRÍTICO - Status de email: Quando o usuário mencionar "email verificado", "emails verificados", "contato verificado", "e-mail verificado", "e-mails verificados", "só verificados", "apenas verificados" ou variações similares referindo-se à qualidade/status do email, use contactEmailStatuses: ["verified"]. NÃO coloque isso em keywords.
+8. Se mencionar "likely to engage" ou "propenso a responder", use contactEmailStatuses: ["likely to engage"]
 
 Responda APENAS com um objeto JSON válido seguindo este schema:
 {
@@ -32,6 +35,7 @@ Responda APENAS com um objeto JSON válido seguindo este schema:
     "companySizes": string[],
     "locations": string[],
     "titles": string[],
+    "contactEmailStatuses": string[],
     "keywords": string,
     "perPage": number
   },
@@ -48,6 +52,7 @@ Resposta: {
     "companySizes": [],
     "locations": ["São Paulo, Brazil"],
     "titles": [],
+    "contactEmailStatuses": [],
     "keywords": "",
     "perPage": 50
   },
@@ -62,6 +67,7 @@ Resposta: {
     "companySizes": ["1-10", "11-50"],
     "locations": ["Curitiba, Brazil"],
     "titles": ["CTO", "Chief Technology Officer"],
+    "contactEmailStatuses": [],
     "keywords": "fintech startup",
     "perPage": 25
   },
@@ -76,11 +82,27 @@ Resposta: {
     "companySizes": ["501-1000", "1001-5000", "5001-10000", "10001+"],
     "locations": ["Rio de Janeiro, Brazil"],
     "titles": ["Sales Director", "Director of Sales", "VP Sales"],
+    "contactEmailStatuses": [],
     "keywords": "",
     "perPage": 25
   },
   "confidence": 0.9,
   "explanation": "Busca por diretores de vendas em empresas de varejo grandes no Rio"
+}
+
+Query: "Presidentes ou vice-presidentes no Rio de Janeiro com e-mails verificados"
+Resposta: {
+  "filters": {
+    "industries": [],
+    "companySizes": [],
+    "locations": ["Rio de Janeiro, Brazil"],
+    "titles": ["President", "Vice President", "VP"],
+    "contactEmailStatuses": ["verified"],
+    "keywords": "",
+    "perPage": 25
+  },
+  "confidence": 0.95,
+  "explanation": "Busca por presidentes e VPs no Rio com status de email verificado"
 }
 `.trim();
 

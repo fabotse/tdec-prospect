@@ -2,18 +2,20 @@
  * BuilderHeader Component
  * Story 5.2: Campaign Builder Canvas
  * Story 5.7: Campaign Lead Association
+ * Story 5.8: Campaign Preview
  *
  * AC: #4 - Header do Builder
  * AC 5.7 #5: Lead count display and add leads button
+ * AC 5.8 #1: Preview button
  *
- * Header showing campaign name (editable), status badge, lead count, and save button.
+ * Header showing campaign name (editable), status badge, lead count, preview, and save button.
  */
 
 "use client";
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Save, Users } from "lucide-react";
+import { ArrowLeft, Save, Users, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +37,10 @@ interface BuilderHeaderProps {
   leadCount?: number;
   /** Callback when "Add Leads" button is clicked (Story 5.7 AC #5) */
   onAddLeads?: () => void;
+  /** Callback when "Preview" button is clicked (Story 5.8 AC #1) */
+  onPreview?: () => void;
+  /** Whether the campaign has blocks (Story 5.8 AC #1) */
+  hasBlocks?: boolean;
 }
 
 /**
@@ -67,6 +73,8 @@ export function BuilderHeader({
   isSaving = false,
   leadCount = 0,
   onAddLeads,
+  onPreview,
+  hasBlocks = false,
 }: BuilderHeaderProps) {
   const hasChanges = useBuilderStore((state) => state.hasChanges);
   const [isEditing, setIsEditing] = useState(false);
@@ -158,8 +166,22 @@ export function BuilderHeader({
         </Button>
       </div>
 
-      {/* Right section: Save button */}
+      {/* Right section: Preview + Save buttons */}
       <div className="flex items-center gap-2">
+        {/* Preview button - Story 5.8 AC #1 */}
+        <Button
+          data-testid="preview-button"
+          variant="outline"
+          size="sm"
+          onClick={onPreview}
+          disabled={!hasBlocks}
+          aria-label="Preview da campanha"
+          className="gap-1.5"
+        >
+          <Eye className="h-4 w-4" />
+          Preview
+        </Button>
+
         <Button
           data-testid="save-button"
           onClick={onSave}

@@ -273,6 +273,18 @@
     @apply border-border outline-ring/50;
   }
 
+  /* Cursor pointer para todos os elementos clicáveis */
+  button,
+  [role="button"],
+  a,
+  select,
+  [type="checkbox"],
+  [type="radio"],
+  summary,
+  label[for] {
+    cursor: pointer;
+  }
+
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-inter);

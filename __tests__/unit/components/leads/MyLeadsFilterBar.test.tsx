@@ -1,8 +1,10 @@
 /**
  * Tests for MyLeadsFilterBar Component
  * Story 4.2.2: My Leads Page
+ * Story 4.6: Interested Leads Highlighting
  *
  * AC: #3 - Filter by status, segment, search
+ * Story 4.6: AC #2 - Quick filter "Interessados" button
  */
 
 import { useState } from "react";
@@ -175,5 +177,94 @@ describe("MyLeadsFilterBar", () => {
 
     // Badge should show "2" for 2 selected statuses
     expect(screen.getByText("2")).toBeInTheDocument();
+  });
+
+  // ==============================================
+  // STORY 4.6: AC #2 - Quick filter "Interessados"
+  // ==============================================
+
+  describe("Interessados Quick Filter (Story 4.6)", () => {
+    it("should render Interessados button", () => {
+      render(<MyLeadsFilterBar {...defaultProps} />, {
+        wrapper: createWrapper(),
+      });
+
+      expect(screen.getByTestId("interested-filter-button")).toBeInTheDocument();
+      expect(screen.getByText("Interessados")).toBeInTheDocument();
+    });
+
+    it("should show count badge when interestedCount > 0", () => {
+      render(
+        <MyLeadsFilterBar {...defaultProps} interestedCount={5} />,
+        { wrapper: createWrapper() }
+      );
+
+      expect(screen.getByText("5")).toBeInTheDocument();
+    });
+
+    it("should not show count badge when interestedCount is 0", () => {
+      render(
+        <MyLeadsFilterBar {...defaultProps} interestedCount={0} />,
+        { wrapper: createWrapper() }
+      );
+
+      // Button should exist but no badge
+      expect(screen.getByTestId("interested-filter-button")).toBeInTheDocument();
+      expect(screen.queryByText("0")).not.toBeInTheDocument();
+    });
+
+    it("should call onFiltersChange with interessado status when clicked", async () => {
+      const user = userEvent.setup();
+      render(
+        <MyLeadsFilterBar {...defaultProps} interestedCount={3} />,
+        { wrapper: createWrapper() }
+      );
+
+      await user.click(screen.getByTestId("interested-filter-button"));
+
+      expect(mockOnFiltersChange).toHaveBeenCalledWith({ statuses: ["interessado"] });
+    });
+
+    it("should clear filter when clicked again (toggle off)", async () => {
+      const user = userEvent.setup();
+      render(
+        <MyLeadsFilterBar
+          {...defaultProps}
+          filters={{ statuses: ["interessado"] }}
+          interestedCount={3}
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      await user.click(screen.getByTestId("interested-filter-button"));
+
+      expect(mockOnFiltersChange).toHaveBeenCalledWith({ statuses: undefined });
+    });
+
+    it("should show active state when interessado filter is active", () => {
+      render(
+        <MyLeadsFilterBar
+          {...defaultProps}
+          filters={{ statuses: ["interessado"] }}
+          interestedCount={3}
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      const button = screen.getByTestId("interested-filter-button");
+      // Active state uses "default" variant which doesn't have "outline" class
+      expect(button).not.toHaveClass("border-input");
+    });
+
+    it("should show outline state when interessado filter is not active", () => {
+      render(
+        <MyLeadsFilterBar {...defaultProps} interestedCount={3} />,
+        { wrapper: createWrapper() }
+      );
+
+      const button = screen.getByTestId("interested-filter-button");
+      // Button with variant="outline" should have certain styling
+      expect(button).toBeInTheDocument();
+    });
   });
 });

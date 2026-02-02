@@ -131,7 +131,7 @@ development_status:
   5-5-sequence-connector-lines: done  # Code review 2026-02-02: 1 HIGH, 2 MEDIUM fixes (TypeScript mock types, --border color token, double gap spacing)
   5-6-block-drag-reorder: done  # Code review 2026-02-02: 2 HIGH, 1 MEDIUM fixes (screen reader announcements, Portuguese aria-labels, drag handler tests)
   5-7-campaign-lead-association: done  # Code review 2026-02-02: 2 HIGH, 3 MEDIUM fixes (modal close on add, hasChanges flag, File List docs)
-  5-8-campaign-preview: backlog
+  5-8-campaign-preview: done  # Code review 2026-02-02: 1 HIGH, 2 MEDIUM fixes (keyboard nav tests, PreviewNavigation padding)
   5-9-campaign-save-multiple-campaigns: backlog
   epic-5-retrospective: optional
 

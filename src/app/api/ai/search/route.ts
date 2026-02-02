@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
+import { createClient } from "@/lib/supabase/server";
 import { AIService, AI_ERROR_MESSAGES } from "@/lib/ai";
 import { ApolloService } from "@/lib/services/apollo";
 import { ExternalServiceError } from "@/lib/services/base-service";
@@ -106,12 +107,42 @@ export async function POST(request: NextRequest) {
 
     // 4. Search Apollo with extracted filters
     const apolloService = new ApolloService(tenantId);
-    const leadRows = await apolloService.searchPeople(aiResult.filters);
+    const { leads: leadRows } = await apolloService.searchPeople(aiResult.filters);
 
-    // 5. Transform to Lead interface for frontend
-    const leads = leadRows.map(transformLeadRow);
+    // 5. Check which leads already exist in database (Story 4.2.1 fix)
+    // Single query with IN clause - O(1) query per page
+    const apolloIds = leadRows
+      .map((lead) => lead.apollo_id)
+      .filter((id): id is string => id !== null);
 
-    // 6. Return combined response
+    let existingApolloIds = new Set<string>();
+    if (apolloIds.length > 0) {
+      const supabase = await createClient();
+      const { data: existingLeads } = await supabase
+        .from("leads")
+        .select("apollo_id")
+        .eq("tenant_id", tenantId)
+        .in("apollo_id", apolloIds);
+
+      if (existingLeads) {
+        existingApolloIds = new Set(
+          existingLeads
+            .map((l) => l.apollo_id)
+            .filter((id): id is string => id !== null)
+        );
+      }
+    }
+
+    // 6. Mark leads with _is_imported flag based on DB check
+    const leadsWithImportStatus = leadRows.map((lead) => ({
+      ...lead,
+      _is_imported: lead.apollo_id ? existingApolloIds.has(lead.apollo_id) : false,
+    }));
+
+    // 7. Transform to Lead interface for frontend
+    const leads = leadsWithImportStatus.map(transformLeadRow);
+
+    // 8. Return combined response
     return NextResponse.json<APISuccessResponse<AISearchAPIResponse>>({
       data: {
         leads,

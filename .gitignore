@@ -73,3 +73,6 @@ __pycache__/
 .Python
 venv/
 .venv/
+
+# Personal files
+my-tasks.md

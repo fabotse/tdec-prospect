@@ -245,13 +245,16 @@ describe("ApolloService", () => {
         })
       );
 
-      expect(result).toHaveLength(1);
-      expect(result[0].first_name).toBe("João");
-      expect(result[0].tenant_id).toBe("tenant-123");
-      expect(result[0].status).toBe("novo");
+      // Story 3.8: searchPeople now returns { leads, pagination }
+      expect(result.leads).toHaveLength(1);
+      expect(result.leads[0].first_name).toBe("João");
+      expect(result.leads[0].tenant_id).toBe("tenant-123");
+      expect(result.leads[0].status).toBe("novo");
+      expect(result.pagination).toBeDefined();
+      expect(result.pagination.totalEntries).toBe(1);
     });
 
-    it("returns LeadRow array", async () => {
+    it("returns ApolloSearchResult with leads and pagination", async () => {
       vi.useRealTimers();
 
       const mockResponse = {
@@ -279,12 +282,17 @@ describe("ApolloService", () => {
 
       const result = await serviceWithTenant.searchPeople({});
 
-      expect(result[0]).toHaveProperty("id");
-      expect(result[0]).toHaveProperty("tenant_id");
-      expect(result[0]).toHaveProperty("apollo_id");
-      expect(result[0]).toHaveProperty("first_name");
-      expect(result[0]).toHaveProperty("status");
-      expect(result[0]).toHaveProperty("created_at");
+      // Story 3.8: Verify new return structure
+      expect(result.leads[0]).toHaveProperty("id");
+      expect(result.leads[0]).toHaveProperty("tenant_id");
+      expect(result.leads[0]).toHaveProperty("apollo_id");
+      expect(result.leads[0]).toHaveProperty("first_name");
+      expect(result.leads[0]).toHaveProperty("status");
+      expect(result.leads[0]).toHaveProperty("created_at");
+      expect(result.pagination).toHaveProperty("totalEntries");
+      expect(result.pagination).toHaveProperty("page");
+      expect(result.pagination).toHaveProperty("perPage");
+      expect(result.pagination).toHaveProperty("totalPages");
     });
 
     it("handles empty response", async () => {
@@ -302,7 +310,9 @@ describe("ApolloService", () => {
 
       const result = await serviceWithTenant.searchPeople({});
 
-      expect(result).toEqual([]);
+      // Story 3.8: Empty response returns empty leads array
+      expect(result.leads).toEqual([]);
+      expect(result.pagination.totalEntries).toBe(0);
     });
 
     it("sets default status to novo", async () => {
@@ -333,7 +343,27 @@ describe("ApolloService", () => {
 
       const result = await serviceWithTenant.searchPeople({});
 
-      expect(result[0].status).toBe("novo");
+      expect(result.leads[0].status).toBe("novo");
+    });
+
+    // Story 3.8: Pagination tests
+    it("caps totalPages at 500 per Apollo limits", async () => {
+      vi.useRealTimers();
+
+      const mockResponse = {
+        total_entries: 100000, // Would be 4000 pages at 25/page
+        people: [],
+      };
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      const result = await serviceWithTenant.searchPeople({ perPage: 25 });
+
+      expect(result.pagination.totalPages).toBe(500); // Capped at 500
+      expect(result.pagination.totalEntries).toBe(100000);
     });
   });
 

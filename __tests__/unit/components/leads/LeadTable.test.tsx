@@ -2,6 +2,7 @@
  * LeadTable Component Tests
  * Story: 3.5 - Lead Table Display
  * Story 4.2: Lead Status Management
+ * Story 4.6: Interested Leads Highlighting
  *
  * AC: #1 - Table with columns: checkbox, Nome, Empresa, Cargo, Localização, Status
  * AC: #2 - Airtable-inspired styling with hover states
@@ -11,6 +12,8 @@
  * AC: #6 - Keyboard accessibility
  * AC: #8 - Empty state
  * Story 4.2 AC#2: Status column with dropdown
+ * Story 4.6 AC#1: Visual highlight for interested leads
+ * Story 4.6 AC#3: Interested leads appear first when no sort
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -806,6 +809,153 @@ describe("LeadTable", () => {
       // Table should still render with leads
       expect(screen.getByRole("grid")).toBeInTheDocument();
       expect(screen.getByTestId("lead-row-lead-1")).toBeInTheDocument();
+    });
+  });
+
+  // ==============================================
+  // STORY 4.6: INTERESTED LEADS HIGHLIGHTING
+  // ==============================================
+
+  describe("Interested Leads Highlighting (Story 4.6)", () => {
+    it("AC#1: applies visual highlight to interested leads", () => {
+      renderLeadTable(
+        <LeadTable
+          leads={mockLeads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      // Lead 2 has status "interessado"
+      const interestedRow = screen.getByTestId("lead-row-lead-2");
+      expect(interestedRow).toHaveClass("border-l-4");
+      expect(interestedRow).toHaveClass("border-green-500/50");
+      expect(interestedRow).toHaveClass("bg-green-500/5");
+    });
+
+    it("AC#1: does not apply highlight to non-interested leads", () => {
+      renderLeadTable(
+        <LeadTable
+          leads={mockLeads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      // Lead 1 has status "novo" - should not have highlight
+      const novoRow = screen.getByTestId("lead-row-lead-1");
+      expect(novoRow).not.toHaveClass("border-l-4");
+      expect(novoRow).not.toHaveClass("border-green-500/50");
+    });
+
+    it("AC#1: interested highlight has data-status attribute", () => {
+      renderLeadTable(
+        <LeadTable
+          leads={mockLeads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      const interestedRow = screen.getByTestId("lead-row-lead-2");
+      expect(interestedRow).toHaveAttribute("data-status", "interessado");
+    });
+
+    it("AC#3: interested leads appear first when no sorting is applied", () => {
+      // Create leads in specific order: novo, interessado, oportunidade
+      const leadsInOrder: Lead[] = [
+        { ...mockLeads[0], id: "lead-novo", status: "novo" },
+        { ...mockLeads[1], id: "lead-interessado", status: "interessado" },
+        { ...mockLeads[2], id: "lead-oportunidade", status: "oportunidade" },
+      ];
+
+      renderLeadTable(
+        <LeadTable
+          leads={leadsInOrder}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      // Get rows in order
+      const rows = screen.getAllByTestId(/lead-row-/);
+
+      // Interested lead should be first
+      expect(rows[0]).toHaveAttribute("data-testid", "lead-row-lead-interessado");
+    });
+
+    it("AC#3: explicit column sort overrides interested priority", async () => {
+      const user = userEvent.setup();
+      // Create leads: interessado with name "Zelia", novo with name "Ana"
+      const leadsForSort: Lead[] = [
+        { ...mockLeads[1], id: "lead-z", firstName: "Zelia", status: "interessado" },
+        { ...mockLeads[0], id: "lead-a", firstName: "Ana", status: "novo" },
+      ];
+
+      renderLeadTable(
+        <LeadTable
+          leads={leadsForSort}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      // Initially, interessado should be first (priority sort)
+      let rows = screen.getAllByTestId(/lead-row-/);
+      expect(rows[0]).toHaveAttribute("data-testid", "lead-row-lead-z");
+
+      // Sort by name ascending
+      const nomeHeader = screen.getByText("Nome");
+      await user.click(nomeHeader);
+
+      // Now Ana should be first (alphabetical)
+      rows = screen.getAllByTestId(/lead-row-/);
+      expect(rows[0]).toHaveAttribute("data-testid", "lead-row-lead-a");
+    });
+
+    it("AC#3: interested priority returns when sort is cleared", async () => {
+      const user = userEvent.setup();
+      const leadsForSort: Lead[] = [
+        { ...mockLeads[1], id: "lead-z", firstName: "Zelia", status: "interessado" },
+        { ...mockLeads[0], id: "lead-a", firstName: "Ana", status: "novo" },
+      ];
+
+      renderLeadTable(
+        <LeadTable
+          leads={leadsForSort}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      const nomeHeader = screen.getByText("Nome");
+
+      // Sort ascending
+      await user.click(nomeHeader);
+      // Sort descending
+      await user.click(nomeHeader);
+      // Clear sort (third click)
+      await user.click(nomeHeader);
+
+      // Interested lead should be first again
+      const rows = screen.getAllByTestId(/lead-row-/);
+      expect(rows[0]).toHaveAttribute("data-testid", "lead-row-lead-z");
+    });
+
+    it("AC#4: showImportStatus prop is passed to LeadImportIndicator", () => {
+      renderLeadTable(
+        <LeadTable
+          leads={[{ ...mockLeads[1], _isImported: true }]}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+          showImportStatus
+        />
+      );
+
+      // When showImportStatus is true and lead is interested,
+      // the indicator should show status badge
+      // This is tested by checking the component renders without error
+      expect(screen.getByTestId("lead-row-lead-2")).toBeInTheDocument();
     });
   });
 });

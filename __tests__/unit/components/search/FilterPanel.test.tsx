@@ -1,6 +1,7 @@
 /**
  * FilterPanel Component Tests
  * Story: 3.3 - Traditional Filter Search
+ * Story: 3.7 - Saved Filters / Favorites (integration)
  *
  * AC: #1 - Filter panel with all filter fields
  * AC: #2 - Buscar button triggers search
@@ -12,8 +13,35 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { FilterPanel, DEBOUNCE_DELAY_MS } from "@/components/search/FilterPanel";
 import { useFilterStore } from "@/stores/use-filter-store";
+
+// Mock fetch for SavedFiltersDropdown
+const mockFetch = vi.fn(() =>
+  Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve({ data: [] }),
+  })
+);
+global.fetch = mockFetch as unknown as typeof fetch;
+
+// Create wrapper with QueryClientProvider (needed for Story 3.7 integration)
+function createWrapper() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+  };
+}
 
 describe("FilterPanel", () => {
   const mockOnSearch = vi.fn();
@@ -27,7 +55,7 @@ describe("FilterPanel", () => {
   });
 
   it("renders filter panel collapsed by default", () => {
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     // Toggle button should be visible
     expect(screen.getByTestId("filter-toggle-button")).toBeInTheDocument();
@@ -37,7 +65,7 @@ describe("FilterPanel", () => {
   });
 
   it("expands on toggle click", async () => {
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const toggleButton = screen.getByTestId("filter-toggle-button");
     await userEvent.click(toggleButton);
@@ -49,7 +77,7 @@ describe("FilterPanel", () => {
     // Expand the panel
     useFilterStore.getState().setExpanded(true);
 
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     // Check for all filter labels
     expect(screen.getByText("Setor/Indústria")).toBeInTheDocument();
@@ -62,7 +90,7 @@ describe("FilterPanel", () => {
   it("calls onSearch when Buscar clicked", async () => {
     useFilterStore.getState().setExpanded(true);
 
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const searchButton = screen.getByTestId("search-button");
     await userEvent.click(searchButton);
@@ -76,7 +104,7 @@ describe("FilterPanel", () => {
     store.setIndustries(["technology"]);
     store.setKeywords("test");
 
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const clearButton = screen.getByTestId("clear-filters-button");
     await userEvent.click(clearButton);
@@ -90,7 +118,7 @@ describe("FilterPanel", () => {
   it("shows loading state on button during search", () => {
     useFilterStore.getState().setExpanded(true);
 
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={true} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={true} />, { wrapper: createWrapper() });
 
     const searchButton = screen.getByTestId("search-button");
     expect(searchButton).toBeDisabled();
@@ -102,7 +130,7 @@ describe("FilterPanel", () => {
     store.setIndustries(["technology"]);
     store.setKeywords("software");
 
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     // Should show "2" in badge (2 active filters)
     expect(screen.getByText("2")).toBeInTheDocument();
@@ -111,7 +139,7 @@ describe("FilterPanel", () => {
   it("disables clear button when no filters active", () => {
     useFilterStore.getState().setExpanded(true);
 
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const clearButton = screen.getByTestId("clear-filters-button");
     expect(clearButton).toBeDisabled();
@@ -121,14 +149,14 @@ describe("FilterPanel", () => {
     useFilterStore.getState().setExpanded(true);
     useFilterStore.getState().setKeywords("test");
 
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const clearButton = screen.getByTestId("clear-filters-button");
     expect(clearButton).not.toBeDisabled();
   });
 
   it("renders toggle button with Filtros text", () => {
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     expect(screen.getByText("Filtros")).toBeInTheDocument();
   });
@@ -136,7 +164,7 @@ describe("FilterPanel", () => {
   it("renders search button with Buscar text when not loading", () => {
     useFilterStore.getState().setExpanded(true);
 
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     expect(screen.getByText("Buscar")).toBeInTheDocument();
   });
@@ -144,7 +172,7 @@ describe("FilterPanel", () => {
   it("has location input with correct placeholder", () => {
     useFilterStore.getState().setExpanded(true);
 
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const locationInput = screen.getByPlaceholderText("Ex: São Paulo, Brasil");
     expect(locationInput).toBeInTheDocument();
@@ -153,7 +181,7 @@ describe("FilterPanel", () => {
   it("has title input with correct placeholder", () => {
     useFilterStore.getState().setExpanded(true);
 
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const titleInput = screen.getByPlaceholderText("Ex: CEO, CTO, Diretor");
     expect(titleInput).toBeInTheDocument();
@@ -162,14 +190,14 @@ describe("FilterPanel", () => {
   it("has keywords input with correct placeholder", () => {
     useFilterStore.getState().setExpanded(true);
 
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const keywordsInput = screen.getByPlaceholderText("Termos de busca");
     expect(keywordsInput).toBeInTheDocument();
   });
 
   it("collapses panel when toggle clicked again", async () => {
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const toggleButton = screen.getByTestId("filter-toggle-button");
 
@@ -186,7 +214,7 @@ describe("FilterPanel", () => {
   it("clears input fields visually when clearFilters is clicked", async () => {
     useFilterStore.getState().setExpanded(true);
 
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     // Type in the keywords input
     const keywordsInput = screen.getByTestId("keywords-input");
@@ -223,7 +251,7 @@ describe("FilterPanel Debounce Behavior", () => {
   });
 
   it("updates store after debounce delay for location input", async () => {
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const locationInput = screen.getByTestId("location-input");
 
@@ -245,7 +273,7 @@ describe("FilterPanel Debounce Behavior", () => {
   });
 
   it("updates store after debounce delay for title input", async () => {
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const titleInput = screen.getByTestId("title-input");
 
@@ -268,7 +296,7 @@ describe("FilterPanel Debounce Behavior", () => {
   });
 
   it("updates store after debounce delay for keywords input", async () => {
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const keywordsInput = screen.getByTestId("keywords-input");
 
@@ -288,7 +316,7 @@ describe("FilterPanel Debounce Behavior", () => {
   });
 
   it("splits comma-separated values for location", async () => {
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const locationInput = screen.getByTestId("location-input");
 
@@ -323,14 +351,14 @@ describe("FilterPanel Accessibility", () => {
   });
 
   it("has aria-expanded on industry multi-select trigger", () => {
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const industrySelect = screen.getByTestId("industry-select");
     expect(industrySelect).toHaveAttribute("aria-expanded", "false");
   });
 
   it("has aria-haspopup on industry multi-select trigger", () => {
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const industrySelect = screen.getByTestId("industry-select");
     expect(industrySelect).toHaveAttribute("aria-haspopup", "listbox");
@@ -352,26 +380,26 @@ describe("FilterPanel Email Status Filter (Story 3.5.1)", () => {
   });
 
   it("displays Status do Email filter when panel is expanded", () => {
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     expect(screen.getByText("Status do Email")).toBeInTheDocument();
   });
 
   it("renders email status multi-select with correct test id", () => {
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     expect(screen.getByTestId("email-status-select")).toBeInTheDocument();
   });
 
   it("has aria-haspopup on email status multi-select", () => {
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const emailStatusSelect = screen.getByTestId("email-status-select");
     expect(emailStatusSelect).toHaveAttribute("aria-haspopup", "listbox");
   });
 
   it("opens dropdown and shows all email status options", async () => {
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const emailStatusSelect = screen.getByTestId("email-status-select");
     await userEvent.click(emailStatusSelect);
@@ -384,7 +412,7 @@ describe("FilterPanel Email Status Filter (Story 3.5.1)", () => {
   });
 
   it("updates store when email status is selected", async () => {
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const emailStatusSelect = screen.getByTestId("email-status-select");
     await userEvent.click(emailStatusSelect);
@@ -397,7 +425,7 @@ describe("FilterPanel Email Status Filter (Story 3.5.1)", () => {
   });
 
   it("allows multiple email status selections", async () => {
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const emailStatusSelect = screen.getByTestId("email-status-select");
     await userEvent.click(emailStatusSelect);
@@ -414,7 +442,7 @@ describe("FilterPanel Email Status Filter (Story 3.5.1)", () => {
   it("shows selected count in trigger button", async () => {
     useFilterStore.getState().setContactEmailStatuses(["verified", "unverified"]);
 
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     expect(screen.getByText("2 selecionados")).toBeInTheDocument();
   });
@@ -422,7 +450,7 @@ describe("FilterPanel Email Status Filter (Story 3.5.1)", () => {
   it("clears email status filter when clearFilters is clicked", async () => {
     useFilterStore.getState().setContactEmailStatuses(["verified"]);
 
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const clearButton = screen.getByTestId("clear-filters-button");
     await userEvent.click(clearButton);
@@ -433,14 +461,14 @@ describe("FilterPanel Email Status Filter (Story 3.5.1)", () => {
   it("includes email status in active filter count", () => {
     useFilterStore.getState().setContactEmailStatuses(["verified"]);
 
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     // Badge should show "1" for the email status filter
     expect(screen.getByText("1")).toBeInTheDocument();
   });
 
   it("deselects email status when clicked again", async () => {
-    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />);
+    render(<FilterPanel onSearch={mockOnSearch} isLoading={false} />, { wrapper: createWrapper() });
 
     const emailStatusSelect = screen.getByTestId("email-status-select");
     await userEvent.click(emailStatusSelect);

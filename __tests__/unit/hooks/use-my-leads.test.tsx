@@ -1,14 +1,16 @@
 /**
  * Tests for useMyLeads Hook
  * Story 4.2.2: My Leads Page
+ * Story 4.6: Interested Leads Highlighting
  *
  * AC: #2, #3, #7 - Fetch imported leads with filtering and pagination
+ * Story 4.6: AC #2, #6 - useInterestedCount hook
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useMyLeads } from "@/hooks/use-my-leads";
+import { useMyLeads, useInterestedCount } from "@/hooks/use-my-leads";
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -283,5 +285,99 @@ describe("useMyLeads", () => {
     });
 
     expect(result.current.perPage).toBe(100);
+  });
+});
+
+// ==============================================
+// STORY 4.6: useInterestedCount Hook Tests
+// ==============================================
+
+describe("useInterestedCount (Story 4.6)", () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should fetch count of interested leads", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: [],
+          meta: { total: 5, page: 1, limit: 1, totalPages: 5 },
+        }),
+    });
+
+    const { result } = renderHook(() => useInterestedCount(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.count).toBe(5);
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining("status=interessado")
+    );
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining("per_page=1")
+    );
+  });
+
+  it("should return 0 when no interested leads", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: [],
+          meta: { total: 0, page: 1, limit: 1, totalPages: 0 },
+        }),
+    });
+
+    const { result } = renderHook(() => useInterestedCount(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.count).toBe(0);
+  });
+
+  it("should handle loading state", () => {
+    mockFetch.mockImplementation(() => new Promise(() => {}));
+
+    const { result } = renderHook(() => useInterestedCount(), {
+      wrapper: createWrapper(),
+    });
+
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.count).toBe(0);
+  });
+
+  it("should return 0 on error", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      json: () =>
+        Promise.resolve({
+          error: { code: "INTERNAL_ERROR", message: "Erro" },
+        }),
+    });
+
+    const { result } = renderHook(() => useInterestedCount(), {
+      wrapper: createWrapper(),
+    });
+
+    // Should return 0 on error (default value)
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.count).toBe(0);
   });
 });
