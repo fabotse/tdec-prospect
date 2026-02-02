@@ -14,13 +14,15 @@ interface Tab {
 const tabs: Tab[] = [
   { id: "integrations", label: "Integrações", href: "/settings/integrations" },
   { id: "knowledge-base", label: "Base de Conhecimento", href: "/settings/knowledge-base" },
+  { id: "products", label: "Produtos", href: "/settings/products" },
   { id: "team", label: "Equipe", href: "/settings/team" },
 ];
 
 /**
  * Tab navigation for Settings page
  * Story: 2.1 - Settings Page Structure & API Configuration UI
- * AC: #1 - Settings page with tabs: Integrações, Base de Conhecimento, Equipe
+ * Story: 6.4 - Added Produtos tab
+ * AC: #1 - Settings page with tabs: Integrações, Base de Conhecimento, Produtos, Equipe
  * AC: #6 - Tabs styled consistently with dark mode design system
  */
 export function SettingsTabs() {

@@ -140,12 +140,19 @@ development_status:
   epic-6: in-progress
   6-1-ai-provider-service-layer: done  # Code review 2026-02-02: 3 HIGH, 3 MEDIUM fixes (import type, streaming timeout, search_translation seed, promptKey validation, mock improvement, error logging)
   6-2-ai-text-generation-in-builder: done  # Code review 2026-02-02: 1 HIGH, 3 MEDIUM fixes (5s timeout, test count, body gen test, stale closure)
-  6-3-knowledge-base-integration-for-context: backlog
-  6-4-personalized-icebreakers: backlog
-  6-5-inline-text-editing: backlog
-  6-6-text-regeneration: backlog
-  6-7-tone-of-voice-application: backlog
-  6-8-use-of-successful-examples: backlog
+  6-3-knowledge-base-integration-for-context: done  # Code review 2026-02-02: 1 HIGH, 2 MEDIUM fixes (conditional blocks, File List docs, test warnings)
+  # NEW STORIES - Product Context Architecture (identified during 6.3 planning)
+  # Rationale: Product context must exist BEFORE personalization stories (6.6-6.10) to avoid rework
+  6-4-product-catalog-crud: done  # Code review 2026-02-02: 3 MEDIUM fixes (DialogDescription accessibility, DELETE 404, comment update)
+  6-5-campaign-product-context: backlog  # NEW: Vincular produto à campanha, IA usa contexto específico
+  # Original stories continue (renumbered)
+  6-6-personalized-icebreakers: backlog  # Was 6.4 - Updated: now uses product context when available
+  6-7-inline-text-editing: backlog  # Was 6.5
+  6-8-text-regeneration: backlog  # Was 6.6 - Updated: regeneration uses product context
+  6-9-tone-of-voice-application: backlog  # Was 6.7 - Updated: tone applied with product context
+  6-10-use-of-successful-examples: backlog  # Was 6.8 - Updated: examples combined with product context
+  6-11-ai-campaign-structure-generation: backlog  # Was 6.9 - Updated: wizard includes product selection
+  6-12-smart-campaign-templates: backlog  # Was 6.10 - Updated: templates integrate with product selection
   epic-6-retrospective: optional
 
   # Epic 7: Campaign Deployment
