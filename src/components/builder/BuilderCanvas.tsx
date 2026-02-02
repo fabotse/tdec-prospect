@@ -2,11 +2,14 @@
  * BuilderCanvas Component
  * Story 5.2: Campaign Builder Canvas
  * Story 5.3: Email Block Component
+ * Story 5.4: Delay Block Component
  *
  * AC: #2 - Canvas Visual (Estilo Attio)
  * AC: #5 - Estado Vazio do Canvas
  * AC 5.3 #1 - Arrastar Email Block para Canvas
  * AC 5.3 #3 - Selecionar Email Block (click outside to deselect)
+ * AC 5.4 #1 - Arrastar Delay Block para Canvas
+ * AC 5.4 #3 - Selecionar Delay Block
  *
  * Central canvas for building campaign sequences.
  * Features clean Attio-style design with subtle or no grid.
@@ -18,8 +21,8 @@ import { useDroppable } from "@dnd-kit/core";
 import { Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBuilderStore } from "@/stores/use-builder-store";
-import { BlockPlaceholder } from "./BlockPlaceholder";
 import { EmailBlock } from "./EmailBlock";
+import { DelayBlock } from "./DelayBlock";
 
 /**
  * Empty state displayed when no blocks exist on canvas
@@ -88,7 +91,11 @@ export function BuilderCanvas() {
                   stepNumber={index + 1}
                 />
               ) : (
-                <BlockPlaceholder key={block.id} block={block} />
+                <DelayBlock
+                  key={block.id}
+                  block={block}
+                  stepNumber={index + 1}
+                />
               )
             )}
           </div>

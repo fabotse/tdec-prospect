@@ -1,14 +1,17 @@
 /**
  * Builder Store
  * Story 5.2: Campaign Builder Canvas
+ * Story 5.4: Delay Block Component
  *
  * AC: #6 - Builder Store (Zustand)
+ * AC 5.4: Default delay data initialization
  *
  * Zustand store for managing campaign builder UI state.
  * Handles block sequence, selection, drag state, and change tracking.
  */
 
 import { create } from "zustand";
+import { DEFAULT_DELAY_BLOCK_DATA } from "@/types/delay-block";
 
 // ==============================================
 // TYPES
@@ -75,11 +78,17 @@ export const useBuilderStore = create<BuilderState & BuilderActions>((set) => ({
 
   addBlock: (type, position) =>
     set((state) => {
+      // Initialize with type-specific default data
+      const defaultData =
+        type === "delay"
+          ? { ...DEFAULT_DELAY_BLOCK_DATA }
+          : { subject: "", body: "" };
+
       const newBlock: BuilderBlock = {
         id: crypto.randomUUID(),
         type,
         position: position ?? state.blocks.length,
-        data: {},
+        data: defaultData,
       };
       const blocks = [...state.blocks, newBlock].map((b, i) => ({
         ...b,

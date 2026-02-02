@@ -2,11 +2,14 @@
  * BuilderCanvas Component Tests
  * Story 5.2: Campaign Builder Canvas
  * Story 5.3: Email Block Component
+ * Story 5.4: Delay Block Component
  *
  * AC: #2 - Canvas Visual (Estilo Attio)
  * AC: #5 - Estado Vazio do Canvas
  * AC 5.3 #1 - Arrastar Email Block para Canvas
  * AC 5.3 #3 - Selecionar Email Block (click outside to deselect)
+ * AC 5.4 #1 - Arrastar Delay Block para Canvas
+ * AC 5.4 #3 - Selecionar Delay Block
  */
 
 import { render, screen, fireEvent } from "@testing-library/react";
@@ -158,11 +161,18 @@ describe("BuilderCanvas (AC: #2, #5)", () => {
       expect(screen.getByTestId("email-block-block-1")).toBeInTheDocument();
     });
 
-    it("renders BlockPlaceholder for delay type blocks", () => {
+    it("renders DelayBlock for delay type blocks (AC 5.4 #1)", () => {
       render(<BuilderCanvas />);
 
-      // BlockPlaceholder uses block-{id} testid
-      expect(screen.getByTestId("block-block-2")).toBeInTheDocument();
+      // DelayBlock uses delay-block-{id} testid
+      expect(screen.getByTestId("delay-block-block-2")).toBeInTheDocument();
+    });
+
+    it("displays correct step numbers for delay blocks (AC 5.4 #2)", () => {
+      render(<BuilderCanvas />);
+
+      // Second block (delay) should show "Step 2"
+      expect(screen.getByText("Step 2")).toBeInTheDocument();
     });
 
     it("displays correct step numbers for email blocks", () => {

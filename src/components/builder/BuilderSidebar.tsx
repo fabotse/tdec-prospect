@@ -64,7 +64,7 @@ function DraggableBlock({ type, icon: Icon, label, description }: DraggableBlock
         // Base styles
         "flex items-center gap-3 p-3 rounded-lg cursor-grab",
         "border border-border bg-card",
-        "hover:bg-accent hover:border-accent-foreground/20",
+        "hover:border-primary/50",
         "transition-colors duration-150",
         // Active/dragging state
         isDragging && "opacity-50 cursor-grabbing",
