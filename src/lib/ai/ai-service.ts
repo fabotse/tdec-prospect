@@ -148,6 +148,10 @@ export class AIService {
             : undefined,
         titles:
           parsed.filters.titles.length > 0 ? parsed.filters.titles : undefined,
+        contactEmailStatuses:
+          parsed.filters.contactEmailStatuses.length > 0
+            ? parsed.filters.contactEmailStatuses
+            : undefined,
         keywords: parsed.filters.keywords || undefined,
         perPage: parsed.filters.perPage,
       };

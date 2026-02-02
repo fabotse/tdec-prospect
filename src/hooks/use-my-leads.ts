@@ -1,12 +1,14 @@
 /**
  * My Leads Hook
  * Story 4.2.2: My Leads Page
+ * Story 4.6: Interested Leads Highlighting
  *
  * Hook for fetching and managing imported leads from the database.
  * Unlike useLeads (which fetches from Apollo), this hook fetches
  * leads that have been persisted to the database.
  *
  * AC: #2, #3, #7 - Fetch imported leads with filtering and pagination
+ * Story 4.6: AC #2 - useInterestedCount hook for quick filter badge
  */
 
 "use client";
@@ -166,5 +168,47 @@ export function useMyLeads(initialFilters?: MyLeadsFilters) {
     perPage,
     setPage,
     setPerPage,
+  };
+}
+
+/**
+ * Fetch count of interested leads
+ * Story 4.6: AC #2, #6 - Count for quick filter badge and header
+ */
+async function fetchInterestedCount(): Promise<number> {
+  const params = new URLSearchParams();
+  params.set("status", "interessado");
+  params.set("page", "1");
+  params.set("per_page", "1"); // Only need the total count, not the data
+
+  const response = await fetch(`/api/leads?${params.toString()}`);
+  const result = (await response.json()) as
+    | APISuccessResponse<Lead[]>
+    | APIErrorResponse;
+
+  if (isAPIError(result)) {
+    throw new Error(result.error.message);
+  }
+
+  return result.meta?.total ?? 0;
+}
+
+/**
+ * Hook for fetching count of interested leads
+ * Story 4.6: AC #2 - Quick filter badge count
+ * Story 4.6: AC #6 - Header interested count
+ *
+ * @returns Count of interested leads and loading state
+ */
+export function useInterestedCount() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["my-leads", "interested-count"],
+    queryFn: fetchInterestedCount,
+    staleTime: 30 * 1000, // 30 seconds
+  });
+
+  return {
+    count: data ?? 0,
+    isLoading,
   };
 }

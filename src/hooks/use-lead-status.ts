@@ -66,6 +66,7 @@ export function useUpdateLeadStatus() {
       // Invalidate all lead-related queries to refresh data
       queryClient.invalidateQueries({ queryKey: ["leads"] });
       queryClient.invalidateQueries({ queryKey: ["searchLeads"] });
+      queryClient.invalidateQueries({ queryKey: ["my-leads"] });
     },
     onError: (error: Error) => {
       toast.error(error.message);
@@ -89,6 +90,7 @@ export function useBulkUpdateStatus() {
       // Invalidate all lead-related queries to refresh data
       queryClient.invalidateQueries({ queryKey: ["leads"] });
       queryClient.invalidateQueries({ queryKey: ["searchLeads"] });
+      queryClient.invalidateQueries({ queryKey: ["my-leads"] });
     },
     onError: (error: Error) => {
       toast.error(error.message);

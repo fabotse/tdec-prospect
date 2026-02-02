@@ -30,6 +30,7 @@ export interface AIExtractionResponse {
     companySizes: string[];
     locations: string[];
     titles: string[];
+    contactEmailStatuses: string[];
     keywords: string;
     perPage: number;
   };
@@ -47,6 +48,7 @@ export const aiExtractionResponseSchema = z.object({
     companySizes: z.array(z.string()).default([]),
     locations: z.array(z.string()).default([]),
     titles: z.array(z.string()).default([]),
+    contactEmailStatuses: z.array(z.string()).default([]),
     keywords: z.string().default(""),
     perPage: z.number().min(1).max(100).default(25),
   }),

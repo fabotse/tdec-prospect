@@ -13,6 +13,7 @@
 /**
  * Standard success response format
  * All API routes should return this format on success
+ * Story 3.8: Added totalPages for pagination support
  */
 export interface APISuccessResponse<T> {
   data: T;
@@ -20,6 +21,7 @@ export interface APISuccessResponse<T> {
     total?: number;
     page?: number;
     limit?: number;
+    totalPages?: number;
   };
 }
 

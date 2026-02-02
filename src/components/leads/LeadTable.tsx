@@ -4,6 +4,7 @@
  * Story: 4.2.1 - Lead Import Mechanism
  * Story: 4.2.2 - My Leads Page
  * Story: 4.4.1 - Lead Data Enrichment
+ * Story: 4.6 - Interested Leads Highlighting
  *
  * AC: #1 - Table with columns: checkbox, Nome, Empresa, Cargo, Localização, Status
  * AC: #2 - Airtable-inspired styling with hover states
@@ -16,6 +17,7 @@
  * Story 4.2.1: AC #3 - Import indicator column
  * Story 4.2.2: AC #2 - Optional "Importado em" column
  * Story 4.4.1: AC #5 - Lead photo display
+ * Story 4.6: AC #1, #5 - Visual highlight for interested leads
  */
 
 "use client";
@@ -101,6 +103,8 @@ interface LeadTableProps {
   showCreatedAt?: boolean;
   /** Story 4.3: Callback when a row is clicked to open detail panel */
   onRowClick?: (lead: Lead) => void;
+  /** Story 4.6: AC #4 - Show status badge on import indicator for Apollo search */
+  showImportStatus?: boolean;
 }
 
 // ==============================================
@@ -196,6 +200,7 @@ export function LeadTable({
   isLoading = false,
   showCreatedAt = false,
   onRowClick,
+  showImportStatus = false,
 }: LeadTableProps) {
   // Story 4.2.2: Filter columns based on showCreatedAt prop
   const visibleColumns = useMemo(() => {
@@ -274,9 +279,23 @@ export function LeadTable({
   }, []);
 
   // Sort leads based on current sort state
+  // Story 4.6: AC #3 - Interested leads appear first when no explicit sort
   const sortedLeads = useMemo(() => {
-    if (!sort.column || !sort.direction) return leads;
+    // Story 4.6: AC #3 - When no explicit sort, prioritize interested leads
+    if (!sort.column || !sort.direction) {
+      return [...leads].sort((a, b) => {
+        // Interested leads come first
+        const aInterested = a.status === "interessado" ? 0 : 1;
+        const bInterested = b.status === "interessado" ? 0 : 1;
+        if (aInterested !== bInterested) return aInterested - bInterested;
+        // Fallback: sort by createdAt desc (most recent first)
+        const aDate = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bDate = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bDate - aDate;
+      });
+    }
 
+    // Explicit column sort - use standard sorting, no interested priority
     return [...leads].sort((a, b) => {
       const aVal = a[sort.column!] ?? "";
       const bVal = b[sort.column!] ?? "";
@@ -531,11 +550,15 @@ export function LeadTable({
               <TableRow
                 key={lead.id}
                 data-testid={`lead-row-${lead.id}`}
+                data-status={lead.status}
                 className={cn(
                   // AC: #2 - Row height and alternating backgrounds
                   "h-14 hover:bg-muted/10",
                   rowIndex % 2 === 1 && "bg-muted/5",
                   selectedIds.includes(lead.id) && "bg-primary/5",
+                  // Story 4.6: AC #1, #5 - Visual highlight for interested leads
+                  lead.status === "interessado" &&
+                    "border-l-4 border-green-500/50 bg-green-500/5",
                   // Story 4.3: AC #1 - Cursor pointer when row is clickable
                   onRowClick && "cursor-pointer"
                 )}
@@ -560,11 +583,14 @@ export function LeadTable({
                 <TableCell
                   className={cn(
                     "sticky left-0",
-                    selectedIds.includes(lead.id)
-                      ? "bg-primary/5"
-                      : rowIndex % 2 === 1
-                        ? "bg-muted/5"
-                        : "bg-background"
+                    // Story 4.6: AC #1 - Interested leads have green highlight
+                    lead.status === "interessado"
+                      ? "bg-green-500/5"
+                      : selectedIds.includes(lead.id)
+                        ? "bg-primary/5"
+                        : rowIndex % 2 === 1
+                          ? "bg-muted/5"
+                          : "bg-background"
                   )}
                   role="gridcell"
                   onFocus={() =>
@@ -589,11 +615,14 @@ export function LeadTable({
                 {/* Story 4.2.1: AC #3 - Import indicator column */}
                 <TableCell
                   className={cn(
-                    selectedIds.includes(lead.id)
-                      ? "bg-primary/5"
-                      : rowIndex % 2 === 1
-                        ? "bg-muted/5"
-                        : "bg-background"
+                    // Story 4.6: AC #1 - Interested leads have green highlight
+                    lead.status === "interessado"
+                      ? "bg-green-500/5"
+                      : selectedIds.includes(lead.id)
+                        ? "bg-primary/5"
+                        : rowIndex % 2 === 1
+                          ? "bg-muted/5"
+                          : "bg-background"
                   )}
                   role="gridcell"
                   onFocus={() =>
@@ -606,18 +635,22 @@ export function LeadTable({
                       : -1
                   }
                 >
-                  <LeadImportIndicator lead={lead} />
+                  {/* Story 4.6: AC #4 - Show status badge on Apollo search */}
+                  <LeadImportIndicator lead={lead} showStatus={showImportStatus} />
                 </TableCell>
 
                 {/* Nome column - sticky - Story 4.4.1: AC #5 - With avatar */}
                 <LeadNameCell
                   lead={lead}
                   stickyBackground={
-                    selectedIds.includes(lead.id)
-                      ? "bg-primary/5"
-                      : rowIndex % 2 === 1
-                        ? "bg-muted/5"
-                        : "bg-background"
+                    // Story 4.6: AC #1 - Interested leads have green highlight
+                    lead.status === "interessado"
+                      ? "bg-green-500/5"
+                      : selectedIds.includes(lead.id)
+                        ? "bg-primary/5"
+                        : rowIndex % 2 === 1
+                          ? "bg-muted/5"
+                          : "bg-background"
                   }
                   onFocus={() =>
                     setFocusedCell({ row: rowIndex + 1, col: 2 })

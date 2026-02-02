@@ -711,6 +711,32 @@ So that I can quickly reuse searches I do frequently.
 
 ---
 
+### Story 3.8: Lead Table Pagination
+
+As a user,
+I want to navigate through paginated search results,
+So that I can browse large datasets efficiently without overwhelming the interface.
+
+**Acceptance Criteria:**
+
+**Given** leads have been fetched
+**When** results are displayed
+**Then** I see pagination controls below the table
+**And** I see "Mostrando X-Y de Z resultados" indicator
+**And** controls include Previous/Next buttons
+**And** controls include page number indicator (current/total)
+
+**Given** I am viewing page 1 of results
+**When** I click "Próximo"
+**Then** the table shows page 2 results
+**And** the pagination indicator updates
+
+**Given** Apollo API limits (100 records/page, 500 pages max)
+**When** pagination is calculated
+**Then** these limits are respected in UI and API calls
+
+---
+
 ## Epic 4: Lead Management
 
 Usuários podem organizar, acompanhar status e escalonar leads com busca de telefone on-demand.
@@ -768,19 +794,27 @@ As a user,
 I want to see detailed information about a lead,
 So that I can understand their context and history.
 
+**Context:** Esta story opera sobre leads **persistidos** na página "Meus Leads" (/leads/my-leads). Leads da busca Apollo são transientes e não possuem histórico de interações até serem importados.
+
 **Acceptance Criteria:**
 
-**Given** I am on the Leads page
-**When** I click on a lead row
+**Given** I am on the "Meus Leads" page (/leads/my-leads)
+**When** I click on a lead row (lead already persisted in database)
 **Then** a detail sidepanel opens (Sheet component)
 **And** I see all lead information: name, company, title, email, phone, LinkedIn
 **And** I see the interaction history section
+**And** I see when the lead was imported (created_at)
 
 **Given** I want to add an interaction
 **When** I click "Adicionar Nota"
 **Then** I can type a note about an interaction
 **And** the note is saved to lead_interactions table (id, lead_id, tenant_id, type, content, created_at, created_by)
 **And** the interaction appears in the history list with timestamp
+
+**Given** I am on the Apollo search results page (/leads)
+**When** I click on a lead row (not yet imported)
+**Then** I see a simplified preview (no interaction history available)
+**And** I see option to "Importar Lead" to enable full management
 
 ---
 
@@ -808,19 +842,27 @@ As a user,
 I want to find a lead's phone number on demand,
 So that I can escalate promising leads quickly.
 
+**Context:** Esta story opera sobre leads **persistidos** na página "Meus Leads" (/leads/my-leads). O lead precisa existir no banco de dados para que o telefone encontrado seja salvo. Depende de Story 4.2.1 (Lead Import Mechanism) e Story 4.4 (SignalHire Integration Service).
+
 **Acceptance Criteria:**
 
-**Given** I am viewing a lead without a phone number
-**When** I click "Buscar Telefone"
+**Given** I am on "Meus Leads" page viewing an imported lead without a phone number
+**When** I click "Buscar Telefone" (in lead detail sidepanel or selection bar)
 **Then** the system calls SignalHire API with the lead's email/LinkedIn
 **And** I see a loading state during the lookup
-**And** if found, the phone number is displayed and saved to the lead
+**And** if found, the phone number is displayed and saved to the lead record in database
 **And** if not found, I see "Telefone não encontrado" message
 
 **Given** SignalHire returns an error
 **When** the lookup fails
 **Then** I see a clear error message in Portuguese
 **And** I see suggestion to try again or use alternative methods
+
+**Given** I have multiple leads selected on "Meus Leads" page
+**When** I click "Buscar Telefone" in selection bar
+**Then** the system looks up phone numbers for all selected leads (batch operation)
+**And** I see progress indicator "Buscando telefones... X de Y"
+**And** results are saved to each lead record
 
 ---
 
@@ -830,17 +872,24 @@ As a user,
 I want interested leads visually highlighted,
 So that I can quickly identify hot opportunities.
 
+**Context:** Esta story opera sobre leads **persistidos** na página "Meus Leads" (/leads/my-leads). O status "Interessado" só existe para leads que foram importados para o banco de dados. Leads transientes da busca Apollo não possuem status persistido.
+
 **Acceptance Criteria:**
 
-**Given** a lead has status "Interessado"
+**Given** a lead has status "Interessado" in "Meus Leads" page
 **When** I view the leads table
 **Then** the lead row has a visual highlight (subtle green left border or background tint)
 **And** the status badge shows "Interessado" in success color
 
-**Given** I am filtering leads
+**Given** I am on "Meus Leads" page and filtering leads
 **When** I filter by "Interessados"
 **Then** only leads with "Interessado" status are shown
 **And** they appear at the top when sorting by relevance
+
+**Given** I am on Apollo search results page (/leads)
+**When** a lead was previously imported and marked as "Interessado"
+**Then** the lead shows the "Importado" indicator
+**And** optionally shows the current status as read-only badge
 
 ---
 
@@ -850,19 +899,27 @@ As a user,
 I want to import results from external campaigns,
 So that I can track which leads showed interest.
 
+**Context:** Esta story opera sobre leads **persistidos** na página "Meus Leads" (/leads/my-leads). O sistema faz match por email com leads que já existem no banco de dados. Leads não encontrados podem ser opcionalmente criados durante a importação.
+
 **Acceptance Criteria:**
 
 **Given** I have run campaigns in Instantly/Snov.io
-**When** I click "Importar Resultados"
+**When** I click "Importar Resultados" on "Meus Leads" page
 **Then** I see options: Upload CSV, Colar dados
 **And** I can map columns: email, response_type (replied, clicked, bounced)
 
 **When** I import results
-**Then** the system matches leads by email
+**Then** the system matches leads by email against persisted leads in database
 **And** matching leads have their status updated
-**And** leads with positive responses are marked as "Interessado"
-**And** import history is logged
+**And** leads with positive responses (replied) are marked as "Interessado"
+**And** import history is logged to lead_interactions table
 **And** I see a summary: "12 leads atualizados, 3 não encontrados"
+
+**Given** some emails in the import don't match existing leads
+**When** the import completes
+**Then** I see list of unmatched emails
+**And** I have option to "Criar leads para emails não encontrados"
+**And** new leads are created with status based on response_type
 
 ---
 
@@ -1048,11 +1105,11 @@ So that I can work on different sequences simultaneously.
 
 Usuários obtêm textos personalizados que soam autênticos, usando a base de conhecimento e tom de voz configurados.
 
-### Story 6.1: AI Provider Service Layer
+### Story 6.1: AI Provider Service Layer & Prompt Management System
 
 As a developer,
-I want an AI service layer supporting multiple providers,
-So that we can use OpenAI or Anthropic for text generation.
+I want an AI service layer supporting multiple providers with centralized prompt management,
+So that we can use OpenAI or Anthropic for text generation and easily adjust prompts without code deploys.
 
 **Acceptance Criteria:**
 
@@ -1064,6 +1121,27 @@ So that we can use OpenAI or Anthropic for text generation.
 **And** errors are caught and translated to Portuguese
 **And** the service supports streaming responses
 **And** timeout is set appropriately for text generation
+
+**Prompt Management (ADR-001):**
+
+**Given** the system needs to use a prompt
+**When** the PromptManager is called
+**Then** it retrieves the prompt from ai_prompts table
+**And** falls back to global prompt if no tenant-specific exists
+**And** falls back to code default if no DB prompt exists
+**And** prompts are cached for 5 minutes to reduce DB queries
+**And** the ai_prompts table is created with schema per ADR-001
+**And** initial prompts are seeded via migration:
+  - `search_translation`: Tradução linguagem natural → filtros
+  - `email_subject_generation`: Geração de assuntos
+  - `email_body_generation`: Geração de corpo de email
+  - `icebreaker_generation`: Quebra-gelos personalizados
+  - `tone_application`: Aplicação de tom de voz
+
+**Technical Notes:**
+- Ver ADR-001 em architecture.md para schema completo
+- Prompts editáveis via Supabase Studio inicialmente
+- UI de admin para prompts é escopo futuro
 
 ---
 

@@ -23,10 +23,10 @@ import {
 } from "./base-service";
 import { createClient } from "@/lib/supabase/server";
 import { decryptApiKey } from "@/lib/crypto/encryption";
-import type { LeadRow } from "@/types/lead";
 import type {
   ApolloSearchFilters,
   ApolloSearchResponse,
+  ApolloSearchResult,
   EnrichmentOptions,
   ApolloEnrichmentRequest,
   ApolloEnrichmentResponse,
@@ -46,6 +46,7 @@ const APOLLO_SEARCH_ENDPOINT = "/v1/mixed_people/api_search";
 const APOLLO_ENRICH_ENDPOINT = "/v1/people/match";
 const APOLLO_BULK_ENRICH_ENDPOINT = "/v1/people/bulk_match";
 const APOLLO_BULK_LIMIT = 10;
+const APOLLO_MAX_PAGES = 500; // Story 3.8: Apollo API maximum pages limit
 
 // ==============================================
 // APOLLO ERROR MESSAGES (Portuguese)
@@ -233,12 +234,14 @@ export class ApolloService extends ExternalService {
 
   /**
    * Search for people using Apollo API
+   * Story 3.8: Returns leads with pagination metadata
    * AC: #6 - Transforms filters and returns LeadRow format
+   * AC: #4 - Respects Apollo API limits (100/page, 500 pages max)
    *
    * @param filters - Search filters in frontend format
-   * @returns Array of leads in LeadRow format
+   * @returns Object with leads array and pagination metadata
    */
-  async searchPeople(filters: ApolloSearchFilters): Promise<LeadRow[]> {
+  async searchPeople(filters: ApolloSearchFilters): Promise<ApolloSearchResult> {
     const apiKey = await this.getApiKey();
     const queryString = this.buildQueryString(filters);
 
@@ -262,9 +265,27 @@ export class ApolloService extends ExternalService {
       );
     }
 
-    return response.people.map((person) =>
+    const leads = response.people.map((person) =>
       transformApolloToLeadRow(person, this.tenantId!)
     );
+
+    // Story 3.8: Calculate pagination metadata
+    const page = filters.page ?? 1;
+    const perPage = filters.perPage ?? 25;
+    const totalEntries = response.total_entries;
+    // Cap totalPages at APOLLO_MAX_PAGES (500) per Apollo API limits
+    const calculatedPages = Math.ceil(totalEntries / perPage);
+    const totalPages = Math.min(calculatedPages, APOLLO_MAX_PAGES);
+
+    return {
+      leads,
+      pagination: {
+        totalEntries,
+        page,
+        perPage,
+        totalPages,
+      },
+    };
   }
 
   /**
@@ -309,8 +330,16 @@ export class ApolloService extends ExternalService {
       );
     }
 
+    // Keywords: combine user keywords with industries (Apollo doesn't have direct industry filter)
+    const keywordParts: string[] = [];
     if (filters.keywords) {
-      params.append("q_keywords", filters.keywords);
+      keywordParts.push(filters.keywords);
+    }
+    if (filters.industries?.length) {
+      keywordParts.push(...filters.industries);
+    }
+    if (keywordParts.length > 0) {
+      params.append("q_keywords", keywordParts.join(" "));
     }
 
     // Story 3.5.1: AC #4 - Email status filter
@@ -447,9 +476,9 @@ export class ApolloService extends ExternalService {
       }
     );
 
-    // Filter out null results and return only enriched persons
+    // Filter out null/undefined results and return only enriched persons
     return response.matches
-      .filter((match) => match.person !== null)
+      .filter((match) => match?.person != null)
       .map((match) => match.person!);
   }
 }

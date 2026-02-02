@@ -923,6 +923,24 @@ Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 **Tests:** 28/28 passando após correções
 
+### Code Review Fixes (2026-02-02)
+
+**Reviewed by:** Amelia (Dev Agent) - Code Review Workflow
+
+**CORREÇÃO CRÍTICA - requestId do SignalHire:**
+O SignalHire retorna o `requestId` no **BODY** da resposta (201), NÃO no header.
+Formato: `{ "requestId": 12345 }`
+
+**Issues Fixed:**
+1. **H1**: Corrigido `makeRequest()` para extrair requestId do body em vez do header
+2. **H1**: Atualizados 4 mocks de teste para usar o novo padrão (body em vez de header)
+3. **M1**: Removido `console.warn` de produção - silent fail para parse errors
+
+**Nota:** A conta SignalHire do usuário retorna 402 "Api usage is limited" mesmo com 15 créditos.
+Isso indica que o plano não permite uso via API - requer contato com suporte SignalHire para habilitar.
+
+**Tests:** 25/25 passando após correções
+
 ### File List
 
 **New Files:**
@@ -930,13 +948,18 @@ Claude Opus 4.5 (claude-opus-4-5-20251101)
 - `src/app/api/integrations/signalhire/lookup/route.ts` - Phone lookup API route
 - `src/hooks/use-phone-lookup.ts` - TanStack Query hook for phone lookup
 - `__tests__/unit/hooks/use-phone-lookup.test.tsx` - Hook unit tests
+- `supabase/functions/signalhire-callback/index.ts` - Edge Function para receber callbacks
+- `supabase/migrations/00015_create_signalhire_lookups.sql` - Migration para tabela de lookups
 
 **Modified Files:**
-- `src/lib/services/signalhire.ts` - Extended with lookupPhone() and async polling
+- `src/lib/services/signalhire.ts` - Extended with lookupPhone() and async polling, CORREÇÃO: requestId do body
 - `src/types/index.ts` - Added signalhire export
-- `__tests__/unit/lib/services/signalhire.test.ts` - Added Story 4.4 tests
+- `__tests__/unit/lib/services/signalhire.test.ts` - Added Story 4.4 tests, CORREÇÃO: mocks atualizados
 
 **Pre-existing (Verified Working):**
 - `src/lib/services/index.ts` - SignalHireService already exported
 - `src/app/(dashboard)/settings/integrations/page.tsx` - SignalHire card already present
+
+**Documentation:**
+- `SIGNALHIRE_INTEGRATION_DOCS.md` - Documentação de referência da integração (não rastreado no git)
 

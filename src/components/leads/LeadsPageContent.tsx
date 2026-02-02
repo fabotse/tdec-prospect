@@ -7,6 +7,8 @@
  * Story: 3.6 - Lead Selection (Individual & Batch)
  * Story: 3.8 - Lead Table Pagination
  * Story: 4.1 - Lead Segments/Lists
+ * Story: 4.3 - Lead Detail View & Interaction History
+ * Story: 4.6 - Interested Leads Highlighting
  *
  * AC: #1 - Filter panel integration
  * AC: #2 - Search with filters, loading state
@@ -18,6 +20,8 @@
  * AC (3.6): #1, #6 - Selection bar appears when leads selected
  * AC (3.8): #1-7 - Pagination controls with state management
  * Story 4.1: AC #3 - Segment filter dropdown above results
+ * Story 4.3: AC #6 - Simplified preview for Apollo leads
+ * Story 4.6: AC #4 - Read-only status badge on import indicator
  */
 
 "use client";
@@ -37,6 +41,7 @@ import { LeadTable } from "@/components/leads/LeadTable";
 import { LeadSelectionBar } from "@/components/leads/LeadSelectionBar";
 import { LeadTablePagination } from "@/components/leads/LeadTablePagination";
 import { SegmentFilter } from "@/components/leads/SegmentFilter";
+import { LeadPreviewPanel } from "@/components/leads/LeadPreviewPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ApolloSearchFilters } from "@/types/apollo";
 import type { Lead } from "@/types/lead";
@@ -68,6 +73,21 @@ export function LeadsPageContent() {
   // Story 4.1: Segment filter state
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const { data: segmentLeadIds } = useSegmentLeadIds(selectedSegmentId);
+
+  // Story 4.3: AC #6 - Lead preview panel state
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
+  // Story 4.3: AC #6 - Open preview panel when row is clicked
+  const handleRowClick = useCallback((lead: Lead) => {
+    setSelectedLead(lead);
+    setIsPreviewOpen(true);
+  }, []);
+
+  // Story 4.3: AC #7 - Close preview panel
+  const handleClosePreview = useCallback(() => {
+    setIsPreviewOpen(false);
+  }, []);
 
   // Story 3.8: Store current filters for pagination re-fetch
   const currentFiltersRef = useRef<ApolloSearchFilters>({});
@@ -255,11 +275,15 @@ export function LeadsPageContent() {
             />
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Story 4.3: AC #6 - Row click opens preview panel */}
+            {/* Story 4.6: AC #4 - Show import status on Apollo search */}
             <LeadTable
               leads={leads}
               selectedIds={selectedIds}
               onSelectionChange={setSelectedIds}
               isLoading={isLoading}
+              onRowClick={handleRowClick}
+              showImportStatus
             />
             {/* Story 3.8: AC #1, #6 - Pagination controls with loading state */}
             {searchMode === "manual" && (
@@ -279,6 +303,13 @@ export function LeadsPageContent() {
       {/* Story 3.6: Selection Bar - Fixed at bottom */}
       {/* Story 4.1: Pass leads for segment functionality */}
       <LeadSelectionBar visibleSelectedCount={visibleSelectedCount} leads={leads} />
+
+      {/* Story 4.3: AC #6 - Lead preview panel for Apollo search leads */}
+      <LeadPreviewPanel
+        lead={selectedLead}
+        isOpen={isPreviewOpen}
+        onClose={handleClosePreview}
+      />
     </div>
   );
 }

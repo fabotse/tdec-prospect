@@ -1371,9 +1371,11 @@ components/
 - Focus trap
 
 **Sheet (Sidepanel):**
-- Largura: 400px (md), 600px (lg)
-- Slide from right
+- Largura: 480px (default), 600px (lg)
+- Padding: `px-6` (24px) lateral, `pt-6 pb-4` header, `pb-6` conteúdo
+- Slide from right com duração 200ms
 - Não bloqueia conteúdo principal
+- Close button: `top-4 right-4` com `rounded-sm`
 
 **Popover:**
 - Próximo ao trigger
@@ -1443,7 +1445,7 @@ xl: 1280px  /* Desktop wide */
 - Sidebar expandida (240px) com labels
 - Builder canvas com espaço generoso
 - Tabela de leads com todas as colunas
-- Sidepanel de edição (400-600px)
+- Sidepanel de edição (480-600px)
 - Atalhos de teclado completos
 
 **Tablet (640px - 1023px):**

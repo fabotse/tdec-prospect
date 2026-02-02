@@ -1,14 +1,16 @@
 /**
  * My Leads Filter Bar Component
  * Story 4.2.2: My Leads Page
+ * Story 4.6: Interested Leads Highlighting
  *
  * AC: #3 - Filter panel for status, segment, and search
+ * Story 4.6: AC #2 - Quick filter "Interessados" button
  */
 
 "use client";
 
 import { useCallback, useMemo } from "react";
-import { Search, X, Filter } from "lucide-react";
+import { Search, X, Filter, Sparkles } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,18 +37,38 @@ interface MyLeadsFilterBarProps {
   filters: MyLeadsFilters;
   onFiltersChange: (filters: Partial<MyLeadsFilters>) => void;
   onClearFilters: () => void;
+  /** Story 4.6: AC #2 - Count of interested leads for quick filter badge */
+  interestedCount?: number;
 }
 
 /**
  * Filter bar for My Leads page
  * AC: #3 - Status multi-select, segment dropdown, search input
+ * Story 4.6: AC #2 - Quick filter "Interessados" button
  */
 export function MyLeadsFilterBar({
   filters,
   onFiltersChange,
   onClearFilters,
+  interestedCount = 0,
 }: MyLeadsFilterBarProps) {
   const { data: segments, isLoading: segmentsLoading } = useSegments();
+
+  // Story 4.6: AC #2 - Check if interested filter is active
+  const isInterestedFilterActive = useMemo(() => {
+    return (
+      filters.statuses?.length === 1 && filters.statuses[0] === "interessado"
+    );
+  }, [filters.statuses]);
+
+  // Story 4.6: AC #2 - Toggle interested filter
+  const handleInterestedToggle = useCallback(() => {
+    if (isInterestedFilterActive) {
+      onFiltersChange({ statuses: undefined });
+    } else {
+      onFiltersChange({ statuses: ["interessado"] });
+    }
+  }, [isInterestedFilterActive, onFiltersChange]);
 
   // Fully controlled input - value comes from parent's filters.search
   // Parent (useMyLeads) updates filters.search immediately on each keystroke
@@ -95,6 +117,26 @@ export function MyLeadsFilterBar({
       className="flex flex-wrap items-center gap-3"
       data-testid="my-leads-filter-bar"
     >
+      {/* Story 4.6: AC #2 - Quick filter "Interessados" */}
+      <Button
+        variant={isInterestedFilterActive ? "default" : "outline"}
+        size="sm"
+        onClick={handleInterestedToggle}
+        className="gap-1.5"
+        data-testid="interested-filter-button"
+      >
+        <Sparkles className="h-4 w-4" />
+        Interessados
+        {interestedCount > 0 && (
+          <Badge
+            variant={isInterestedFilterActive ? "outline" : "secondary"}
+            className="ml-1 h-5 min-w-[20px] px-1.5"
+          >
+            {interestedCount}
+          </Badge>
+        )}
+      </Button>
+
       {/* Search Input */}
       <div className="relative flex-1 min-w-[200px] max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

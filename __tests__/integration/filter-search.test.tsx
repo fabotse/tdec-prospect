@@ -13,10 +13,57 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LeadsPageContent } from "@/components/leads/LeadsPageContent";
 import { useFilterStore } from "@/stores/use-filter-store";
+import { useSelectionStore } from "@/stores/use-selection-store";
 
 // Mock fetch
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
+
+// Mock next/navigation for LeadSelectionBar
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+  }),
+}));
+
+// Mock framer-motion to avoid animation issues in tests
+vi.mock("framer-motion", () => ({
+  AnimatePresence: ({ children }: { children: React.ReactNode }) => children,
+  motion: {
+    div: ({
+      children,
+      initial: _initial,
+      animate: _animate,
+      exit: _exit,
+      transition: _transition,
+      ...props
+    }: React.HTMLAttributes<HTMLDivElement> & {
+      initial?: unknown;
+      animate?: unknown;
+      exit?: unknown;
+      transition?: unknown;
+    }) => <div {...props}>{children}</div>,
+  },
+}));
+
+// Mock saved filters hook to prevent API calls during tests
+vi.mock("@/hooks/use-saved-filters", () => ({
+  useSavedFilters: () => ({
+    data: [],
+    isLoading: false,
+    error: null,
+  }),
+  useCreateSavedFilter: () => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
+  useDeleteSavedFilter: () => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
+}));
 
 // Wrapper with React Query
 function createWrapper() {
@@ -47,6 +94,8 @@ describe("Filter Search Flow", () => {
     const store = useFilterStore.getState();
     store.clearFilters();
     store.setExpanded(false);
+    // Reset selection store to prevent LeadSelectionBar from rendering
+    useSelectionStore.setState({ selectedIds: [] });
   });
 
   afterEach(() => {
@@ -274,6 +323,8 @@ describe("Email Status Filter Search Flow (Story 3.5.1)", () => {
     const store = useFilterStore.getState();
     store.clearFilters();
     store.setExpanded(false);
+    // Reset selection store to prevent LeadSelectionBar from rendering
+    useSelectionStore.setState({ selectedIds: [] });
   });
 
   afterEach(() => {

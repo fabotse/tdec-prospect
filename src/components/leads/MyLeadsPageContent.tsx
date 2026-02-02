@@ -2,6 +2,7 @@
  * My Leads Page Content Component
  * Story 4.2.2: My Leads Page
  * Story 4.3: Lead Detail View & Interaction History
+ * Story 4.6: Interested Leads Highlighting
  *
  * Main content component for displaying imported leads from database.
  *
@@ -12,13 +13,14 @@
  * AC: #6 - Empty state when no leads
  * AC: #7 - Pagination with LeadTablePagination
  * Story 4.3: AC #1 - Detail sidepanel on row click
+ * Story 4.6: AC #2, #6 - Interested leads quick filter and counter
  */
 
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
 import type { Lead } from "@/types/lead";
-import { useMyLeads } from "@/hooks/use-my-leads";
+import { useMyLeads, useInterestedCount } from "@/hooks/use-my-leads";
 import { useSelectionStore } from "@/stores/use-selection-store";
 import { LeadTable } from "@/components/leads/LeadTable";
 import { LeadSelectionBar } from "@/components/leads/LeadSelectionBar";
@@ -61,6 +63,9 @@ export function MyLeadsPageContent() {
     setPage,
     setPerPage,
   } = useMyLeads();
+
+  // Story 4.6: AC #2, #6 - Interested leads count for quick filter and header
+  const { count: interestedCount } = useInterestedCount();
 
   const { selectedIds, setSelectedIds } = useSelectionStore();
 
@@ -114,10 +119,12 @@ export function MyLeadsPageContent() {
   return (
     <div className="space-y-4">
       {/* AC: #3 - Filter bar */}
+      {/* Story 4.6: AC #2 - interestedCount for quick filter badge */}
       <MyLeadsFilterBar
         filters={filters}
         onFiltersChange={updateFilters}
         onClearFilters={clearFilters}
+        interestedCount={interestedCount}
       />
 
       {/* Loading State */}
@@ -157,14 +164,25 @@ export function MyLeadsPageContent() {
       {!isLoading && !error && leads.length > 0 && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-            <CardTitle
-              className="text-base font-medium"
-              data-testid="my-leads-result-count"
-            >
-              {totalEntries.toLocaleString("pt-BR")} lead
-              {totalEntries !== 1 ? "s" : ""} importado
-              {totalEntries !== 1 ? "s" : ""}
-            </CardTitle>
+            <div className="flex items-center gap-3">
+              <CardTitle
+                className="text-base font-medium"
+                data-testid="my-leads-result-count"
+              >
+                {totalEntries.toLocaleString("pt-BR")} lead
+                {totalEntries !== 1 ? "s" : ""} importado
+                {totalEntries !== 1 ? "s" : ""}
+              </CardTitle>
+              {/* Story 4.6: AC #6 - Interested leads counter */}
+              {interestedCount > 0 && (
+                <span
+                  className="text-sm text-green-600 dark:text-green-400 font-medium"
+                  data-testid="interested-count"
+                >
+                  • {interestedCount} interessado{interestedCount !== 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {/* AC: #2 - LeadTable with showCreatedAt for "Importado em" column */}

@@ -9,6 +9,8 @@
  * Story: 4.2 - Lead Status Management
  * Story: 4.2.1 - Lead Import Mechanism
  * Story: 4.2.2 - My Leads Page
+ * Story: 4.3 - Lead Detail View & Interaction History
+ * Story: 4.5 - Phone Number Lookup
  */
 
 export { LeadsPageContent } from "./LeadsPageContent";
@@ -31,3 +33,9 @@ export { LeadImportIndicator } from "./LeadImportIndicator";
 export { MyLeadsPageContent } from "./MyLeadsPageContent";
 export { MyLeadsFilterBar } from "./MyLeadsFilterBar";
 export { MyLeadsEmptyState } from "./MyLeadsEmptyState";
+// Story 4.3: Lead detail and preview panels
+export { LeadDetailPanel } from "./LeadDetailPanel";
+export { LeadPreviewPanel } from "./LeadPreviewPanel";
+export { InfoRow } from "./InfoRow";
+// Story 4.5: Phone number lookup
+export { PhoneLookupProgress } from "./PhoneLookupProgress";

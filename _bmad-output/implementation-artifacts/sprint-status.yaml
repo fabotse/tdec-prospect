@@ -117,7 +117,7 @@ development_status:
   # Solution: Supabase Edge Function as callback receiver, works in dev and prod without ngrok
   4-4-2-signalhire-callback-architecture: done  # P0: Code review 2026-02-02: 4 MEDIUM fixes applied (act warnings, docs)
   4-5-phone-number-lookup: blocked  # BLOCKED: needs 4.4.2 (callback architecture) - 4.4.1 DONE
-  4-6-interested-leads-highlighting: backlog
+  4-6-interested-leads-highlighting: done  # Code review: 3 MEDIUM, 2 LOW fixes applied (fallback ordering, documentation)
   4-7-import-campaign-results: backlog
   epic-4-retrospective: optional
 
