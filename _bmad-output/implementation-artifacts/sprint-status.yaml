@@ -41,8 +41,8 @@ story_location: _bmad-output/implementation-artifacts
 
 # GIT BRANCH TRACKING
 # ===================
-current_branch: epic/3-lead-discovery
-base_branch: epic/2-administration-configuration
+current_branch: epic/5-campaign-builder
+base_branch: epic/3-lead-discovery
 
 branch_strategy:
   # Branch naming convention:
@@ -59,7 +59,8 @@ branches:
   main: "Branch de produção estável"
   epic/1-mvp-prospecting: "Epic 1 - Foundation & Authentication (DONE)"
   epic/2-administration-configuration: "Epic 2 - Administration & Configuration (DONE)"
-  epic/3-lead-discovery: "Epic 3 - Lead Discovery (CURRENT)"
+  epic/3-lead-discovery: "Epic 3 & 4 - Lead Discovery & Management (DONE)"
+  epic/5-campaign-builder: "Epic 5 - Campaign Builder (CURRENT)"
 
 development_status:
   # Epic 1: Foundation & Authentication
@@ -119,11 +120,11 @@ development_status:
   4-5-phone-number-lookup: blocked  # BLOCKED: needs 4.4.2 (callback architecture) - 4.4.1 DONE
   4-6-interested-leads-highlighting: done  # Code review: 3 MEDIUM, 2 LOW fixes applied (fallback ordering, documentation)
   4-7-import-campaign-results: done  # Code review 2026-02-02: 5 HIGH, 3 MEDIUM fixes (drag-and-drop, batch processing, email validation, progress indicator)
-  epic-4-retrospective: optional
+  epic-4-retrospective: done
 
   # Epic 5: Campaign Builder
-  epic-5: backlog
-  5-1-campaigns-page-data-model: backlog
+  epic-5: in-progress
+  5-1-campaigns-page-data-model: done  # Code review 2026-02-02: 5 fixes applied (missing tests, JSON validation, RLS policy, hook refactor, accessibility)
   5-2-campaign-builder-canvas: backlog
   5-3-email-block-component: backlog
   5-4-delay-block-component: backlog

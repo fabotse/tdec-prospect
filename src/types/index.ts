@@ -13,5 +13,6 @@ export * from "./saved-filter";
 export * from "./segment";
 export * from "./interaction";
 export * from "./signalhire";
+export * from "./campaign";
 // Note: team.ts exports UserRole which conflicts with database.ts
 // Import directly from "./team" when needed
