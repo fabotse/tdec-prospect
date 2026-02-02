@@ -9,6 +9,8 @@ export * from "./knowledge-base";
 export * from "./lead";
 export * from "./apollo";
 export * from "./ai-search";
+export * from "./ai-provider";
+export * from "./ai-prompt";
 export * from "./saved-filter";
 export * from "./segment";
 export * from "./interaction";
