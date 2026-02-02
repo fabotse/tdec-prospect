@@ -101,6 +101,30 @@ export interface ApolloSearchResponse {
 }
 
 // ==============================================
+// PAGINATION TYPES (Story 3.8)
+// ==============================================
+
+/**
+ * Pagination metadata for API responses
+ * Story 3.8: AC #4 - Apollo API limits respected
+ */
+export interface PaginationMeta {
+  totalEntries: number;
+  page: number;
+  perPage: number;
+  totalPages: number;
+}
+
+/**
+ * Search result with leads and pagination metadata
+ * Story 3.8: AC #1, #4 - Returns leads with pagination info
+ */
+export interface ApolloSearchResult {
+  leads: LeadRow[];
+  pagination: PaginationMeta;
+}
+
+// ==============================================
 // TRANSFORM FUNCTIONS
 // ==============================================
 
@@ -184,6 +208,8 @@ export function transformApolloToLeadRow(
     title: person.title ?? null,
     // api_search doesn't return linkedin_url
     linkedin_url: null,
+    // api_search doesn't return photo_url - use People Enrichment
+    photo_url: null,
     status: "novo",
     // Story 3.5.1: Map availability flags for contact indicators
     has_email: person.has_email,
@@ -318,7 +344,8 @@ export interface ApolloBulkEnrichmentResponse {
  * Transform enriched Apollo person to partial LeadRow update
  * AC: #1 - Updates lead with complete data (email, phone, last_name, location, industry)
  *
- * Returns only the fields that can be enriched, for partial updates
+ * Returns only the fields that have values from enrichment.
+ * IMPORTANT: Does NOT include null values to avoid overwriting existing data.
  */
 export function transformEnrichmentToLead(
   enrichedPerson: ApolloEnrichedPerson,
@@ -350,16 +377,22 @@ export function transformEnrichmentToLead(
     else companySize = "1000+";
   }
 
-  return {
-    last_name: enrichedPerson.last_name,
-    email: enrichedPerson.email,
-    phone,
-    linkedin_url: enrichedPerson.linkedin_url,
-    location,
-    title: enrichedPerson.title,
-    company_name: organization?.name ?? null,
-    company_size: companySize,
-    industry: organization?.industry ?? null,
+  // Build result with only non-null values to avoid overwriting existing data
+  const result: Partial<LeadRow> = {
     updated_at: new Date().toISOString(),
   };
+
+  // Only include fields that have values from enrichment
+  if (enrichedPerson.last_name) result.last_name = enrichedPerson.last_name;
+  if (enrichedPerson.email) result.email = enrichedPerson.email;
+  if (phone) result.phone = phone;
+  if (enrichedPerson.linkedin_url) result.linkedin_url = enrichedPerson.linkedin_url;
+  if (enrichedPerson.photo_url) result.photo_url = enrichedPerson.photo_url;
+  if (location) result.location = location;
+  if (enrichedPerson.title) result.title = enrichedPerson.title;
+  if (organization?.name) result.company_name = organization.name;
+  if (companySize) result.company_size = companySize;
+  if (organization?.industry) result.industry = organization.industry;
+
+  return result;
 }

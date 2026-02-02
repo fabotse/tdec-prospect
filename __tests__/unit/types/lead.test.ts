@@ -290,6 +290,8 @@ describe("lead types", () => {
       location: "São Paulo, SP",
       title: "CTO",
       linkedin_url: "https://linkedin.com/in/joaosilva",
+      // Story 4.4.1: photo_url field from Apollo enrichment
+      photo_url: "https://example.com/photo.jpg",
       status: "novo",
       has_email: true,
       has_direct_phone: "Yes",
@@ -324,6 +326,7 @@ describe("lead types", () => {
         location: null,
         title: null,
         linkedin_url: null,
+        photo_url: null,
       };
 
       const result = transformLeadRow(rowWithNulls);
@@ -338,6 +341,7 @@ describe("lead types", () => {
       expect(result.location).toBeNull();
       expect(result.title).toBeNull();
       expect(result.linkedinUrl).toBeNull();
+      expect(result.photoUrl).toBeNull();
     });
 
     it("should handle all fields correctly", () => {
@@ -356,11 +360,19 @@ describe("lead types", () => {
       expect(result.location).toBe("São Paulo, SP");
       expect(result.title).toBe("CTO");
       expect(result.linkedinUrl).toBe("https://linkedin.com/in/joaosilva");
+      // Story 4.4.1: AC #5 - photo_url transformation
+      expect(result.photoUrl).toBe("https://example.com/photo.jpg");
       expect(result.status).toBe("novo");
       expect(result.hasEmail).toBe(true);
       expect(result.hasDirectPhone).toBe("Yes");
       expect(result.createdAt).toBe("2026-01-30T10:00:00Z");
       expect(result.updatedAt).toBe("2026-01-30T12:00:00Z");
+    });
+
+    // Story 4.4.1: AC #5 - photo_url transformation test
+    it("should transform photo_url to photoUrl", () => {
+      const result = transformLeadRow(mockLeadRow);
+      expect(result.photoUrl).toBe("https://example.com/photo.jpg");
     });
 
     // Story 3.5.1: Tests for contact availability fields
@@ -400,31 +412,34 @@ describe("lead types", () => {
       expect(result).toBeDefined();
     });
 
-    // Story 4.2.1 Fix: _isImported field tests
-    it("should transform _is_imported to _isImported when true", () => {
-      const rowImported: LeadRow = {
-        ...mockLeadRow,
-        _is_imported: true,
-      };
-
-      const result = transformLeadRow(rowImported);
+    // Story 4.2.2 Fix: Leads from database are always imported
+    it("should always set _isImported to true for database leads", () => {
+      // Leads from database are imported by definition
+      const result = transformLeadRow(mockLeadRow);
       expect(result._isImported).toBe(true);
     });
 
-    it("should transform _is_imported to _isImported when false", () => {
-      const rowNotImported: LeadRow = {
+    // Story 4.2.1 Fix: Respect API-provided _is_imported flag for Apollo search results
+    it("should respect _is_imported flag when explicitly set to false", () => {
+      // Apollo search API sets _is_imported: false for leads not in DB
+      const rowWithFalse: LeadRow = {
         ...mockLeadRow,
         _is_imported: false,
       };
 
-      const result = transformLeadRow(rowNotImported);
+      const result = transformLeadRow(rowWithFalse);
       expect(result._isImported).toBe(false);
     });
 
-    it("should handle undefined _is_imported", () => {
-      // mockLeadRow doesn't have _is_imported
-      const result = transformLeadRow(mockLeadRow);
-      expect(result._isImported).toBeUndefined();
+    it("should respect _is_imported flag when explicitly set to true", () => {
+      // Apollo search API sets _is_imported: true for leads already in DB
+      const rowWithTrue: LeadRow = {
+        ...mockLeadRow,
+        _is_imported: true,
+      };
+
+      const result = transformLeadRow(rowWithTrue);
+      expect(result._isImported).toBe(true);
     });
   });
 

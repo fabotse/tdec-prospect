@@ -230,6 +230,8 @@ describe("Apollo Types", () => {
       expect(result.location).toBeNull();
       expect(result.company_size).toBeNull();
       expect(result.linkedin_url).toBeNull();
+      // Story 4.4.1: photo_url is also not returned by api_search
+      expect(result.photo_url).toBeNull();
     });
 
     // Story 3.5.1: Tests for contact availability flags
@@ -405,6 +407,28 @@ describe("Apollo Types", () => {
       expect(result.industry).toBe("Technology");
     });
 
+    // Story 4.4.1: AC #2, #5 - photo_url mapping from enrichment
+    it("maps photo_url from enriched person", () => {
+      const result = transformEnrichmentToLead(
+        mockEnrichedPerson,
+        mockEnrichedOrganization
+      );
+
+      expect(result.photo_url).toBe("https://example.com/photo.jpg");
+    });
+
+    it("handles null photo_url", () => {
+      const personNoPhoto: ApolloEnrichedPerson = {
+        ...mockEnrichedPerson,
+        photo_url: null,
+      };
+
+      const result = transformEnrichmentToLead(personNoPhoto, null);
+
+      // null fields are not included to avoid overwriting existing data
+      expect(result.photo_url).toBeUndefined();
+    });
+
     it("handles null optional fields", () => {
       const personMinimal: ApolloEnrichedPerson = {
         id: "apollo-min",
@@ -423,12 +447,13 @@ describe("Apollo Types", () => {
 
       const result = transformEnrichmentToLead(personMinimal, null);
 
+      // Only non-null fields are included to avoid overwriting existing data
       expect(result.last_name).toBe("User");
-      expect(result.email).toBeNull();
-      expect(result.phone).toBeNull();
-      expect(result.linkedin_url).toBeNull();
-      expect(result.title).toBeNull();
-      expect(result.company_name).toBeNull();
+      expect(result.email).toBeUndefined();
+      expect(result.phone).toBeUndefined();
+      expect(result.linkedin_url).toBeUndefined();
+      expect(result.title).toBeUndefined();
+      expect(result.company_name).toBeUndefined();
     });
 
     it("builds location from city, state, country", () => {
@@ -463,7 +488,8 @@ describe("Apollo Types", () => {
 
       const result = transformEnrichmentToLead(personNoLocation, null);
 
-      expect(result.location).toBeNull();
+      // location is not included when all parts are null
+      expect(result.location).toBeUndefined();
     });
 
     it("maps company_size from estimated_num_employees", () => {
@@ -530,7 +556,8 @@ describe("Apollo Types", () => {
 
       const result = transformEnrichmentToLead(personNoPhone, null);
 
-      expect(result.phone).toBeNull();
+      // phone is not included when no phone numbers are available
+      expect(result.phone).toBeUndefined();
     });
 
     it("handles undefined phone_numbers", () => {
@@ -541,7 +568,8 @@ describe("Apollo Types", () => {
 
       const result = transformEnrichmentToLead(personUndefinedPhone, null);
 
-      expect(result.phone).toBeNull();
+      // phone is not included when phone_numbers is undefined
+      expect(result.phone).toBeUndefined();
     });
 
     it("returns partial LeadRow for updates", () => {

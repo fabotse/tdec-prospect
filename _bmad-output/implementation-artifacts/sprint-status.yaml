@@ -107,8 +107,16 @@ development_status:
   4-2-3-sidebar-navigation-enhancement: done  # P1: Expandable Leads submenu (Buscar, Meus Leads). Code review: 1 HIGH, 4 MEDIUM, 4 LOW fixes applied
   # Original stories continue
   4-3-lead-detail-view-interaction-history: done  # Code review: 2 HIGH, 4 MEDIUM, 4 LOW fixes applied (Zod validation, shared components, test coverage)
-  4-4-signalhire-integration-service: done  # Code review: 1 HIGH, 3 MEDIUM, 2 LOW fixes applied (timeout/retry, console.log, AbortController)
-  4-5-phone-number-lookup: backlog  # Depends on leads being persisted (4.2.1)
+  4-4-signalhire-integration-service: done  # Code review: 1 HIGH, 1 MEDIUM, 1 LOW fixes applied (requestId do body não header, mocks atualizados, console.warn removido)
+  # NEW STORY - Lead Data Enrichment (prerequisite for 4.5)
+  # Problem: SignalHire requires email OR LinkedIn, but imported leads don't have these
+  # Solution: Apollo People Enrichment to get email, LinkedIn, photo_url before phone lookup
+  4-4-1-lead-data-enrichment: done  # P0: Code review 2026-02-02: 4 fixes applied (hook tests, progress UI, error handling, accents)
+  # NEW STORY - SignalHire Callback Architecture (CRITICAL FIX)
+  # Problem: SignalHire API requires callbackUrl (mandatory), current code uses non-existent polling
+  # Solution: Supabase Edge Function as callback receiver, works in dev and prod without ngrok
+  4-4-2-signalhire-callback-architecture: done  # P0: Code review 2026-02-02: 4 MEDIUM fixes applied (act warnings, docs)
+  4-5-phone-number-lookup: blocked  # BLOCKED: needs 4.4.2 (callback architecture) - 4.4.1 DONE
   4-6-interested-leads-highlighting: backlog
   4-7-import-campaign-results: backlog
   epic-4-retrospective: optional

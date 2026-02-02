@@ -122,6 +122,8 @@ export interface Lead {
   location: string | null;
   title: string | null;
   linkedinUrl: string | null;
+  /** Story 4.4.1: URL da foto do lead obtida via Apollo People Enrichment */
+  photoUrl: string | null;
   status: LeadStatus;
   hasEmail: boolean;
   hasDirectPhone: string | null;
@@ -155,6 +157,8 @@ export interface LeadRow {
   location: string | null;
   title: string | null;
   linkedin_url: string | null;
+  /** Story 4.4.1: URL da foto do lead obtida via Apollo People Enrichment */
+  photo_url: string | null;
   status: LeadStatus;
   has_email: boolean;
   has_direct_phone: string | null;
@@ -175,7 +179,7 @@ export interface LeadRow {
  * Transform database row to Lead interface
  * Converts snake_case to camelCase
  * Story 3.5.1: Added hasEmail, hasDirectPhone mapping
- * Story 4.2.1 Fix: Added _isImported mapping
+ * Story 4.2.1 Fix: Respect _is_imported flag from API if set, otherwise default to true for DB leads
  */
 export function transformLeadRow(row: LeadRow): Lead {
   return {
@@ -192,12 +196,14 @@ export function transformLeadRow(row: LeadRow): Lead {
     location: row.location,
     title: row.title,
     linkedinUrl: row.linkedin_url,
+    photoUrl: row.photo_url,
     status: row.status,
     hasEmail: row.has_email,
     hasDirectPhone: row.has_direct_phone,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    _isImported: row._is_imported,
+    // Use _is_imported from row if explicitly set (Apollo search), otherwise true (DB query)
+    _isImported: row._is_imported ?? true,
   };
 }
 

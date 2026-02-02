@@ -1,6 +1,7 @@
 /**
  * My Leads Page Content Component
  * Story 4.2.2: My Leads Page
+ * Story 4.3: Lead Detail View & Interaction History
  *
  * Main content component for displaying imported leads from database.
  *
@@ -10,11 +11,13 @@
  * AC: #5 - Lead actions via LeadSelectionBar
  * AC: #6 - Empty state when no leads
  * AC: #7 - Pagination with LeadTablePagination
+ * Story 4.3: AC #1 - Detail sidepanel on row click
  */
 
 "use client";
 
-import { useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
+import type { Lead } from "@/types/lead";
 import { useMyLeads } from "@/hooks/use-my-leads";
 import { useSelectionStore } from "@/stores/use-selection-store";
 import { LeadTable } from "@/components/leads/LeadTable";
@@ -22,6 +25,7 @@ import { LeadSelectionBar } from "@/components/leads/LeadSelectionBar";
 import { MyLeadsFilterBar } from "@/components/leads/MyLeadsFilterBar";
 import { MyLeadsEmptyState } from "@/components/leads/MyLeadsEmptyState";
 import { LeadsPageSkeleton } from "@/components/leads/LeadsPageSkeleton";
+import { LeadDetailPanel } from "@/components/leads/LeadDetailPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -59,6 +63,26 @@ export function MyLeadsPageContent() {
   } = useMyLeads();
 
   const { selectedIds, setSelectedIds } = useSelectionStore();
+
+  // Story 4.3: AC #1 - State for lead detail panel
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
+
+  // Story 4.3: AC #1 - Open panel when row is clicked
+  const handleRowClick = useCallback((lead: Lead) => {
+    setSelectedLead(lead);
+    setIsPanelOpen(true);
+  }, []);
+
+  // Story 4.3: AC #7 - Close panel handler
+  const handleClosePanel = useCallback(() => {
+    setIsPanelOpen(false);
+  }, []);
+
+  // Story 4.4.1: Update selected lead when enriched
+  const handleLeadUpdate = useCallback((updatedLead: Lead) => {
+    setSelectedLead(updatedLead);
+  }, []);
 
   // Count visible selected leads
   const visibleSelectedCount = useMemo(() => {
@@ -144,12 +168,14 @@ export function MyLeadsPageContent() {
           </CardHeader>
           <CardContent className="space-y-4">
             {/* AC: #2 - LeadTable with showCreatedAt for "Importado em" column */}
+            {/* Story 4.3: AC #1 - Row click opens detail panel */}
             <LeadTable
               leads={leads}
               selectedIds={selectedIds}
               onSelectionChange={setSelectedIds}
               isLoading={isFetching}
               showCreatedAt
+              onRowClick={handleRowClick}
             />
 
             {/* AC: #7 - Pagination controls */}
@@ -226,7 +252,23 @@ export function MyLeadsPageContent() {
       )}
 
       {/* AC: #5 - Selection bar for batch actions */}
-      <LeadSelectionBar visibleSelectedCount={visibleSelectedCount} leads={leads} />
+      {/* Story 4.4.1: AC #4 - showEnrichment on My Leads page */}
+      {/* Story 4.5: AC #4.2 - showPhoneLookup only on My Leads page */}
+      <LeadSelectionBar
+        visibleSelectedCount={visibleSelectedCount}
+        leads={leads}
+        showEnrichment
+        showPhoneLookup
+      />
+
+      {/* Story 4.3: AC #1 - Lead detail sidepanel */}
+      {/* Story 4.4.1: onLeadUpdate refreshes panel data after enrichment */}
+      <LeadDetailPanel
+        lead={selectedLead}
+        isOpen={isPanelOpen}
+        onClose={handleClosePanel}
+        onLeadUpdate={handleLeadUpdate}
+      />
     </div>
   );
 }

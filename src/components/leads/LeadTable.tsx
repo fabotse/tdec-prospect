@@ -3,6 +3,7 @@
  * Story: 3.5 - Lead Table Display
  * Story: 4.2.1 - Lead Import Mechanism
  * Story: 4.2.2 - My Leads Page
+ * Story: 4.4.1 - Lead Data Enrichment
  *
  * AC: #1 - Table with columns: checkbox, Nome, Empresa, Cargo, Localização, Status
  * AC: #2 - Airtable-inspired styling with hover states
@@ -14,6 +15,7 @@
  * AC: #8 - Empty state
  * Story 4.2.1: AC #3 - Import indicator column
  * Story 4.2.2: AC #2 - Optional "Importado em" column
+ * Story 4.4.1: AC #5 - Lead photo display
  */
 
 "use client";
@@ -45,6 +47,7 @@ import {
 import { Lead } from "@/types/lead";
 import { LeadStatusDropdown } from "./LeadStatusDropdown";
 import { LeadImportIndicator } from "./LeadImportIndicator";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 
 // ==============================================
@@ -96,6 +99,8 @@ interface LeadTableProps {
   isLoading?: boolean;
   /** Story 4.2.2: Show "Importado em" column with creation date */
   showCreatedAt?: boolean;
+  /** Story 4.3: Callback when a row is clicked to open detail panel */
+  onRowClick?: (lead: Lead) => void;
 }
 
 // ==============================================
@@ -190,6 +195,7 @@ export function LeadTable({
   onSelectionChange,
   isLoading = false,
   showCreatedAt = false,
+  onRowClick,
 }: LeadTableProps) {
   // Story 4.2.2: Filter columns based on showCreatedAt prop
   const visibleColumns = useMemo(() => {
@@ -529,10 +535,26 @@ export function LeadTable({
                   // AC: #2 - Row height and alternating backgrounds
                   "h-14 hover:bg-muted/10",
                   rowIndex % 2 === 1 && "bg-muted/5",
-                  selectedIds.includes(lead.id) && "bg-primary/5"
+                  selectedIds.includes(lead.id) && "bg-primary/5",
+                  // Story 4.3: AC #1 - Cursor pointer when row is clickable
+                  onRowClick && "cursor-pointer"
                 )}
                 role="row"
                 aria-rowindex={rowIndex + 2}
+                // Story 4.3: AC #1 - Row click handler
+                onClick={(e) => {
+                  // Don't trigger row click if clicking on interactive elements
+                  const target = e.target as HTMLElement;
+                  const isInteractive =
+                    target.closest("button") ||
+                    target.closest('[role="checkbox"]') ||
+                    target.closest('[data-radix-collection-item]') ||
+                    target.closest('[role="combobox"]') ||
+                    target.closest('[role="separator"]');
+                  if (!isInteractive && onRowClick) {
+                    onRowClick(lead);
+                  }
+                }}
               >
                 {/* Checkbox column - sticky */}
                 <TableCell
@@ -587,9 +609,9 @@ export function LeadTable({
                   <LeadImportIndicator lead={lead} />
                 </TableCell>
 
-                {/* Nome column - sticky */}
-                <TruncatedCell
-                  value={`${lead.firstName} ${lead.lastName ?? ""}`.trim()}
+                {/* Nome column - sticky - Story 4.4.1: AC #5 - With avatar */}
+                <LeadNameCell
+                  lead={lead}
                   stickyBackground={
                     selectedIds.includes(lead.id)
                       ? "bg-primary/5"
@@ -597,7 +619,6 @@ export function LeadTable({
                         ? "bg-muted/5"
                         : "bg-background"
                   }
-                  className="sticky left-12 font-medium"
                   onFocus={() =>
                     setFocusedCell({ row: rowIndex + 1, col: 2 })
                   }
@@ -882,6 +903,65 @@ function ContactAvailabilityCell({
           </TooltipTrigger>
           <TooltipContent side="top">
             {phoneAvailable ? "Telefone disponível" : "Telefone não disponível"}
+          </TooltipContent>
+        </Tooltip>
+      </div>
+    </TableCell>
+  );
+}
+
+// ==============================================
+// LEAD NAME CELL SUB-COMPONENT
+// Story 4.4.1: AC #5 - Lead photo display with avatar
+// ==============================================
+
+interface LeadNameCellProps {
+  lead: Lead;
+  stickyBackground?: string;
+  onFocus?: () => void;
+  tabIndex?: number;
+}
+
+/**
+ * Displays lead name with avatar photo (or initials fallback)
+ * Story 4.4.1: AC #5 - Circular avatar with photo or initials
+ */
+function LeadNameCell({
+  lead,
+  stickyBackground,
+  onFocus,
+  tabIndex,
+}: LeadNameCellProps) {
+  const fullName = `${lead.firstName} ${lead.lastName ?? ""}`.trim();
+
+  // Generate initials from first and last name
+  const initials = [lead.firstName?.[0], lead.lastName?.[0]]
+    .filter(Boolean)
+    .join("")
+    .toUpperCase() || "?";
+
+  return (
+    <TableCell
+      className={cn("sticky left-12 max-w-0", stickyBackground)}
+      role="gridcell"
+      onFocus={onFocus}
+      tabIndex={tabIndex}
+    >
+      <div className="flex items-center gap-2">
+        <Avatar className="h-8 w-8 flex-shrink-0">
+          {lead.photoUrl && (
+            <AvatarImage src={lead.photoUrl} alt={fullName} />
+          )}
+          <AvatarFallback className="text-xs font-medium">
+            {initials}
+          </AvatarFallback>
+        </Avatar>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="block truncate font-medium">{fullName}</span>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs">
+            <p>{fullName}</p>
           </TooltipContent>
         </Tooltip>
       </div>
