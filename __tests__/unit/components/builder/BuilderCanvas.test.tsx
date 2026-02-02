@@ -1,14 +1,41 @@
 /**
  * BuilderCanvas Component Tests
  * Story 5.2: Campaign Builder Canvas
+ * Story 5.3: Email Block Component
  *
  * AC: #2 - Canvas Visual (Estilo Attio)
  * AC: #5 - Estado Vazio do Canvas
+ * AC 5.3 #1 - Arrastar Email Block para Canvas
+ * AC 5.3 #3 - Selecionar Email Block (click outside to deselect)
  */
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { BuilderCanvas } from "@/components/builder/BuilderCanvas";
+
+// Mock framer-motion for EmailBlock
+vi.mock("framer-motion", () => ({
+  motion: {
+    div: ({
+      children,
+      className,
+      onClick,
+      "data-testid": testId,
+    }: {
+      children: React.ReactNode;
+      className?: string;
+      onClick?: (e: React.MouseEvent) => void;
+      "data-testid"?: string;
+    }) => (
+      <div className={className} onClick={onClick} data-testid={testId}>
+        {children}
+      </div>
+    ),
+  },
+}));
+
+// Mock store functions
+const mockSelectBlock = vi.fn();
 
 // Mock useBuilderStore
 const mockUseBuilderStore = vi.fn();
@@ -36,6 +63,7 @@ describe("BuilderCanvas (AC: #2, #5)", () => {
         const state = {
           blocks: [],
           isDragging: false,
+          selectBlock: mockSelectBlock,
         };
         return selector(state);
       });
@@ -76,6 +104,7 @@ describe("BuilderCanvas (AC: #2, #5)", () => {
         const state = {
           blocks: [],
           isDragging: false,
+          selectBlock: mockSelectBlock,
         };
         return selector(state);
       });
@@ -106,6 +135,9 @@ describe("BuilderCanvas (AC: #2, #5)", () => {
             { id: "block-2", type: "delay", position: 1, data: {} },
           ],
           isDragging: false,
+          selectBlock: mockSelectBlock,
+          selectedBlockId: null,
+          updateBlock: vi.fn(),
         };
         return selector(state);
       });
@@ -119,11 +151,51 @@ describe("BuilderCanvas (AC: #2, #5)", () => {
       ).not.toBeInTheDocument();
     });
 
-    it("renders block placeholders for each block", () => {
+    it("renders EmailBlock for email type blocks (AC 5.3 #1)", () => {
       render(<BuilderCanvas />);
 
-      expect(screen.getByTestId("block-block-1")).toBeInTheDocument();
+      // EmailBlock uses email-block-{id} testid
+      expect(screen.getByTestId("email-block-block-1")).toBeInTheDocument();
+    });
+
+    it("renders BlockPlaceholder for delay type blocks", () => {
+      render(<BuilderCanvas />);
+
+      // BlockPlaceholder uses block-{id} testid
       expect(screen.getByTestId("block-block-2")).toBeInTheDocument();
+    });
+
+    it("displays correct step numbers for email blocks", () => {
+      render(<BuilderCanvas />);
+
+      // First block should show "Step 1"
+      expect(screen.getByText("Step 1")).toBeInTheDocument();
+    });
+  });
+
+  describe("Click to Deselect (AC 5.3 #3)", () => {
+    beforeEach(() => {
+      mockUseBuilderStore.mockImplementation((selector) => {
+        const state = {
+          blocks: [
+            { id: "block-1", type: "email", position: 0, data: {} },
+          ],
+          isDragging: false,
+          selectBlock: mockSelectBlock,
+          selectedBlockId: "block-1",
+          updateBlock: vi.fn(),
+        };
+        return selector(state);
+      });
+    });
+
+    it("calls selectBlock with null when clicking canvas", () => {
+      render(<BuilderCanvas />);
+
+      const canvas = screen.getByTestId("builder-canvas");
+      fireEvent.click(canvas);
+
+      expect(mockSelectBlock).toHaveBeenCalledWith(null);
     });
   });
 
@@ -133,6 +205,7 @@ describe("BuilderCanvas (AC: #2, #5)", () => {
         const state = {
           blocks: [],
           isDragging: true,
+          selectBlock: mockSelectBlock,
         };
         return selector(state);
       });
@@ -148,6 +221,7 @@ describe("BuilderCanvas (AC: #2, #5)", () => {
         const state = {
           blocks: [],
           isDragging: false,
+          selectBlock: mockSelectBlock,
         };
         return selector(state);
       });

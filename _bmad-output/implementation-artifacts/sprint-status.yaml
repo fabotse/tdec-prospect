@@ -126,7 +126,7 @@ development_status:
   epic-5: in-progress
   5-1-campaigns-page-data-model: done  # Code review 2026-02-02: 5 fixes applied (missing tests, JSON validation, RLS policy, hook refactor, accessibility)
   5-2-campaign-builder-canvas: done  # Code review 2026-02-02: 3 MEDIUM fixes applied (unused var, max length validation, ARIA labels)
-  5-3-email-block-component: backlog
+  5-3-email-block-component: done  # Code review 2026-02-02: 3 HIGH, 2 MEDIUM fixes (useState sync, unused ref, body validation)
   5-4-delay-block-component: backlog
   5-5-sequence-connector-lines: backlog
   5-6-block-drag-reorder: backlog

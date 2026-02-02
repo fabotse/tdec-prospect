@@ -1,9 +1,12 @@
 /**
  * BuilderCanvas Component
  * Story 5.2: Campaign Builder Canvas
+ * Story 5.3: Email Block Component
  *
  * AC: #2 - Canvas Visual (Estilo Attio)
  * AC: #5 - Estado Vazio do Canvas
+ * AC 5.3 #1 - Arrastar Email Block para Canvas
+ * AC 5.3 #3 - Selecionar Email Block (click outside to deselect)
  *
  * Central canvas for building campaign sequences.
  * Features clean Attio-style design with subtle or no grid.
@@ -16,6 +19,7 @@ import { Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBuilderStore } from "@/stores/use-builder-store";
 import { BlockPlaceholder } from "./BlockPlaceholder";
+import { EmailBlock } from "./EmailBlock";
 
 /**
  * Empty state displayed when no blocks exist on canvas
@@ -43,6 +47,7 @@ function CanvasEmptyState() {
 export function BuilderCanvas() {
   const blocks = useBuilderStore((state) => state.blocks);
   const isDragging = useBuilderStore((state) => state.isDragging);
+  const selectBlock = useBuilderStore((state) => state.selectBlock);
 
   const { setNodeRef, isOver } = useDroppable({
     id: "canvas-drop-zone",
@@ -50,10 +55,16 @@ export function BuilderCanvas() {
 
   const isEmpty = blocks.length === 0;
 
+  // Click on canvas background to deselect any selected block
+  const handleCanvasClick = () => {
+    selectBlock(null);
+  };
+
   return (
     <div
       ref={setNodeRef}
       data-testid="builder-canvas"
+      onClick={handleCanvasClick}
       className={cn(
         // Base styles - clean Attio-inspired design
         "flex-1 bg-background overflow-auto",
@@ -69,9 +80,17 @@ export function BuilderCanvas() {
           <CanvasEmptyState />
         ) : (
           <div className="flex flex-col items-center gap-6 pt-8">
-            {blocks.map((block) => (
-              <BlockPlaceholder key={block.id} block={block} />
-            ))}
+            {blocks.map((block, index) =>
+              block.type === "email" ? (
+                <EmailBlock
+                  key={block.id}
+                  block={block}
+                  stepNumber={index + 1}
+                />
+              ) : (
+                <BlockPlaceholder key={block.id} block={block} />
+              )
+            )}
           </div>
         )}
       </div>
