@@ -128,7 +128,7 @@ development_status:
   5-2-campaign-builder-canvas: done  # Code review 2026-02-02: 3 MEDIUM fixes applied (unused var, max length validation, ARIA labels)
   5-3-email-block-component: done  # Code review 2026-02-02: 3 HIGH, 2 MEDIUM fixes (useState sync, unused ref, body validation)
   5-4-delay-block-component: done  # Code review 2026-02-02: 3 MEDIUM, 3 LOW fixes (useEffect deps, aria-label, type safety, data spread, docs)
-  5-5-sequence-connector-lines: backlog
+  5-5-sequence-connector-lines: done  # Code review 2026-02-02: 1 HIGH, 2 MEDIUM fixes (TypeScript mock types, --border color token, double gap spacing)
   5-6-block-drag-reorder: backlog
   5-7-campaign-lead-association: backlog
   5-8-campaign-preview: backlog

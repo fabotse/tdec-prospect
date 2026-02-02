@@ -17,12 +17,14 @@
 
 "use client";
 
+import { Fragment } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import { Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBuilderStore } from "@/stores/use-builder-store";
 import { EmailBlock } from "./EmailBlock";
 import { DelayBlock } from "./DelayBlock";
+import { SequenceConnector } from "./SequenceConnector";
 
 /**
  * Empty state displayed when no blocks exist on canvas
@@ -82,22 +84,19 @@ export function BuilderCanvas() {
         {isEmpty ? (
           <CanvasEmptyState />
         ) : (
-          <div className="flex flex-col items-center gap-6 pt-8">
-            {blocks.map((block, index) =>
-              block.type === "email" ? (
-                <EmailBlock
-                  key={block.id}
-                  block={block}
-                  stepNumber={index + 1}
-                />
-              ) : (
-                <DelayBlock
-                  key={block.id}
-                  block={block}
-                  stepNumber={index + 1}
-                />
-              )
-            )}
+          <div className="flex flex-col items-center pt-8">
+            {blocks.map((block, index) => (
+              <Fragment key={block.id}>
+                {/* Render connector BEFORE each block (except first) */}
+                {index > 0 && <SequenceConnector height={24} animate={true} />}
+
+                {block.type === "email" ? (
+                  <EmailBlock block={block} stepNumber={index + 1} />
+                ) : (
+                  <DelayBlock block={block} stepNumber={index + 1} />
+                )}
+              </Fragment>
+            ))}
           </div>
         )}
       </div>

@@ -3,6 +3,7 @@
  * Story 5.2: Campaign Builder Canvas
  * Story 5.3: Email Block Component
  * Story 5.4: Delay Block Component
+ * Story 5.5: Sequence Connector Lines
  *
  * AC: #2 - Canvas Visual (Estilo Attio)
  * AC: #5 - Estado Vazio do Canvas
@@ -10,13 +11,14 @@
  * AC 5.3 #3 - Selecionar Email Block (click outside to deselect)
  * AC 5.4 #1 - Arrastar Delay Block para Canvas
  * AC 5.4 #3 - Selecionar Delay Block
+ * AC 5.5 #1 - Conectores entre Blocos Consecutivos
  */
 
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { BuilderCanvas } from "@/components/builder/BuilderCanvas";
 
-// Mock framer-motion for EmailBlock
+// Mock framer-motion for EmailBlock, DelayBlock, and SequenceConnector
 vi.mock("framer-motion", () => ({
   motion: {
     div: ({
@@ -34,7 +36,11 @@ vi.mock("framer-motion", () => ({
         {children}
       </div>
     ),
+    path: ({ d, stroke, strokeWidth, ...props }: Record<string, unknown>) => (
+      <path d={d as string} stroke={stroke as string} strokeWidth={strokeWidth as number} {...props} />
+    ),
   },
+  useReducedMotion: () => false,
 }));
 
 // Mock store functions
@@ -240,6 +246,106 @@ describe("BuilderCanvas (AC: #2, #5)", () => {
 
       const canvas = screen.getByTestId("builder-canvas");
       expect(canvas).not.toHaveClass("ring-2");
+    });
+  });
+
+  describe("Sequence Connectors (AC 5.5 #1)", () => {
+    it("renders connectors between multiple blocks", () => {
+      mockUseBuilderStore.mockImplementation((selector) => {
+        const state = {
+          blocks: [
+            { id: "block-1", type: "email", position: 0, data: {} },
+            { id: "block-2", type: "delay", position: 1, data: {} },
+          ],
+          isDragging: false,
+          selectBlock: mockSelectBlock,
+          selectedBlockId: null,
+          updateBlock: vi.fn(),
+        };
+        return selector(state);
+      });
+
+      render(<BuilderCanvas />);
+
+      // With 2 blocks, there should be 1 connector (n-1 connectors for n blocks)
+      const connectors = screen.getAllByTestId("sequence-connector");
+      expect(connectors).toHaveLength(1);
+    });
+
+    it("renders correct number of connectors for 3 blocks", () => {
+      mockUseBuilderStore.mockImplementation((selector) => {
+        const state = {
+          blocks: [
+            { id: "block-1", type: "email", position: 0, data: {} },
+            { id: "block-2", type: "delay", position: 1, data: {} },
+            { id: "block-3", type: "email", position: 2, data: {} },
+          ],
+          isDragging: false,
+          selectBlock: mockSelectBlock,
+          selectedBlockId: null,
+          updateBlock: vi.fn(),
+        };
+        return selector(state);
+      });
+
+      render(<BuilderCanvas />);
+
+      // With 3 blocks, there should be 2 connectors
+      const connectors = screen.getAllByTestId("sequence-connector");
+      expect(connectors).toHaveLength(2);
+    });
+
+    it("does not render connectors with single block", () => {
+      mockUseBuilderStore.mockImplementation((selector) => {
+        const state = {
+          blocks: [{ id: "block-1", type: "email", position: 0, data: {} }],
+          isDragging: false,
+          selectBlock: mockSelectBlock,
+          selectedBlockId: null,
+          updateBlock: vi.fn(),
+        };
+        return selector(state);
+      });
+
+      render(<BuilderCanvas />);
+
+      expect(screen.queryByTestId("sequence-connector")).not.toBeInTheDocument();
+    });
+
+    it("does not render connectors with empty canvas", () => {
+      mockUseBuilderStore.mockImplementation((selector) => {
+        const state = {
+          blocks: [],
+          isDragging: false,
+          selectBlock: mockSelectBlock,
+        };
+        return selector(state);
+      });
+
+      render(<BuilderCanvas />);
+
+      expect(screen.queryByTestId("sequence-connector")).not.toBeInTheDocument();
+    });
+
+    it("connectors have aria-hidden for accessibility", () => {
+      mockUseBuilderStore.mockImplementation((selector) => {
+        const state = {
+          blocks: [
+            { id: "block-1", type: "email", position: 0, data: {} },
+            { id: "block-2", type: "delay", position: 1, data: {} },
+          ],
+          isDragging: false,
+          selectBlock: mockSelectBlock,
+          selectedBlockId: null,
+          updateBlock: vi.fn(),
+        };
+        return selector(state);
+      });
+
+      render(<BuilderCanvas />);
+
+      const connector = screen.getByTestId("sequence-connector");
+      expect(connector).toHaveAttribute("aria-hidden", "true");
     });
   });
 });
