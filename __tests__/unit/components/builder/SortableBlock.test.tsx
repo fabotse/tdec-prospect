@@ -65,6 +65,20 @@ vi.mock("@dnd-kit/utilities", () => ({
   },
 }));
 
+// Mock useAIGenerate hook (Story 6.2)
+vi.mock("@/hooks/use-ai-generate", () => ({
+  useAIGenerate: () => ({
+    generate: vi.fn(),
+    phase: "idle",
+    text: "",
+    error: null,
+    reset: vi.fn(),
+    cancel: vi.fn(),
+    isGenerating: false,
+  }),
+  DEFAULT_GENERATION_VARIABLES: {},
+}));
+
 describe("SortableBlock (AC 5.6: #1, #3, #5)", () => {
   const emailBlock: BuilderBlock = {
     id: "block-email-1",

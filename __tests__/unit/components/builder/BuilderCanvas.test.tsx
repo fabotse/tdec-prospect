@@ -111,6 +111,20 @@ vi.mock("@dnd-kit/utilities", () => ({
   },
 }));
 
+// Mock useAIGenerate hook (Story 6.2)
+vi.mock("@/hooks/use-ai-generate", () => ({
+  useAIGenerate: () => ({
+    generate: vi.fn(),
+    phase: "idle",
+    text: "",
+    error: null,
+    reset: vi.fn(),
+    cancel: vi.fn(),
+    isGenerating: false,
+  }),
+  DEFAULT_GENERATION_VARIABLES: {},
+}));
+
 describe("BuilderCanvas (AC: #2, #5)", () => {
   beforeEach(() => {
     vi.clearAllMocks();

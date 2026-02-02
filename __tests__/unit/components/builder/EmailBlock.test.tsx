@@ -1,17 +1,23 @@
 /**
  * EmailBlock Component Tests
  * Story 5.3: Email Block Component
+ * Story 6.2: AI Text Generation in Builder
  *
- * AC: #2 - Visual do Email Block (Estilo Attio)
- * AC: #3 - Selecionar Email Block
- * AC: #4 - Drag Handle para Reposicionamento
- * AC: #5 - Campos Editaveis (Placeholder)
+ * AC 5.3: #2 - Visual do Email Block (Estilo Attio)
+ * AC 5.3: #3 - Selecionar Email Block
+ * AC 5.3: #4 - Drag Handle para Reposicionamento
+ * AC 5.3: #5 - Campos Editaveis (Placeholder)
+ *
+ * AC 6.2: #1 - Generate Button in Email Block
+ * AC 6.2: #2 - Error Handling
+ * AC 6.2: #3 - Streaming UI Experience
  */
 
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { EmailBlock } from "@/components/builder/EmailBlock";
 import type { BuilderBlock } from "@/stores/use-builder-store";
+import type { GenerationPhase } from "@/hooks/use-ai-generate";
 
 // Mock framer-motion
 vi.mock("framer-motion", () => ({
@@ -51,6 +57,39 @@ vi.mock("@/stores/use-builder-store", () => ({
   },
 }));
 
+// Mock AI generation state (Story 6.2)
+const mockGenerate = vi.fn();
+const mockResetAI = vi.fn();
+const mockCancelAI = vi.fn();
+let mockAIPhase: GenerationPhase = "idle";
+let mockStreamingText = "";
+let mockAIError: string | null = null;
+let mockIsGenerating = false;
+
+// Mock useAIGenerate hook
+vi.mock("@/hooks/use-ai-generate", () => ({
+  useAIGenerate: () => ({
+    generate: mockGenerate,
+    phase: mockAIPhase,
+    text: mockStreamingText,
+    error: mockAIError,
+    reset: mockResetAI,
+    cancel: mockCancelAI,
+    isGenerating: mockIsGenerating,
+  }),
+  DEFAULT_GENERATION_VARIABLES: {
+    company_context: "Test company",
+    lead_name: "Test Lead",
+    lead_title: "CEO",
+    lead_company: "Test Corp",
+    lead_industry: "Tech",
+    lead_location: "Brasil",
+    tone_description: "Profissional",
+    email_objective: "Prospecção",
+    icebreaker: "",
+  },
+}));
+
 describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
   const mockBlock: BuilderBlock = {
     id: "test-block-123",
@@ -62,6 +101,11 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSelectedBlockId = null;
+    // Reset AI mocks (Story 6.2)
+    mockAIPhase = "idle";
+    mockStreamingText = "";
+    mockAIError = null;
+    mockIsGenerating = false;
   });
 
   describe("Visual Style (AC: #2)", () => {
@@ -333,6 +377,132 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
       expect(mockUpdateBlock).toHaveBeenCalledWith(mockBlock.id, {
         data: expect.objectContaining({ subject: "Test" }),
       });
+    });
+  });
+
+  // ==============================================
+  // Story 6.2: AI Text Generation
+  // ==============================================
+
+  describe("AI Generate Button (Story 6.2 AC: #1)", () => {
+    it("renders AI generate button", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      expect(screen.getByText("Gerar com IA")).toBeInTheDocument();
+    });
+
+    it("calls generate when button is clicked", async () => {
+      mockGenerate.mockResolvedValue("Generated text");
+
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      const button = screen.getByText("Gerar com IA");
+      fireEvent.click(button);
+
+      await waitFor(() => {
+        expect(mockResetAI).toHaveBeenCalled();
+        expect(mockGenerate).toHaveBeenCalled();
+      });
+    });
+
+    it("passes correct prompt key for subject generation", async () => {
+      mockGenerate.mockResolvedValue("Test subject");
+
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      fireEvent.click(screen.getByText("Gerar com IA"));
+
+      await waitFor(() => {
+        expect(mockGenerate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            promptKey: "email_subject_generation",
+          })
+        );
+      });
+    });
+
+    it("calls body generation after subject generation", async () => {
+      // Setup mock to track prompt keys used
+      mockGenerate.mockResolvedValue("Generated text");
+
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      fireEvent.click(screen.getByText("Gerar com IA"));
+
+      // Wait for body generation prompt to be called (comes after subject)
+      await waitFor(
+        () => {
+          const calls = mockGenerate.mock.calls;
+          const bodyGenCalls = calls.filter(
+            (call) => call[0]?.promptKey === "email_body_generation"
+          );
+          expect(bodyGenCalls.length).toBeGreaterThanOrEqual(1);
+        },
+        { timeout: 2000 }
+      );
+
+      // Verify both prompt keys were used
+      const allPromptKeys = mockGenerate.mock.calls.map(
+        (call) => call[0]?.promptKey
+      );
+      expect(allPromptKeys).toContain("email_subject_generation");
+      expect(allPromptKeys).toContain("email_body_generation");
+    });
+  });
+
+  describe("AI Error Handling (Story 6.2 AC: #2)", () => {
+    it("displays error message when generation fails", () => {
+      mockAIError = "Não foi possível gerar. Tente novamente.";
+
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      expect(screen.getByTestId("ai-error-message")).toBeInTheDocument();
+      expect(
+        screen.getByText("Não foi possível gerar. Tente novamente.")
+      ).toBeInTheDocument();
+    });
+
+    it("clears error on retry (resets AI state)", async () => {
+      mockAIError = "Error message";
+      mockGenerate.mockResolvedValue("Success");
+
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      fireEvent.click(screen.getByText("Tentar novamente"));
+
+      await waitFor(() => {
+        expect(mockResetAI).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe("AI Streaming UI (Story 6.2 AC: #3)", () => {
+    it("shows generating status during generation", () => {
+      mockIsGenerating = true;
+
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      expect(screen.getByTestId("ai-generating-status")).toBeInTheDocument();
+      expect(
+        screen.getByText("Gerando texto personalizado...")
+      ).toBeInTheDocument();
+    });
+
+    it("applies pulse animation during generation", () => {
+      mockIsGenerating = true;
+
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      const blockElement = screen.getByTestId(`email-block-${mockBlock.id}`);
+      expect(blockElement).toHaveClass("animate-pulse");
+    });
+
+    it("hides generating status when not generating", () => {
+      mockIsGenerating = false;
+
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      expect(screen.queryByTestId("ai-generating-status")).not.toBeInTheDocument();
     });
   });
 });

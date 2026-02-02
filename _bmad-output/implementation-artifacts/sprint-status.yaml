@@ -41,8 +41,8 @@ story_location: _bmad-output/implementation-artifacts
 
 # GIT BRANCH TRACKING
 # ===================
-current_branch: epic/5-campaign-builder
-base_branch: epic/3-lead-discovery
+current_branch: epic/6-ai-content-generation
+base_branch: epic/5-campaign-builder
 
 branch_strategy:
   # Branch naming convention:
@@ -60,7 +60,8 @@ branches:
   epic/1-mvp-prospecting: "Epic 1 - Foundation & Authentication (DONE)"
   epic/2-administration-configuration: "Epic 2 - Administration & Configuration (DONE)"
   epic/3-lead-discovery: "Epic 3 & 4 - Lead Discovery & Management (DONE)"
-  epic/5-campaign-builder: "Epic 5 - Campaign Builder (CURRENT)"
+  epic/5-campaign-builder: "Epic 5 - Campaign Builder (DONE)"
+  epic/6-ai-content-generation: "Epic 6 - AI Content Generation (CURRENT)"
 
 development_status:
   # Epic 1: Foundation & Authentication
@@ -123,7 +124,7 @@ development_status:
   epic-4-retrospective: done
 
   # Epic 5: Campaign Builder
-  epic-5: in-progress
+  epic-5: done
   5-1-campaigns-page-data-model: done  # Code review 2026-02-02: 5 fixes applied (missing tests, JSON validation, RLS policy, hook refactor, accessibility)
   5-2-campaign-builder-canvas: done  # Code review 2026-02-02: 3 MEDIUM fixes applied (unused var, max length validation, ARIA labels)
   5-3-email-block-component: done  # Code review 2026-02-02: 3 HIGH, 2 MEDIUM fixes (useState sync, unused ref, body validation)
@@ -132,13 +133,13 @@ development_status:
   5-6-block-drag-reorder: done  # Code review 2026-02-02: 2 HIGH, 1 MEDIUM fixes (screen reader announcements, Portuguese aria-labels, drag handler tests)
   5-7-campaign-lead-association: done  # Code review 2026-02-02: 2 HIGH, 3 MEDIUM fixes (modal close on add, hasChanges flag, File List docs)
   5-8-campaign-preview: done  # Code review 2026-02-02: 1 HIGH, 2 MEDIUM fixes (keyboard nav tests, PreviewNavigation padding)
-  5-9-campaign-save-multiple-campaigns: backlog
-  epic-5-retrospective: optional
+  5-9-campaign-save-multiple-campaigns: done  # Code review 2026-02-02: 2 HIGH, 2 MEDIUM fixes (campaign existence check, atomic operations, editedName sync, tests)
+  epic-5-retrospective: done  # Completed 2026-02-02 - 100% stories, 36 code review fixes
 
   # Epic 6: AI Content Generation
-  epic-6: backlog
-  6-1-ai-provider-service-layer: backlog
-  6-2-ai-text-generation-in-builder: backlog
+  epic-6: in-progress
+  6-1-ai-provider-service-layer: done  # Code review 2026-02-02: 3 HIGH, 3 MEDIUM fixes (import type, streaming timeout, search_translation seed, promptKey validation, mock improvement, error logging)
+  6-2-ai-text-generation-in-builder: done  # Code review 2026-02-02: 1 HIGH, 3 MEDIUM fixes (5s timeout, test count, body gen test, stale closure)
   6-3-knowledge-base-integration-for-context: backlog
   6-4-personalized-icebreakers: backlog
   6-5-inline-text-editing: backlog
