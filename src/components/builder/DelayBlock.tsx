@@ -43,13 +43,14 @@ import {
 interface DelayBlockProps {
   block: BuilderBlock;
   stepNumber: number;
+  dragHandleProps?: React.HTMLAttributes<HTMLDivElement>;
 }
 
 /**
  * Delay block component for the campaign builder
  * Displays editable delay duration with preset options
  */
-export function DelayBlock({ block, stepNumber }: DelayBlockProps) {
+export function DelayBlock({ block, stepNumber, dragHandleProps }: DelayBlockProps) {
   const selectedBlockId = useBuilderStore((state) => state.selectedBlockId);
   const selectBlock = useBuilderStore((state) => state.selectBlock);
   const updateBlock = useBuilderStore((state) => state.updateBlock);
@@ -151,6 +152,7 @@ export function DelayBlock({ block, stepNumber }: DelayBlockProps) {
           data-testid="drag-handle"
           className="cursor-grab hover:cursor-grabbing text-muted-foreground hover:text-foreground transition-colors"
           aria-label="Arrastar para reordenar"
+          {...dragHandleProps}
         >
           <GripVertical className="h-5 w-5" />
         </div>

@@ -24,9 +24,10 @@ import type { EmailBlockData } from "@/types/email-block";
 interface EmailBlockProps {
   block: BuilderBlock;
   stepNumber: number;
+  dragHandleProps?: React.HTMLAttributes<HTMLDivElement>;
 }
 
-export function EmailBlock({ block, stepNumber }: EmailBlockProps) {
+export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockProps) {
   const selectedBlockId = useBuilderStore((state) => state.selectedBlockId);
   const selectBlock = useBuilderStore((state) => state.selectBlock);
   const updateBlock = useBuilderStore((state) => state.updateBlock);
@@ -98,6 +99,7 @@ export function EmailBlock({ block, stepNumber }: EmailBlockProps) {
           data-testid="drag-handle"
           className="cursor-grab hover:cursor-grabbing text-muted-foreground hover:text-foreground transition-colors"
           aria-label="Arrastar para reordenar"
+          {...dragHandleProps}
         >
           <GripVertical className="h-5 w-5" />
         </div>
