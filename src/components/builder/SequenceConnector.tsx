@@ -89,13 +89,13 @@ export function SequenceConnector({
       viewBox={`0 0 ${width} ${height}`}
       fill="none"
       aria-hidden="true"
-      className="mx-auto"
+      className="mx-auto text-muted-foreground"
       tabIndex={-1}
     >
       {/* Main connector line */}
       <motion.path
         d={pathD}
-        stroke="hsl(var(--border))"
+        stroke="currentColor"
         strokeWidth={2}
         strokeLinecap="round"
         fill="none"
@@ -107,7 +107,7 @@ export function SequenceConnector({
       {/* Arrow marker at the end */}
       <motion.path
         d={arrowD}
-        stroke="hsl(var(--border))"
+        stroke="currentColor"
         strokeWidth={2}
         strokeLinecap="round"
         strokeLinejoin="round"

@@ -470,8 +470,8 @@ Claude Opus 4.5 (claude-opus-4-5-20251101)
 - Fixed `strokeLinecap` and `strokeLinejoin` prop types in framer-motion mock to use literal union types
 
 **M1 - Color token mismatch (AC #2):**
-- Changed `stroke="currentColor"` with `text-muted-foreground` class to `stroke="hsl(var(--border))"` as specified in AC #2
-- Updated test to expect `hsl(var(--border))` instead of `currentColor`
+- ~~Changed `stroke="currentColor"` with `text-muted-foreground` class to `stroke="hsl(var(--border))"` as specified in AC #2~~
+- **REVERTED**: `--border` is #1E293B in dark mode (invisible against background). Restored `currentColor` with `text-muted-foreground` class (#94A3B8) for visibility
 
 **M2 - Double gap spacing:**
 - Removed `gap-6` from BuilderCanvas flex container to prevent 72px total spacing (was: 24px gap + 24px connector + 24px gap)
@@ -505,3 +505,4 @@ Claude Opus 4.5 (claude-opus-4-5-20251101)
 | 2026-02-02 | Story 5.5 context created | Bob (SM) |
 | 2026-02-02 | Story 5.5 implementado - SequenceConnector com animacao draw line, integrado no BuilderCanvas | Amelia (Dev) |
 | 2026-02-02 | Code Review fixes: TypeScript mock types, --border color token, removed double gap spacing | Amelia (Dev) |
+| 2026-02-02 | Hotfix: Reverted M1 color change - --border invisible in dark mode, restored text-muted-foreground | Amelia (Dev) |

@@ -101,11 +101,11 @@ describe("SequenceConnector (AC: #1, #2, #3, #5)", () => {
       expect(arrow).toHaveAttribute("d", expect.stringContaining("L"));
     });
 
-    it("uses --border CSS variable for stroke color", () => {
+    it("uses currentColor for stroke to inherit text color", () => {
       render(<SequenceConnector />);
 
       const path = screen.getByTestId("connector-path");
-      expect(path).toHaveAttribute("stroke", "hsl(var(--border))");
+      expect(path).toHaveAttribute("stroke", "currentColor");
     });
 
     it("uses correct stroke width of 2px", () => {
