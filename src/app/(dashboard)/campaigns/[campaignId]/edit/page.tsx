@@ -3,11 +3,13 @@
  * Story 5.2: Campaign Builder Canvas
  * Story 5.7: Campaign Lead Association
  * Story 5.8: Campaign Preview
+ * Story 5.9: Campaign Save & Multiple Campaigns
  *
  * AC: #1 - Rota do Builder
  * AC 5.7 #5 - Lead count display
  * AC 5.7 #6 - Pre-selected leads from /leads page
  * AC 5.8 - Preview panel integration
+ * AC 5.9 #1-#7 - Salvar campanha e blocos, carregar blocos existentes
  *
  * Main page for building campaign sequences with drag-and-drop blocks.
  */
@@ -26,7 +28,9 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { Loader2 } from "lucide-react";
-import { useCampaign } from "@/hooks/use-campaigns";
+import { toast } from "sonner";
+import { useCampaign, useSaveCampaign } from "@/hooks/use-campaigns";
+import { useCampaignBlocks } from "@/hooks/use-campaign-blocks";
 import { useCampaignLeads } from "@/hooks/use-campaign-leads";
 import { useBuilderStore } from "@/stores/use-builder-store";
 import {
@@ -109,8 +113,24 @@ export default function CampaignBuilderPage({ params }: PageProps) {
   const searchParams = useSearchParams();
 
   const { data: campaign, isLoading, isError, error } = useCampaign(campaignId);
-  const { setDragging, addBlock, reorderBlocks, reset, setLeadCount, setHasChanges } =
-    useBuilderStore();
+  const {
+    setDragging,
+    addBlock,
+    reorderBlocks,
+    reset,
+    setLeadCount,
+    setHasChanges,
+    loadBlocks,
+  } = useBuilderStore();
+
+  // Story 5.9: Load and save blocks
+  const {
+    data: initialBlocks,
+    isLoading: isLoadingBlocks,
+  } = useCampaignBlocks(campaignId);
+  const saveCampaign = useSaveCampaign(campaignId);
+  const [campaignNameState, setCampaignNameState] = useState<string>("");
+  const hasLoadedBlocksRef = useRef(false);
 
   // Story 5.7: Campaign leads management
   const { leadCount, addLeads } = useCampaignLeads(campaignId);
@@ -126,6 +146,27 @@ export default function CampaignBuilderPage({ params }: PageProps) {
   useEffect(() => {
     setLeadCount(leadCount);
   }, [leadCount, setLeadCount]);
+
+  // Story 5.9 AC #2: Load blocks when data is available
+  useEffect(() => {
+    // Prevent multiple loads (React Strict Mode / re-renders)
+    if (hasLoadedBlocksRef.current) return;
+
+    if (initialBlocks && initialBlocks.length > 0) {
+      hasLoadedBlocksRef.current = true;
+      loadBlocks(initialBlocks);
+    } else if (initialBlocks && initialBlocks.length === 0) {
+      // Mark as loaded even for empty array (new campaign)
+      hasLoadedBlocksRef.current = true;
+    }
+  }, [initialBlocks, loadBlocks]);
+
+  // Story 5.9 AC #3: Sync campaign name when campaign data loads/changes
+  useEffect(() => {
+    if (campaign?.name) {
+      setCampaignNameState(campaign.name);
+    }
+  }, [campaign?.name]);
 
   // Story 5.7 AC #6: Auto-add pre-selected leads from query params
   useEffect(() => {
@@ -148,10 +189,13 @@ export default function CampaignBuilderPage({ params }: PageProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, campaignId]);
 
-  // Reset store when component unmounts or campaign changes
+  // Reset store and refs when component unmounts or campaign changes
   useEffect(() => {
     return () => {
       reset();
+      // Reset refs to allow fresh load on next mount
+      hasLoadedBlocksRef.current = false;
+      hasAddedLeadsRef.current = false;
     };
   }, [campaignId, reset]);
 
@@ -186,16 +230,31 @@ export default function CampaignBuilderPage({ params }: PageProps) {
     }
   }
 
-  // Handle name change (placeholder for future implementation)
-  const handleNameChange = (_name: string) => {
-    // TODO: Implement campaign name update API
-    // This will be implemented in a future story
+  // Story 5.9 AC #3: Handle name change inline
+  const handleNameChange = (name: string) => {
+    setCampaignNameState(name);
+    // Mark hasChanges if name differs from original
+    if (name !== campaign?.name) {
+      setHasChanges(true);
+    }
   };
 
-  // Handle save (placeholder for future implementation)
-  const handleSave = () => {
-    // TODO: Implement save blocks to campaign API
-    // This will be implemented in a future story
+  // Story 5.9 AC #1, #5: Handle save campaign and blocks
+  const handleSave = async () => {
+    try {
+      // Prepare payload - only include name if changed
+      const nameChanged = campaignNameState !== campaign?.name;
+      await saveCampaign.mutateAsync({
+        name: nameChanged ? campaignNameState : undefined,
+        blocks: blocks,
+      });
+      setHasChanges(false);
+      toast.success("Campanha salva com sucesso");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Erro ao salvar campanha";
+      toast.error(message);
+    }
   };
 
   // Story 5.7 AC #5: Handle opening add leads dialog
@@ -213,8 +272,8 @@ export default function CampaignBuilderPage({ params }: PageProps) {
     setIsPreviewOpen(true);
   };
 
-  // Loading state
-  if (isLoading) {
+  // Loading state (campaign or blocks)
+  if (isLoading || isLoadingBlocks) {
     return <LoadingState />;
   }
 
@@ -241,10 +300,11 @@ export default function CampaignBuilderPage({ params }: PageProps) {
     >
       <div className="h-screen flex flex-col bg-background">
         <BuilderHeader
-          campaignName={campaign.name}
+          campaignName={campaignNameState || campaign.name}
           campaignStatus={campaign.status}
           onNameChange={handleNameChange}
           onSave={handleSave}
+          isSaving={saveCampaign.isPending}
           leadCount={leadCount}
           onAddLeads={handleAddLeads}
           onPreview={handlePreview}

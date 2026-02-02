@@ -13,9 +13,9 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, Save, Users, Eye } from "lucide-react";
+import { ArrowLeft, Save, Users, Eye, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -79,6 +79,13 @@ export function BuilderHeader({
   const hasChanges = useBuilderStore((state) => state.hasChanges);
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(campaignName);
+
+  // CR-3 FIX: Sync editedName when campaignName prop changes (e.g., after save)
+  useEffect(() => {
+    if (!isEditing) {
+      setEditedName(campaignName);
+    }
+  }, [campaignName, isEditing]);
 
   const handleNameSubmit = () => {
     const trimmedName = editedName.trim();
@@ -187,9 +194,19 @@ export function BuilderHeader({
           onClick={onSave}
           disabled={!hasChanges || isSaving}
           size="sm"
+          className="gap-1.5"
         >
-          <Save className="h-4 w-4 mr-2" />
-          {isSaving ? "Salvando..." : "Salvar"}
+          {isSaving ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Salvando...
+            </>
+          ) : (
+            <>
+              <Save className="h-4 w-4" />
+              Salvar
+            </>
+          )}
         </Button>
       </div>
     </header>
