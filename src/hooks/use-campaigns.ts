@@ -18,6 +18,7 @@ import type {
 } from "@/types/campaign";
 
 const QUERY_KEY = ["campaigns"];
+const SINGLE_QUERY_KEY = (id: string) => ["campaigns", id];
 
 /**
  * Fetch all campaigns for current tenant
@@ -27,6 +28,19 @@ async function fetchCampaigns(): Promise<CampaignWithCount[]> {
   const result = await response.json();
   if (!response.ok) {
     throw new Error(result.error?.message || "Erro ao buscar campanhas");
+  }
+  return result.data;
+}
+
+/**
+ * Fetch a single campaign by ID
+ * Story 5.2: Campaign Builder Canvas
+ */
+async function fetchCampaign(campaignId: string): Promise<CampaignWithCount> {
+  const response = await fetch(`/api/campaigns/${campaignId}`);
+  const result = await response.json();
+  if (!response.ok) {
+    throw new Error(result.error?.message || "Erro ao buscar campanha");
   }
   return result.data;
 }
@@ -57,6 +71,20 @@ export function useCampaigns() {
   return useQuery({
     queryKey: QUERY_KEY,
     queryFn: fetchCampaigns,
+    staleTime: 60_000, // 1 minute
+  });
+}
+
+/**
+ * Hook to fetch a single campaign by ID
+ * Story 5.2: Campaign Builder Canvas
+ * AC: #1 - Route to builder page
+ */
+export function useCampaign(campaignId: string | undefined) {
+  return useQuery({
+    queryKey: SINGLE_QUERY_KEY(campaignId || ""),
+    queryFn: () => fetchCampaign(campaignId!),
+    enabled: !!campaignId,
     staleTime: 60_000, // 1 minute
   });
 }

@@ -11,7 +11,11 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { useCampaigns, useCreateCampaign } from "@/hooks/use-campaigns";
+import {
+  useCampaigns,
+  useCampaign,
+  useCreateCampaign,
+} from "@/hooks/use-campaigns";
 
 // Mock fetch
 const mockFetch = vi.fn();
@@ -147,6 +151,115 @@ describe("useCampaigns Hook", () => {
       });
 
       expect(result.current.data).toEqual([]);
+    });
+  });
+
+  describe("useCampaign - Single Campaign (Story 5.2 AC: #1)", () => {
+    const mockCampaign = mockCampaigns[0];
+    const campaignId = mockCampaign.id;
+
+    it("fetches single campaign successfully", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: mockCampaign }),
+      });
+
+      const { result } = renderHook(() => useCampaign(campaignId), {
+        wrapper: createWrapper(),
+      });
+
+      expect(result.current.isLoading).toBe(true);
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      expect(result.current.data).toEqual(mockCampaign);
+      expect(mockFetch).toHaveBeenCalledWith(`/api/campaigns/${campaignId}`);
+    });
+
+    it("returns campaign with lead count", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: mockCampaign }),
+      });
+
+      const { result } = renderHook(() => useCampaign(campaignId), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      expect(result.current.data?.leadCount).toBe(25);
+    });
+
+    it("handles 404 error", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({
+          error: { code: "NOT_FOUND", message: "Campanha nao encontrada" },
+        }),
+      });
+
+      const { result } = renderHook(() => useCampaign("non-existent-id"), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isError).toBe(true);
+      });
+
+      expect(result.current.error?.message).toBe("Campanha nao encontrada");
+    });
+
+    it("handles fetch error", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({
+          error: { message: "Erro ao buscar campanha" },
+        }),
+      });
+
+      const { result } = renderHook(() => useCampaign(campaignId), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isError).toBe(true);
+      });
+
+      expect(result.current.error?.message).toBe("Erro ao buscar campanha");
+    });
+
+    it("does not fetch when campaignId is undefined", async () => {
+      const { result } = renderHook(() => useCampaign(undefined), {
+        wrapper: createWrapper(),
+      });
+
+      // Should not be loading because query is disabled
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.isFetching).toBe(false);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("uses correct query key", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: mockCampaign }),
+      });
+
+      const { result } = renderHook(() => useCampaign(campaignId), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      // Query key should be ["campaigns", campaignId]
+      expect(mockFetch).toHaveBeenCalledWith(`/api/campaigns/${campaignId}`);
     });
   });
 
