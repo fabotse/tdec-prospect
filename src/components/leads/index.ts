@@ -39,3 +39,6 @@ export { LeadPreviewPanel } from "./LeadPreviewPanel";
 export { InfoRow } from "./InfoRow";
 // Story 4.5: Phone number lookup
 export { PhoneLookupProgress } from "./PhoneLookupProgress";
+// Story 4.7: Import campaign results
+export { ImportCampaignResultsDialog } from "./ImportCampaignResultsDialog";
+export { ImportResultsSummary } from "./ImportResultsSummary";

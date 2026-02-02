@@ -3,6 +3,7 @@
  * Story 4.2.2: My Leads Page
  * Story 4.3: Lead Detail View & Interaction History
  * Story 4.6: Interested Leads Highlighting
+ * Story 4.7: Import Campaign Results
  *
  * Main content component for displaying imported leads from database.
  *
@@ -14,6 +15,7 @@
  * AC: #7 - Pagination with LeadTablePagination
  * Story 4.3: AC #1 - Detail sidepanel on row click
  * Story 4.6: AC #2, #6 - Interested leads quick filter and counter
+ * Story 4.7: AC #1 - Import campaign results button
  */
 
 "use client";
@@ -33,7 +35,9 @@ import { Button } from "@/components/ui/button";
 import {
   ChevronLeft,
   ChevronRight,
+  Upload,
 } from "lucide-react";
+import { ImportCampaignResultsDialog } from "@/components/leads/ImportCampaignResultsDialog";
 import {
   Select,
   SelectContent,
@@ -72,6 +76,9 @@ export function MyLeadsPageContent() {
   // Story 4.3: AC #1 - State for lead detail panel
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+
+  // Story 4.7: AC #1 - State for import campaign results dialog
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
 
   // Story 4.3: AC #1 - Open panel when row is clicked
   const handleRowClick = useCallback((lead: Lead) => {
@@ -183,6 +190,16 @@ export function MyLeadsPageContent() {
                 </span>
               )}
             </div>
+            {/* Story 4.7: AC #1 - Import campaign results button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsImportDialogOpen(true)}
+              data-testid="import-campaign-results-button"
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              Importar Resultados
+            </Button>
           </CardHeader>
           <CardContent className="space-y-4">
             {/* AC: #2 - LeadTable with showCreatedAt for "Importado em" column */}
@@ -286,6 +303,12 @@ export function MyLeadsPageContent() {
         isOpen={isPanelOpen}
         onClose={handleClosePanel}
         onLeadUpdate={handleLeadUpdate}
+      />
+
+      {/* Story 4.7: AC #1 - Import campaign results dialog */}
+      <ImportCampaignResultsDialog
+        open={isImportDialogOpen}
+        onOpenChange={setIsImportDialogOpen}
       />
     </div>
   );
