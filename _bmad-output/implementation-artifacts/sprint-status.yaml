@@ -147,7 +147,7 @@ development_status:
   6-5-campaign-product-context: done  # Code review 2026-02-03: 2 MEDIUM fixes (debug console.log removed, migration 00026 documented)
   # Original stories continue (renumbered)
   6-6-personalized-icebreakers: done  # Code review 2026-02-03: 1 HIGH, 1 MEDIUM, 1 LOW fixes (test isolation, previewLead validation, phase testid)
-  6-7-inline-text-editing: backlog  # Was 6.5
+  6-7-inline-text-editing: done  # Code review 2026-02-03: 3 MEDIUM, 2 LOW fixes (useCombinedRef perf, adjustHeight double call, aria-label, test docs)
   6-8-text-regeneration: backlog  # Was 6.6 - Updated: regeneration uses product context
   6-9-tone-of-voice-application: backlog  # Was 6.7 - Updated: tone applied with product context
   6-10-use-of-successful-examples: backlog  # Was 6.8 - Updated: examples combined with product context

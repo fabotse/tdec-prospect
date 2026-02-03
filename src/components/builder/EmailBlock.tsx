@@ -3,6 +3,7 @@
  * Story 5.3: Email Block Component
  * Story 6.2: AI Text Generation in Builder
  * Story 6.6: Personalized Icebreakers
+ * Story 6.7: Inline Text Editing
  *
  * AC 5.3: #1 - Arrastar Email Block para Canvas
  * AC 5.3: #2 - Visual do Email Block (Estilo Attio)
@@ -17,6 +18,10 @@
  * AC 6.6: #2 - Real Lead Data in Generation
  * AC 6.6: #3 - Icebreaker Generation Flow
  * AC 6.6: #7 - UI Feedback During Generation
+ *
+ * AC 6.7: #1 - Inline Subject Editing
+ * AC 6.7: #2 - Inline Body Editing
+ * AC 6.7: #3 - Debounced Auto-Save with flush on blur
  */
 
 "use client";
@@ -26,12 +31,13 @@ import { Mail, GripVertical } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
 import { Label } from "@/components/ui/label";
 import { useBuilderStore, type BuilderBlock } from "@/stores/use-builder-store";
 import type { EmailBlockData } from "@/types/email-block";
 import { useAIGenerate } from "@/hooks/use-ai-generate";
 import { useKnowledgeBaseContext } from "@/hooks/use-knowledge-base-context";
+import { useDebouncedCallback } from "@/hooks/use-debounce";
 import { AIGenerateButton } from "./AIGenerateButton";
 
 interface EmailBlockProps {
@@ -109,20 +115,43 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
     }
   }, [aiPhase, streamingText, generatingField]);
 
-  // Update store when subject changes
+  // Story 6.7 AC #3: Debounced store updates
+  const [debouncedUpdateSubject, flushSubject] = useDebouncedCallback(
+    (value: string) => {
+      updateBlock(block.id, {
+        data: { ...blockData, subject: value },
+      });
+    },
+    { delay: 500 }
+  );
+
+  const [debouncedUpdateBody, flushBody] = useDebouncedCallback(
+    (value: string) => {
+      updateBlock(block.id, {
+        data: { ...blockData, body: value },
+      });
+    },
+    { delay: 500 }
+  );
+
+  // Update local state immediately, debounce store update (AC #3)
   const handleSubjectChange = (value: string) => {
     setSubject(value);
-    updateBlock(block.id, {
-      data: { ...blockData, subject: value },
-    });
+    debouncedUpdateSubject(value);
   };
 
-  // Update store when body changes
   const handleBodyChange = (value: string) => {
     setBody(value);
-    updateBlock(block.id, {
-      data: { ...blockData, body: value },
-    });
+    debouncedUpdateBody(value);
+  };
+
+  // Story 6.7 AC #3: Flush on blur to prevent data loss
+  const handleSubjectBlur = () => {
+    flushSubject();
+  };
+
+  const handleBodyBlur = () => {
+    flushBody();
   };
 
   // Handle block selection
@@ -245,7 +274,7 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
 
       {/* Block Content */}
       <div className="p-4 space-y-4">
-        {/* Subject Field */}
+        {/* Subject Field with Character Count (Story 6.7 AC #5) */}
         <div className="space-y-1">
           <Label
             htmlFor={`subject-${block.id}`}
@@ -258,11 +287,26 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
             data-testid="email-subject-input"
             value={subject}
             onChange={(e) => handleSubjectChange(e.target.value)}
+            onBlur={handleSubjectBlur}
             placeholder="Assunto do email"
             className="bg-background/50"
             maxLength={200}
+            aria-describedby={`subject-count-${block.id}`}
             onClick={(e) => e.stopPropagation()}
           />
+          {/* Character count (AC #5) */}
+          <p
+            id={`subject-count-${block.id}`}
+            data-testid="subject-char-count"
+            className={cn(
+              "text-xs text-right",
+              subject.length > 60
+                ? "text-amber-500"
+                : "text-muted-foreground"
+            )}
+          >
+            {subject.length}/60 caracteres
+          </p>
         </div>
 
         {/* Body Field */}
@@ -273,18 +317,23 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
           >
             Conteudo
           </Label>
-          <Textarea
+          {/* Story 6.7 AC #4: Auto-expanding textarea */}
+          <AutoResizeTextarea
             id={`body-${block.id}`}
             data-testid="email-body-input"
             value={body}
             onChange={(e) => handleBodyChange(e.target.value)}
+            onBlur={handleBodyBlur}
             placeholder="Conteudo do email..."
             className={cn(
-              "bg-background/50 min-h-[100px] resize-none",
+              "bg-background/50",
               // Cursor blink effect during body streaming (AC 6.2 #3)
               generatingField === "body" && aiPhase === "streaming" && "caret-primary"
             )}
+            minHeight={100}
+            maxHeight={400}
             onClick={(e) => e.stopPropagation()}
+            aria-label="Conteudo do email, expande automaticamente"
           />
         </div>
 

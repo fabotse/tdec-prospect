@@ -4,6 +4,7 @@
  * Story 6.2: AI Text Generation in Builder
  * Story 6.3: Knowledge Base Integration for Context
  * Story 6.6: Personalized Icebreakers
+ * Story 6.7: Inline Text Editing
  *
  * AC 5.3: #2 - Visual do Email Block (Estilo Attio)
  * AC 5.3: #3 - Selecionar Email Block
@@ -20,9 +21,15 @@
  * AC 6.6: #2 - Real Lead Data in Generation
  * AC 6.6: #3 - Icebreaker Generation Flow
  * AC 6.6: #7 - UI Feedback During Generation
+ *
+ * AC 6.7: #1 - Inline Subject Editing
+ * AC 6.7: #2 - Inline Body Editing
+ * AC 6.7: #3 - Debounced Auto-Save
+ * AC 6.7: #4 - Auto-Expanding Textarea
+ * AC 6.7: #5 - Subject Character Count
  */
 
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { EmailBlock } from "@/components/builder/EmailBlock";
 import type { BuilderBlock } from "@/stores/use-builder-store";
@@ -283,22 +290,25 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
   });
 
   describe("Editable Fields (AC: #5)", () => {
-    it("updates store when subject changes", () => {
+    // Story 6.7: Updates are now debounced, blur flushes immediately
+    it("updates store when subject changes and blurs", () => {
       render(<EmailBlock block={mockBlock} stepNumber={1} />);
 
       const subjectInput = screen.getByTestId("email-subject-input");
       fireEvent.change(subjectInput, { target: { value: "Novo assunto" } });
+      fireEvent.blur(subjectInput); // Story 6.7 AC #3: flush on blur
 
       expect(mockUpdateBlock).toHaveBeenCalledWith(mockBlock.id, {
         data: { subject: "Novo assunto", body: "" },
       });
     });
 
-    it("updates store when body changes", () => {
+    it("updates store when body changes and blurs", () => {
       render(<EmailBlock block={mockBlock} stepNumber={1} />);
 
       const bodyInput = screen.getByTestId("email-body-input");
       fireEvent.change(bodyInput, { target: { value: "Novo conteudo" } });
+      fireEvent.blur(bodyInput); // Story 6.7 AC #3: flush on blur
 
       expect(mockUpdateBlock).toHaveBeenCalledWith(mockBlock.id, {
         data: { subject: "", body: "Novo conteudo" },
@@ -417,11 +427,13 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
   });
 
   describe("Store Integration", () => {
+    // Story 6.7: Updates are now debounced, blur flushes immediately
     it("calls updateBlock which sets hasChanges (AC #1, #5)", () => {
       render(<EmailBlock block={mockBlock} stepNumber={1} />);
 
       const subjectInput = screen.getByTestId("email-subject-input");
       fireEvent.change(subjectInput, { target: { value: "Test" } });
+      fireEvent.blur(subjectInput); // Story 6.7 AC #3: flush on blur
 
       // updateBlock is called, which internally sets hasChanges: true
       // (verified by inspecting use-builder-store.ts line 107)
@@ -849,6 +861,273 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
         );
         expect(icebreakerCall?.[0]?.productId).toBe("product-123");
       });
+    });
+  });
+
+  // ==============================================
+  // Story 6.7: Inline Text Editing
+  // ==============================================
+
+  describe("Debounced Auto-Save (Story 6.7 AC: #3)", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("does NOT update store immediately on subject change (debounced)", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      const subjectInput = screen.getByTestId("email-subject-input");
+      fireEvent.change(subjectInput, { target: { value: "New subject" } });
+
+      // Store should NOT be updated immediately (debounce active)
+      expect(mockUpdateBlock).not.toHaveBeenCalled();
+    });
+
+    it("does NOT update store immediately on body change (debounced)", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      const bodyInput = screen.getByTestId("email-body-input");
+      fireEvent.change(bodyInput, { target: { value: "New body content" } });
+
+      // Store should NOT be updated immediately (debounce active)
+      expect(mockUpdateBlock).not.toHaveBeenCalled();
+    });
+
+    it("updates store after 500ms debounce delay for subject", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      const subjectInput = screen.getByTestId("email-subject-input");
+      fireEvent.change(subjectInput, { target: { value: "Delayed subject" } });
+
+      // Not called yet
+      expect(mockUpdateBlock).not.toHaveBeenCalled();
+
+      // Fast-forward 500ms
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+
+      // Now store should be updated
+      expect(mockUpdateBlock).toHaveBeenCalledWith(mockBlock.id, {
+        data: { subject: "Delayed subject", body: "" },
+      });
+    });
+
+    it("updates store after 500ms debounce delay for body", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      const bodyInput = screen.getByTestId("email-body-input");
+      fireEvent.change(bodyInput, { target: { value: "Delayed body" } });
+
+      // Not called yet
+      expect(mockUpdateBlock).not.toHaveBeenCalled();
+
+      // Fast-forward 500ms
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+
+      // Now store should be updated
+      expect(mockUpdateBlock).toHaveBeenCalledWith(mockBlock.id, {
+        data: { subject: "", body: "Delayed body" },
+      });
+    });
+
+    it("flushes immediately on subject blur", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      const subjectInput = screen.getByTestId("email-subject-input");
+      fireEvent.change(subjectInput, { target: { value: "Flush on blur" } });
+
+      // Not called yet
+      expect(mockUpdateBlock).not.toHaveBeenCalled();
+
+      // Blur triggers flush (AC #3: navigate away before debounce completes)
+      fireEvent.blur(subjectInput);
+
+      // Store should be updated immediately
+      expect(mockUpdateBlock).toHaveBeenCalledWith(mockBlock.id, {
+        data: { subject: "Flush on blur", body: "" },
+      });
+    });
+
+    it("flushes immediately on body blur", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      const bodyInput = screen.getByTestId("email-body-input");
+      fireEvent.change(bodyInput, { target: { value: "Body flush" } });
+
+      // Not called yet
+      expect(mockUpdateBlock).not.toHaveBeenCalled();
+
+      // Blur triggers flush
+      fireEvent.blur(bodyInput);
+
+      // Store should be updated immediately
+      expect(mockUpdateBlock).toHaveBeenCalledWith(mockBlock.id, {
+        data: { subject: "", body: "Body flush" },
+      });
+    });
+
+    it("only saves last value when typing rapidly (debounce)", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      const subjectInput = screen.getByTestId("email-subject-input");
+
+      // Rapid changes - using fireEvent.change to simulate multiple onChange events
+      // (fireEvent is appropriate here as we're testing debounce coalescing, not typing behavior)
+      fireEvent.change(subjectInput, { target: { value: "A" } });
+      fireEvent.change(subjectInput, { target: { value: "AB" } });
+      fireEvent.change(subjectInput, { target: { value: "ABC" } });
+      fireEvent.change(subjectInput, { target: { value: "Final value" } });
+
+      // Fast-forward 500ms
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+
+      // Only the final value should be saved
+      expect(mockUpdateBlock).toHaveBeenCalledTimes(1);
+      expect(mockUpdateBlock).toHaveBeenCalledWith(mockBlock.id, {
+        data: { subject: "Final value", body: "" },
+      });
+    });
+  });
+
+  describe("Subject Character Count (Story 6.7 AC: #5)", () => {
+    it("displays character count below subject input", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      const charCount = screen.getByTestId("subject-char-count");
+      expect(charCount).toBeInTheDocument();
+    });
+
+    it('shows format "X/60 caracteres"', () => {
+      const blockWithSubject: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: "Hello", body: "" },
+      };
+
+      render(<EmailBlock block={blockWithSubject} stepNumber={1} />);
+
+      const charCount = screen.getByTestId("subject-char-count");
+      expect(charCount).toHaveTextContent("5/60 caracteres");
+    });
+
+    it("updates count in real-time as user types", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      const subjectInput = screen.getByTestId("email-subject-input");
+      const charCount = screen.getByTestId("subject-char-count");
+
+      // Initially 0 characters
+      expect(charCount).toHaveTextContent("0/60 caracteres");
+
+      // Type some text
+      fireEvent.change(subjectInput, { target: { value: "Test subject" } });
+
+      // Count should update
+      expect(charCount).toHaveTextContent("12/60 caracteres");
+    });
+
+    it("shows warning color when exceeding 60 characters", () => {
+      const longSubject = "A".repeat(61);
+      const blockWithLongSubject: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: longSubject, body: "" },
+      };
+
+      render(<EmailBlock block={blockWithLongSubject} stepNumber={1} />);
+
+      const charCount = screen.getByTestId("subject-char-count");
+      expect(charCount).toHaveClass("text-amber-500");
+    });
+
+    it("shows normal color when at or under 60 characters", () => {
+      const shortSubject = "A".repeat(60);
+      const blockWithShortSubject: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: shortSubject, body: "" },
+      };
+
+      render(<EmailBlock block={blockWithShortSubject} stepNumber={1} />);
+
+      const charCount = screen.getByTestId("subject-char-count");
+      expect(charCount).toHaveClass("text-muted-foreground");
+    });
+
+    it("has aria-describedby linking input to count for accessibility", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      const subjectInput = screen.getByTestId("email-subject-input");
+      const charCount = screen.getByTestId("subject-char-count");
+
+      expect(subjectInput).toHaveAttribute(
+        "aria-describedby",
+        charCount.id
+      );
+    });
+
+    it("respects maxLength=200 as hard limit", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      const subjectInput = screen.getByTestId("email-subject-input");
+      expect(subjectInput).toHaveAttribute("maxLength", "200");
+    });
+  });
+
+  describe("Auto-Expanding Textarea (Story 6.7 AC: #4)", () => {
+    it("uses AutoResizeTextarea for body field", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      const bodyInput = screen.getByTestId("email-body-input");
+      // AutoResizeTextarea sets inline minHeight/maxHeight styles
+      expect(bodyInput).toHaveStyle({ minHeight: "100px" });
+      expect(bodyInput).toHaveStyle({ maxHeight: "400px" });
+    });
+
+    it("body textarea has resize: none", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      const bodyInput = screen.getByTestId("email-body-input");
+      expect(bodyInput).toHaveStyle({ resize: "none" });
+    });
+  });
+
+  describe("Inline Editing (Story 6.7 AC: #1, #2)", () => {
+    it("subject input accepts focus immediately", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      const subjectInput = screen.getByTestId("email-subject-input");
+      subjectInput.focus();
+
+      expect(document.activeElement).toBe(subjectInput);
+    });
+
+    it("body textarea accepts focus immediately", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      const bodyInput = screen.getByTestId("email-body-input");
+      bodyInput.focus();
+
+      expect(document.activeElement).toBe(bodyInput);
+    });
+
+    it("preserves line breaks in body textarea", () => {
+      const multilineBody = "Line 1\nLine 2\nLine 3";
+      const blockWithMultiline: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: "", body: multilineBody },
+      };
+
+      render(<EmailBlock block={blockWithMultiline} stepNumber={1} />);
+
+      const bodyInput = screen.getByTestId("email-body-input");
+      expect(bodyInput).toHaveValue(multilineBody);
     });
   });
 });
