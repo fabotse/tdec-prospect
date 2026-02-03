@@ -195,3 +195,59 @@ export const useBuilderStore = create<BuilderState & BuilderActions>((set) => ({
       previewLead: lead,
     }),
 }));
+
+// ==============================================
+// SELECTORS
+// ==============================================
+
+/**
+ * Previous email context for follow-up generation
+ * Story 6.11: AC #3, #4 - Chain context for follow-up emails
+ */
+export interface PreviousEmailContext {
+  subject: string;
+  body: string;
+}
+
+/**
+ * Get the previous email block's content for follow-up generation
+ * Story 6.11: AC #3 - Follow-up emails include previous email context
+ * Story 6.11: AC #4 - Chain follow-up reads from immediately previous email
+ *
+ * @param blocks - All blocks in the sequence
+ * @param currentPosition - Position of the current email block
+ * @returns Previous email content or null if first email
+ */
+export function getPreviousEmailBlock(
+  blocks: BuilderBlock[],
+  currentPosition: number
+): PreviousEmailContext | null {
+  // First position cannot have a previous email (AC #5)
+  if (currentPosition <= 0) {
+    return null;
+  }
+
+  // Filter only email blocks and sort by position
+  const emailBlocks = blocks
+    .filter((b) => b.type === "email")
+    .sort((a, b) => a.position - b.position);
+
+  // Find index of current email in the filtered list
+  const currentIndex = emailBlocks.findIndex(
+    (b) => b.position === currentPosition
+  );
+
+  // If not found or is first email in sequence
+  if (currentIndex <= 0) {
+    return null;
+  }
+
+  // Get the immediately previous email block (skips delay blocks - AC #3.3)
+  const prevBlock = emailBlocks[currentIndex - 1];
+  const data = prevBlock.data as { subject?: string; body?: string };
+
+  return {
+    subject: data.subject || "",
+    body: data.body || "",
+  };
+}

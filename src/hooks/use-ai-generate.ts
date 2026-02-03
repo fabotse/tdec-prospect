@@ -37,7 +37,9 @@ export type AIPromptKey =
   | "email_subject_generation"
   | "email_body_generation"
   | "icebreaker_generation"
-  | "tone_application";
+  | "tone_application"
+  | "follow_up_email_generation"
+  | "follow_up_subject_generation";
 
 /**
  * Parameters for text generation

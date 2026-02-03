@@ -78,6 +78,20 @@ vi.mock("@/lib/ai/prompts/defaults", () => ({
       modelPreference: "gpt-4o-mini",
       metadata: { temperature: 0.3 },
     },
+    // Story 6.11: Follow-up email generation prompt with previous email context
+    follow_up_email_generation: {
+      template:
+        "Follow-up for {{lead_name}}. Previous subject: {{previous_email_subject}}. Previous body: {{previous_email_body}}. Tom: {{tone_style}}{{#if successful_examples}}\n\nExamples:\n{{successful_examples}}{{/if}}",
+      modelPreference: "gpt-4o-mini",
+      metadata: { temperature: 0.7, maxTokens: 300 },
+    },
+    // Story 6.11: Follow-up subject generation prompt with RE: prefix
+    follow_up_subject_generation: {
+      template:
+        "Follow-up subject for {{lead_name}}. Previous subject: {{previous_email_subject}}. Tom: {{tone_style}}. Must start with RE:",
+      modelPreference: "gpt-4o-mini",
+      metadata: { temperature: 0.6, maxTokens: 80 },
+    },
   },
 }));
 
@@ -645,6 +659,226 @@ describe("PromptManager", () => {
           { tenantId: "tenant-456" }
         );
         expect(icebreakerResult?.content).toContain("TestCo");
+      });
+    });
+  });
+
+  // ==============================================
+  // STORY 6.11: FOLLOW-UP EMAIL GENERATION TESTS
+  // ==============================================
+
+  describe("renderPrompt - follow-up email interpolation (Story 6.11)", () => {
+    describe("previous email context interpolation (Task 10.1, AC #3)", () => {
+      it("interpolates previous_email_subject correctly", async () => {
+        const result = await promptManager.renderPrompt(
+          "follow_up_email_generation",
+          {
+            lead_name: "João",
+            previous_email_subject: "Oportunidade de parceria",
+            previous_email_body: "Olá, gostaria de conversar...",
+            tone_style: "formal",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).toContain(
+          "Previous subject: Oportunidade de parceria"
+        );
+      });
+
+      it("interpolates previous_email_body correctly", async () => {
+        const result = await promptManager.renderPrompt(
+          "follow_up_email_generation",
+          {
+            lead_name: "Maria",
+            previous_email_subject: "Demo do produto",
+            previous_email_body:
+              "Conforme conversamos na última reunião, seguem os detalhes...",
+            tone_style: "casual",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).toContain(
+          "Previous body: Conforme conversamos na última reunião, seguem os detalhes..."
+        );
+      });
+
+      it("interpolates all follow-up variables together", async () => {
+        const result = await promptManager.renderPrompt(
+          "follow_up_email_generation",
+          {
+            lead_name: "Carlos",
+            previous_email_subject: "Proposta comercial",
+            previous_email_body: "Apresento nossa proposta...",
+            tone_style: "technical",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).toBe(
+          "Follow-up for Carlos. Previous subject: Proposta comercial. Previous body: Apresento nossa proposta.... Tom: technical"
+        );
+      });
+    });
+
+    describe("follow-up with successful examples (Task 10.2, AC #3)", () => {
+      it("includes examples when provided for follow-up prompt", async () => {
+        const result = await promptManager.renderPrompt(
+          "follow_up_email_generation",
+          {
+            lead_name: "Ana",
+            previous_email_subject: "Primeiro contato",
+            previous_email_body: "Olá, tudo bem?",
+            tone_style: "casual",
+            successful_examples:
+              "Exemplo 1:\nAssunto: Follow-up reunião\nCorpo: Conforme combinamos...",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).toContain("Examples:");
+        expect(result?.content).toContain("Follow-up reunião");
+        expect(result?.content).toContain("Conforme combinamos...");
+      });
+
+      it("omits examples section when not provided", async () => {
+        const result = await promptManager.renderPrompt(
+          "follow_up_email_generation",
+          {
+            lead_name: "Pedro",
+            previous_email_subject: "Apresentação",
+            previous_email_body: "Segue apresentação...",
+            tone_style: "formal",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).not.toContain("Examples:");
+        expect(result?.content).not.toContain("{{#if");
+        expect(result?.content).not.toContain("{{/if}}");
+      });
+    });
+
+    describe("chain follow-up context (Task 10.3, AC #4)", () => {
+      it("handles Email 2 reading Email 1 context", async () => {
+        // Simulating Email 2 getting context from Email 1
+        const email1Content = {
+          subject: "Apresentação da TechCorp",
+          body: "Olá, somos a TechCorp e oferecemos soluções inovadoras...",
+        };
+
+        const result = await promptManager.renderPrompt(
+          "follow_up_email_generation",
+          {
+            lead_name: "Ricardo",
+            previous_email_subject: email1Content.subject,
+            previous_email_body: email1Content.body,
+            tone_style: "formal",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).toContain("Apresentação da TechCorp");
+        expect(result?.content).toContain("soluções inovadoras");
+      });
+
+      it("handles Email 3 reading Email 2 context (chain)", async () => {
+        // Simulating Email 3 getting context from Email 2 (not Email 1)
+        const email2Content = {
+          subject: "Re: Próximos passos",
+          body: "Conforme conversamos, gostaria de agendar uma demo...",
+        };
+
+        const result = await promptManager.renderPrompt(
+          "follow_up_email_generation",
+          {
+            lead_name: "Julia",
+            previous_email_subject: email2Content.subject,
+            previous_email_body: email2Content.body,
+            tone_style: "casual",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).toContain("Re: Próximos passos");
+        expect(result?.content).toContain("agendar uma demo");
+      });
+    });
+
+    describe("follow-up prompt metadata (AC #2)", () => {
+      it("returns correct metadata for follow-up prompt", async () => {
+        const result = await promptManager.renderPrompt(
+          "follow_up_email_generation",
+          {
+            lead_name: "Test",
+            previous_email_subject: "Test",
+            previous_email_body: "Test",
+            tone_style: "formal",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.metadata.temperature).toBe(0.7);
+        expect(result?.metadata.maxTokens).toBe(300);
+        expect(result?.modelPreference).toBe("gpt-4o-mini");
+        expect(result?.source).toBe("default");
+      });
+    });
+  });
+
+  describe("renderPrompt - follow-up subject interpolation (Story 6.11)", () => {
+    describe("previous subject context for RE: prefix (Task 12)", () => {
+      it("interpolates previous_email_subject for RE: generation", async () => {
+        const result = await promptManager.renderPrompt(
+          "follow_up_subject_generation",
+          {
+            lead_name: "João",
+            previous_email_subject: "Oportunidade para TechCorp",
+            tone_style: "formal",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).toContain(
+          "Previous subject: Oportunidade para TechCorp"
+        );
+        expect(result?.content).toContain("Must start with RE:");
+      });
+
+      it("interpolates all follow-up subject variables together", async () => {
+        const result = await promptManager.renderPrompt(
+          "follow_up_subject_generation",
+          {
+            lead_name: "Maria",
+            previous_email_subject: "Proposta comercial",
+            tone_style: "casual",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).toBe(
+          "Follow-up subject for Maria. Previous subject: Proposta comercial. Tom: casual. Must start with RE:"
+        );
+      });
+    });
+
+    describe("follow-up subject prompt metadata", () => {
+      it("returns correct metadata for follow-up subject prompt", async () => {
+        const result = await promptManager.renderPrompt(
+          "follow_up_subject_generation",
+          {
+            lead_name: "Test",
+            previous_email_subject: "Test Subject",
+            tone_style: "formal",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.metadata.temperature).toBe(0.6);
+        expect(result?.metadata.maxTokens).toBe(80);
+        expect(result?.modelPreference).toBe("gpt-4o-mini");
+        expect(result?.source).toBe("default");
       });
     });
   });

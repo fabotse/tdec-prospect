@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   useBuilderStore,
+  getPreviousEmailBlock,
   type BuilderBlock,
   type BlockType,
 } from "@/stores/use-builder-store";
@@ -377,6 +378,164 @@ describe("useBuilderStore (AC: #6)", () => {
 
       const state = useBuilderStore.getState();
       expect(state.hasChanges).toBe(false);
+    });
+  });
+});
+
+/**
+ * getPreviousEmailBlock Selector Tests
+ * Story 6.11: Follow-Up Email Mode
+ *
+ * AC #3: Follow-up emails include previous email context
+ * AC #4: Chain follow-up reads from immediately previous email
+ */
+describe("getPreviousEmailBlock (Story 6.11 AC #3, #4)", () => {
+  describe("Task 8.1: Returns correct block for valid position", () => {
+    it("returns previous email content for position 1", () => {
+      const blocks: BuilderBlock[] = [
+        { id: "email-1", type: "email", position: 0, data: { subject: "First Subject", body: "First Body" } },
+        { id: "email-2", type: "email", position: 1, data: { subject: "Second Subject", body: "Second Body" } },
+      ];
+
+      const result = getPreviousEmailBlock(blocks, 1);
+
+      expect(result).toEqual({
+        subject: "First Subject",
+        body: "First Body",
+      });
+    });
+
+    it("returns correct email in chain (Email 3 gets Email 2) - AC #4", () => {
+      const blocks: BuilderBlock[] = [
+        { id: "email-1", type: "email", position: 0, data: { subject: "Email 1", body: "Body 1" } },
+        { id: "email-2", type: "email", position: 1, data: { subject: "Email 2", body: "Body 2" } },
+        { id: "email-3", type: "email", position: 2, data: { subject: "Email 3", body: "Body 3" } },
+      ];
+
+      const result = getPreviousEmailBlock(blocks, 2);
+
+      expect(result).toEqual({
+        subject: "Email 2",
+        body: "Body 2",
+      });
+    });
+  });
+
+  describe("Task 8.2: Returns null for first position", () => {
+    it("returns null for position 0 (first email)", () => {
+      const blocks: BuilderBlock[] = [
+        { id: "email-1", type: "email", position: 0, data: { subject: "First", body: "Body" } },
+      ];
+
+      const result = getPreviousEmailBlock(blocks, 0);
+
+      expect(result).toBeNull();
+    });
+
+    it("returns null for negative position", () => {
+      const blocks: BuilderBlock[] = [
+        { id: "email-1", type: "email", position: 0, data: { subject: "First", body: "Body" } },
+      ];
+
+      const result = getPreviousEmailBlock(blocks, -1);
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("Task 8.3: Skips delay blocks", () => {
+    it("returns correct email when delay blocks exist between emails", () => {
+      const blocks: BuilderBlock[] = [
+        { id: "email-1", type: "email", position: 0, data: { subject: "First Email", body: "First Body" } },
+        { id: "delay-1", type: "delay", position: 1, data: { days: 3 } },
+        { id: "email-2", type: "email", position: 2, data: { subject: "Second Email", body: "Second Body" } },
+      ];
+
+      const result = getPreviousEmailBlock(blocks, 2);
+
+      expect(result).toEqual({
+        subject: "First Email",
+        body: "First Body",
+      });
+    });
+
+    it("handles mixed block sequence (email, delay, email, delay, email)", () => {
+      const blocks: BuilderBlock[] = [
+        { id: "email-1", type: "email", position: 0, data: { subject: "Email 1", body: "Body 1" } },
+        { id: "delay-1", type: "delay", position: 1, data: { days: 2 } },
+        { id: "email-2", type: "email", position: 2, data: { subject: "Email 2", body: "Body 2" } },
+        { id: "delay-2", type: "delay", position: 3, data: { days: 5 } },
+        { id: "email-3", type: "email", position: 4, data: { subject: "Email 3", body: "Body 3" } },
+      ];
+
+      // Email at position 4 should get Email at position 2
+      const result = getPreviousEmailBlock(blocks, 4);
+
+      expect(result).toEqual({
+        subject: "Email 2",
+        body: "Body 2",
+      });
+    });
+
+    it("returns null when only delay blocks before current email", () => {
+      const blocks: BuilderBlock[] = [
+        { id: "delay-1", type: "delay", position: 0, data: { days: 1 } },
+        { id: "email-1", type: "email", position: 1, data: { subject: "First Email", body: "Body" } },
+      ];
+
+      // Email at position 1 is the first email in the sequence
+      const result = getPreviousEmailBlock(blocks, 1);
+
+      // Since it's the first email (index 0 in emailBlocks array), return null
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("Task 8.4: emailMode persistence in block data", () => {
+    it("preserves emailMode when reading block data", () => {
+      const blocks: BuilderBlock[] = [
+        { id: "email-1", type: "email", position: 0, data: { subject: "First", body: "Body", emailMode: "initial" } },
+        { id: "email-2", type: "email", position: 1, data: { subject: "Second", body: "Body 2", emailMode: "follow-up" } },
+      ];
+
+      const result = getPreviousEmailBlock(blocks, 1);
+
+      expect(result).toEqual({
+        subject: "First",
+        body: "Body",
+      });
+      // Note: emailMode is not returned by getPreviousEmailBlock, only subject/body
+    });
+  });
+
+  describe("Edge cases", () => {
+    it("returns empty strings when previous email has undefined subject/body", () => {
+      const blocks: BuilderBlock[] = [
+        { id: "email-1", type: "email", position: 0, data: {} },
+        { id: "email-2", type: "email", position: 1, data: { subject: "Test", body: "Body" } },
+      ];
+
+      const result = getPreviousEmailBlock(blocks, 1);
+
+      expect(result).toEqual({
+        subject: "",
+        body: "",
+      });
+    });
+
+    it("handles empty blocks array", () => {
+      const result = getPreviousEmailBlock([], 1);
+      expect(result).toBeNull();
+    });
+
+    it("handles position not found in blocks", () => {
+      const blocks: BuilderBlock[] = [
+        { id: "email-1", type: "email", position: 0, data: { subject: "First", body: "Body" } },
+      ];
+
+      const result = getPreviousEmailBlock(blocks, 5);
+
+      expect(result).toBeNull();
     });
   });
 });

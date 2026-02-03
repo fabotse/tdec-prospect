@@ -1223,11 +1223,13 @@ CREATE POLICY "tenant_isolation" ON ai_prompts
 
 | Key | Uso | Epic |
 |-----|-----|------|
-| `search_translation` | Tradução de linguagem natural → filtros Apollo | Epic 3 |
-| `email_subject_generation` | Geração de assunto de email | Epic 6 |
-| `email_body_generation` | Geração de corpo de email | Epic 6 |
+| `search_translation` | Traducao de linguagem natural - filtros Apollo | Epic 3 |
+| `email_subject_generation` | Geracao de assunto de email | Epic 6 |
+| `email_body_generation` | Geracao de corpo de email | Epic 6 |
 | `icebreaker_generation` | Quebra-gelos personalizados | Epic 6 |
-| `tone_application` | Aplicação de tom de voz | Epic 6 |
+| `tone_application` | Aplicacao de tom de voz | Epic 6 |
+| `follow_up_email_generation` | Geracao de email follow-up com contexto do email anterior (Story 6.11) | Epic 6 |
+| `follow_up_subject_generation` | Geracao de assunto follow-up com prefixo RE: (Story 6.11) | Epic 6 |
 
 **Padrão de Uso no Código:**
 

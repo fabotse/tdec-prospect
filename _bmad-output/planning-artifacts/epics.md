@@ -1412,13 +1412,67 @@ So that generated texts match my proven style.
 
 ---
 
-### Story 6.11: AI Campaign Structure Generation
+### Story 6.11: Follow-Up Email Mode
+
+As a user,
+I want to create follow-up emails that reference the previous email in the sequence,
+So that my campaign feels like a natural conversation, not repeated first contacts.
+
+**Context:** Esta story adiciona modo de follow-up aos emails de campanha. A partir do 2o email, o usuário pode escolher entre "Email Inicial" (comportamento atual) ou "Follow-Up" (lê contexto do email anterior). O follow-up em cadeia significa que Email 3 lê Email 2, Email 4 lê Email 3, etc. **Identificada via Course Correction durante finalização da Story 6.8 (2026-02-03).**
+
+**Acceptance Criteria:**
+
+**Given** I am in the campaign builder with 2+ email blocks
+**When** I select an email block that is NOT the first in sequence
+**Then** I see a mode selector: "Email Inicial" | "Follow-Up"
+**And** the default is "Email Inicial" (backward compatible)
+
+**Given** I select "Follow-Up" mode for an email
+**When** the mode is saved
+**Then** the block shows visual indicator "Follow-up do Email X"
+**And** the email_blocks record is updated with email_mode = 'follow-up'
+
+**Given** I click "Gerar com IA" on a follow-up email
+**When** AI generates content
+**Then** the prompt includes the subject and body of the IMMEDIATELY PREVIOUS email
+**And** the generated text:
+  - References the previous contact naturally
+  - Does NOT repeat product information already covered
+  - Creates continuity in the conversation
+  - Maintains the same tone of voice
+
+**Given** Email 3 is marked as follow-up
+**When** AI generates content for Email 3
+**Then** it reads context from Email 2 (not Email 1)
+**And** Email 4 (if follow-up) would read from Email 3, and so on
+
+**Given** the first email in sequence
+**When** I view the mode selector
+**Then** it shows "Email Inicial" and is disabled (cannot be follow-up)
+**And** tooltip explains: "O primeiro email da sequencia e sempre inicial"
+
+**Given** I change a follow-up email back to "Email Inicial"
+**When** the mode changes
+**Then** subsequent generations will NOT include previous email context
+**And** existing generated text is NOT automatically regenerated
+
+**Technical Notes:**
+- Add `email_mode` column to `email_blocks` table: `'initial' | 'follow-up'` (default: 'initial')
+- Add new prompt `follow_up_email_generation` to `ai_prompts` table
+- Modify `useAIGenerate` to accept `previousEmailContext` variable
+- Add method to `useBuilderStore` to get previous email in sequence
+- UI: Toggle or dropdown in EmailBlock header when position > 0
+- See: sprint-change-proposal-2026-02-03.md
+
+---
+
+### Story 6.12: AI Campaign Structure Generation
 
 As a user,
 I want AI to generate the complete campaign structure automatically,
 So that I don't need to manually decide how many emails and delays to include.
 
-**Context:** Esta story adiciona um modo alternativo de criação de campanha. O usuário pode escolher entre: (A) criar manualmente via builder drag-and-drop (Epic 5), ou (B) usar IA para gerar a estrutura completa automaticamente. O modo AI usa pesquisa e boas práticas para sugerir quantidade de touchpoints, intervalos ideais e abordagem estratégica. **Integra com Story 6.5** permitindo seleção de produto específico para contextualizar a estrutura.
+**Context:** Esta story adiciona um modo alternativo de criacao de campanha. O usuario pode escolher entre: (A) criar manualmente via builder drag-and-drop (Epic 5), ou (B) usar IA para gerar a estrutura completa automaticamente. O modo AI usa pesquisa e boas praticas para sugerir quantidade de touchpoints, intervalos ideais e abordagem estrategica. **Integra com Story 6.5** permitindo selecao de produto especifico para contextualizar a estrutura. **Integra com Story 6.11** para incluir consciencia de follow-up na estrutura gerada.
 
 **Acceptance Criteria:**
 
@@ -1473,19 +1527,19 @@ So that I don't need to manually decide how many emails and delays to include.
 
 ---
 
-### Story 6.12: Smart Campaign Templates
+### Story 6.13: Smart Campaign Templates
 
 As a user,
 I want to choose from pre-built campaign templates,
 So that I can quickly start with proven structures based on common scenarios.
 
-**Context:** Templates são estruturas pré-definidas baseadas em pesquisa e boas práticas de cold email. Diferente da Story 6.11 (geração dinâmica), templates são estáticos mas otimizados. O usuário seleciona um template e a estrutura é criada instantaneamente, podendo depois gerar o conteúdo com IA ou escrever manualmente. **Integra com Story 6.5** permitindo seleção de produto ao usar o template.
+**Context:** Templates sao estruturas pre-definidas baseadas em pesquisa e boas praticas de cold email. Diferente da Story 6.12 (geracao dinamica), templates sao estaticos mas otimizados. O usuario seleciona um template e a estrutura e criada instantaneamente, podendo depois gerar o conteudo com IA ou escrever manualmente. **Integra com Story 6.5** permitindo selecao de produto ao usar o template. **Integra com Story 6.11** para incluir padroes de follow-up nos templates.
 
 **Acceptance Criteria:**
 
-**Given** I select "✨ Criar com IA" from the campaigns page
+**Given** I select "Criar com IA" from the campaigns page
 **When** the wizard opens
-**Then** I see a "Produto" dropdown at the top (same as Story 6.11)
+**Then** I see a "Produto" dropdown at the top (same as Story 6.12)
 **And** I see a "Templates Prontos" section
 **And** I see 4-6 template cards with:
   - Template name
@@ -1523,7 +1577,7 @@ So that I can quickly start with proven structures based on common scenarios.
 **Given** I want a custom structure instead of templates
 **When** I scroll past templates in the wizard
 **Then** I see "Ou crie uma campanha personalizada:" section
-**And** I can fill the custom form (Story 6.11) to generate a unique structure
+**And** I can fill the custom form (Story 6.12) to generate a unique structure
 **And** the product selection carries over to the custom form
 
 **Given** templates need to be updated

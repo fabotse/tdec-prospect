@@ -6,6 +6,7 @@
  * Story 6.7: Inline Text Editing
  * Story 6.8: Text Regeneration
  * Story 6.10: Use of Successful Examples
+ * Story 6.11: Follow-Up Email Mode
  *
  * AC 5.3: #1 - Arrastar Email Block para Canvas
  * AC 5.3: #2 - Visual do Email Block (Estilo Attio)
@@ -29,6 +30,10 @@
  * AC 6.8: #6 - Reset to Initial State
  *
  * AC 6.10: #7 - User Guidance When Examples Missing
+ *
+ * AC 6.11: #1 - Mode Selector Visibility
+ * AC 6.11: #2 - Mode Persistence
+ * AC 6.11: #5 - First Email Restriction
  */
 
 "use client";
@@ -40,8 +45,22 @@ import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
 import { Label } from "@/components/ui/label";
-import { useBuilderStore, type BuilderBlock } from "@/stores/use-builder-store";
-import type { EmailBlockData } from "@/types/email-block";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Badge } from "@/components/ui/badge";
+import { useBuilderStore, type BuilderBlock, getPreviousEmailBlock } from "@/stores/use-builder-store";
+import type { EmailBlockData, EmailMode } from "@/types/email-block";
 import { useAIGenerate } from "@/hooks/use-ai-generate";
 import { useKnowledgeBaseContext } from "@/hooks/use-knowledge-base-context";
 import { useDebouncedCallback } from "@/hooks/use-debounce";
@@ -61,6 +80,8 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
   const productId = useBuilderStore((state) => state.productId);
   // Story 6.6 AC #2: Get preview lead for personalized generation
   const previewLead = useBuilderStore((state) => state.previewLead);
+  // Story 6.11 AC #3, #4: Get all blocks for previous email context
+  const blocks = useBuilderStore((state) => state.blocks);
 
   const isSelected = selectedBlockId === block.id;
   // Safely extract email block data from the generic block data
@@ -68,7 +89,14 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
   const blockData: EmailBlockData = {
     subject: typeof rawData.subject === "string" ? rawData.subject : "",
     body: typeof rawData.body === "string" ? rawData.body : "",
+    // Story 6.11 AC #2: Email mode defaults to "initial" for backward compatibility
+    emailMode: (rawData.emailMode === "initial" || rawData.emailMode === "follow-up")
+      ? rawData.emailMode
+      : "initial",
   };
+
+  // Story 6.11 AC #1: Check if this email can be a follow-up (not first email)
+  const canBeFollowUp = stepNumber > 1;
 
   const [subject, setSubject] = useState(blockData.subject);
   const [body, setBody] = useState(blockData.body);
@@ -176,18 +204,85 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
   };
 
   /**
+   * Handle email mode change (Story 6.11 AC #2)
+   * Updates the block data with the new mode
+   */
+  const handleModeChange = (mode: EmailMode) => {
+    updateBlock(block.id, {
+      data: { ...blockData, emailMode: mode },
+    });
+  };
+
+  /**
    * Handle AI text generation (AC 6.2 #1)
-   * Story 6.6 AC #3: Generates in order: Icebreaker → Subject → Body
+   * Story 6.6 AC #3: Generates in order: Icebreaker → Subject → Body (for initial emails)
+   * Story 6.11 AC #3, #4: For follow-up emails, uses previous email context instead of icebreaker
    * AC 6.3 #1: Uses KB context variables
    */
   const handleGenerate = useCallback(async () => {
     // Clear any previous error state (AC 6.2 #2)
     resetAI();
 
+    // Story 6.11 AC #3: Check if this is a follow-up email
+    const isFollowUp = blockData.emailMode === "follow-up" && canBeFollowUp;
+
     try {
-      // Story 6.6 AC #3: Generate icebreaker FIRST
+      let generatedIcebreaker = "";
+
+      // Story 6.11 AC #3, #4: For follow-up emails, get previous email context
+      if (isFollowUp) {
+        // Get previous email content for context (AC #4: chain reads from immediately previous)
+        const previousEmail = getPreviousEmailBlock(blocks, block.position);
+
+        if (previousEmail) {
+          // Skip icebreaker generation for follow-ups
+          // Story 6.11: Use follow_up_subject_generation for RE: prefix
+          setGeneratingField("subject");
+          const generatedSubject = await generate({
+            promptKey: "follow_up_subject_generation",
+            variables: {
+              ...mergedVariables,
+              previous_email_subject: previousEmail.subject,
+            },
+            stream: true,
+            productId,
+          });
+          setSubject(generatedSubject);
+
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          resetAI();
+
+          // Story 6.11 AC #3: Generate body with previous email context
+          setGeneratingField("body");
+          const generatedBody = await generate({
+            promptKey: "follow_up_email_generation",
+            variables: {
+              ...mergedVariables,
+              previous_email_subject: previousEmail.subject,
+              previous_email_body: previousEmail.body,
+            },
+            stream: true,
+            productId,
+          });
+
+          setBody(generatedBody);
+          updateBlock(block.id, {
+            data: { ...blockData, subject: generatedSubject, body: generatedBody },
+          });
+
+          setGeneratingField(null);
+          return;
+        }
+        // CR-M3 FIX: Log warning when follow-up mode is set but no previous email found
+        // This helps debug edge cases where blocks may be in unexpected state
+        console.warn(
+          `[EmailBlock] Follow-up mode set for position ${block.position} but no previous email found. Falling back to initial email generation.`
+        );
+      }
+
+      // Story 6.6 AC #3: Generate icebreaker FIRST (for initial emails)
       setGeneratingField("icebreaker");
-      const generatedIcebreaker = await generate({
+      generatedIcebreaker = await generate({
         promptKey: "icebreaker_generation",
         variables: mergedVariables,
         stream: true,
@@ -229,7 +324,7 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
       // Use generatedSubject directly to avoid stale closure (Code Review Fix M3)
       setBody(generatedBody);
       updateBlock(block.id, {
-        data: { subject: generatedSubject, body: generatedBody },
+        data: { ...blockData, subject: generatedSubject, body: generatedBody },
       });
 
       setGeneratingField(null);
@@ -237,7 +332,7 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
       // Error is handled by the hook (AC 6.2 #2)
       setGeneratingField(null);
     }
-  }, [generate, resetAI, block.id, updateBlock, mergedVariables, productId]);
+  }, [generate, resetAI, block.id, block.position, updateBlock, mergedVariables, productId, blockData, canBeFollowUp, blocks]);
 
   return (
     <motion.div
@@ -279,10 +374,57 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
           <Mail className="h-5 w-5 text-blue-500" />
         </div>
 
-        {/* Title */}
-        <div className="flex-1">
-          <p className="font-medium text-sm">Step {stepNumber}</p>
-          <p className="text-xs text-muted-foreground">Email</p>
+        {/* Title and Mode Selector */}
+        <div className="flex-1 flex items-center justify-between">
+          <div>
+            <p className="font-medium text-sm">Step {stepNumber}</p>
+            <p className="text-xs text-muted-foreground">
+              {/* Story 6.11 AC #2: Show follow-up indicator */}
+              {blockData.emailMode === "follow-up" && canBeFollowUp
+                ? `Follow-up do Email ${stepNumber - 1}`
+                : "Email"}
+            </p>
+          </div>
+
+          {/* Story 6.11 AC #1, #5: Mode Selector */}
+          {canBeFollowUp ? (
+            <Select
+              value={blockData.emailMode}
+              onValueChange={(value: EmailMode) => handleModeChange(value)}
+            >
+              <SelectTrigger
+                className="h-7 w-[140px] text-xs"
+                onClick={(e) => e.stopPropagation()}
+                data-testid="email-mode-selector"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="initial">Email Inicial</SelectItem>
+                <SelectItem value="follow-up">
+                  Follow-up do Email {stepNumber - 1}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          ) : (
+            /* Story 6.11 AC #5: First email - disabled indicator */
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    variant="secondary"
+                    className="text-xs cursor-default"
+                    data-testid="email-mode-initial-badge"
+                  >
+                    Email Inicial
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>O primeiro email da sequência é sempre inicial</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
       </div>
 

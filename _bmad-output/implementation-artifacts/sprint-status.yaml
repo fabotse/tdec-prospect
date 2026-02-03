@@ -154,7 +154,11 @@ development_status:
   # NEW STORY - Follow-Up Email Mode (identified during 6.8 completion via Course Correction 2026-02-03)
   # Rationale: Follow-up awareness must exist BEFORE campaign automation (6.12, 6.13) to avoid rework
   # See: sprint-change-proposal-2026-02-03.md
-  6-11-follow-up-email-mode: backlog  # NEW: Emails subsequentes leem contexto do email anterior (cadeia)
+  6-11-follow-up-email-mode: done  # Code review 2026-02-03: 4 HIGH, 2 MEDIUM fixes applied (AC#6 test, prompt docs, architecture ADR, migration safety)
+  
+  #Precisamos implementar a inteligencia de continuar os follows-up, reconhecendo os emails anteriores, para nã
+  # perder o contexto e continuar a conversa de forma natural, evitando que o sistema gere emails que não fazem sentido para o destinatário.
+  
   6-12-ai-campaign-structure-generation: backlog  # Was 6.11 - Renumbered after 6.11 insertion
   6-13-smart-campaign-templates: backlog  # Was 6.12 - Renumbered after 6.11 insertion
   epic-6-retrospective: optional

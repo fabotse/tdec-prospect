@@ -12,6 +12,7 @@ import {
   emailBlockDataSchema,
   createEmailBlockSchema,
   updateEmailBlockSchema,
+  emailModeSchema,
   DEFAULT_EMAIL_BLOCK_DATA,
   type EmailBlockRow,
 } from "@/types/email-block";
@@ -25,6 +26,7 @@ describe("Email Block Types", () => {
         position: 0,
         subject: "Test Subject",
         body: "Test Body",
+        email_mode: "initial",
         created_at: "2026-02-01T10:00:00Z",
         updated_at: "2026-02-01T12:00:00Z",
       };
@@ -37,6 +39,7 @@ describe("Email Block Types", () => {
         position: 0,
         subject: "Test Subject",
         body: "Test Body",
+        emailMode: "initial",
         createdAt: "2026-02-01T10:00:00Z",
         updatedAt: "2026-02-01T12:00:00Z",
       });
@@ -49,6 +52,7 @@ describe("Email Block Types", () => {
         position: 1,
         subject: null,
         body: null,
+        email_mode: "initial",
         created_at: "2026-02-01T10:00:00Z",
         updated_at: "2026-02-01T12:00:00Z",
       };
@@ -66,6 +70,7 @@ describe("Email Block Types", () => {
         position: 5,
         subject: null,
         body: null,
+        email_mode: "initial",
         created_at: "2026-02-01T10:00:00Z",
         updated_at: "2026-02-01T12:00:00Z",
       };
@@ -74,12 +79,75 @@ describe("Email Block Types", () => {
 
       expect(result.position).toBe(5);
     });
+
+    // Story 6.11: Email mode tests
+    it("transforms email_mode to emailMode", () => {
+      const row: EmailBlockRow = {
+        id: "block-123",
+        campaign_id: "campaign-456",
+        position: 0,
+        subject: "Test",
+        body: "Test",
+        email_mode: "follow-up",
+        created_at: "2026-02-01T10:00:00Z",
+        updated_at: "2026-02-01T12:00:00Z",
+      };
+
+      const result = transformEmailBlockRow(row);
+
+      expect(result.emailMode).toBe("follow-up");
+    });
+
+    it("defaults emailMode to initial when email_mode is undefined", () => {
+      // Using type assertion to simulate legacy data without email_mode
+      const row = {
+        id: "block-123",
+        campaign_id: "campaign-456",
+        position: 0,
+        subject: "Test",
+        body: "Test",
+        created_at: "2026-02-01T10:00:00Z",
+        updated_at: "2026-02-01T12:00:00Z",
+      } as EmailBlockRow;
+
+      const result = transformEmailBlockRow(row);
+
+      expect(result.emailMode).toBe("initial");
+    });
   });
 
   describe("DEFAULT_EMAIL_BLOCK_DATA", () => {
     it("has empty strings for subject and body", () => {
       expect(DEFAULT_EMAIL_BLOCK_DATA.subject).toBe("");
       expect(DEFAULT_EMAIL_BLOCK_DATA.body).toBe("");
+    });
+
+    // Story 6.11: Default mode is 'initial'
+    it("has emailMode defaulting to 'initial' (Story 6.11 AC #4.2)", () => {
+      expect(DEFAULT_EMAIL_BLOCK_DATA.emailMode).toBe("initial");
+    });
+  });
+
+  // Story 6.11: Email mode schema tests
+  describe("emailModeSchema (Story 6.11 AC #2)", () => {
+    it("accepts 'initial' mode", () => {
+      const result = emailModeSchema.safeParse("initial");
+      expect(result.success).toBe(true);
+    });
+
+    it("accepts 'follow-up' mode", () => {
+      const result = emailModeSchema.safeParse("follow-up");
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects invalid mode values", () => {
+      const result = emailModeSchema.safeParse("invalid");
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects empty string", () => {
+      const result = emailModeSchema.safeParse("");
+      expect(result.success).toBe(false);
     });
   });
 

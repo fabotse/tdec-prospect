@@ -6,6 +6,7 @@
  * Story 6.6: Personalized Icebreakers
  * Story 6.7: Inline Text Editing
  * Story 6.8: Text Regeneration
+ * Story 6.11: Follow-Up Email Mode
  *
  * AC 5.3: #2 - Visual do Email Block (Estilo Attio)
  * AC 5.3: #3 - Selecionar Email Block
@@ -33,6 +34,10 @@
  * AC 6.8: #2 - Regeneration Execution
  * AC 6.8: #5 - Context Preservation on Regeneration
  * AC 6.8: #6 - Reset to Initial State
+ *
+ * AC 6.11: #1 - Mode Selector Visibility
+ * AC 6.11: #2 - Mode Persistence
+ * AC 6.11: #5 - First Email Restriction
  */
 
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
@@ -75,6 +80,13 @@ let mockPreviewLead: {
   title: string | null;
   email: string | null;
 } | null = null;
+// Story 6.11: Mock blocks array for getPreviousEmailBlock
+let mockBlocks: Array<{
+  id: string;
+  type: string;
+  position: number;
+  data: Record<string, unknown>;
+}> = [];
 
 // Mock useBuilderStore
 vi.mock("@/stores/use-builder-store", () => ({
@@ -85,9 +97,23 @@ vi.mock("@/stores/use-builder-store", () => ({
       updateBlock: mockUpdateBlock,
       productId: mockProductId,
       previewLead: mockPreviewLead,
+      blocks: mockBlocks,
     };
     return selector(state);
   },
+  // Story 6.11: Export getPreviousEmailBlock mock
+  getPreviousEmailBlock: vi.fn((blocks: unknown[], position: number) => {
+    const emailBlocks = (blocks as Array<{ type: string; position: number; data: Record<string, unknown> }>)
+      .filter((b) => b.type === "email")
+      .sort((a, b) => a.position - b.position);
+    const currentIndex = emailBlocks.findIndex((b) => b.position === position);
+    if (currentIndex <= 0) return null;
+    const prevBlock = emailBlocks[currentIndex - 1];
+    return {
+      subject: prevBlock.data.subject || "",
+      body: prevBlock.data.body || "",
+    };
+  }),
 }));
 
 // Mock AI generation state (Story 6.2)
@@ -170,6 +196,8 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
     // Reset Story 6.6 mocks
     mockProductId = null;
     mockPreviewLead = null;
+    // Reset Story 6.11 mocks
+    mockBlocks = [];
   });
 
   describe("Visual Style (AC: #2)", () => {
@@ -305,7 +333,7 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
       fireEvent.blur(subjectInput); // Story 6.7 AC #3: flush on blur
 
       expect(mockUpdateBlock).toHaveBeenCalledWith(mockBlock.id, {
-        data: { subject: "Novo assunto", body: "" },
+        data: { subject: "Novo assunto", body: "", emailMode: "initial" },
       });
     });
 
@@ -317,7 +345,7 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
       fireEvent.blur(bodyInput); // Story 6.7 AC #3: flush on blur
 
       expect(mockUpdateBlock).toHaveBeenCalledWith(mockBlock.id, {
-        data: { subject: "", body: "Novo conteudo" },
+        data: { subject: "", body: "Novo conteudo", emailMode: "initial" },
       });
     });
 
@@ -917,7 +945,7 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
 
       // Now store should be updated
       expect(mockUpdateBlock).toHaveBeenCalledWith(mockBlock.id, {
-        data: { subject: "Delayed subject", body: "" },
+        data: { subject: "Delayed subject", body: "", emailMode: "initial" },
       });
     });
 
@@ -937,7 +965,7 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
 
       // Now store should be updated
       expect(mockUpdateBlock).toHaveBeenCalledWith(mockBlock.id, {
-        data: { subject: "", body: "Delayed body" },
+        data: { subject: "", body: "Delayed body", emailMode: "initial" },
       });
     });
 
@@ -955,7 +983,7 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
 
       // Store should be updated immediately
       expect(mockUpdateBlock).toHaveBeenCalledWith(mockBlock.id, {
-        data: { subject: "Flush on blur", body: "" },
+        data: { subject: "Flush on blur", body: "", emailMode: "initial" },
       });
     });
 
@@ -973,7 +1001,7 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
 
       // Store should be updated immediately
       expect(mockUpdateBlock).toHaveBeenCalledWith(mockBlock.id, {
-        data: { subject: "", body: "Body flush" },
+        data: { subject: "", body: "Body flush", emailMode: "initial" },
       });
     });
 
@@ -997,7 +1025,7 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
       // Only the final value should be saved
       expect(mockUpdateBlock).toHaveBeenCalledTimes(1);
       expect(mockUpdateBlock).toHaveBeenCalledWith(mockBlock.id, {
-        data: { subject: "Final value", body: "" },
+        data: { subject: "Final value", body: "", emailMode: "initial" },
       });
     });
   });
@@ -1401,6 +1429,331 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
           expect(call[0]).toHaveProperty("stream", true);
         });
       });
+    });
+  });
+
+  // ==============================================
+  // Story 6.11: Follow-Up Email Mode
+  // ==============================================
+
+  describe("Mode Selector Visibility (Story 6.11 AC: #1, #5)", () => {
+    // Task 9.1: Test mode selector visibility based on position
+    it("shows mode selector for emails after first (stepNumber > 1) (AC #1)", () => {
+      const secondEmailBlock: BuilderBlock = {
+        id: "test-block-2",
+        type: "email",
+        position: 1,
+        data: { subject: "", body: "", emailMode: "initial" },
+      };
+
+      render(<EmailBlock block={secondEmailBlock} stepNumber={2} />);
+
+      expect(screen.getByTestId("email-mode-selector")).toBeInTheDocument();
+    });
+
+    // Task 9.2: Test mode selector disabled for first email
+    it("shows disabled badge for first email (stepNumber = 1) (AC #5)", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      // Should show badge, not selector
+      expect(screen.getByTestId("email-mode-initial-badge")).toBeInTheDocument();
+      expect(screen.queryByTestId("email-mode-selector")).not.toBeInTheDocument();
+    });
+
+    it("badge shows tooltip explaining first email restriction (AC #5)", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      const badge = screen.getByTestId("email-mode-initial-badge");
+      expect(badge).toHaveTextContent("Email Inicial");
+    });
+  });
+
+  describe("Follow-Up Visual Indicator (Story 6.11 AC: #2)", () => {
+    // Task 9.3: Test follow-up indicator visibility
+    it("shows 'Follow-up do Email X' when mode is follow-up", () => {
+      const followUpBlock: BuilderBlock = {
+        id: "test-block-followup",
+        type: "email",
+        position: 1,
+        data: { subject: "", body: "", emailMode: "follow-up" },
+      };
+
+      render(<EmailBlock block={followUpBlock} stepNumber={2} />);
+
+      // Should show "Follow-up do Email 1" in subtitle (stepNumber - 1)
+      // Note: text may appear in both subtitle and selector, so use getAllByText
+      const followUpTexts = screen.getAllByText(/Follow-up do Email 1/);
+      expect(followUpTexts.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("shows 'Email' text for initial mode", () => {
+      const initialBlock: BuilderBlock = {
+        id: "test-block-initial",
+        type: "email",
+        position: 1,
+        data: { subject: "", body: "", emailMode: "initial" },
+      };
+
+      render(<EmailBlock block={initialBlock} stepNumber={2} />);
+
+      // Should show "Email" not "Follow-up"
+      expect(screen.getByText("Email")).toBeInTheDocument();
+      expect(screen.queryByText(/Follow-up do Email/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Mode Change Updates Block Data (Story 6.11 AC: #2)", () => {
+    // Task 9.4: Test mode change updates block data
+    it("calls updateBlock when mode is changed to follow-up", () => {
+      const secondEmailBlock: BuilderBlock = {
+        id: "test-block-mode-change",
+        type: "email",
+        position: 1,
+        data: { subject: "Test", body: "Body", emailMode: "initial" },
+      };
+
+      render(<EmailBlock block={secondEmailBlock} stepNumber={2} />);
+
+      // Find and click the mode selector
+      const selector = screen.getByTestId("email-mode-selector");
+      fireEvent.click(selector);
+
+      // Select follow-up option
+      const followUpOption = screen.getByText("Follow-up do Email 1");
+      fireEvent.click(followUpOption);
+
+      expect(mockUpdateBlock).toHaveBeenCalledWith("test-block-mode-change", {
+        data: expect.objectContaining({
+          emailMode: "follow-up",
+        }),
+      });
+    });
+
+    it("calls updateBlock when mode is changed back to initial", () => {
+      const followUpBlock: BuilderBlock = {
+        id: "test-block-mode-back",
+        type: "email",
+        position: 1,
+        data: { subject: "Test", body: "Body", emailMode: "follow-up" },
+      };
+
+      render(<EmailBlock block={followUpBlock} stepNumber={2} />);
+
+      // Find and click the mode selector
+      const selector = screen.getByTestId("email-mode-selector");
+      fireEvent.click(selector);
+
+      // Select initial option
+      const initialOption = screen.getByText("Email Inicial");
+      fireEvent.click(initialOption);
+
+      expect(mockUpdateBlock).toHaveBeenCalledWith("test-block-mode-back", {
+        data: expect.objectContaining({
+          emailMode: "initial",
+        }),
+      });
+    });
+  });
+
+  describe("Follow-Up Generation Flow (Story 6.11 AC: #3, #4)", () => {
+    it("uses follow_up_email_generation prompt for follow-up emails", async () => {
+      mockBlocks = [
+        {
+          id: "email-1",
+          type: "email",
+          position: 0,
+          data: { subject: "First Subject", body: "First Body" },
+        },
+        {
+          id: "email-2",
+          type: "email",
+          position: 1,
+          data: { subject: "", body: "", emailMode: "follow-up" },
+        },
+      ];
+
+      mockGenerate.mockResolvedValue("Generated follow-up text");
+
+      const followUpBlock: BuilderBlock = {
+        id: "email-2",
+        type: "email",
+        position: 1,
+        data: { subject: "", body: "", emailMode: "follow-up" },
+      };
+
+      render(<EmailBlock block={followUpBlock} stepNumber={2} />);
+
+      fireEvent.click(screen.getByText("Gerar com IA"));
+
+      await waitFor(
+        () => {
+          const bodyCall = mockGenerate.mock.calls.find(
+            (call) => call[0]?.promptKey === "follow_up_email_generation"
+          );
+          expect(bodyCall).toBeDefined();
+        },
+        { timeout: 3000 }
+      );
+    });
+
+    it("does NOT generate icebreaker for follow-up emails", async () => {
+      mockBlocks = [
+        {
+          id: "email-1",
+          type: "email",
+          position: 0,
+          data: { subject: "First Subject", body: "First Body" },
+        },
+        {
+          id: "email-2",
+          type: "email",
+          position: 1,
+          data: { subject: "", body: "", emailMode: "follow-up" },
+        },
+      ];
+
+      mockGenerate.mockResolvedValue("Generated text");
+
+      const followUpBlock: BuilderBlock = {
+        id: "email-2",
+        type: "email",
+        position: 1,
+        data: { subject: "", body: "", emailMode: "follow-up" },
+      };
+
+      render(<EmailBlock block={followUpBlock} stepNumber={2} />);
+
+      fireEvent.click(screen.getByText("Gerar com IA"));
+
+      await waitFor(
+        () => {
+          expect(mockGenerate).toHaveBeenCalled();
+        },
+        { timeout: 3000 }
+      );
+
+      // Verify icebreaker was NOT generated for follow-up
+      const icebreakerCall = mockGenerate.mock.calls.find(
+        (call) => call[0]?.promptKey === "icebreaker_generation"
+      );
+      expect(icebreakerCall).toBeUndefined();
+    });
+
+    it("generates icebreaker for initial mode emails", async () => {
+      mockGenerate.mockResolvedValue("Generated text");
+
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      fireEvent.click(screen.getByText("Gerar com IA"));
+
+      await waitFor(
+        () => {
+          const icebreakerCall = mockGenerate.mock.calls.find(
+            (call) => call[0]?.promptKey === "icebreaker_generation"
+          );
+          expect(icebreakerCall).toBeDefined();
+        },
+        { timeout: 3000 }
+      );
+    });
+
+    // H1 FIX: Test AC #6 - mode change back to initial does NOT include previous context
+    it("uses email_body_generation (not follow-up) after mode changes back to initial (AC #6)", async () => {
+      mockBlocks = [
+        {
+          id: "email-1",
+          type: "email",
+          position: 0,
+          data: { subject: "First Subject", body: "First Body" },
+        },
+        {
+          id: "email-2",
+          type: "email",
+          position: 1,
+          // Mode was follow-up but changed back to initial
+          data: { subject: "", body: "", emailMode: "initial" },
+        },
+      ];
+
+      mockGenerate.mockResolvedValue("Generated text");
+
+      const initialModeBlock: BuilderBlock = {
+        id: "email-2",
+        type: "email",
+        position: 1,
+        // Explicitly set to initial (simulating mode change back from follow-up)
+        data: { subject: "", body: "", emailMode: "initial" },
+      };
+
+      render(<EmailBlock block={initialModeBlock} stepNumber={2} />);
+
+      fireEvent.click(screen.getByText("Gerar com IA"));
+
+      await waitFor(
+        () => {
+          // Verify follow_up_email_generation was NOT called
+          const followUpCall = mockGenerate.mock.calls.find(
+            (call) => call[0]?.promptKey === "follow_up_email_generation"
+          );
+          expect(followUpCall).toBeUndefined();
+
+          // Verify standard email_body_generation was called
+          const bodyCall = mockGenerate.mock.calls.find(
+            (call) => call[0]?.promptKey === "email_body_generation"
+          );
+          expect(bodyCall).toBeDefined();
+
+          // Verify icebreaker was generated (initial emails generate icebreaker)
+          const icebreakerCall = mockGenerate.mock.calls.find(
+            (call) => call[0]?.promptKey === "icebreaker_generation"
+          );
+          expect(icebreakerCall).toBeDefined();
+        },
+        { timeout: 3000 }
+      );
+    });
+
+    // H4 FIX: Test for follow_up_subject_generation being called
+    it("uses follow_up_subject_generation for follow-up email subjects", async () => {
+      mockBlocks = [
+        {
+          id: "email-1",
+          type: "email",
+          position: 0,
+          data: { subject: "First Subject", body: "First Body" },
+        },
+        {
+          id: "email-2",
+          type: "email",
+          position: 1,
+          data: { subject: "", body: "", emailMode: "follow-up" },
+        },
+      ];
+
+      mockGenerate.mockResolvedValue("RE: Generated subject");
+
+      const followUpBlock: BuilderBlock = {
+        id: "email-2",
+        type: "email",
+        position: 1,
+        data: { subject: "", body: "", emailMode: "follow-up" },
+      };
+
+      render(<EmailBlock block={followUpBlock} stepNumber={2} />);
+
+      fireEvent.click(screen.getByText("Gerar com IA"));
+
+      await waitFor(
+        () => {
+          // Verify follow_up_subject_generation was called for subject
+          const subjectCall = mockGenerate.mock.calls.find(
+            (call) => call[0]?.promptKey === "follow_up_subject_generation"
+          );
+          expect(subjectCall).toBeDefined();
+          expect(subjectCall?.[0]?.variables).toHaveProperty("previous_email_subject", "First Subject");
+        },
+        { timeout: 3000 }
+      );
     });
   });
 });
