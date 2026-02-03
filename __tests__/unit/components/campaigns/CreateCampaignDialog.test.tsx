@@ -1,11 +1,13 @@
 /**
  * CreateCampaignDialog Component Tests
  * Story 5.1: Campaigns Page & Data Model
+ * Story 6.12: AI Campaign Structure Generation
  *
- * AC: #4 - Create campaign with name, redirect to builder
+ * AC 5.1 #4 - Create campaign with name, redirect to builder
+ * AC 6.12 #1 - Two creation options: "Criar Manualmente" and "Criar com IA"
  */
 
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -26,6 +28,18 @@ vi.mock("sonner", () => ({
     success: vi.fn(),
     error: vi.fn(),
   },
+}));
+
+// Mock AICampaignWizard to simplify testing
+vi.mock("@/components/campaigns/AICampaignWizard", () => ({
+  AICampaignWizard: ({ open, onBack }: { open: boolean; onBack: () => void }) =>
+    open ? (
+      <div data-testid="ai-campaign-wizard">
+        <button onClick={onBack} data-testid="wizard-back-button">
+          Voltar
+        </button>
+      </div>
+    ) : null,
 }));
 
 // Mock fetch
@@ -55,8 +69,8 @@ describe("CreateCampaignDialog", () => {
     vi.clearAllMocks();
   });
 
-  describe("Rendering", () => {
-    it("shows dialog when open is true", () => {
+  describe("Mode Selection (Story 6.12 AC #1)", () => {
+    it("shows mode selection when dialog opens", () => {
       render(
         <CreateCampaignDialog open={true} onOpenChange={mockOnOpenChange} />,
         { wrapper: createWrapper() }
@@ -64,45 +78,105 @@ describe("CreateCampaignDialog", () => {
 
       expect(screen.getByText("Nova Campanha")).toBeInTheDocument();
       expect(
-        screen.getByText("Crie uma nova campanha de outreach para seus leads.")
+        screen.getByText("Escolha como deseja criar sua campanha de outreach.")
       ).toBeInTheDocument();
+      expect(screen.getByTestId("creation-mode-selection")).toBeInTheDocument();
     });
 
-    it("does not show dialog when open is false", () => {
-      render(
-        <CreateCampaignDialog open={false} onOpenChange={mockOnOpenChange} />,
-        { wrapper: createWrapper() }
-      );
-
-      expect(screen.queryByText("Nova Campanha")).not.toBeInTheDocument();
-    });
-
-    it("shows name input field", () => {
+    it("shows two creation options as prominent cards", () => {
       render(
         <CreateCampaignDialog open={true} onOpenChange={mockOnOpenChange} />,
         { wrapper: createWrapper() }
       );
 
-      expect(screen.getByLabelText("Nome da Campanha")).toBeInTheDocument();
-      expect(
-        screen.getByPlaceholderText("Ex: Prospecao Q1 2026")
-      ).toBeInTheDocument();
+      // Check for AI option
+      expect(screen.getByTestId("create-with-ai-button")).toBeInTheDocument();
+      expect(screen.getByText("Criar com IA")).toBeInTheDocument();
+
+      // Check for manual option
+      expect(screen.getByTestId("create-manually-button")).toBeInTheDocument();
+      expect(screen.getByText("Criar Manualmente")).toBeInTheDocument();
     });
 
-    it("shows cancel and create buttons", () => {
+    it("switches to manual mode when manual button is clicked", async () => {
+      const user = userEvent.setup();
+
       render(
         <CreateCampaignDialog open={true} onOpenChange={mockOnOpenChange} />,
         { wrapper: createWrapper() }
       );
 
-      expect(screen.getByRole("button", { name: "Cancelar" })).toBeInTheDocument();
-      expect(
-        screen.getByRole("button", { name: "Criar Campanha" })
-      ).toBeInTheDocument();
+      const manualButton = screen.getByTestId("create-manually-button");
+      await user.click(manualButton);
+
+      // Should show manual form
+      expect(screen.getByText("Criar Manualmente")).toBeInTheDocument();
+      expect(screen.getByTestId("campaign-name-input")).toBeInTheDocument();
+      expect(screen.getByTestId("back-to-selection")).toBeInTheDocument();
+    });
+
+    it("switches to AI wizard when AI button is clicked", async () => {
+      const user = userEvent.setup();
+
+      render(
+        <CreateCampaignDialog open={true} onOpenChange={mockOnOpenChange} />,
+        { wrapper: createWrapper() }
+      );
+
+      const aiButton = screen.getByTestId("create-with-ai-button");
+      await user.click(aiButton);
+
+      // Should show AI wizard (mocked)
+      expect(screen.getByTestId("ai-campaign-wizard")).toBeInTheDocument();
+    });
+
+    it("returns to mode selection when back button is clicked from manual mode", async () => {
+      const user = userEvent.setup();
+
+      render(
+        <CreateCampaignDialog open={true} onOpenChange={mockOnOpenChange} />,
+        { wrapper: createWrapper() }
+      );
+
+      // Go to manual mode
+      const manualButton = screen.getByTestId("create-manually-button");
+      await user.click(manualButton);
+
+      // Click back button
+      const backButton = screen.getByTestId("back-to-selection");
+      await user.click(backButton);
+
+      // Should be back at mode selection
+      expect(screen.getByTestId("creation-mode-selection")).toBeInTheDocument();
+    });
+
+    it("returns to mode selection when back button is clicked from AI wizard", async () => {
+      const user = userEvent.setup();
+
+      render(
+        <CreateCampaignDialog open={true} onOpenChange={mockOnOpenChange} />,
+        { wrapper: createWrapper() }
+      );
+
+      // Go to AI mode
+      const aiButton = screen.getByTestId("create-with-ai-button");
+      await user.click(aiButton);
+
+      // Click back button in wizard
+      const backButton = screen.getByTestId("wizard-back-button");
+      await user.click(backButton);
+
+      // Should be back at mode selection
+      expect(screen.getByTestId("creation-mode-selection")).toBeInTheDocument();
     });
   });
 
-  describe("Form Submission (AC: #4)", () => {
+  describe("Manual Creation Form (Story 5.1 AC #4)", () => {
+    async function goToManualMode(user: ReturnType<typeof userEvent.setup>) {
+      const manualButton = screen.getByTestId("create-manually-button");
+      await user.click(manualButton);
+    }
+
     it("creates campaign and redirects to builder on success", async () => {
       const user = userEvent.setup();
       const createdCampaign = {
@@ -125,6 +199,8 @@ describe("CreateCampaignDialog", () => {
         { wrapper: createWrapper() }
       );
 
+      await goToManualMode(user);
+
       const input = screen.getByTestId("campaign-name-input");
       await user.type(input, "Test Campaign");
 
@@ -140,12 +216,10 @@ describe("CreateCampaignDialog", () => {
       });
 
       await waitFor(() => {
-        // Should redirect to builder
         expect(mockPush).toHaveBeenCalledWith("/campaigns/campaign-new/edit");
       });
 
       await waitFor(() => {
-        // Should close dialog
         expect(mockOnOpenChange).toHaveBeenCalledWith(false);
       });
     });
@@ -166,6 +240,8 @@ describe("CreateCampaignDialog", () => {
         { wrapper: createWrapper() }
       );
 
+      await goToManualMode(user);
+
       const input = screen.getByTestId("campaign-name-input");
       await user.type(input, "Test Campaign");
 
@@ -180,7 +256,6 @@ describe("CreateCampaignDialog", () => {
     it("shows loading state while creating", async () => {
       const user = userEvent.setup();
 
-      // Never resolve the fetch to keep loading state
       mockFetch.mockImplementation(
         () =>
           new Promise(() => {
@@ -193,6 +268,8 @@ describe("CreateCampaignDialog", () => {
         { wrapper: createWrapper() }
       );
 
+      await goToManualMode(user);
+
       const input = screen.getByTestId("campaign-name-input");
       await user.type(input, "Test Campaign");
 
@@ -203,9 +280,7 @@ describe("CreateCampaignDialog", () => {
         expect(screen.getByText("Criando...")).toBeInTheDocument();
       });
     });
-  });
 
-  describe("Form Validation", () => {
     it("shows error for empty name on submit", async () => {
       const user = userEvent.setup();
 
@@ -214,6 +289,8 @@ describe("CreateCampaignDialog", () => {
         { wrapper: createWrapper() }
       );
 
+      await goToManualMode(user);
+
       const submitButton = screen.getByTestId("create-campaign-submit");
       await user.click(submitButton);
 
@@ -221,13 +298,21 @@ describe("CreateCampaignDialog", () => {
         expect(screen.getByTestId("campaign-name-error")).toBeInTheDocument();
       });
 
-      // Should not call API with empty name
       expect(mockFetch).not.toHaveBeenCalled();
     });
   });
 
   describe("Dialog Controls", () => {
-    it("closes dialog when cancel is clicked", async () => {
+    it("does not show dialog when open is false", () => {
+      render(
+        <CreateCampaignDialog open={false} onOpenChange={mockOnOpenChange} />,
+        { wrapper: createWrapper() }
+      );
+
+      expect(screen.queryByText("Nova Campanha")).not.toBeInTheDocument();
+    });
+
+    it("closes dialog when cancel is clicked in manual mode", async () => {
       const user = userEvent.setup();
 
       render(
@@ -235,13 +320,17 @@ describe("CreateCampaignDialog", () => {
         { wrapper: createWrapper() }
       );
 
+      // Go to manual mode
+      const manualButton = screen.getByTestId("create-manually-button");
+      await user.click(manualButton);
+
       const cancelButton = screen.getByRole("button", { name: "Cancelar" });
       await user.click(cancelButton);
 
       expect(mockOnOpenChange).toHaveBeenCalledWith(false);
     });
 
-    it("resets form when dialog is closed via cancel button", async () => {
+    it("resets to mode selection when dialog reopens after being closed", async () => {
       const user = userEvent.setup();
       let isOpen = true;
       const handleOpenChange = (open: boolean) => {
@@ -253,16 +342,17 @@ describe("CreateCampaignDialog", () => {
         { wrapper: createWrapper() }
       );
 
-      // Type something
-      const input = screen.getByTestId("campaign-name-input");
-      await user.type(input, "Test Campaign");
-      expect(input).toHaveValue("Test Campaign");
+      // Go to manual mode
+      const manualButton = screen.getByTestId("create-manually-button");
+      await user.click(manualButton);
 
-      // Close dialog via cancel button (this triggers handleOpenChange which resets the form)
+      // Verify we're in manual mode
+      expect(screen.getByTestId("campaign-name-input")).toBeInTheDocument();
+
+      // Close dialog
       const cancelButton = screen.getByRole("button", { name: "Cancelar" });
       await user.click(cancelButton);
 
-      // Rerender with dialog closed
       rerender(
         <CreateCampaignDialog open={false} onOpenChange={handleOpenChange} />
       );
@@ -272,9 +362,8 @@ describe("CreateCampaignDialog", () => {
         <CreateCampaignDialog open={true} onOpenChange={handleOpenChange} />
       );
 
-      // Input should be reset because handleOpenChange(false) was called
-      const newInput = screen.getByTestId("campaign-name-input");
-      expect(newInput).toHaveValue("");
+      // Should be back at mode selection
+      expect(screen.getByTestId("creation-mode-selection")).toBeInTheDocument();
     });
   });
 });

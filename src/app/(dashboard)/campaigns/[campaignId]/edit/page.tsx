@@ -154,15 +154,20 @@ export default function CampaignBuilderPage({ params }: PageProps) {
   }, [leadCount, setLeadCount]);
 
   // Story 5.9 AC #2: Load blocks when data is available
+  // Story 6.12: Preserve AI-generated blocks if present in store
   useEffect(() => {
     // Prevent multiple loads (React Strict Mode / re-renders)
     if (hasLoadedBlocksRef.current) return;
 
+    // Get current store blocks to check if AI wizard pre-loaded them
+    const currentStoreBlocks = useBuilderStore.getState().blocks;
+
     if (initialBlocks && initialBlocks.length > 0) {
+      // DB has blocks, load them (existing campaign)
       hasLoadedBlocksRef.current = true;
       loadBlocks(initialBlocks);
     } else if (initialBlocks && initialBlocks.length === 0) {
-      // Mark as loaded even for empty array (new campaign)
+      // DB is empty - preserve AI wizard blocks if present in store
       hasLoadedBlocksRef.current = true;
     }
   }, [initialBlocks, loadBlocks]);
@@ -205,11 +210,29 @@ export default function CampaignBuilderPage({ params }: PageProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, campaignId]);
 
-  // Reset store and refs when component unmounts or campaign changes
+  // Track previous campaign ID to detect actual campaign changes
+  const prevCampaignIdRef = useRef<string | null>(null);
+
+  // Reset store only when switching between campaigns (not on initial mount/unmount)
+  // Story 6.12: This prevents resetting AI wizard blocks during React Strict Mode re-mounts
   useEffect(() => {
-    return () => {
+    // On first mount, just store the campaignId
+    if (prevCampaignIdRef.current === null) {
+      prevCampaignIdRef.current = campaignId;
+      return;
+    }
+
+    // If campaignId changed (switching campaigns), reset store
+    if (prevCampaignIdRef.current !== campaignId) {
       reset();
-      // Reset refs to allow fresh load on next mount
+      hasLoadedBlocksRef.current = false;
+      hasAddedLeadsRef.current = false;
+      hasLoadedProductRef.current = false;
+      prevCampaignIdRef.current = campaignId;
+    }
+
+    // Cleanup: only reset refs, not the store (store reset handled above)
+    return () => {
       hasLoadedBlocksRef.current = false;
       hasAddedLeadsRef.current = false;
       hasLoadedProductRef.current = false;

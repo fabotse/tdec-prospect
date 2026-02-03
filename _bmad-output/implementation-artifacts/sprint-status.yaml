@@ -159,7 +159,12 @@ development_status:
   #Precisamos implementar a inteligencia de continuar os follows-up, reconhecendo os emails anteriores, para nã
   # perder o contexto e continuar a conversa de forma natural, evitando que o sistema gere emails que não fazem sentido para o destinatário.
   
-  6-12-ai-campaign-structure-generation: backlog  # Was 6.11 - Renumbered after 6.11 insertion
+  6-12-ai-campaign-structure-generation: done  # Code review 2026-02-03: 2 HIGH, 3 MEDIUM fixes (tasks marked, File List, CR-5 tests). 50/50 tests passing
+  # NEW STORY - AI Full Campaign Generation (identified during 6.12 completion)
+  # Rationale: Structure generation (6.12) creates empty blocks; users still need to generate content manually.
+  # This story adds: (1) rationale display explaining AI's structure choice, (2) full content generation for all emails in sequence.
+  # See: sprint-status.yaml discussion 2026-02-03
+  6-12-1-ai-full-campaign-generation: ready-for-dev  # P0: Campaign ready for review in <30s instead of 10+ min manual work
   6-13-smart-campaign-templates: backlog  # Was 6.12 - Renumbered after 6.11 insertion
   epic-6-retrospective: optional
 

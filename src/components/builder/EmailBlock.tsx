@@ -95,6 +95,9 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
       : "initial",
   };
 
+  // Story 6.12 AC #4: Strategic context from AI campaign structure generation
+  const strategicContext = typeof rawData.strategicContext === "string" ? rawData.strategicContext : null;
+
   // Story 6.11 AC #1: Check if this email can be a follow-up (not first email)
   const canBeFollowUp = stepNumber > 1;
 
@@ -379,10 +382,14 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
           <div>
             <p className="font-medium text-sm">Step {stepNumber}</p>
             <p className="text-xs text-muted-foreground">
-              {/* Story 6.11 AC #2: Show follow-up indicator */}
-              {blockData.emailMode === "follow-up" && canBeFollowUp
-                ? `Follow-up do Email ${stepNumber - 1}`
-                : "Email"}
+              {/* Story 6.12 AC #4: Show strategic context if present, otherwise show mode */}
+              {strategicContext ? (
+                <span data-testid="strategic-context">{strategicContext}</span>
+              ) : blockData.emailMode === "follow-up" && canBeFollowUp ? (
+                `Follow-up do Email ${stepNumber - 1}`
+              ) : (
+                "Email"
+              )}
             </p>
           </div>
 

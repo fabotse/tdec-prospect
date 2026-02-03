@@ -474,4 +474,104 @@ Responda APENAS com o texto reescrito, sem explicações.`,
       maxTokens: 500,
     },
   },
+
+  // Campaign structure generation (Story 6.12)
+  campaign_structure_generation: {
+    template: `Você é um estrategista de cold email marketing B2B.
+
+Gere a ESTRUTURA de uma campanha de email baseada nos parametros fornecidos.
+
+PARAMETROS DA CAMPANHA:
+- Objetivo: {{objective}}
+- Urgencia: {{urgency}}
+- Descricao adicional: {{additional_description}}
+
+{{#if product_name}}
+PRODUTO DA CAMPANHA:
+- Nome: {{product_name}}
+- Descricao: {{product_description}}
+- Diferenciais: {{product_differentials}}
+{{/if}}
+
+CONTEXTO DA EMPRESA:
+{{company_context}}
+
+TOM DE VOZ:
+{{tone_style}}
+
+REGRAS POR OBJETIVO:
+
+[COLD_OUTREACH]
+- 4-5 emails tipicamente
+- Intervalos: 3, 4, 5, 7 dias
+- Estrutura: Introducao -> Valor -> Prova Social -> Escassez -> Ultimo Contato
+- Todos os emails sao iniciais (nao referenciam emails anteriores)
+
+[REENGAGEMENT]
+- 3 emails tipicamente
+- Intervalos: 2, 3 dias (mais curtos)
+- Estrutura: Lembrete -> Novo Valor -> Ultima Chance
+- Email 2+ sao follow-ups (referenciam contato anterior)
+
+[FOLLOW_UP]
+- 3-4 emails tipicamente
+- Intervalos: 2, 3, 4 dias
+- Estrutura: Checkin -> Valor Adicional -> Oferta Direta -> Despedida
+- Email 2+ sao follow-ups
+
+[NURTURE]
+- 5-7 emails tipicamente
+- Intervalos: 5, 7, 7, 10, 14 dias (mais longos)
+- Estrutura: Educacao -> Insight -> Case -> Dica -> Convite -> Check-in -> Despedida
+- Email 2+ sao follow-ups
+
+AJUSTES POR URGENCIA:
+- LOW: Intervalos maiores (+2 dias cada)
+- MEDIUM: Intervalos padrao
+- HIGH: Intervalos menores (-1 dia cada, minimo 1)
+
+FORMATO DE RESPOSTA (JSON VALIDO):
+{
+  "structure": {
+    "totalEmails": number,
+    "totalDays": number,
+    "items": [
+      {
+        "position": 0,
+        "type": "email",
+        "context": "Introducao e gancho inicial",
+        "emailMode": "initial"
+      },
+      {
+        "position": 1,
+        "type": "delay",
+        "days": 3
+      },
+      {
+        "position": 2,
+        "type": "email",
+        "context": "Proposta de valor e diferenciais",
+        "emailMode": "initial" | "follow-up"
+      }
+    ]
+  },
+  "rationale": "Breve explicacao da estrategia escolhida (max 100 palavras)"
+}
+
+REGRAS CRITICAS:
+1. Retorne APENAS o JSON, sem markdown ou explicacoes extras
+2. Alterne email e delay (email, delay, email, delay, ...)
+3. Primeiro item sempre tipo "email" com position 0
+4. emailMode: "initial" para Cold Outreach, "follow-up" para demais (exceto primeiro)
+5. context deve ser descritivo para orientar a geracao de conteudo depois
+6. Minimo 3 emails, maximo 7 emails
+7. Delays entre 1 e 14 dias
+
+Responda APENAS com o JSON.`,
+    modelPreference: "gpt-4o",
+    metadata: {
+      temperature: 0.6,
+      maxTokens: 1500,
+    },
+  },
 };

@@ -125,14 +125,22 @@ export abstract class AIProvider {
     }
 
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const errorString = String(error);
 
-    // Handle abort (timeout)
-    if (error instanceof Error && error.name === "AbortError") {
+    // Log original error for debugging
+    console.error(`[${this.providerName}] Original error:`, error);
+
+    // Handle abort/timeout
+    if (
+      (error instanceof Error && error.name === "AbortError") ||
+      errorMessage.includes("aborted") ||
+      errorMessage.includes("timeout")
+    ) {
       return new AIProviderError(this.providerName, "TIMEOUT");
     }
 
     // Check for specific error patterns
-    if (errorMessage.includes("401") || errorMessage.includes("invalid_api_key")) {
+    if (errorMessage.includes("401") || errorMessage.includes("invalid_api_key") || errorString.includes("Incorrect API key")) {
       return new AIProviderError(this.providerName, "INVALID_API_KEY");
     }
 
@@ -140,11 +148,28 @@ export abstract class AIProvider {
       return new AIProviderError(this.providerName, "RATE_LIMITED");
     }
 
-    if (errorMessage.includes("timeout")) {
-      return new AIProviderError(this.providerName, "TIMEOUT");
+    // Check for quota/billing issues
+    if (errorMessage.includes("quota") || errorMessage.includes("billing") || errorMessage.includes("insufficient_quota")) {
+      return new AIProviderError(this.providerName, "QUOTA_EXCEEDED");
     }
 
-    // Generic provider error
+    // Check for model access issues
+    if (errorMessage.includes("model") && (errorMessage.includes("does not exist") || errorMessage.includes("access"))) {
+      return new AIProviderError(this.providerName, "MODEL_NOT_AVAILABLE");
+    }
+
+    // Check for content filter
+    if (errorMessage.includes("content_filter") || errorMessage.includes("content_policy")) {
+      return new AIProviderError(this.providerName, "CONTENT_FILTERED");
+    }
+
+    // Check for server errors
+    if (errorMessage.includes("500") || errorMessage.includes("502") || errorMessage.includes("503") || errorMessage.includes("server_error")) {
+      return new AIProviderError(this.providerName, "SERVER_ERROR");
+    }
+
+    // Generic provider error - include original message for debugging
+    console.error(`[${this.providerName}] Unhandled error type, original message: ${errorMessage}`);
     return new AIProviderError(this.providerName, "PROVIDER_ERROR");
   }
 

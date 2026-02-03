@@ -63,6 +63,7 @@ export interface AIPromptRow {
 /**
  * Known prompt keys
  * AC: #4 - Initial prompts
+ * Story 6.12: Added campaign_structure_generation for AI campaign wizard
  */
 export type PromptKey =
   | "search_translation"
@@ -71,7 +72,8 @@ export type PromptKey =
   | "icebreaker_generation"
   | "tone_application"
   | "follow_up_email_generation"
-  | "follow_up_subject_generation";
+  | "follow_up_subject_generation"
+  | "campaign_structure_generation";
 
 /**
  * All prompt keys as array (for validation)
@@ -84,6 +86,7 @@ export const PROMPT_KEYS: PromptKey[] = [
   "tone_application",
   "follow_up_email_generation",
   "follow_up_subject_generation",
+  "campaign_structure_generation",
 ];
 
 // ==============================================
@@ -161,6 +164,7 @@ export const aiPromptCreateSchema = z.object({
 
 /**
  * Schema for prompt key validation
+ * Story 6.12: Added campaign_structure_generation
  */
 export const promptKeySchema = z.enum([
   "search_translation",
@@ -170,6 +174,7 @@ export const promptKeySchema = z.enum([
   "tone_application",
   "follow_up_email_generation",
   "follow_up_subject_generation",
+  "campaign_structure_generation",
 ]);
 
 // ==============================================

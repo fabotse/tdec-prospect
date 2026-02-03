@@ -5,14 +5,16 @@
  * Story 5.8: Campaign Preview
  * Story 6.5: Campaign Product Context
  * Story 6.6: Personalized Icebreakers
+ * Story 6.12: AI Campaign Structure Generation
  *
  * AC: #4 - Header do Builder
  * AC 5.7 #5: Lead count display and add leads button
  * AC 5.8 #1: Preview button
  * AC 6.5 #1: Product dropdown in builder header
  * AC 6.6 #1: Lead preview selector in builder header
+ * AC 6.12 #4: Campaign summary (email count, total duration)
  *
- * Header showing campaign name (editable), status badge, lead count, product selector, lead preview selector, preview, and save button.
+ * Header showing campaign name (editable), status badge, lead count, product selector, lead preview selector, campaign summary, preview, and save button.
  */
 
 "use client";
@@ -32,6 +34,7 @@ import {
 } from "@/types/campaign";
 import { ProductSelector } from "@/components/builder/ProductSelector";
 import { LeadPreviewSelector } from "@/components/builder/LeadPreviewSelector";
+import { CampaignSummary } from "@/components/builder/CampaignSummary";
 
 interface BuilderHeaderProps {
   campaignName: string;
@@ -234,6 +237,12 @@ export function BuilderHeader({
             <LeadPreviewSelector campaignId={campaignId} />
           </>
         )}
+
+        {/* Spacer to push summary to the right */}
+        <div className="flex-1" />
+
+        {/* Campaign Summary - Story 6.12 AC #4 */}
+        <CampaignSummary />
       </div>
     </header>
   );

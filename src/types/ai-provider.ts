@@ -170,7 +170,11 @@ export type AIErrorCode =
   | "INVALID_API_KEY"
   | "PROMPT_NOT_FOUND"
   | "GENERATION_FAILED"
-  | "STREAM_ERROR";
+  | "STREAM_ERROR"
+  | "QUOTA_EXCEEDED"
+  | "MODEL_NOT_AVAILABLE"
+  | "CONTENT_FILTERED"
+  | "SERVER_ERROR";
 
 /**
  * AI service error messages (Portuguese)
@@ -184,4 +188,8 @@ export const AI_GENERATION_ERROR_MESSAGES: Record<AIErrorCode, string> = {
   PROMPT_NOT_FOUND: "Prompt não encontrado.",
   GENERATION_FAILED: "Erro ao gerar texto. Tente novamente.",
   STREAM_ERROR: "Erro no streaming. Tente novamente.",
+  QUOTA_EXCEEDED: "Quota de uso excedida. Verifique seu plano da OpenAI.",
+  MODEL_NOT_AVAILABLE: "Modelo não disponível para esta conta.",
+  CONTENT_FILTERED: "Conteúdo bloqueado pelo filtro de segurança.",
+  SERVER_ERROR: "Erro no servidor da OpenAI. Tente novamente em alguns minutos.",
 };
