@@ -3,13 +3,15 @@
  * Story 5.2: Campaign Builder Canvas
  * Story 5.4: Delay Block Component
  * Story 5.7: Campaign Lead Association
+ * Story 6.6: Personalized Icebreakers
  *
  * AC: #6 - Builder Store (Zustand)
  * AC 5.4: Default delay data initialization
  * AC 5.7 #5: Lead count tracking
+ * AC 6.6 #1, #2: Preview lead selection for personalized generation
  *
  * Zustand store for managing campaign builder UI state.
- * Handles block sequence, selection, drag state, change tracking, and lead count.
+ * Handles block sequence, selection, drag state, change tracking, lead count, and preview lead.
  */
 
 import { create } from "zustand";
@@ -28,6 +30,19 @@ export interface BuilderBlock {
   data: Record<string, unknown>;
 }
 
+/**
+ * Preview lead data for AI generation
+ * Story 6.6: AC #1, #2 - Real lead data for personalized generation
+ */
+export interface PreviewLead {
+  id: string;
+  firstName: string;
+  lastName: string | null;
+  companyName: string | null;
+  title: string | null;
+  email: string | null;
+}
+
 interface BuilderState {
   /** Blocks in the sequence */
   blocks: BuilderBlock[];
@@ -43,6 +58,10 @@ interface BuilderState {
   productId: string | null;
   /** Product name for display (Story 6.5) */
   productName: string | null;
+  /** Selected lead ID for preview (Story 6.6 AC #1) */
+  previewLeadId: string | null;
+  /** Cached lead data for preview (Story 6.6 AC #2) */
+  previewLead: PreviewLead | null;
 }
 
 interface BuilderActions {
@@ -68,6 +87,8 @@ interface BuilderActions {
   setLeadCount: (count: number) => void;
   /** Set product ID for AI context (Story 6.5) */
   setProductId: (id: string | null, name?: string | null) => void;
+  /** Set preview lead for AI generation (Story 6.6 AC #1, #2) */
+  setPreviewLead: (lead: PreviewLead | null) => void;
 }
 
 // ==============================================
@@ -82,6 +103,8 @@ const initialState: BuilderState = {
   leadCount: 0,
   productId: null,
   productName: null,
+  previewLeadId: null,
+  previewLead: null,
 };
 
 // ==============================================
@@ -165,4 +188,10 @@ export const useBuilderStore = create<BuilderState & BuilderActions>((set) => ({
       productName: name ?? null,
       hasChanges: state.productId !== id,
     })),
+
+  setPreviewLead: (lead) =>
+    set({
+      previewLeadId: lead?.id ?? null,
+      previewLead: lead,
+    }),
 }));

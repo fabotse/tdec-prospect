@@ -4,13 +4,15 @@
  * Story 5.7: Campaign Lead Association
  * Story 5.8: Campaign Preview
  * Story 6.5: Campaign Product Context
+ * Story 6.6: Personalized Icebreakers
  *
  * AC: #4 - Header do Builder
  * AC 5.7 #5: Lead count display and add leads button
  * AC 5.8 #1: Preview button
  * AC 6.5 #1: Product dropdown in builder header
+ * AC 6.6 #1: Lead preview selector in builder header
  *
- * Header showing campaign name (editable), status badge, lead count, product selector, preview, and save button.
+ * Header showing campaign name (editable), status badge, lead count, product selector, lead preview selector, preview, and save button.
  */
 
 "use client";
@@ -29,6 +31,7 @@ import {
   type CampaignStatus,
 } from "@/types/campaign";
 import { ProductSelector } from "@/components/builder/ProductSelector";
+import { LeadPreviewSelector } from "@/components/builder/LeadPreviewSelector";
 
 interface BuilderHeaderProps {
   campaignName: string;
@@ -44,6 +47,8 @@ interface BuilderHeaderProps {
   onPreview?: () => void;
   /** Whether the campaign has blocks (Story 5.8 AC #1) */
   hasBlocks?: boolean;
+  /** Campaign ID for lead preview selector (Story 6.6 AC #1) */
+  campaignId?: string;
 }
 
 /**
@@ -78,6 +83,7 @@ export function BuilderHeader({
   onAddLeads,
   onPreview,
   hasBlocks = false,
+  campaignId,
 }: BuilderHeaderProps) {
   const hasChanges = useBuilderStore((state) => state.hasChanges);
   const [isEditing, setIsEditing] = useState(false);
@@ -179,6 +185,14 @@ export function BuilderHeader({
 
         {/* Product selector - Story 6.5 AC #1 */}
         <ProductSelector />
+
+        {/* Lead preview selector - Story 6.6 AC #1 */}
+        {campaignId && (
+          <>
+            <div className="h-6 w-px bg-border" />
+            <LeadPreviewSelector campaignId={campaignId} />
+          </>
+        )}
       </div>
 
       {/* Right section: Preview + Save buttons */}

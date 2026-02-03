@@ -1,13 +1,15 @@
 /**
  * Campaign Leads Hook
  * Story 5.7: Campaign Lead Association
+ * Story 6.6: Personalized Icebreakers
  *
  * Hook for managing leads associated with a campaign.
  * Uses TanStack Query for server state management.
  *
- * AC: #4 - Add leads to campaign
- * AC: #7 - View leads associated
- * AC: #8 - Remove leads from campaign
+ * AC 5.7: #4 - Add leads to campaign
+ * AC 5.7: #7 - View leads associated
+ * AC 5.7: #8 - Remove leads from campaign
+ * AC 6.6 #1: Lead Preview Selector - fetches leads for preview
  */
 
 "use client";
@@ -134,6 +136,7 @@ export function useCampaignLeads(campaignId: string | null) {
   const queryClient = useQueryClient();
 
   // Query for fetching campaign leads
+  // Story 6.6: 5 minute cache for lead preview selector
   const {
     data,
     isLoading,
@@ -144,6 +147,7 @@ export function useCampaignLeads(campaignId: string | null) {
     queryKey: ["campaign-leads", campaignId],
     queryFn: () => fetchCampaignLeads(campaignId!),
     enabled: !!campaignId,
+    staleTime: 5 * 60 * 1000, // 5 minutes cache
   });
 
   // Mutation for adding leads

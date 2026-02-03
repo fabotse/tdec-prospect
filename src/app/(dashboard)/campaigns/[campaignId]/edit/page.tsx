@@ -5,6 +5,7 @@
  * Story 5.8: Campaign Preview
  * Story 5.9: Campaign Save & Multiple Campaigns
  * Story 6.5: Campaign Product Context
+ * Story 6.6: Personalized Icebreakers
  *
  * AC: #1 - Rota do Builder
  * AC 5.7 #5 - Lead count display
@@ -12,6 +13,7 @@
  * AC 5.8 - Preview panel integration
  * AC 5.9 #1-#7 - Salvar campanha e blocos, carregar blocos existentes
  * AC 6.5 #2 - Save product selection
+ * AC 6.6 #1 - Lead preview selector in builder header
  *
  * Main page for building campaign sequences with drag-and-drop blocks.
  */
@@ -327,6 +329,7 @@ export default function CampaignBuilderPage({ params }: PageProps) {
           onAddLeads={handleAddLeads}
           onPreview={handlePreview}
           hasBlocks={hasBlocks}
+          campaignId={campaignId}
         />
         <div className="flex-1 flex overflow-hidden">
           <BuilderSidebar />

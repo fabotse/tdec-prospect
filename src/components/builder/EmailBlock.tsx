@@ -2,6 +2,7 @@
  * EmailBlock Component
  * Story 5.3: Email Block Component
  * Story 6.2: AI Text Generation in Builder
+ * Story 6.6: Personalized Icebreakers
  *
  * AC 5.3: #1 - Arrastar Email Block para Canvas
  * AC 5.3: #2 - Visual do Email Block (Estilo Attio)
@@ -12,11 +13,15 @@
  * AC 6.2: #1 - Generate Button in Email Block
  * AC 6.2: #2 - Error Handling
  * AC 6.2: #3 - Streaming UI Experience
+ *
+ * AC 6.6: #2 - Real Lead Data in Generation
+ * AC 6.6: #3 - Icebreaker Generation Flow
+ * AC 6.6: #7 - UI Feedback During Generation
  */
 
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Mail, GripVertical } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -25,7 +30,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useBuilderStore, type BuilderBlock } from "@/stores/use-builder-store";
 import type { EmailBlockData } from "@/types/email-block";
-import { useAIGenerate, DEFAULT_GENERATION_VARIABLES } from "@/hooks/use-ai-generate";
+import { useAIGenerate } from "@/hooks/use-ai-generate";
+import { useKnowledgeBaseContext } from "@/hooks/use-knowledge-base-context";
 import { AIGenerateButton } from "./AIGenerateButton";
 
 interface EmailBlockProps {
@@ -38,6 +44,9 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
   const selectedBlockId = useBuilderStore((state) => state.selectedBlockId);
   const selectBlock = useBuilderStore((state) => state.selectBlock);
   const updateBlock = useBuilderStore((state) => state.updateBlock);
+  const productId = useBuilderStore((state) => state.productId);
+  // Story 6.6 AC #2: Get preview lead for personalized generation
+  const previewLead = useBuilderStore((state) => state.previewLead);
 
   const isSelected = selectedBlockId === block.id;
   // Safely extract email block data from the generic block data
@@ -60,8 +69,26 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
     isGenerating,
   } = useAIGenerate();
 
+  // Knowledge Base context for AI generation (Story 6.3)
+  const { variables: kbVariables, isLoading: kbLoading } = useKnowledgeBaseContext();
+
+  // Story 6.6 AC #2: Merge KB variables with real lead data when available
+  const mergedVariables = useMemo(() => {
+    if (!previewLead) {
+      return kbVariables;
+    }
+    // Override KB placeholders with real lead data
+    return {
+      ...kbVariables,
+      lead_name: previewLead.firstName,
+      lead_title: previewLead.title || kbVariables.lead_title || "Profissional",
+      lead_company: previewLead.companyName || kbVariables.lead_company || "",
+    };
+  }, [kbVariables, previewLead]);
+
   // Track which field is being generated
-  const [generatingField, setGeneratingField] = useState<"subject" | "body" | null>(null);
+  // Story 6.6 AC #3: Added "icebreaker" phase for 3-phase generation
+  const [generatingField, setGeneratingField] = useState<"icebreaker" | "subject" | "body" | null>(null);
 
   // Sync local state when block.data changes externally (undo/redo, server sync)
   useEffect(() => {
@@ -106,19 +133,34 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
 
   /**
    * Handle AI text generation (AC 6.2 #1)
-   * Generates both subject and body sequentially
+   * Story 6.6 AC #3: Generates in order: Icebreaker → Subject → Body
+   * AC 6.3 #1: Uses KB context variables
    */
   const handleGenerate = useCallback(async () => {
     // Clear any previous error state (AC 6.2 #2)
     resetAI();
 
     try {
-      // Generate subject first
+      // Story 6.6 AC #3: Generate icebreaker FIRST
+      setGeneratingField("icebreaker");
+      const generatedIcebreaker = await generate({
+        promptKey: "icebreaker_generation",
+        variables: mergedVariables,
+        stream: true,
+        productId,
+      });
+
+      // Small delay before generating subject for better UX
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      resetAI();
+
+      // Generate subject using KB context (AC 6.3 #1), product context (Story 6.5), and real lead data (Story 6.6)
       setGeneratingField("subject");
       const generatedSubject = await generate({
         promptKey: "email_subject_generation",
-        variables: DEFAULT_GENERATION_VARIABLES,
+        variables: mergedVariables,
         stream: true,
+        productId,
       });
 
       // Update subject in store after complete generation
@@ -129,16 +171,15 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
 
       // Small delay before generating body for better UX
       await new Promise((resolve) => setTimeout(resolve, 300));
-
-      // Reset for body generation
       resetAI();
 
-      // Generate body
+      // Story 6.6 AC #3: Generate body WITH icebreaker context
       setGeneratingField("body");
       const generatedBody = await generate({
         promptKey: "email_body_generation",
-        variables: DEFAULT_GENERATION_VARIABLES,
+        variables: { ...mergedVariables, icebreaker: generatedIcebreaker },
         stream: true,
+        productId,
       });
 
       // Update body in store after complete generation
@@ -153,7 +194,7 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
       // Error is handled by the hook (AC 6.2 #2)
       setGeneratingField(null);
     }
-  }, [generate, resetAI, block.id, updateBlock, body]);
+  }, [generate, resetAI, block.id, updateBlock, body, mergedVariables, productId]);
 
   return (
     <motion.div
@@ -259,21 +300,35 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
             </p>
           )}
 
-          {/* Generate Button (AC 6.2 #1) */}
+          {/* Generate Button (AC 6.2 #1, AC 6.3 #1) */}
           <AIGenerateButton
             phase={aiPhase}
             error={aiError}
             onClick={handleGenerate}
-            disabled={isGenerating}
+            disabled={isGenerating || kbLoading}
           />
 
-          {/* Streaming status indicator (AC 6.2 #3) */}
+          {/* KB Loading indicator (AC 6.3 #4) */}
+          {kbLoading && (
+            <p
+              data-testid="kb-loading-status"
+              className="text-xs text-muted-foreground"
+            >
+              Carregando contexto...
+            </p>
+          )}
+
+          {/* Streaming status indicator (AC 6.2 #3, AC 6.6 #7) */}
+          {/* CR-L2 FIX: Added phase-specific data-testid for better testability */}
           {isGenerating && (
             <p
-              data-testid="ai-generating-status"
+              data-testid={`ai-generating-status${generatingField ? `-${generatingField}` : ""}`}
               className="text-xs text-muted-foreground animate-pulse"
             >
-              Gerando texto personalizado...
+              {generatingField === "icebreaker" &&
+                `Gerando quebra-gelo para ${previewLead?.firstName || "lead"}...`}
+              {generatingField === "subject" && "Gerando assunto..."}
+              {generatingField === "body" && "Gerando conteudo..."}
             </p>
           )}
         </div>
