@@ -48,6 +48,9 @@ export function useICPDefinition() {
       if (result.success) {
         // Update cache with new data
         queryClient.setQueryData(QUERY_KEY, variables);
+        // Story 6.9 FIX: Invalidate KB context cache so AI generation uses updated ICP info
+        // This ensures Campaign Builder fetches fresh settings after saving
+        queryClient.invalidateQueries({ queryKey: ["knowledge-base", "context"] });
       }
     },
   });

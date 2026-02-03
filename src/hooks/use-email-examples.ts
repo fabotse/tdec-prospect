@@ -58,6 +58,8 @@ export function useEmailExamples() {
       if (result.success) {
         // Invalidate and refetch the list
         queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+        // Story 6.9 FIX: Invalidate KB context cache so AI generation uses updated examples
+        queryClient.invalidateQueries({ queryKey: ["knowledge-base", "context"] });
       }
     },
   });
@@ -77,6 +79,8 @@ export function useEmailExamples() {
       if (result.success) {
         // Invalidate and refetch the list
         queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+        // Story 6.9 FIX: Invalidate KB context cache so AI generation uses updated examples
+        queryClient.invalidateQueries({ queryKey: ["knowledge-base", "context"] });
       }
     },
   });
@@ -92,6 +96,8 @@ export function useEmailExamples() {
         queryClient.setQueryData<EmailExample[]>(QUERY_KEY, (old) =>
           old?.filter((example) => example.id !== deletedId) ?? []
         );
+        // Story 6.9 FIX: Invalidate KB context cache so AI generation uses updated examples
+        queryClient.invalidateQueries({ queryKey: ["knowledge-base", "context"] });
       }
     },
   });

@@ -41,21 +41,27 @@ vi.mock("@/lib/supabase/server", () => {
 });
 
 // Mock code defaults - includes conditional block templates for Story 6.3/6.5 tests
+// Updated for Story 6.9: Tone variable interpolation tests
 vi.mock("@/lib/ai/prompts/defaults", () => ({
   CODE_DEFAULT_PROMPTS: {
     email_subject_generation: {
-      template: "Default subject prompt for {{lead_name}}{{#if successful_examples}}\n\nExamples:\n{{successful_examples}}{{/if}}",
+      // Story 6.9: Includes tone variables for interpolation testing
+      template:
+        "Subject for {{lead_name}}. Tom: {{tone_style}}. Desc: {{tone_description}}{{#if successful_examples}}\n\nExamples:\n{{successful_examples}}{{/if}}",
       modelPreference: "gpt-4o-mini",
       metadata: { temperature: 0.7 },
     },
     email_body_generation: {
       // Story 6.5: Template with {{else}} for product context fallback
-      template: "Email for {{lead_name}}. {{#if product_name}}Product: {{product_name}} - {{product_description}}{{else}}Services: {{products_services}}{{/if}}",
+      // Story 6.9: Includes writing_guidelines for tone testing
+      template:
+        "Email for {{lead_name}}. Tom: {{tone_style}}. Guidelines: {{writing_guidelines}}. {{#if product_name}}Product: {{product_name}} - {{product_description}}{{else}}Services: {{products_services}}{{/if}}",
       modelPreference: "gpt-4o-mini",
       metadata: { temperature: 0.7, maxTokens: 500 },
     },
     icebreaker_generation: {
-      template: "Default icebreaker prompt",
+      // Story 6.9: Includes tone_style for testing
+      template: "Icebreaker for {{lead_company}}. Tom: {{tone_style}}",
       modelPreference: "gpt-4o-mini",
       metadata: { temperature: 0.8 },
     },
@@ -93,9 +99,9 @@ describe("PromptManager", () => {
 
       expect(result.source).toBe("default");
       expect(result.prompt).not.toBeNull();
-      expect(result.prompt?.promptTemplate).toContain(
-        "Default subject prompt for {{lead_name}}"
-      );
+      // Updated for Story 6.9: Template includes tone variables
+      expect(result.prompt?.promptTemplate).toContain("Subject for {{lead_name}}");
+      expect(result.prompt?.promptTemplate).toContain("{{tone_style}}");
     });
 
     it("returns correct metadata from code default", async () => {
@@ -123,13 +129,13 @@ describe("PromptManager", () => {
   describe("renderPrompt - template interpolation", () => {
     it("interpolates single variable", async () => {
       const result = await promptManager.renderPrompt(
-        "email_subject_generation",
-        { lead_name: "João Silva" },
+        "icebreaker_generation",
+        { lead_company: "Acme Corp" },
         { tenantId: "tenant-456" }
       );
 
       expect(result).not.toBeNull();
-      expect(result?.content).toBe("Default subject prompt for João Silva");
+      expect(result?.content).toContain("Icebreaker for Acme Corp");
     });
 
     it("interpolates multiple variables", async () => {
@@ -137,6 +143,8 @@ describe("PromptManager", () => {
         "email_body_generation",
         {
           lead_name: "Maria",
+          tone_style: "formal",
+          writing_guidelines: "Be concise",
           product_name: "Acme Product",
           product_description: "Best product ever",
         },
@@ -144,7 +152,7 @@ describe("PromptManager", () => {
       );
 
       expect(result?.content).toBe(
-        "Email for Maria. Product: Acme Product - Best product ever"
+        "Email for Maria. Tom: formal. Guidelines: Be concise. Product: Acme Product - Best product ever"
       );
     });
 
@@ -155,13 +163,13 @@ describe("PromptManager", () => {
         { tenantId: "tenant-456" }
       );
 
-      expect(result?.content).toBe("Default subject prompt for {{lead_name}}");
+      expect(result?.content).toContain("{{lead_name}}");
     });
 
     it("returns metadata from prompt", async () => {
       const result = await promptManager.renderPrompt(
         "email_subject_generation",
-        { lead_name: "João" },
+        { lead_name: "João", tone_style: "casual", tone_description: "Amigável" },
         { tenantId: "tenant-456" }
       );
 
@@ -187,12 +195,14 @@ describe("PromptManager", () => {
         "email_subject_generation",
         {
           lead_name: "João",
+          tone_style: "casual",
+          tone_description: "Amigável",
           successful_examples: "Subject 1: Test\nSubject 2: Demo",
         },
         { tenantId: "tenant-456" }
       );
 
-      expect(result?.content).toContain("Default subject prompt for João");
+      expect(result?.content).toContain("Subject for João");
       expect(result?.content).toContain("Examples:");
       expect(result?.content).toContain("Subject 1: Test");
     });
@@ -202,12 +212,16 @@ describe("PromptManager", () => {
         "email_subject_generation",
         {
           lead_name: "João",
+          tone_style: "formal",
+          tone_description: "Corporativo",
           successful_examples: "",
         },
         { tenantId: "tenant-456" }
       );
 
-      expect(result?.content).toBe("Default subject prompt for João");
+      expect(result?.content).toBe(
+        "Subject for João. Tom: formal. Desc: Corporativo"
+      );
       expect(result?.content).not.toContain("Examples:");
       expect(result?.content).not.toContain("{{#if");
       expect(result?.content).not.toContain("{{/if}}");
@@ -216,11 +230,17 @@ describe("PromptManager", () => {
     it("removes conditional block when variable is missing", async () => {
       const result = await promptManager.renderPrompt(
         "email_subject_generation",
-        { lead_name: "João" },
+        {
+          lead_name: "João",
+          tone_style: "formal",
+          tone_description: "Corporativo",
+        },
         { tenantId: "tenant-456" }
       );
 
-      expect(result?.content).toBe("Default subject prompt for João");
+      expect(result?.content).toBe(
+        "Subject for João. Tom: formal. Desc: Corporativo"
+      );
       expect(result?.content).not.toContain("Examples:");
       expect(result?.content).not.toContain("{{#if");
     });
@@ -230,12 +250,16 @@ describe("PromptManager", () => {
         "email_subject_generation",
         {
           lead_name: "João",
+          tone_style: "technical",
+          tone_description: "Técnico",
           successful_examples: "   \n  ",
         },
         { tenantId: "tenant-456" }
       );
 
-      expect(result?.content).toBe("Default subject prompt for João");
+      expect(result?.content).toBe(
+        "Subject for João. Tom: technical. Desc: Técnico"
+      );
       expect(result?.content).not.toContain("Examples:");
     });
   });
@@ -246,6 +270,8 @@ describe("PromptManager", () => {
         "email_body_generation",
         {
           lead_name: "João",
+          tone_style: "casual",
+          writing_guidelines: "",
           product_name: "AWS Server",
           product_description: "Cloud hosting solution",
           products_services: "General tech services",
@@ -254,7 +280,7 @@ describe("PromptManager", () => {
       );
 
       expect(result?.content).toBe(
-        "Email for João. Product: AWS Server - Cloud hosting solution"
+        "Email for João. Tom: casual. Guidelines: . Product: AWS Server - Cloud hosting solution"
       );
       expect(result?.content).not.toContain("Services:");
       expect(result?.content).not.toContain("General tech services");
@@ -265,13 +291,15 @@ describe("PromptManager", () => {
         "email_body_generation",
         {
           lead_name: "Maria",
+          tone_style: "formal",
+          writing_guidelines: "Use formal language",
           products_services: "Consulting and development",
         },
         { tenantId: "tenant-456" }
       );
 
       expect(result?.content).toBe(
-        "Email for Maria. Services: Consulting and development"
+        "Email for Maria. Tom: formal. Guidelines: Use formal language. Services: Consulting and development"
       );
       expect(result?.content).not.toContain("Product:");
     });
@@ -281,6 +309,8 @@ describe("PromptManager", () => {
         "email_body_generation",
         {
           lead_name: "Carlos",
+          tone_style: "technical",
+          writing_guidelines: "",
           product_name: "",
           product_description: "",
           products_services: "B2B Solutions",
@@ -288,7 +318,9 @@ describe("PromptManager", () => {
         { tenantId: "tenant-456" }
       );
 
-      expect(result?.content).toBe("Email for Carlos. Services: B2B Solutions");
+      expect(result?.content).toBe(
+        "Email for Carlos. Tom: technical. Guidelines: . Services: B2B Solutions"
+      );
     });
 
     it("uses else-content when variable is whitespace only", async () => {
@@ -296,13 +328,17 @@ describe("PromptManager", () => {
         "email_body_generation",
         {
           lead_name: "Ana",
+          tone_style: "casual",
+          writing_guidelines: "",
           product_name: "   ",
           products_services: "Enterprise software",
         },
         { tenantId: "tenant-456" }
       );
 
-      expect(result?.content).toBe("Email for Ana. Services: Enterprise software");
+      expect(result?.content).toBe(
+        "Email for Ana. Tom: casual. Guidelines: . Services: Enterprise software"
+      );
     });
 
     it("handles nested variables inside if-content", async () => {
@@ -310,6 +346,8 @@ describe("PromptManager", () => {
         "email_body_generation",
         {
           lead_name: "Pedro",
+          tone_style: "formal",
+          writing_guidelines: "Be respectful",
           product_name: "CRM Pro",
           product_description: "Best CRM in market",
           products_services: "Should not appear",
@@ -327,12 +365,159 @@ describe("PromptManager", () => {
         "email_body_generation",
         {
           lead_name: "Julia",
+          tone_style: "casual",
+          writing_guidelines: "",
           products_services: "Full stack development",
         },
         { tenantId: "tenant-456" }
       );
 
       expect(result?.content).toContain("Full stack development");
+    });
+  });
+
+  // ==============================================
+  // STORY 6.9: TONE VARIABLE INTERPOLATION TESTS
+  // ==============================================
+
+  describe("renderPrompt - tone variable interpolation (Story 6.9)", () => {
+    describe("tone_style renders correct preset value (Task 4.2)", () => {
+      it("renders tone_style as 'formal'", async () => {
+        const result = await promptManager.renderPrompt(
+          "icebreaker_generation",
+          { lead_company: "Acme", tone_style: "formal" },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).toBe("Icebreaker for Acme. Tom: formal");
+      });
+
+      it("renders tone_style as 'casual'", async () => {
+        const result = await promptManager.renderPrompt(
+          "icebreaker_generation",
+          { lead_company: "TechCo", tone_style: "casual" },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).toBe("Icebreaker for TechCo. Tom: casual");
+      });
+
+      it("renders tone_style as 'technical'", async () => {
+        const result = await promptManager.renderPrompt(
+          "icebreaker_generation",
+          { lead_company: "StartupXYZ", tone_style: "technical" },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).toBe("Icebreaker for StartupXYZ. Tom: technical");
+      });
+    });
+
+    describe("tone_description renders human-readable description (Task 4.3)", () => {
+      it("renders tone_description with formal preset label", async () => {
+        const result = await promptManager.renderPrompt(
+          "email_subject_generation",
+          {
+            lead_name: "João",
+            tone_style: "formal",
+            tone_description: "Tom Formal. Linguagem corporativa e respeitosa",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).toContain(
+          "Desc: Tom Formal. Linguagem corporativa e respeitosa"
+        );
+      });
+
+      it("renders tone_description with custom description concatenated", async () => {
+        const result = await promptManager.renderPrompt(
+          "email_subject_generation",
+          {
+            lead_name: "Maria",
+            tone_style: "casual",
+            tone_description:
+              "Tom Casual. Linguagem amigável e próxima. Seja descontraído",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).toContain("Tom Casual");
+        expect(result?.content).toContain("Seja descontraído");
+      });
+    });
+
+    describe("writing_guidelines renders correctly (Task 4.4)", () => {
+      it("renders writing_guidelines when present", async () => {
+        const result = await promptManager.renderPrompt(
+          "email_body_generation",
+          {
+            lead_name: "Ana",
+            tone_style: "formal",
+            writing_guidelines: "Use bullet points para listas",
+            products_services: "Serviços",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).toContain(
+          "Guidelines: Use bullet points para listas"
+        );
+      });
+
+      it("renders empty when writing_guidelines is empty", async () => {
+        const result = await promptManager.renderPrompt(
+          "email_body_generation",
+          {
+            lead_name: "Carlos",
+            tone_style: "casual",
+            writing_guidelines: "",
+            products_services: "Tech",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).toContain("Guidelines: .");
+      });
+    });
+
+    describe("complete tone context interpolation (Task 4.1)", () => {
+      it("interpolates all tone variables together", async () => {
+        const result = await promptManager.renderPrompt(
+          "email_body_generation",
+          {
+            lead_name: "Pedro",
+            tone_style: "technical",
+            writing_guidelines: "Use métricas quando possível",
+            product_name: "Analytics Pro",
+            product_description: "Plataforma de analytics",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).toContain("Tom: technical");
+        expect(result?.content).toContain(
+          "Guidelines: Use métricas quando possível"
+        );
+        expect(result?.content).toContain("Analytics Pro");
+      });
+
+      it("preserves tone variables when product context is missing", async () => {
+        const result = await promptManager.renderPrompt(
+          "email_body_generation",
+          {
+            lead_name: "Julia",
+            tone_style: "casual",
+            writing_guidelines: "Seja amigável",
+            products_services: "Consultoria",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).toContain("Tom: casual");
+        expect(result?.content).toContain("Guidelines: Seja amigável");
+        expect(result?.content).toContain("Services: Consultoria");
+      });
     });
   });
 

@@ -2,11 +2,14 @@
  * Knowledge Base Context Service
  * Story 6.3: Knowledge Base Integration for Context
  * Story 6.5: Campaign Product Context
+ * Story 6.9: Tone of Voice Application
  *
  * AC 6.3: #1 - Knowledge Base Context in AI Prompts
  * AC 6.3: #5 - Graceful Degradation when KB empty
  * AC 6.5: #3 - AI Uses Product Context
  * AC 6.5: #4 - General Context Fallback
+ * AC 6.9: #4 - Custom Guidelines Application
+ * AC 6.9: #7 - Graceful Degradation (No Tone Configured)
  *
  * Compiles knowledge base data into AI context variables.
  */
@@ -16,6 +19,7 @@ import {
   type ToneOfVoice,
   type ICPDefinition,
   type EmailExample,
+  type TonePreset,
   TONE_PRESET_LABELS,
 } from "@/types/knowledge-base";
 import type { Product } from "@/types/product";
@@ -87,16 +91,29 @@ export interface AIContextVariables {
 /**
  * Default values when KB sections are empty
  * AC: #5 - Graceful Degradation
+ * AC 6.9: #7 - Default to "casual" when no tone configured
  */
 export const DEFAULT_COMPANY_CONTEXT = "Empresa de tecnologia focada em soluções B2B";
 export const DEFAULT_TONE_DESCRIPTION = "Profissional e amigável";
-export const DEFAULT_TONE_STYLE = "casual";
+export const DEFAULT_TONE_STYLE: TonePreset = "casual";
 
 /**
  * Maximum number of email examples to include in prompts
  * Keeps prompts concise while providing reference
  */
 export const MAX_EXAMPLES_IN_PROMPT = 3;
+
+/**
+ * Tone preset vocabulary hints for AI context
+ * Story 6.9 AC: #1, #2, #3 - Tone-specific vocabulary guidance
+ *
+ * These brief hints complement the detailed tone guides in prompts.
+ */
+export const TONE_PRESET_HINTS: Record<TonePreset, string> = {
+  casual: "Linguagem amigável e próxima, evite formalidades",
+  formal: "Linguagem corporativa e respeitosa, mantenha distância profissional",
+  technical: "Linguagem técnica e precisa, use terminologia do setor",
+};
 
 // ==============================================
 // HELPER FUNCTIONS
@@ -124,8 +141,12 @@ function compileCompanyContext(company: CompanyProfile | null): string {
 }
 
 /**
- * Compile tone settings into description string
- * AC: #3 - Tone of Voice Matching
+ * Compile tone settings into description string with vocabulary hints
+ * AC 6.3: #3 - Tone of Voice Matching
+ * AC 6.9: #1, #2, #3 - Include tone-specific vocabulary hints
+ * AC 6.9: #4 - Custom description takes precedence
+ *
+ * Format: "Tom [Label]. [Vocabulary Hint]. [Custom Description if any]"
  */
 function compileToneDescription(tone: ToneOfVoice | null): string {
   if (!tone) {
@@ -133,8 +154,16 @@ function compileToneDescription(tone: ToneOfVoice | null): string {
   }
 
   const presetLabel = TONE_PRESET_LABELS[tone.preset] || tone.preset;
+  const presetHint = TONE_PRESET_HINTS[tone.preset] || "";
+
   const parts: string[] = [`Tom ${presetLabel}`];
 
+  // Add vocabulary hint for the preset (Story 6.9 AC #1, #2, #3)
+  if (presetHint) {
+    parts.push(presetHint);
+  }
+
+  // Custom description takes precedence (Story 6.9 AC #4)
   if (tone.custom_description) {
     parts.push(tone.custom_description);
   }

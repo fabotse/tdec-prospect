@@ -1,10 +1,14 @@
 /**
  * Knowledge Base Context Service Tests
  * Story 6.3: Knowledge Base Integration for Context
+ * Story 6.9: Tone of Voice Application
  *
  * Tests for buildAIVariables and getDefaultAIVariables functions.
- * AC: #1 - Knowledge Base Context in AI Prompts
- * AC: #5 - Graceful Degradation
+ * AC 6.3: #1 - Knowledge Base Context in AI Prompts
+ * AC 6.3: #5 - Graceful Degradation
+ * AC 6.9: #1-#3 - Tone preset vocabulary hints
+ * AC 6.9: #4 - Custom guidelines application
+ * AC 6.9: #7 - Graceful degradation (default to casual)
  */
 
 import { describe, it, expect } from "vitest";
@@ -96,10 +100,13 @@ describe("knowledge-base-context service", () => {
         );
       });
 
-      it("should compile tone context correctly (AC #3)", () => {
+      it("should compile tone context correctly with vocabulary hints (AC #3, Story 6.9)", () => {
         const result = buildAIVariables(fullKBContext);
 
-        expect(result.tone_description).toBe("Tom Formal. Profissional mas acessível");
+        // Story 6.9: Format is "Tom [Label]. [Vocabulary Hint]. [Custom Description]"
+        expect(result.tone_description).toBe(
+          "Tom Formal. Linguagem corporativa e respeitosa, mantenha distância profissional. Profissional mas acessível"
+        );
         expect(result.tone_style).toBe("formal");
         expect(result.writing_guidelines).toBe(
           "Evite gírias, use termos técnicos quando necessário"
@@ -286,7 +293,7 @@ describe("knowledge-base-context service", () => {
         expect(result.company_context).toBe("Simple Corp");
       });
 
-      it("should handle tone with only preset (no custom description)", () => {
+      it("should handle tone with only preset (no custom description) - Story 6.9", () => {
         const context: KnowledgeBaseContext = {
           company: null,
           tone: {
@@ -300,7 +307,10 @@ describe("knowledge-base-context service", () => {
 
         const result = buildAIVariables(context);
 
-        expect(result.tone_description).toBe("Tom Técnico");
+        // Story 6.9: Includes vocabulary hint even without custom description
+        expect(result.tone_description).toBe(
+          "Tom Técnico. Linguagem técnica e precisa, use terminologia do setor"
+        );
         expect(result.tone_style).toBe("technical");
       });
 
@@ -347,6 +357,213 @@ describe("knowledge-base-context service", () => {
 
       expect(result.tone_description).toBe(DEFAULT_TONE_DESCRIPTION);
       expect(result.tone_style).toBe(DEFAULT_TONE_STYLE);
+    });
+  });
+
+  // ==============================================
+  // STORY 6.9: TONE OF VOICE APPLICATION
+  // ==============================================
+
+  describe("Story 6.9 - Tone Variable Compilation", () => {
+    describe("tone_style outputs correct preset value (Task 3.1)", () => {
+      it("should output 'formal' when preset is formal", () => {
+        const context: KnowledgeBaseContext = {
+          company: null,
+          tone: { preset: "formal", custom_description: "", writing_guidelines: "" },
+          icp: null,
+          examples: [],
+        };
+        const result = buildAIVariables(context);
+        expect(result.tone_style).toBe("formal");
+      });
+
+      it("should output 'casual' when preset is casual", () => {
+        const context: KnowledgeBaseContext = {
+          company: null,
+          tone: { preset: "casual", custom_description: "", writing_guidelines: "" },
+          icp: null,
+          examples: [],
+        };
+        const result = buildAIVariables(context);
+        expect(result.tone_style).toBe("casual");
+      });
+
+      it("should output 'technical' when preset is technical", () => {
+        const context: KnowledgeBaseContext = {
+          company: null,
+          tone: { preset: "technical", custom_description: "", writing_guidelines: "" },
+          icp: null,
+          examples: [],
+        };
+        const result = buildAIVariables(context);
+        expect(result.tone_style).toBe("technical");
+      });
+    });
+
+    describe("tone_description includes preset label and vocabulary hint (Task 3.2)", () => {
+      it("should include 'Tom Formal' and formal vocabulary hint", () => {
+        const context: KnowledgeBaseContext = {
+          company: null,
+          tone: { preset: "formal", custom_description: "", writing_guidelines: "" },
+          icp: null,
+          examples: [],
+        };
+        const result = buildAIVariables(context);
+        expect(result.tone_description).toContain("Tom Formal");
+        expect(result.tone_description).toContain("corporativa");
+      });
+
+      it("should include 'Tom Casual' and casual vocabulary hint", () => {
+        const context: KnowledgeBaseContext = {
+          company: null,
+          tone: { preset: "casual", custom_description: "", writing_guidelines: "" },
+          icp: null,
+          examples: [],
+        };
+        const result = buildAIVariables(context);
+        expect(result.tone_description).toContain("Tom Casual");
+        expect(result.tone_description).toContain("amigável");
+      });
+
+      it("should include 'Tom Técnico' and technical vocabulary hint", () => {
+        const context: KnowledgeBaseContext = {
+          company: null,
+          tone: { preset: "technical", custom_description: "", writing_guidelines: "" },
+          icp: null,
+          examples: [],
+        };
+        const result = buildAIVariables(context);
+        expect(result.tone_description).toContain("Tom Técnico");
+        expect(result.tone_description).toContain("técnica");
+      });
+
+      it("should concatenate custom_description after vocabulary hint (AC #4)", () => {
+        const context: KnowledgeBaseContext = {
+          company: null,
+          tone: {
+            preset: "casual",
+            custom_description: "Mas sem gírias",
+            writing_guidelines: "",
+          },
+          icp: null,
+          examples: [],
+        };
+        const result = buildAIVariables(context);
+        expect(result.tone_description).toBe(
+          "Tom Casual. Linguagem amigável e próxima, evite formalidades. Mas sem gírias"
+        );
+      });
+    });
+
+    describe("writing_guidelines passed correctly (Task 3.3)", () => {
+      it("should pass writing_guidelines when present", () => {
+        const context: KnowledgeBaseContext = {
+          company: null,
+          tone: {
+            preset: "formal",
+            custom_description: "",
+            writing_guidelines: "Use bullet points para listas",
+          },
+          icp: null,
+          examples: [],
+        };
+        const result = buildAIVariables(context);
+        expect(result.writing_guidelines).toBe("Use bullet points para listas");
+      });
+
+      it("should return empty string when writing_guidelines is empty", () => {
+        const context: KnowledgeBaseContext = {
+          company: null,
+          tone: { preset: "formal", custom_description: "", writing_guidelines: "" },
+          icp: null,
+          examples: [],
+        };
+        const result = buildAIVariables(context);
+        expect(result.writing_guidelines).toBe("");
+      });
+    });
+
+    describe("default tone when KB not configured (Task 3.4, AC #7)", () => {
+      it("should default to 'casual' when tone is null", () => {
+        const context: KnowledgeBaseContext = {
+          company: null,
+          tone: null,
+          icp: null,
+          examples: [],
+        };
+        const result = buildAIVariables(context);
+        expect(result.tone_style).toBe("casual");
+      });
+
+      it("should default to 'casual' when context is null", () => {
+        const result = buildAIVariables(null);
+        expect(result.tone_style).toBe("casual");
+      });
+
+      it("should use DEFAULT_TONE_DESCRIPTION when tone is null", () => {
+        const result = buildAIVariables(null);
+        expect(result.tone_description).toBe(DEFAULT_TONE_DESCRIPTION);
+      });
+    });
+
+    describe("tone variables with and without product context (Task 3.5)", () => {
+      it("should maintain tone variables when product is provided", () => {
+        const context: KnowledgeBaseContext = {
+          company: null,
+          tone: {
+            preset: "technical",
+            custom_description: "Para engenheiros",
+            writing_guidelines: "Use métricas",
+          },
+          icp: null,
+          examples: [],
+        };
+        const mockProduct = {
+          id: "prod-1",
+          tenant_id: "tenant-1",
+          name: "Analytics Pro",
+          description: "Plataforma de analytics",
+          features: "Dashboards",
+          differentials: "IA integrada",
+          targetAudience: "CTOs",
+          created_at: "2026-01-01",
+          updated_at: "2026-01-01",
+        };
+
+        const result = buildAIVariables(context, mockProduct);
+
+        // Tone variables should be independent of product
+        expect(result.tone_style).toBe("technical");
+        expect(result.tone_description).toContain("Tom Técnico");
+        expect(result.tone_description).toContain("Para engenheiros");
+        expect(result.writing_guidelines).toBe("Use métricas");
+
+        // Product variables should also be set
+        expect(result.product_name).toBe("Analytics Pro");
+      });
+
+      it("should maintain tone variables when product is null", () => {
+        const context: KnowledgeBaseContext = {
+          company: null,
+          tone: {
+            preset: "formal",
+            custom_description: "Executivo",
+            writing_guidelines: "Seja conciso",
+          },
+          icp: null,
+          examples: [],
+        };
+
+        const result = buildAIVariables(context, null);
+
+        expect(result.tone_style).toBe("formal");
+        expect(result.tone_description).toContain("Tom Formal");
+        expect(result.tone_description).toContain("Executivo");
+        expect(result.writing_guidelines).toBe("Seja conciso");
+
+        // Product variables should be empty
+        expect(result.product_name).toBe("");
+      });
     });
   });
 });

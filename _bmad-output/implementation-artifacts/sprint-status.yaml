@@ -149,10 +149,14 @@ development_status:
   6-6-personalized-icebreakers: done  # Code review 2026-02-03: 1 HIGH, 1 MEDIUM, 1 LOW fixes (test isolation, previewLead validation, phase testid)
   6-7-inline-text-editing: done  # Code review 2026-02-03: 3 MEDIUM, 2 LOW fixes (useCombinedRef perf, adjustHeight double call, aria-label, test docs)
   6-8-text-regeneration: done  # Code review 2026-02-03: 1 HIGH, 1 MEDIUM fixes (flaky test waitFor, stale closure removed)
-  6-9-tone-of-voice-application: backlog  # Was 6.7 - Updated: tone applied with product context
+  6-9-tone-of-voice-application: done  # Code review 2026-02-03: 1 CRITICAL, 4 MEDIUM fixes + manual tests validated
   6-10-use-of-successful-examples: backlog  # Was 6.8 - Updated: examples combined with product context
-  6-11-ai-campaign-structure-generation: backlog  # Was 6.9 - Updated: wizard includes product selection
-  6-12-smart-campaign-templates: backlog  # Was 6.10 - Updated: templates integrate with product selection
+  # NEW STORY - Follow-Up Email Mode (identified during 6.8 completion via Course Correction 2026-02-03)
+  # Rationale: Follow-up awareness must exist BEFORE campaign automation (6.12, 6.13) to avoid rework
+  # See: sprint-change-proposal-2026-02-03.md
+  6-11-follow-up-email-mode: backlog  # NEW: Emails subsequentes leem contexto do email anterior (cadeia)
+  6-12-ai-campaign-structure-generation: backlog  # Was 6.11 - Renumbered after 6.11 insertion
+  6-13-smart-campaign-templates: backlog  # Was 6.12 - Renumbered after 6.11 insertion
   epic-6-retrospective: optional
 
   # Epic 7: Campaign Deployment

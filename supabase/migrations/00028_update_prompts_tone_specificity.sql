@@ -1,42 +1,18 @@
-/**
- * Code Default Prompts
- * Story: 6.1 - AI Provider Service Layer & Prompt Management System
- *
- * Fallback prompts when no DB prompt exists (ADR-001 Level 3).
- * AC: #2 - Code defaults for 3-level fallback
- */
+-- Migration: Update AI Prompts for Tone Specificity
+-- Story 6.9: Tone of Voice Application
+--
+-- Enhances email_subject_generation, email_body_generation, and icebreaker_generation
+-- prompts with specific tone adaptation rules for each preset (casual, formal, technical).
+-- AI will now have clear examples of how to adapt language per tone style.
+--
+-- AC #1: Casual Tone - conversational, friendly, avoid formal constructs
+-- AC #2: Formal Tone - corporate vocabulary, respectful greetings
+-- AC #3: Technical Tone - precise terminology, industry-specific language
 
-import type { PromptKey, AIPromptMetadata } from "@/types/ai-prompt";
-import { FILTER_EXTRACTION_PROMPT, FILTER_EXTRACTION_MODEL } from "./filter-extraction";
-
-// ==============================================
-// CODE DEFAULT PROMPTS
-// ==============================================
-
-export interface CodeDefaultPrompt {
-  template: string;
-  modelPreference?: string;
-  metadata?: AIPromptMetadata;
-}
-
-/**
- * Code default prompts - fallback when DB has no prompt
- * These should mirror the seeded prompts but serve as last resort
- */
-export const CODE_DEFAULT_PROMPTS: Record<PromptKey, CodeDefaultPrompt> = {
-  // Search translation uses existing prompt from filter-extraction.ts
-  search_translation: {
-    template: FILTER_EXTRACTION_PROMPT,
-    modelPreference: FILTER_EXTRACTION_MODEL,
-    metadata: {
-      temperature: 0.3,
-      maxTokens: 500,
-    },
-  },
-
-  // Email subject generation (Updated for Story 6.3 - KB context, Story 6.5 - Product context, Story 6.9 - Tone guides)
-  email_subject_generation: {
-    template: `Você é um especialista em copywriting para emails de prospecção B2B.
+-- Update email_subject_generation prompt with tone guides
+UPDATE public.ai_prompts
+SET
+  prompt_template = 'Você é um especialista em copywriting para emails de prospecção B2B.
 
 Gere um assunto de email persuasivo e profissional para prospecção comercial.
 
@@ -109,17 +85,15 @@ REGRAS:
 6. Se houver diretrizes de escrita, elas têm prioridade sobre o guia
 7. Se houver exemplos, inspire-se neles
 
-Responda APENAS com o assunto do email, sem explicações.`,
-    modelPreference: "gpt-4o-mini",
-    metadata: {
-      temperature: 0.7,
-      maxTokens: 100,
-    },
-  },
+Responda APENAS com o assunto do email, sem explicações.',
+  version = version + 1,
+  updated_at = NOW()
+WHERE prompt_key = 'email_subject_generation' AND tenant_id IS NULL;
 
-  // Email body generation (Updated for Story 6.3 - KB context, Story 6.5 - Product context, Story 6.9 - Tone guides)
-  email_body_generation: {
-    template: `Você é um especialista em copywriting para emails de prospecção B2B.
+-- Update email_body_generation prompt with tone guides
+UPDATE public.ai_prompts
+SET
+  prompt_template = 'Você é um especialista em copywriting para emails de prospecção B2B.
 
 Gere o corpo de um email de prospecção comercial personalizado e persuasivo.
 
@@ -215,17 +189,15 @@ FORMATO:
 - Despedida (conforme tom)
 - Assinatura simples
 
-Responda APENAS com o corpo do email, sem explicações.`,
-    modelPreference: "gpt-4o-mini",
-    metadata: {
-      temperature: 0.7,
-      maxTokens: 500,
-    },
-  },
+Responda APENAS com o corpo do email, sem explicações.',
+  version = version + 1,
+  updated_at = NOW()
+WHERE prompt_key = 'email_body_generation' AND tenant_id IS NULL;
 
-  // Icebreaker generation (Updated for Story 6.6 - Product context, KB context, quality rules, Story 6.9 - Tone guides)
-  icebreaker_generation: {
-    template: `Você é um especialista em personalização de emails de prospecção B2B.
+-- Update icebreaker_generation prompt with tone guides
+UPDATE public.ai_prompts
+SET
+  prompt_template = 'Você é um especialista em personalização de emails de prospecção B2B.
 
 Gere um quebra-gelo personalizado para iniciar um email de prospecção.
 
@@ -297,45 +269,11 @@ TIPOS DE QUEBRA-GELO EFICAZES:
 - "Empresas de {{lead_industry}} como a {{lead_company}} frequentemente enfrentam [desafio]..."
 - "O crescimento da {{lead_company}} no mercado me chamou atenção..."
 
-Responda APENAS com o quebra-gelo, sem explicações.`,
-    modelPreference: "gpt-4o-mini",
-    metadata: {
-      temperature: 0.8,
-      maxTokens: 150,
-    },
-  },
+Responda APENAS com o quebra-gelo, sem explicações.',
+  version = version + 1,
+  updated_at = NOW()
+WHERE prompt_key = 'icebreaker_generation' AND tenant_id IS NULL;
 
-  // Tone application
-  tone_application: {
-    template: `Você é um especialista em copywriting e adaptação de tom de voz.
-
-Reescreva o texto a seguir mantendo o significado mas adaptando ao tom de voz especificado.
-
-TEXTO ORIGINAL:
-{{original_text}}
-
-TOM DE VOZ DESEJADO:
-- Preset: {{tone_preset}}
-- Descrição: {{tone_description}}
-- Diretrizes: {{writing_guidelines}}
-
-REGRAS:
-1. Mantenha o significado e informações do texto original
-2. Adapte vocabulário e estrutura ao tom especificado
-3. Preserve CTAs e informações importantes
-4. Mantenha o tamanho similar ao original
-5. Não adicione informações novas
-
-PRESETS:
-- formal: Linguagem corporativa, respeitosa, sem gírias
-- casual: Linguagem amigável, próxima, pode usar expressões coloquiais
-- technical: Linguagem técnica, precisa, com termos do setor
-
-Responda APENAS com o texto reescrito, sem explicações.`,
-    modelPreference: "gpt-4o-mini",
-    metadata: {
-      temperature: 0.5,
-      maxTokens: 500,
-    },
-  },
-};
+-- Add comment for documentation
+COMMENT ON TABLE public.ai_prompts IS
+  'AI prompt templates. Story 6.9 added specific tone guides for casual/formal/technical presets with vocabulary examples and style rules';
