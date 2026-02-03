@@ -1,13 +1,16 @@
 /**
  * AI Generate API Route
  * Story: 6.1 - AI Provider Service Layer & Prompt Management System
+ * Story 6.5: Campaign Product Context
  *
  * POST /api/ai/generate
  * Generates text using AI providers with prompt management.
  *
- * AC: #1 - Uses configured provider (OpenAI or Anthropic)
- * AC: #1 - Supports streaming responses
- * AC: #2 - Uses PromptManager for prompt retrieval
+ * AC 6.1: #1 - Uses configured provider (OpenAI or Anthropic)
+ * AC 6.1: #1 - Supports streaming responses
+ * AC 6.1: #2 - Uses PromptManager for prompt retrieval
+ * AC 6.5: #3 - AI Uses Product Context
+ * AC 6.5: #4 - General Context Fallback
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -18,6 +21,8 @@ import { createAIProvider, promptManager, AIProviderError } from "@/lib/ai";
 import { aiGenerateRequestSchema } from "@/types/ai-provider";
 import type { AIGenerateResponse } from "@/types/ai-provider";
 import type { APIErrorResponse } from "@/types/api";
+import type { ProductRow } from "@/types/product";
+import { transformProductRow } from "@/types/product";
 
 // ==============================================
 // ERROR MESSAGES (Portuguese)
@@ -56,6 +61,42 @@ async function getOpenAIApiKey(tenantId: string): Promise<string> {
   } catch {
     throw new Error(ERROR_MESSAGES.DECRYPT_ERROR);
   }
+}
+
+// ==============================================
+// HELPER: Get Product by ID (Story 6.5)
+// ==============================================
+
+async function getProductById(productId: string, tenantId: string) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("products")
+    .select("*")
+    .eq("id", productId)
+    .eq("tenant_id", tenantId)
+    .single();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return transformProductRow(data as ProductRow);
+}
+
+/**
+ * Build product context variables for prompt interpolation
+ * Story 6.5 AC #3: Product context replaces generic company products
+ */
+function buildProductVariables(product: ReturnType<typeof transformProductRow>) {
+  return {
+    product_name: product.name,
+    product_description: product.description,
+    product_features: product.features || "",
+    product_differentials: product.differentials || "",
+    product_target_audience: product.targetAudience || "",
+    // Also update products_services with focused product info
+    products_services: `${product.name}: ${product.description}`,
+  };
 }
 
 // ==============================================
@@ -102,13 +143,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { promptKey, variables, options } = parseResult.data;
+    const { promptKey, variables, options, productId } = parseResult.data;
+
+    // 2b. Fetch product if productId provided (Story 6.5 AC #3)
+    let mergedVariables = { ...variables };
+    if (productId) {
+      const product = await getProductById(productId, tenantId);
+      if (product) {
+        // AC #3: Merge product context into variables (replaces generic products_services)
+        const productVars = buildProductVariables(product);
+        mergedVariables = { ...mergedVariables, ...productVars };
+      }
+      // AC #4: If product not found, continue with general context (no error)
+    }
 
     // 3. Get rendered prompt from PromptManager
     // promptKey is validated by Zod schema against PromptKey enum
     const renderedPrompt = await promptManager.renderPrompt(
       promptKey,
-      variables,
+      mergedVariables,
       { tenantId }
     );
 

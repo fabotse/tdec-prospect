@@ -144,7 +144,7 @@ development_status:
   # NEW STORIES - Product Context Architecture (identified during 6.3 planning)
   # Rationale: Product context must exist BEFORE personalization stories (6.6-6.10) to avoid rework
   6-4-product-catalog-crud: done  # Code review 2026-02-02: 3 MEDIUM fixes (DialogDescription accessibility, DELETE 404, comment update)
-  6-5-campaign-product-context: backlog  # NEW: Vincular produto à campanha, IA usa contexto específico
+  6-5-campaign-product-context: done  # Code review 2026-02-03: 2 MEDIUM fixes (debug console.log removed, migration 00026 documented)
   # Original stories continue (renumbered)
   6-6-personalized-icebreakers: backlog  # Was 6.4 - Updated: now uses product context when available
   6-7-inline-text-editing: backlog  # Was 6.5

@@ -40,16 +40,17 @@ vi.mock("@/lib/supabase/server", () => {
   };
 });
 
-// Mock code defaults
+// Mock code defaults - includes conditional block templates for Story 6.3/6.5 tests
 vi.mock("@/lib/ai/prompts/defaults", () => ({
   CODE_DEFAULT_PROMPTS: {
     email_subject_generation: {
-      template: "Default subject prompt for {{lead_name}}",
+      template: "Default subject prompt for {{lead_name}}{{#if successful_examples}}\n\nExamples:\n{{successful_examples}}{{/if}}",
       modelPreference: "gpt-4o-mini",
       metadata: { temperature: 0.7 },
     },
     email_body_generation: {
-      template: "Default body prompt for {{lead_name}} at {{lead_company}}",
+      // Story 6.5: Template with {{else}} for product context fallback
+      template: "Email for {{lead_name}}. {{#if product_name}}Product: {{product_name}} - {{product_description}}{{else}}Services: {{products_services}}{{/if}}",
       modelPreference: "gpt-4o-mini",
       metadata: { temperature: 0.7, maxTokens: 500 },
     },
@@ -92,7 +93,7 @@ describe("PromptManager", () => {
 
       expect(result.source).toBe("default");
       expect(result.prompt).not.toBeNull();
-      expect(result.prompt?.promptTemplate).toBe(
+      expect(result.prompt?.promptTemplate).toContain(
         "Default subject prompt for {{lead_name}}"
       );
     });
@@ -134,12 +135,16 @@ describe("PromptManager", () => {
     it("interpolates multiple variables", async () => {
       const result = await promptManager.renderPrompt(
         "email_body_generation",
-        { lead_name: "Maria", lead_company: "Acme Corp" },
+        {
+          lead_name: "Maria",
+          product_name: "Acme Product",
+          product_description: "Best product ever",
+        },
         { tenantId: "tenant-456" }
       );
 
       expect(result?.content).toBe(
-        "Default body prompt for Maria at Acme Corp"
+        "Email for Maria. Product: Acme Product - Best product ever"
       );
     });
 
@@ -173,6 +178,161 @@ describe("PromptManager", () => {
       );
 
       expect(result).toBeNull();
+    });
+  });
+
+  describe("renderPrompt - conditional blocks (Story 6.3)", () => {
+    it("includes conditional block content when variable has value", async () => {
+      const result = await promptManager.renderPrompt(
+        "email_subject_generation",
+        {
+          lead_name: "João",
+          successful_examples: "Subject 1: Test\nSubject 2: Demo",
+        },
+        { tenantId: "tenant-456" }
+      );
+
+      expect(result?.content).toContain("Default subject prompt for João");
+      expect(result?.content).toContain("Examples:");
+      expect(result?.content).toContain("Subject 1: Test");
+    });
+
+    it("removes conditional block when variable is empty string", async () => {
+      const result = await promptManager.renderPrompt(
+        "email_subject_generation",
+        {
+          lead_name: "João",
+          successful_examples: "",
+        },
+        { tenantId: "tenant-456" }
+      );
+
+      expect(result?.content).toBe("Default subject prompt for João");
+      expect(result?.content).not.toContain("Examples:");
+      expect(result?.content).not.toContain("{{#if");
+      expect(result?.content).not.toContain("{{/if}}");
+    });
+
+    it("removes conditional block when variable is missing", async () => {
+      const result = await promptManager.renderPrompt(
+        "email_subject_generation",
+        { lead_name: "João" },
+        { tenantId: "tenant-456" }
+      );
+
+      expect(result?.content).toBe("Default subject prompt for João");
+      expect(result?.content).not.toContain("Examples:");
+      expect(result?.content).not.toContain("{{#if");
+    });
+
+    it("removes conditional block when variable is whitespace only", async () => {
+      const result = await promptManager.renderPrompt(
+        "email_subject_generation",
+        {
+          lead_name: "João",
+          successful_examples: "   \n  ",
+        },
+        { tenantId: "tenant-456" }
+      );
+
+      expect(result?.content).toBe("Default subject prompt for João");
+      expect(result?.content).not.toContain("Examples:");
+    });
+  });
+
+  describe("renderPrompt - {{else}} fallback support (Story 6.5)", () => {
+    it("uses if-content when variable has value", async () => {
+      const result = await promptManager.renderPrompt(
+        "email_body_generation",
+        {
+          lead_name: "João",
+          product_name: "AWS Server",
+          product_description: "Cloud hosting solution",
+          products_services: "General tech services",
+        },
+        { tenantId: "tenant-456" }
+      );
+
+      expect(result?.content).toBe(
+        "Email for João. Product: AWS Server - Cloud hosting solution"
+      );
+      expect(result?.content).not.toContain("Services:");
+      expect(result?.content).not.toContain("General tech services");
+    });
+
+    it("uses else-content when variable is missing", async () => {
+      const result = await promptManager.renderPrompt(
+        "email_body_generation",
+        {
+          lead_name: "Maria",
+          products_services: "Consulting and development",
+        },
+        { tenantId: "tenant-456" }
+      );
+
+      expect(result?.content).toBe(
+        "Email for Maria. Services: Consulting and development"
+      );
+      expect(result?.content).not.toContain("Product:");
+    });
+
+    it("uses else-content when variable is empty string", async () => {
+      const result = await promptManager.renderPrompt(
+        "email_body_generation",
+        {
+          lead_name: "Carlos",
+          product_name: "",
+          product_description: "",
+          products_services: "B2B Solutions",
+        },
+        { tenantId: "tenant-456" }
+      );
+
+      expect(result?.content).toBe("Email for Carlos. Services: B2B Solutions");
+    });
+
+    it("uses else-content when variable is whitespace only", async () => {
+      const result = await promptManager.renderPrompt(
+        "email_body_generation",
+        {
+          lead_name: "Ana",
+          product_name: "   ",
+          products_services: "Enterprise software",
+        },
+        { tenantId: "tenant-456" }
+      );
+
+      expect(result?.content).toBe("Email for Ana. Services: Enterprise software");
+    });
+
+    it("handles nested variables inside if-content", async () => {
+      const result = await promptManager.renderPrompt(
+        "email_body_generation",
+        {
+          lead_name: "Pedro",
+          product_name: "CRM Pro",
+          product_description: "Best CRM in market",
+          products_services: "Should not appear",
+        },
+        { tenantId: "tenant-456" }
+      );
+
+      expect(result?.content).toContain("CRM Pro");
+      expect(result?.content).toContain("Best CRM in market");
+      expect(result?.content).not.toContain("Should not appear");
+    });
+
+    it("handles nested variables inside else-content", async () => {
+      const result = await promptManager.renderPrompt(
+        "email_body_generation",
+        {
+          lead_name: "Julia",
+          products_services: "Full stack development",
+        },
+        { tenantId: "tenant-456" }
+      );
+
+      expect(result?.content).toContain("Full stack development");
     });
   });
 

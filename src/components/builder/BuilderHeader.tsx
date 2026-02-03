@@ -3,12 +3,14 @@
  * Story 5.2: Campaign Builder Canvas
  * Story 5.7: Campaign Lead Association
  * Story 5.8: Campaign Preview
+ * Story 6.5: Campaign Product Context
  *
  * AC: #4 - Header do Builder
  * AC 5.7 #5: Lead count display and add leads button
  * AC 5.8 #1: Preview button
+ * AC 6.5 #1: Product dropdown in builder header
  *
- * Header showing campaign name (editable), status badge, lead count, preview, and save button.
+ * Header showing campaign name (editable), status badge, lead count, product selector, preview, and save button.
  */
 
 "use client";
@@ -26,6 +28,7 @@ import {
   campaignStatusVariants,
   type CampaignStatus,
 } from "@/types/campaign";
+import { ProductSelector } from "@/components/builder/ProductSelector";
 
 interface BuilderHeaderProps {
   campaignName: string;
@@ -171,6 +174,11 @@ export function BuilderHeader({
           <Users className="h-4 w-4" />
           {leadCount} lead{leadCount !== 1 ? "s" : ""}
         </Button>
+
+        <div className="h-6 w-px bg-border" />
+
+        {/* Product selector - Story 6.5 AC #1 */}
+        <ProductSelector />
       </div>
 
       {/* Right section: Preview + Save buttons */}

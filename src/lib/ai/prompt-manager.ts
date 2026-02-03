@@ -224,15 +224,39 @@ export class PromptManager {
 
   /**
    * Interpolate template variables
-   * Replaces {{variable}} with values from the variables object
+   * Supports:
+   * - Simple replacement: {{variable}}
+   * - Conditional blocks: {{#if variable}}...{{/if}}
+   * - Conditional with fallback: {{#if variable}}...{{else}}...{{/if}}
+   *
+   * Story 6.3: Added conditional block support for KB context variables
+   * Story 6.5: Added {{else}} support for product context fallback
    */
   private interpolateTemplate(
     template: string,
     variables: Record<string, string>
   ): string {
-    return template.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
+    let result = template;
+
+    // Step 1: Handle conditional blocks {{#if varName}}...{{else}}...{{/if}}
+    // Supports optional {{else}} clause for fallback content
+    // If variable exists and is non-empty, use if-content; otherwise use else-content (or empty)
+    result = result.replace(
+      /\{\{#if\s+(\w+)\}\}([\s\S]*?)(?:\{\{else\}\}([\s\S]*?))?\{\{\/if\}\}/g,
+      (_, varName, ifContent, elseContent) => {
+        const value = variables[varName];
+        // If variable has a truthy, non-empty value, use if-content
+        // Otherwise use else-content (or empty string if no else clause)
+        return value && value.trim() !== "" ? ifContent : (elseContent ?? "");
+      }
+    );
+
+    // Step 2: Handle simple variable replacement {{variable}}
+    result = result.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
       return variables[varName] ?? match;
     });
+
+    return result;
   }
 
   /**

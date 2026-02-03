@@ -22,11 +22,26 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-// Mock useBuilderStore
-const mockUseBuilderStore = vi.fn();
+// Mock useBuilderStore - ProductSelector now uses additional fields
+const mockSetProductId = vi.fn();
+const mockBuilderState = {
+  hasChanges: false,
+  productId: null,
+  productName: null,
+  setProductId: mockSetProductId,
+  blocks: [],
+};
 vi.mock("@/stores/use-builder-store", () => ({
-  useBuilderStore: (selector: (state: unknown) => unknown) =>
-    mockUseBuilderStore(selector),
+  useBuilderStore: (selector?: (state: typeof mockBuilderState) => unknown) =>
+    selector ? selector(mockBuilderState) : mockBuilderState,
+}));
+
+// Mock useProducts (used by ProductSelector)
+vi.mock("@/hooks/use-products", () => ({
+  useProducts: () => ({
+    data: [],
+    isLoading: false,
+  }),
 }));
 
 describe("BuilderHeader (AC: #4)", () => {
@@ -39,10 +54,11 @@ describe("BuilderHeader (AC: #4)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockUseBuilderStore.mockImplementation((selector) => {
-      const state = { hasChanges: false };
-      return selector(state);
-    });
+    // Reset state before each test
+    mockBuilderState.hasChanges = false;
+    mockBuilderState.productId = null;
+    mockBuilderState.productName = null;
+    mockBuilderState.blocks = [];
   });
 
   describe("Rendering (AC: #4)", () => {
@@ -82,10 +98,7 @@ describe("BuilderHeader (AC: #4)", () => {
 
   describe("Save Button State", () => {
     it("disables save button when no changes", () => {
-      mockUseBuilderStore.mockImplementation((selector) => {
-        const state = { hasChanges: false };
-        return selector(state);
-      });
+      mockBuilderState.hasChanges = false;
 
       render(<BuilderHeader {...defaultProps} />);
 
@@ -93,10 +106,7 @@ describe("BuilderHeader (AC: #4)", () => {
     });
 
     it("enables save button when there are changes", () => {
-      mockUseBuilderStore.mockImplementation((selector) => {
-        const state = { hasChanges: true };
-        return selector(state);
-      });
+      mockBuilderState.hasChanges = true;
 
       render(<BuilderHeader {...defaultProps} />);
 
@@ -104,10 +114,7 @@ describe("BuilderHeader (AC: #4)", () => {
     });
 
     it("disables save button while saving", () => {
-      mockUseBuilderStore.mockImplementation((selector) => {
-        const state = { hasChanges: true };
-        return selector(state);
-      });
+      mockBuilderState.hasChanges = true;
 
       render(<BuilderHeader {...defaultProps} isSaving={true} />);
 
@@ -116,10 +123,7 @@ describe("BuilderHeader (AC: #4)", () => {
     });
 
     it("calls onSave when save button is clicked", () => {
-      mockUseBuilderStore.mockImplementation((selector) => {
-        const state = { hasChanges: true };
-        return selector(state);
-      });
+      mockBuilderState.hasChanges = true;
 
       render(<BuilderHeader {...defaultProps} />);
 

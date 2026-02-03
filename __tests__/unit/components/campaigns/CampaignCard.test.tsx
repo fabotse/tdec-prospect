@@ -18,6 +18,7 @@ describe("CampaignCard", () => {
     tenantId: "tenant-1",
     name: "Q1 Outreach Campaign",
     status: "active",
+    productId: null,
     createdAt: "2026-02-01T10:00:00Z",
     updatedAt: "2026-02-01T10:00:00Z",
     leadCount: 25,

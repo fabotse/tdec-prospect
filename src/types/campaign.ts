@@ -79,6 +79,7 @@ export interface Campaign {
   tenantId: string;
   name: string;
   status: CampaignStatus;
+  productId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -88,6 +89,7 @@ export interface Campaign {
  */
 export interface CampaignWithCount extends Campaign {
   leadCount: number;
+  productName?: string | null;
 }
 
 /**
@@ -98,6 +100,7 @@ export interface CampaignRow {
   tenant_id: string;
   name: string;
   status: CampaignStatus;
+  product_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -107,6 +110,7 @@ export interface CampaignRow {
  */
 export interface CampaignRowWithCount extends CampaignRow {
   lead_count: number;
+  product_name?: string | null;
 }
 
 /**
@@ -118,6 +122,7 @@ export function transformCampaignRow(row: CampaignRow): Campaign {
     tenantId: row.tenant_id,
     name: row.name,
     status: row.status,
+    productId: row.product_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -132,6 +137,7 @@ export function transformCampaignRowWithCount(
   return {
     ...transformCampaignRow(row),
     leadCount: Number(row.lead_count) || 0,
+    productName: row.product_name ?? null,
   };
 }
 
@@ -154,6 +160,7 @@ export type CreateCampaignInput = z.infer<typeof createCampaignSchema>;
 export const updateCampaignSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   status: z.enum(campaignStatusValues).optional(),
+  productId: z.string().uuid().nullable().optional(),
 });
 
 export type UpdateCampaignInput = z.infer<typeof updateCampaignSchema>;

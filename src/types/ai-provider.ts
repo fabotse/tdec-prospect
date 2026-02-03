@@ -122,6 +122,7 @@ export interface AIModelConfig {
 /**
  * AI generation API request body
  * AC: #1 - Request for text generation
+ * AC 6.5: #3 - Includes optional productId for campaign context
  */
 export interface AIGenerateRequest {
   /** Prompt key to use from PromptManager */
@@ -130,16 +131,20 @@ export interface AIGenerateRequest {
   variables: Record<string, string>;
   /** Generation options */
   options?: AIGenerationOptions;
+  /** Product ID for campaign-specific context (Story 6.5) */
+  productId?: string | null;
 }
 
 /**
  * Zod schema for AI generate request validation
  * Uses promptKeySchema to validate against known prompt keys
+ * Story 6.5: Added productId for campaign product context
  */
 export const aiGenerateRequestSchema = z.object({
   promptKey: promptKeySchema,
   variables: z.record(z.string(), z.string()),
   options: aiGenerationOptionsSchema.optional(),
+  productId: z.string().uuid().nullable().optional(),
 });
 
 /**

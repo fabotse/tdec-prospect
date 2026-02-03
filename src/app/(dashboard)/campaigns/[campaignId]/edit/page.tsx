@@ -4,12 +4,14 @@
  * Story 5.7: Campaign Lead Association
  * Story 5.8: Campaign Preview
  * Story 5.9: Campaign Save & Multiple Campaigns
+ * Story 6.5: Campaign Product Context
  *
  * AC: #1 - Rota do Builder
  * AC 5.7 #5 - Lead count display
  * AC 5.7 #6 - Pre-selected leads from /leads page
  * AC 5.8 - Preview panel integration
  * AC 5.9 #1-#7 - Salvar campanha e blocos, carregar blocos existentes
+ * AC 6.5 #2 - Save product selection
  *
  * Main page for building campaign sequences with drag-and-drop blocks.
  */
@@ -121,6 +123,8 @@ export default function CampaignBuilderPage({ params }: PageProps) {
     setLeadCount,
     setHasChanges,
     loadBlocks,
+    setProductId,
+    productId,
   } = useBuilderStore();
 
   // Story 5.9: Load and save blocks
@@ -168,6 +172,16 @@ export default function CampaignBuilderPage({ params }: PageProps) {
     }
   }, [campaign?.name]);
 
+  // Story 6.5 AC #2: Initialize productId from campaign data
+  const hasLoadedProductRef = useRef(false);
+  useEffect(() => {
+    if (hasLoadedProductRef.current) return;
+    if (campaign) {
+      hasLoadedProductRef.current = true;
+      setProductId(campaign.productId, campaign.productName ?? null);
+    }
+  }, [campaign, setProductId]);
+
   // Story 5.7 AC #6: Auto-add pre-selected leads from query params
   useEffect(() => {
     // Prevent multiple executions (React Strict Mode / re-renders)
@@ -196,6 +210,7 @@ export default function CampaignBuilderPage({ params }: PageProps) {
       // Reset refs to allow fresh load on next mount
       hasLoadedBlocksRef.current = false;
       hasAddedLeadsRef.current = false;
+      hasLoadedProductRef.current = false;
     };
   }, [campaignId, reset]);
 
@@ -240,13 +255,16 @@ export default function CampaignBuilderPage({ params }: PageProps) {
   };
 
   // Story 5.9 AC #1, #5: Handle save campaign and blocks
+  // Story 6.5 AC #2: Include productId in save payload
   const handleSave = async () => {
     try {
-      // Prepare payload - only include name if changed
+      // Prepare payload - only include fields if changed
       const nameChanged = campaignNameState !== campaign?.name;
+      const productChanged = productId !== campaign?.productId;
       await saveCampaign.mutateAsync({
         name: nameChanged ? campaignNameState : undefined,
         blocks: blocks,
+        productId: productChanged ? productId : undefined,
       });
       setHasChanges(false);
       toast.success("Campanha salva com sucesso");

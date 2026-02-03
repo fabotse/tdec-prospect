@@ -455,7 +455,7 @@ describe("PATCH /api/campaigns/[campaignId] (AC 5.9: #1, #3)", () => {
 
     expect(response.status).toBe(500);
     expect(body.error.code).toBe("INTERNAL_ERROR");
-    expect(body.error.message).toBe("Erro ao atualizar nome da campanha");
+    expect(body.error.message).toBe("Erro ao atualizar campanha");
   });
 
   it("should return updated campaign with leadCount", async () => {

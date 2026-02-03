@@ -70,13 +70,14 @@ export async function GET(_request: Request, { params }: RouteParams) {
     );
   }
 
-  // Query campaign with lead count
+  // Query campaign with lead count and product name
   const { data, error } = await supabase
     .from("campaigns")
     .select(
       `
       *,
-      lead_count:campaign_leads(count)
+      lead_count:campaign_leads(count),
+      products(name)
     `
     )
     .eq("id", campaignId)
@@ -97,14 +98,16 @@ export async function GET(_request: Request, { params }: RouteParams) {
     );
   }
 
-  // Transform and flatten lead_count
+  // Transform and flatten lead_count and product_name
   const leadCount = Array.isArray(data.lead_count)
     ? data.lead_count[0]?.count || 0
     : 0;
+  const productName = data.products?.name ?? null;
 
   const campaign = transformCampaignRowWithCount({
     ...data,
     lead_count: leadCount,
+    product_name: productName,
   } as CampaignRowWithCount);
 
   return NextResponse.json({ data: campaign });
@@ -131,6 +134,7 @@ const blockSchema = z.object({
 const patchCampaignSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   blocks: z.array(blockSchema).optional(),
+  productId: z.string().uuid().nullable().optional(),
 });
 
 /**
@@ -198,22 +202,30 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     );
   }
 
-  const { name, blocks } = parsed.data;
+  const { name, blocks, productId } = parsed.data;
 
-  // Update campaign name if provided (updated_at handled at end - CR-5 fix)
+  // Update campaign fields if provided
+  const campaignUpdate: Record<string, unknown> = {};
   if (name !== undefined) {
+    campaignUpdate.name = name;
+  }
+  if (productId !== undefined) {
+    campaignUpdate.product_id = productId;
+  }
+
+  if (Object.keys(campaignUpdate).length > 0) {
     const { error: updateError } = await supabase
       .from("campaigns")
-      .update({ name })
+      .update(campaignUpdate)
       .eq("id", campaignId);
 
     if (updateError) {
-      console.error("[Campaign API] Update name error:", updateError);
+      console.error("[Campaign API] Update campaign error:", updateError);
       return NextResponse.json(
         {
           error: {
             code: "INTERNAL_ERROR",
-            message: "Erro ao atualizar nome da campanha",
+            message: "Erro ao atualizar campanha",
           },
         },
         { status: 500 }
@@ -343,20 +355,21 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   }
 
   // CR-5 FIX: Update updated_at once at end if any changes were made
-  if (name !== undefined || blocks !== undefined) {
+  if (name !== undefined || blocks !== undefined || productId !== undefined) {
     await supabase
       .from("campaigns")
       .update({ updated_at: new Date().toISOString() })
       .eq("id", campaignId);
   }
 
-  // Return updated campaign with lead count
+  // Return updated campaign with lead count and product name
   const { data, error: fetchError } = await supabase
     .from("campaigns")
     .select(
       `
       *,
-      lead_count:campaign_leads(count)
+      lead_count:campaign_leads(count),
+      products(name)
     `
     )
     .eq("id", campaignId)
@@ -375,14 +388,16 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     );
   }
 
-  // Transform and flatten lead_count
+  // Transform and flatten lead_count and product_name
   const leadCount = Array.isArray(data.lead_count)
     ? data.lead_count[0]?.count || 0
     : 0;
+  const productName = data.products?.name ?? null;
 
   const campaign = transformCampaignRowWithCount({
     ...data,
     lead_count: leadCount,
+    product_name: productName,
   } as CampaignRowWithCount);
 
   return NextResponse.json({ data: campaign });

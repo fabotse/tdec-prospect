@@ -118,6 +118,7 @@ export function useCreateCampaign() {
 export interface SaveCampaignInput {
   name?: string;
   blocks?: BuilderBlock[];
+  productId?: string | null;
 }
 
 /**

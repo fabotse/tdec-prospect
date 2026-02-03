@@ -39,6 +39,10 @@ interface BuilderState {
   hasChanges: boolean;
   /** Number of leads associated with campaign (Story 5.7 AC #5) */
   leadCount: number;
+  /** Selected product ID for AI context (Story 6.5) */
+  productId: string | null;
+  /** Product name for display (Story 6.5) */
+  productName: string | null;
 }
 
 interface BuilderActions {
@@ -62,6 +66,8 @@ interface BuilderActions {
   loadBlocks: (blocks: BuilderBlock[]) => void;
   /** Set lead count (Story 5.7 AC #5) */
   setLeadCount: (count: number) => void;
+  /** Set product ID for AI context (Story 6.5) */
+  setProductId: (id: string | null, name?: string | null) => void;
 }
 
 // ==============================================
@@ -74,6 +80,8 @@ const initialState: BuilderState = {
   isDragging: false,
   hasChanges: false,
   leadCount: 0,
+  productId: null,
+  productName: null,
 };
 
 // ==============================================
@@ -150,4 +158,11 @@ export const useBuilderStore = create<BuilderState & BuilderActions>((set) => ({
   loadBlocks: (blocks) => set({ blocks, hasChanges: false }),
 
   setLeadCount: (count) => set({ leadCount: count }),
+
+  setProductId: (id, name = null) =>
+    set((state) => ({
+      productId: id,
+      productName: name ?? null,
+      hasChanges: state.productId !== id,
+    })),
 }));

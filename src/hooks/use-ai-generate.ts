@@ -49,6 +49,8 @@ export interface GenerateParams {
   variables: Record<string, string>;
   /** Enable streaming (default: true) */
   stream?: boolean;
+  /** Product ID for campaign-specific context (Story 6.5) */
+  productId?: string | null;
 }
 
 /**
@@ -76,10 +78,11 @@ export interface UseAIGenerateReturn {
 // ==============================================
 
 /**
- * Generation timeout in milliseconds (AC #1: completes in <5 seconds)
- * NFR-P2 from PRD: 5 seconds max for generation
+ * Generation timeout in milliseconds
+ * Increased to 15s to accommodate longer prompts with KB context
+ * Original NFR-P2 target was 5s, but real-world usage requires more time
  */
-export const GENERATION_TIMEOUT_MS = 5000;
+export const GENERATION_TIMEOUT_MS = 15000;
 
 // ==============================================
 // DEFAULT VARIABLES (MVP Placeholders)
@@ -219,6 +222,7 @@ export function useAIGenerate(): UseAIGenerateReturn {
             promptKey: params.promptKey,
             variables: params.variables,
             options: { stream: params.stream !== false },
+            productId: params.productId,
           }),
           signal: abortControllerRef.current.signal,
         });

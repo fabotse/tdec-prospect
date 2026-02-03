@@ -33,13 +33,14 @@ export async function GET() {
     );
   }
 
-  // Query campaigns with lead count
+  // Query campaigns with lead count and product name
   const { data, error } = await supabase
     .from("campaigns")
     .select(
       `
       *,
-      lead_count:campaign_leads(count)
+      lead_count:campaign_leads(count),
+      products(name)
     `
     )
     .order("created_at", { ascending: false });
@@ -54,14 +55,16 @@ export async function GET() {
     );
   }
 
-  // Transform and flatten lead_count
+  // Transform and flatten lead_count and product_name
   const campaigns = (data || []).map((row) => {
     const leadCount = Array.isArray(row.lead_count)
       ? row.lead_count[0]?.count || 0
       : 0;
+    const productName = row.products?.name ?? null;
     return transformCampaignRowWithCount({
       ...row,
       lead_count: leadCount,
+      product_name: productName,
     } as CampaignRowWithCount);
   });
 
@@ -153,6 +156,7 @@ export async function POST(request: NextRequest) {
       data: transformCampaignRowWithCount({
         ...data,
         lead_count: 0,
+        product_name: null,
       } as CampaignRowWithCount),
     },
     { status: 201 }
