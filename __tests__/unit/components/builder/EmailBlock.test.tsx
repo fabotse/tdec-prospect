@@ -5,6 +5,7 @@
  * Story 6.3: Knowledge Base Integration for Context
  * Story 6.6: Personalized Icebreakers
  * Story 6.7: Inline Text Editing
+ * Story 6.8: Text Regeneration
  *
  * AC 5.3: #2 - Visual do Email Block (Estilo Attio)
  * AC 5.3: #3 - Selecionar Email Block
@@ -27,6 +28,11 @@
  * AC 6.7: #3 - Debounced Auto-Save
  * AC 6.7: #4 - Auto-Expanding Textarea
  * AC 6.7: #5 - Subject Character Count
+ *
+ * AC 6.8: #1 - Regenerate Button Visibility
+ * AC 6.8: #2 - Regeneration Execution
+ * AC 6.8: #5 - Context Preservation on Regeneration
+ * AC 6.8: #6 - Reset to Initial State
  */
 
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
@@ -486,30 +492,28 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
 
     it("calls body generation after subject generation", async () => {
       // Setup mock to track prompt keys used
-      mockGenerate.mockResolvedValue("Generated text");
+      // Use mockImplementation to ensure consistent async behavior
+      mockGenerate.mockImplementation(() => Promise.resolve("Generated text"));
 
       render(<EmailBlock block={mockBlock} stepNumber={1} />);
 
       fireEvent.click(screen.getByText("Gerar com IA"));
 
-      // Wait for body generation prompt to be called (comes after subject)
+      // Wait for ALL 3 generation calls to complete (icebreaker, subject, body)
+      // The generation flow has 300ms delays between phases, so we need more time
+      // CR-H1 FIX: Move all assertions inside waitFor to ensure all 3 phases complete
+      // before checking prompt keys (fixes race condition/flaky test)
       await waitFor(
         () => {
-          const calls = mockGenerate.mock.calls;
-          const bodyGenCalls = calls.filter(
-            (call) => call[0]?.promptKey === "email_body_generation"
+          const allPromptKeys = mockGenerate.mock.calls.map(
+            (call) => call[0]?.promptKey
           );
-          expect(bodyGenCalls.length).toBeGreaterThanOrEqual(1);
+          expect(allPromptKeys).toContain("icebreaker_generation");
+          expect(allPromptKeys).toContain("email_subject_generation");
+          expect(allPromptKeys).toContain("email_body_generation");
         },
-        { timeout: 2000 }
+        { timeout: 5000 }
       );
-
-      // Verify both prompt keys were used
-      const allPromptKeys = mockGenerate.mock.calls.map(
-        (call) => call[0]?.promptKey
-      );
-      expect(allPromptKeys).toContain("email_subject_generation");
-      expect(allPromptKeys).toContain("email_body_generation");
     });
   });
 
@@ -1128,6 +1132,275 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
 
       const bodyInput = screen.getByTestId("email-body-input");
       expect(bodyInput).toHaveValue(multilineBody);
+    });
+  });
+
+  // ==============================================
+  // Story 6.8: Text Regeneration
+  // ==============================================
+
+  describe("Regeneration Button Visibility (Story 6.8 AC: #1, #6)", () => {
+    // Task 5.1: Test hasContent calculation (true when both subject and body non-empty)
+    it("shows Regenerar button when BOTH subject and body have content (AC #1)", () => {
+      const blockWithContent: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: "Test Subject", body: "Test Body" },
+      };
+
+      render(<EmailBlock block={blockWithContent} stepNumber={1} />);
+
+      expect(screen.getByText("Regenerar")).toBeInTheDocument();
+    });
+
+    // Task 5.2: Test hasContent false when only subject has content
+    it("shows 'Gerar com IA' when only subject has content", () => {
+      const blockWithSubjectOnly: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: "Test Subject", body: "" },
+      };
+
+      render(<EmailBlock block={blockWithSubjectOnly} stepNumber={1} />);
+
+      expect(screen.getByText("Gerar com IA")).toBeInTheDocument();
+      expect(screen.queryByText("Regenerar")).not.toBeInTheDocument();
+    });
+
+    // Task 5.3: Test hasContent false when only body has content
+    it("shows 'Gerar com IA' when only body has content", () => {
+      const blockWithBodyOnly: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: "", body: "Test Body" },
+      };
+
+      render(<EmailBlock block={blockWithBodyOnly} stepNumber={1} />);
+
+      expect(screen.getByText("Gerar com IA")).toBeInTheDocument();
+      expect(screen.queryByText("Regenerar")).not.toBeInTheDocument();
+    });
+
+    // Task 5.4: Test hasContent false when both are empty
+    it("shows 'Gerar com IA' when both subject and body are empty", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      expect(screen.getByText("Gerar com IA")).toBeInTheDocument();
+      expect(screen.queryByText("Regenerar")).not.toBeInTheDocument();
+    });
+
+    // AC #6: Test reset to initial state when content is cleared
+    it("returns to 'Gerar com IA' when subject is cleared (AC #6)", () => {
+      const blockWithContent: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: "Test Subject", body: "Test Body" },
+      };
+
+      const { rerender } = render(
+        <EmailBlock block={blockWithContent} stepNumber={1} />
+      );
+
+      // Initially shows Regenerar
+      expect(screen.getByText("Regenerar")).toBeInTheDocument();
+
+      // Simulate clearing subject
+      const updatedBlock: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: "", body: "Test Body" },
+      };
+
+      rerender(<EmailBlock block={updatedBlock} stepNumber={1} />);
+
+      // Should show Gerar com IA again
+      expect(screen.getByText("Gerar com IA")).toBeInTheDocument();
+    });
+
+    it("returns to 'Gerar com IA' when body is cleared (AC #6)", () => {
+      const blockWithContent: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: "Test Subject", body: "Test Body" },
+      };
+
+      const { rerender } = render(
+        <EmailBlock block={blockWithContent} stepNumber={1} />
+      );
+
+      // Initially shows Regenerar
+      expect(screen.getByText("Regenerar")).toBeInTheDocument();
+
+      // Simulate clearing body
+      const updatedBlock: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: "Test Subject", body: "" },
+      };
+
+      rerender(<EmailBlock block={updatedBlock} stepNumber={1} />);
+
+      // Should show Gerar com IA again
+      expect(screen.getByText("Gerar com IA")).toBeInTheDocument();
+    });
+
+    it("treats whitespace-only content as empty", () => {
+      const blockWithWhitespace: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: "   ", body: "   " },
+      };
+
+      render(<EmailBlock block={blockWithWhitespace} stepNumber={1} />);
+
+      // Whitespace-only should be treated as empty
+      expect(screen.getByText("Gerar com IA")).toBeInTheDocument();
+    });
+  });
+
+  describe("Regeneration Execution (Story 6.8 AC: #2, #5)", () => {
+    // Task 5.5: Test regeneration replaces previous text
+    it("replaces previous text when regeneration completes (AC #2)", async () => {
+      const blockWithContent: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: "Old Subject", body: "Old Body" },
+      };
+
+      mockGenerate.mockResolvedValue("New Generated Text");
+
+      render(<EmailBlock block={blockWithContent} stepNumber={1} />);
+
+      // Click regenerate
+      const button = screen.getByText("Regenerar");
+      fireEvent.click(button);
+
+      await waitFor(() => {
+        // Verify generate was called (which will replace text)
+        expect(mockGenerate).toHaveBeenCalled();
+        // Verify updateBlock was called (to persist new text)
+        expect(mockUpdateBlock).toHaveBeenCalled();
+      });
+    });
+
+    // Task 5.6: Test multiple regenerations work consecutively
+    it("allows multiple consecutive regenerations (AC #4)", async () => {
+      const blockWithContent: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: "Subject", body: "Body" },
+      };
+
+      mockGenerate.mockResolvedValue("Generated text");
+
+      render(<EmailBlock block={blockWithContent} stepNumber={1} />);
+
+      // First regeneration
+      const button = screen.getByText("Regenerar");
+      fireEvent.click(button);
+
+      await waitFor(() => {
+        expect(mockGenerate).toHaveBeenCalled();
+      });
+
+      // Clear mock calls to test second regeneration
+      const firstCallCount = mockGenerate.mock.calls.length;
+
+      // Second regeneration (button still available)
+      fireEvent.click(button);
+
+      await waitFor(() => {
+        // Should have more calls than before
+        expect(mockGenerate.mock.calls.length).toBeGreaterThan(firstCallCount);
+      });
+    });
+
+    // Task 5.7: Test context is passed correctly on regeneration
+    it("passes same context (mergedVariables, productId) on regeneration (AC #5)", async () => {
+      mockProductId = "product-456";
+      mockPreviewLead = {
+        id: "lead-1",
+        firstName: "Carlos",
+        lastName: "Silva",
+        companyName: "Empresa XYZ",
+        title: "CEO",
+        email: "carlos@empresa.com",
+      };
+
+      const blockWithContent: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: "Subject", body: "Body" },
+      };
+
+      mockGenerate.mockResolvedValue("Generated text");
+
+      render(<EmailBlock block={blockWithContent} stepNumber={1} />);
+
+      // Click regenerate
+      fireEvent.click(screen.getByText("Regenerar"));
+
+      await waitFor(() => {
+        // Verify context is passed
+        expect(mockGenerate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            productId: "product-456",
+            variables: expect.objectContaining({
+              lead_name: "Carlos",
+              lead_company: "Empresa XYZ",
+              lead_title: "CEO",
+            }),
+          })
+        );
+      });
+    });
+
+    it("generates fresh icebreaker on regeneration (AC #5)", async () => {
+      const blockWithContent: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: "Old Subject", body: "Old Body" },
+      };
+
+      mockGenerate.mockResolvedValue("Fresh icebreaker");
+
+      render(<EmailBlock block={blockWithContent} stepNumber={1} />);
+
+      fireEvent.click(screen.getByText("Regenerar"));
+
+      await waitFor(() => {
+        // Icebreaker generation should be called first
+        const firstCall = mockGenerate.mock.calls[0];
+        expect(firstCall?.[0]?.promptKey).toBe("icebreaker_generation");
+      });
+    });
+
+    it("resets AI state at start of regeneration (AC #2)", async () => {
+      const blockWithContent: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: "Subject", body: "Body" },
+      };
+
+      mockGenerate.mockResolvedValue("Generated text");
+
+      render(<EmailBlock block={blockWithContent} stepNumber={1} />);
+
+      fireEvent.click(screen.getByText("Regenerar"));
+
+      await waitFor(() => {
+        // resetAI should be called to clear previous state
+        expect(mockResetAI).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe("Streaming Animation on Regeneration (Story 6.8 AC: #3)", () => {
+    it("passes stream:true on regeneration calls", async () => {
+      const blockWithContent: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: "Subject", body: "Body" },
+      };
+
+      mockGenerate.mockResolvedValue("Streaming text");
+
+      render(<EmailBlock block={blockWithContent} stepNumber={1} />);
+
+      fireEvent.click(screen.getByText("Regenerar"));
+
+      await waitFor(() => {
+        // All generation calls should have stream: true
+        mockGenerate.mock.calls.forEach((call) => {
+          expect(call[0]).toHaveProperty("stream", true);
+        });
+      });
     });
   });
 });

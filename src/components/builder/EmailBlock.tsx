@@ -4,6 +4,7 @@
  * Story 6.2: AI Text Generation in Builder
  * Story 6.6: Personalized Icebreakers
  * Story 6.7: Inline Text Editing
+ * Story 6.8: Text Regeneration
  *
  * AC 5.3: #1 - Arrastar Email Block para Canvas
  * AC 5.3: #2 - Visual do Email Block (Estilo Attio)
@@ -22,6 +23,9 @@
  * AC 6.7: #1 - Inline Subject Editing
  * AC 6.7: #2 - Inline Body Editing
  * AC 6.7: #3 - Debounced Auto-Save with flush on blur
+ *
+ * AC 6.8: #1 - Regenerate Button Visibility
+ * AC 6.8: #6 - Reset to Initial State
  */
 
 "use client";
@@ -91,6 +95,13 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
       lead_company: previewLead.companyName || kbVariables.lead_company || "",
     };
   }, [kbVariables, previewLead]);
+
+  // Story 6.8 AC #1, #6: Determine if content has been generated
+  // Shows "Regenerar" when BOTH subject AND body have content
+  // Returns to "Gerar com IA" when either is empty (AC #6)
+  const hasContent = useMemo(() => {
+    return subject.trim() !== "" && body.trim() !== "";
+  }, [subject, body]);
 
   // Track which field is being generated
   // Story 6.6 AC #3: Added "icebreaker" phase for 3-phase generation
@@ -192,11 +203,10 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
         productId,
       });
 
-      // Update subject in store after complete generation
+      // Update local state immediately for UI feedback (streaming already shows progress)
+      // CR-M1 FIX: Removed intermediate store update to avoid stale closure issue
+      // Store will be updated after body generation completes with both subject and body
       setSubject(generatedSubject);
-      updateBlock(block.id, {
-        data: { subject: generatedSubject, body },
-      });
 
       // Small delay before generating body for better UX
       await new Promise((resolve) => setTimeout(resolve, 300));
@@ -223,7 +233,7 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
       // Error is handled by the hook (AC 6.2 #2)
       setGeneratingField(null);
     }
-  }, [generate, resetAI, block.id, updateBlock, body, mergedVariables, productId]);
+  }, [generate, resetAI, block.id, updateBlock, mergedVariables, productId]);
 
   return (
     <motion.div
@@ -349,12 +359,13 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
             </p>
           )}
 
-          {/* Generate Button (AC 6.2 #1, AC 6.3 #1) */}
+          {/* Generate Button (AC 6.2 #1, AC 6.3 #1, AC 6.8 #1) */}
           <AIGenerateButton
             phase={aiPhase}
             error={aiError}
             onClick={handleGenerate}
             disabled={isGenerating || kbLoading}
+            hasContent={hasContent}
           />
 
           {/* KB Loading indicator (AC 6.3 #4) */}

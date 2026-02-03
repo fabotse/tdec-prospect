@@ -1,9 +1,14 @@
 /**
  * AIGenerateButton Component Tests
  * Story 6.2: AI Text Generation in Builder
+ * Story 6.8: Text Regeneration
  *
- * AC: #1 - Generate Button in Email Block
- * AC: #2 - Error handling with retry
+ * AC 6.2: #1 - Generate Button in Email Block
+ * AC 6.2: #2 - Error handling with retry
+ *
+ * AC 6.8: #1 - Regenerate Button Visibility
+ * AC 6.8: #3 - Streaming Animation on Regeneration
+ * AC 6.8: #4 - Multiple Regenerations
  */
 
 import { render, screen, fireEvent } from "@testing-library/react";
@@ -216,6 +221,199 @@ describe("AIGenerateButton (AC: #1, #2)", () => {
       );
 
       expect(screen.getByRole("button")).toHaveClass("custom-class");
+    });
+  });
+
+  // ==============================================
+  // Story 6.8: Text Regeneration Tests
+  // ==============================================
+  describe("Regeneration State (Story 6.8 AC: #1, #3, #4)", () => {
+    // Task 4.1: Test button shows "Gerar com IA" when hasContent=false
+    it("shows 'Gerar com IA' when hasContent is false (AC #1)", () => {
+      render(
+        <AIGenerateButton
+          phase="idle"
+          onClick={mockOnClick}
+          hasContent={false}
+        />
+      );
+
+      expect(screen.getByText("Gerar com IA")).toBeInTheDocument();
+    });
+
+    // Task 4.2: Test button shows "Regenerar" when hasContent=true and phase=idle
+    it("shows 'Regenerar' when hasContent is true and phase is idle (AC #1)", () => {
+      render(
+        <AIGenerateButton
+          phase="idle"
+          onClick={mockOnClick}
+          hasContent={true}
+        />
+      );
+
+      expect(screen.getByText("Regenerar")).toBeInTheDocument();
+    });
+
+    // Task 4.3: Test button shows "Gerando..." when phase=generating (regardless of hasContent)
+    it("shows 'Gerando...' during generation even when hasContent is true (AC #3)", () => {
+      render(
+        <AIGenerateButton
+          phase="generating"
+          onClick={mockOnClick}
+          hasContent={true}
+        />
+      );
+
+      expect(screen.getByText("Gerando...")).toBeInTheDocument();
+      expect(screen.queryByText("Regenerar")).not.toBeInTheDocument();
+    });
+
+    it("shows 'Gerando...' during streaming even when hasContent is true (AC #3)", () => {
+      render(
+        <AIGenerateButton
+          phase="streaming"
+          onClick={mockOnClick}
+          hasContent={true}
+        />
+      );
+
+      expect(screen.getByText("Gerando...")).toBeInTheDocument();
+    });
+
+    // Task 4.4: Test button shows "Tentar novamente" on error (regardless of hasContent)
+    it("shows 'Tentar novamente' on error even when hasContent is true (AC #3)", () => {
+      render(
+        <AIGenerateButton
+          phase="error"
+          onClick={mockOnClick}
+          hasContent={true}
+        />
+      );
+
+      expect(screen.getByText("Tentar novamente")).toBeInTheDocument();
+      expect(screen.queryByText("Regenerar")).not.toBeInTheDocument();
+    });
+
+    it("shows 'Tentar novamente' when error prop is set regardless of hasContent", () => {
+      render(
+        <AIGenerateButton
+          phase="idle"
+          error="Falha na geração"
+          onClick={mockOnClick}
+          hasContent={true}
+        />
+      );
+
+      expect(screen.getByText("Tentar novamente")).toBeInTheDocument();
+    });
+
+    // Task 4.5: Test icon changes to RefreshCw when showing "Regenerar"
+    // Note: We test this indirectly by ensuring the button renders correctly
+    // Icon testing would require inspecting SVG elements or snapshots
+    it("renders with RefreshCw icon styling when hasContent is true", () => {
+      const { container } = render(
+        <AIGenerateButton
+          phase="idle"
+          onClick={mockOnClick}
+          hasContent={true}
+        />
+      );
+
+      // Verify button is rendered with regenerate text (icon is RefreshCw)
+      expect(screen.getByText("Regenerar")).toBeInTheDocument();
+      // The button should contain an SVG element (the RefreshCw icon)
+      const svgElement = container.querySelector("svg");
+      expect(svgElement).toBeInTheDocument();
+    });
+
+    // Task 4.6: Test aria-label updates for regeneration state
+    it("has correct aria-label for regeneration (AC #1)", () => {
+      render(
+        <AIGenerateButton
+          phase="idle"
+          onClick={mockOnClick}
+          hasContent={true}
+        />
+      );
+
+      const button = screen.getByRole("button");
+      expect(button).toHaveAttribute("aria-label", "Regenerar texto com IA");
+    });
+
+    it("has 'Gerar texto com IA' aria-label when hasContent is false", () => {
+      render(
+        <AIGenerateButton
+          phase="idle"
+          onClick={mockOnClick}
+          hasContent={false}
+        />
+      );
+
+      const button = screen.getByRole("button");
+      expect(button).toHaveAttribute("aria-label", "Gerar texto com IA");
+    });
+
+    it("error aria-label takes precedence over hasContent (AC #3)", () => {
+      render(
+        <AIGenerateButton
+          phase="error"
+          onClick={mockOnClick}
+          hasContent={true}
+        />
+      );
+
+      const button = screen.getByRole("button");
+      expect(button).toHaveAttribute("aria-label", "Tentar gerar novamente");
+    });
+
+    // AC #4: Multiple regenerations test
+    it("allows multiple clicks for consecutive regenerations (AC #4)", () => {
+      render(
+        <AIGenerateButton
+          phase="idle"
+          onClick={mockOnClick}
+          hasContent={true}
+        />
+      );
+
+      const button = screen.getByRole("button");
+
+      // First click
+      fireEvent.click(button);
+      expect(mockOnClick).toHaveBeenCalledTimes(1);
+
+      // Second click
+      fireEvent.click(button);
+      expect(mockOnClick).toHaveBeenCalledTimes(2);
+
+      // Third click
+      fireEvent.click(button);
+      expect(mockOnClick).toHaveBeenCalledTimes(3);
+    });
+
+    // Verify button returns to "Regenerar" after completion (AC #4)
+    it("returns to Regenerar after done phase when hasContent is true (AC #4)", () => {
+      // Simulate: generation complete, phase returns to idle but content exists
+      render(
+        <AIGenerateButton
+          phase="done"
+          onClick={mockOnClick}
+          hasContent={true}
+        />
+      );
+
+      // When phase is "done" and hasContent is true, should show "Regenerar"
+      // Note: The current implementation treats "done" as not loading/error,
+      // so it should show "Regenerar" if hasContent is true
+      expect(screen.getByText("Regenerar")).toBeInTheDocument();
+    });
+
+    it("defaults hasContent to false when prop is not provided", () => {
+      render(
+        <AIGenerateButton phase="idle" onClick={mockOnClick} />
+      );
+
+      expect(screen.getByText("Gerar com IA")).toBeInTheDocument();
     });
   });
 });
