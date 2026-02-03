@@ -118,7 +118,7 @@ REGRAS:
 7. {{#if successful_examples}}PRIORIDADE MÁXIMA: Imite o estilo dos exemplos fornecidos{{else}}Use melhores práticas de cold email{{/if}}
 
 Responda APENAS com o assunto do email, sem explicações.`,
-    modelPreference: "gpt-4o-mini",
+    modelPreference: "gpt-5-mini",
     metadata: {
       temperature: 0.7,
       maxTokens: 100,
@@ -233,7 +233,7 @@ FORMATO:
 - Assinatura simples
 
 Responda APENAS com o corpo do email, sem explicações.`,
-    modelPreference: "gpt-4o-mini",
+    modelPreference: "gpt-5-mini",
     metadata: {
       temperature: 0.7,
       maxTokens: 500,
@@ -331,11 +331,17 @@ Responda APENAS com o quebra-gelo, sem explicações.`,
     },
   },
 
-  // Follow-up email generation (Story 6.11)
+  // Follow-up email generation (Story 6.11, updated Story 6.12.1)
   follow_up_email_generation: {
     template: `Você é um especialista em copywriting para emails de prospecção B2B.
 
 Gere o corpo de um EMAIL DE FOLLOW-UP que dá continuidade a uma conversa iniciada.
+
+CONTEXTO CRÍTICO - SITUAÇÃO DE "SEM RESPOSTA":
+- Este follow-up assume que o lead NÃO RESPONDEU ao email anterior
+- Se o lead tivesse respondido, a campanha teria parado automaticamente
+- Portanto, trate como se o lead não viu ou estava ocupado demais para responder
+- NUNCA seja agressivo ou reclame da falta de resposta
 
 EMAIL ANTERIOR NA SEQUÊNCIA (VOCÊ JÁ ENVIOU ESTE):
 Assunto: {{previous_email_subject}}
@@ -345,7 +351,7 @@ CONTEXTO DA EMPRESA REMETENTE:
 {{company_context}}
 
 {{#if product_name}}
-PRODUTO EM FOCO (JÁ APRESENTADO NO EMAIL ANTERIOR - NÃO REPITA INFORMAÇÕES):
+PRODUTO EM FOCO (JÁ APRESENTADO - NÃO REPITA DETALHES):
 - Nome: {{product_name}}
 {{/if}}
 
@@ -367,39 +373,72 @@ EXEMPLOS DE FOLLOW-UPS QUE FUNCIONARAM:
 {{successful_examples}}
 {{/if}}
 
-REGRAS CRÍTICAS PARA FOLLOW-UP:
-1. Máximo 100 palavras (follow-ups são mais curtos)
-2. REFERENCIE o email anterior naturalmente ("Conforme mencionei...", "Dando continuidade...", "Voltando ao assunto...")
-3. NÃO repita informações do produto já apresentadas
-4. Adicione NOVO valor: um caso de sucesso, uma estatística, um insight
-5. CTA diferente do email anterior (mais direto, oferecer reunião, pedir feedback)
-6. Mantenha o mesmo tom de voz do email anterior
-7. NÃO use "Espero que tenha recebido meu email anterior" - assuma que recebeu
-8. Seja breve e direto - o lead já conhece o contexto
+ESTRATÉGIAS DE FOLLOW-UP (VARIE ENTRE ELAS):
 
-ESTRUTURA RECOMENDADA:
-- Saudação (ex: "Oi {{lead_name}},")
-- Referência sutil ao contato anterior
-- Novo ponto de valor (case, dado, insight)
-- CTA direto
-- Despedida curta
+[ESTRATÉGIA 1: CONFIRMAR VISUALIZAÇÃO]
+Use quando: Primeiro follow-up da sequência
+Abordagem: Perguntar gentilmente se viu o email anterior
+Exemplo:
+"Olá {{lead_name}}, tudo bem?
+Queria apenas confirmar se conseguiu visualizar meu último email.
+Acredito que as soluções que mencionei podem gerar bons resultados para a {{lead_company}} e gostaria muito de bater um papo rápido sobre isso.
+Posso te ligar ou agendar um bate-papo de 10 minutos esta semana?"
 
-IMPORTANTE - FORMATO DO OUTPUT:
-- NÃO inclua "Assunto:" no corpo - o assunto é gerado separadamente
-- Comece DIRETAMENTE com a saudação (ex: "Oi Maria,")
+[ESTRATÉGIA 2: ASSUMIR AGENDA CORRIDA]
+Use quando: Segundo follow-up ou quando o primeiro já perguntou
+Abordagem: Mostrar empatia pela agenda corrida, oferecer flexibilidade
+Exemplo:
+"Olá {{lead_name}},
+Sei que sua agenda deve estar bem corrida - {{lead_industry}} costuma ser um setor intenso.
+Queria só deixar essa porta aberta: se fizer sentido conversar sobre [benefício específico], me avisa quando tiver 10 minutinhos.
+Fico à disposição!"
+
+[ESTRATÉGIA 3: NOVO ÂNGULO/VALOR]
+Use quando: Follow-ups subsequentes
+Abordagem: Trazer um dado novo, case de sucesso, ou insight relevante
+Exemplo:
+"Olá {{lead_name}},
+Vi que empresas de {{lead_industry}} como a {{lead_company}} têm conseguido [resultado específico] com soluções como a nossa.
+Caso queira saber como, estou aqui.
+Um abraço!"
+
+[ESTRATÉGIA 4: ÚLTIMA TENTATIVA]
+Use quando: Último email da sequência
+Abordagem: Ser direto, dar "última chance" sem pressão
+Exemplo:
+"Olá {{lead_name}},
+Vou parar de ocupar sua caixa de entrada - sei que timing é tudo.
+Se em algum momento fizer sentido explorar [benefício], é só responder este email.
+Sucesso aí na {{lead_company}}!"
+
+REGRAS CRÍTICAS:
+1. Máximo 80 palavras (follow-ups são MUITO curtos)
+2. Escolha UMA estratégia baseada no contexto do email anterior
+3. NÃO repita informações do produto já apresentadas no email anterior
+4. CTA sempre oferecendo uma conversa rápida (10 min, bate-papo, ligação)
+5. Mantenha o tom de voz consistente
+6. NUNCA seja passivo-agressivo ("já enviei 3 emails...")
+7. Seja empático - a pessoa está ocupada, não te ignorando
+8. Feche com despedida curta (Abs, Abraço, Fico à disposição)
+
+FORMATO DO OUTPUT:
+- NÃO inclua "Assunto:" - o assunto é gerado separadamente
+- Comece DIRETAMENTE com a saudação (ex: "Olá {{lead_name}}, tudo bem?")
 - Gere APENAS o corpo do email, nada mais`,
-    modelPreference: "gpt-4o-mini",
+    modelPreference: "gpt-5-mini",
     metadata: {
       temperature: 0.7,
       maxTokens: 300,
     },
   },
 
-  // Follow-up subject generation (Story 6.11 - RE: prefix for follow-up emails)
+  // Follow-up subject generation (Story 6.11, updated Story 6.12.1)
   follow_up_subject_generation: {
     template: `Você é um especialista em copywriting para emails de prospecção B2B.
 
 Gere um ASSUNTO para um email de follow-up que dá continuidade a uma conversa iniciada.
+
+CONTEXTO: Este é um follow-up porque o lead NÃO RESPONDEU ao email anterior.
 
 EMAIL ANTERIOR NA SEQUÊNCIA:
 Assunto anterior: {{previous_email_subject}}
@@ -419,22 +458,36 @@ EXEMPLOS DE ASSUNTOS DE FOLLOW-UP QUE FUNCIONARAM:
 {{successful_examples}}
 {{/if}}
 
-REGRAS CRÍTICAS PARA ASSUNTO DE FOLLOW-UP:
-1. OBRIGATÓRIO: Comece SEMPRE com "RE: " (incluindo o espaço após os dois pontos)
-2. Após o "RE: ", você pode:
-   - Manter o assunto anterior: "RE: {{previous_email_subject}}"
-   - OU criar variação curta mantendo contexto: "RE: Sobre {{lead_company}} + [palavra-chave]"
-3. Máximo 60 caracteres (incluindo o "RE: ")
-4. Mantenha o mesmo tom do email anterior
-5. O "RE:" simula uma resposta/continuação de conversa, criando familiaridade
+ESTRATÉGIAS DE ASSUNTO PARA FOLLOW-UP:
 
-EXEMPLOS DE FORMATOS VÁLIDOS:
+[OPÇÃO 1: RE: SIMPLES]
+Mantém o assunto original com prefixo RE:
 - "RE: {{previous_email_subject}}"
-- "RE: Proposta para {{lead_company}}"
-- "RE: Nossa conversa sobre [tema]"
+Quando usar: Maioria dos casos, simula thread de email
 
-Responda APENAS com o assunto do email, começando com "RE: ".`,
-    modelPreference: "gpt-4o-mini",
+[OPÇÃO 2: RE: COM VARIAÇÃO]
+Adiciona elemento novo mantendo RE:
+- "RE: Sobre a {{lead_company}}"
+- "RE: Proposta - quando podemos conversar?"
+- "RE: Bate-papo rápido?"
+Quando usar: Quando quer dar sensação de continuidade com novidade
+
+[OPÇÃO 3: CURTO E DIRETO]
+Sem RE:, mais pessoal
+- "{{lead_name}}, conseguiu ver?"
+- "Rápida pergunta, {{lead_name}}"
+- "Bate-papo de 10 min?"
+Quando usar: Follow-ups finais ou tom mais casual
+
+REGRAS CRÍTICAS:
+1. Máximo 50 caracteres
+2. Se usar "RE:", inclua o espaço após os dois pontos
+3. Mantenha consistência com o tom de voz
+4. EVITE assuntos genéricos como "Seguindo", "Follow-up", "Checking in"
+5. Prefira assuntos que gerem curiosidade ou sensação de conversa pessoal
+
+Responda APENAS com o assunto do email.`,
+    modelPreference: "gpt-5-mini",
     metadata: {
       temperature: 0.6,
       maxTokens: 80,

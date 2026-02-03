@@ -21,8 +21,9 @@ export type AIProviderType = "openai" | "anthropic";
 /**
  * Supported OpenAI models
  * AC: #6 - gpt-4o-mini, gpt-4o, gpt-4-turbo
+ * Updated Story 6.12.1: Added GPT-5 mini (cost-effective GPT-5 variant)
  */
-export type OpenAIModel = "gpt-4o-mini" | "gpt-4o" | "gpt-4-turbo";
+export type OpenAIModel = "gpt-4o-mini" | "gpt-4o" | "gpt-4-turbo" | "gpt-5-mini";
 
 /**
  * Supported Anthropic models (P1 - Optional)

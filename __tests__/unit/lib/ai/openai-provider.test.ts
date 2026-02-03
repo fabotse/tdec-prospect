@@ -131,15 +131,16 @@ describe("OpenAIProvider", () => {
       expect(config.availableModels).toContain("gpt-4o-mini");
       expect(config.availableModels).toContain("gpt-4o");
       expect(config.availableModels).toContain("gpt-4-turbo");
+      expect(config.availableModels).toContain("gpt-5-mini");
       expect(config.supportsStreaming).toBe(true);
       expect(config.defaultMaxTokens).toBe(500);
       expect(config.defaultTemperature).toBe(0.7);
     });
 
-    it("returns 3 available models", () => {
+    it("returns 4 available models", () => {
       const config = provider.getModelConfig();
 
-      expect(config.availableModels).toHaveLength(3);
+      expect(config.availableModels).toHaveLength(4);
     });
   });
 

@@ -23,8 +23,8 @@ import {
 // CONSTANTS
 // ==============================================
 
-/** Available OpenAI models per AC #6 */
-const OPENAI_MODELS: OpenAIModel[] = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"];
+/** Available OpenAI models per AC #6, updated Story 6.12.1 */
+const OPENAI_MODELS: OpenAIModel[] = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-5-mini"];
 
 /** Default model */
 const DEFAULT_MODEL: OpenAIModel = "gpt-4o-mini";
