@@ -7,6 +7,7 @@
  * Story 6.6: Personalized Icebreakers
  * Story 6.12: AI Campaign Structure Generation
  * Story 6.12.1: AI Full Campaign Generation
+ * Story 6.13: Smart Campaign Templates
  *
  * AC: #4 - Header do Builder
  * AC 5.7 #5: Lead count display and add leads button
@@ -15,6 +16,7 @@
  * AC 6.6 #1: Lead preview selector in builder header
  * AC 6.12 #4: Campaign summary (email count, total duration)
  * AC 6.12.1 #5: AI-generated campaign indicator
+ * AC 6.13 #4: Template name indicator
  *
  * Header showing campaign name (editable), status badge, lead count, product selector, lead preview selector, campaign summary, preview, and save button.
  */
@@ -23,7 +25,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, Save, Users, Eye, Loader2, Sparkles, Trash2 } from "lucide-react";
+import { ArrowLeft, Save, Users, Eye, Loader2, Sparkles, Trash2, LayoutTemplate } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -96,6 +98,8 @@ export function BuilderHeader({
   const hasChanges = useBuilderStore((state) => state.hasChanges);
   // Story 6.12.1 AC #5: AI-generated campaign indicator
   const isAIGenerated = useBuilderStore((state) => state.isAIGenerated);
+  // Story 6.13 AC #4: Template name indicator
+  const templateName = useBuilderStore((state) => state.templateName);
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(campaignName);
 
@@ -187,6 +191,18 @@ export function BuilderHeader({
             >
               <Sparkles className="h-3 w-3" />
               Criada com IA
+            </Badge>
+          )}
+
+          {/* Template indicator - Story 6.13 AC #4 */}
+          {templateName && (
+            <Badge
+              data-testid="template-badge"
+              variant="outline"
+              className="gap-1"
+            >
+              <LayoutTemplate className="h-3 w-3" />
+              Template: {templateName}
             </Badge>
           )}
         </div>

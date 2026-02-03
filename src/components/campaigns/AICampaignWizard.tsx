@@ -1,15 +1,25 @@
 /**
  * AI Campaign Wizard Component
  * Story 6.12: AI Campaign Structure Generation
+ * Story 6.12.1: AI Full Campaign Generation
+ * Story 6.13: Smart Campaign Templates
  *
  * AC #2 - Wizard form with campaign parameters
  * AC #3 - AI structure generation with loading animation
  * AC #5 - Error handling with retry option
+ * AC 6.12.1 #1 - Strategy rationale display
+ * AC 6.12.1 #2 - Full generation option
+ * AC 6.12.1 #7 - Structure-only option
+ * AC 6.13 #1 - Template selection as entry point
+ * AC 6.13 #3 - Template preview with structure
+ * AC 6.13 #4 - Template application to builder
+ * AC 6.13 #5 - Custom structure fallback
+ * AC 6.13 #7 - Full generation with templates
  */
 
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -42,14 +52,33 @@ import {
 } from "@/components/ui/tooltip";
 import { useProducts } from "@/hooks/use-products";
 import { useToneOfVoice } from "@/hooks/use-tone-of-voice";
-import { useAICampaignStructure } from "@/hooks/use-ai-campaign-structure";
+import { useAICampaignStructure, type GeneratedStructure } from "@/hooks/use-ai-campaign-structure";
+import { useAIFullCampaignGeneration } from "@/hooks/use-ai-full-campaign-generation";
 import { useCreateCampaign } from "@/hooks/use-campaigns";
-import { useBuilderStore } from "@/stores/use-builder-store";
+import { useBuilderStore, type BuilderBlock } from "@/stores/use-builder-store";
 import type { TonePreset } from "@/types/knowledge-base";
+import type { CampaignTemplate } from "@/types/campaign-template";
+import type { Product } from "@/types/product";
+import { StrategySummary } from "./StrategySummary";
+import { GenerationProgress } from "./GenerationProgress";
+import { TemplateSelector } from "./TemplateSelector";
+import { TemplatePreview } from "./TemplatePreview";
 
 // ==============================================
 // TYPES & CONSTANTS
 // ==============================================
+
+/**
+ * Wizard steps
+ * Story 6.13: Added template-selection and template-preview steps
+ */
+type WizardStep =
+  | "template-selection"  // Story 6.13: Entry point
+  | "template-preview"    // Story 6.13: Preview selected template
+  | "form"                // Custom campaign form
+  | "generating-structure"
+  | "strategy-summary"
+  | "generating-content";
 
 /**
  * Campaign objectives
@@ -109,6 +138,59 @@ export const wizardFormSchema = z.object({
 export type WizardFormData = z.infer<typeof wizardFormSchema>;
 
 // ==============================================
+// HELPER FUNCTIONS
+// ==============================================
+
+/**
+ * Convert template structure to BuilderBlocks
+ * Story 6.13 AC #4: Template application to builder
+ */
+function convertTemplateToBlocks(template: CampaignTemplate): BuilderBlock[] {
+  const blocks: BuilderBlock[] = [];
+  const structure = template.structureJson;
+
+  structure.emails.forEach((email) => {
+    // Add email block
+    blocks.push({
+      id: crypto.randomUUID(),
+      type: "email",
+      position: blocks.length,
+      data: {
+        subject: "",
+        body: "",
+        strategicContext: email.context,
+        emailMode: email.emailMode,
+      },
+    });
+
+    // Add delay block if exists
+    const delay = structure.delays.find((d) => d.afterEmail === email.position);
+    if (delay) {
+      blocks.push({
+        id: crypto.randomUUID(),
+        type: "delay",
+        position: blocks.length,
+        data: {
+          days: delay.days,
+          hours: 0,
+          minutes: 0,
+        },
+      });
+    }
+  });
+
+  return blocks;
+}
+
+/**
+ * Generate rationale text for template
+ * Story 6.13 AC #7: Template rationale for strategy summary
+ */
+function generateTemplateRationale(template: CampaignTemplate): string {
+  return `Estrutura baseada no template "${template.name}". ${template.description} Esta sequencia e otimizada para ${template.useCase.toLowerCase()}, com ${template.emailCount} emails distribuidos ao longo de ${template.totalDays} dias.`;
+}
+
+// ==============================================
 // HELPER COMPONENTS
 // ==============================================
 
@@ -146,10 +228,10 @@ function FieldLabel({ htmlFor, label, tooltip, required = false }: FieldLabelPro
 }
 
 /**
- * Loading animation during generation
+ * Loading animation during structure generation
  * AC #3 - "Analisando e criando sua campanha..." with animation
  */
-function GeneratingState() {
+function GeneratingStructureState() {
   return (
     <div
       className="flex flex-col items-center justify-center gap-4 py-12"
@@ -183,9 +265,9 @@ interface AICampaignWizardProps {
 
 /**
  * AI Campaign Wizard Component
- * AC #2 - Complete wizard form with all fields
- * AC #3 - Generation flow with loading state
- * AC #5 - Error handling
+ * Story 6.12: Structure generation
+ * Story 6.12.1: Full campaign generation with strategy summary
+ * Story 6.13: Template selection as entry point
  */
 export function AICampaignWizard({
   open,
@@ -196,10 +278,34 @@ export function AICampaignWizard({
   const { data: products, isLoading: isLoadingProducts } = useProducts();
   const { data: toneSettings } = useToneOfVoice();
   const createCampaign = useCreateCampaign();
-  const { loadBlocks, setProductId } = useBuilderStore();
-  const { generate, isGenerating, error: generationError, reset: resetGeneration } = useAICampaignStructure();
+  const { loadBlocks, setProductId, setTemplateName } = useBuilderStore();
+  const {
+    generate: generateStructure,
+    isGenerating: isGeneratingStructure,
+    error: structureError,
+    reset: resetStructureGeneration,
+  } = useAICampaignStructure();
+  const {
+    generate: generateFullCampaign,
+    isGenerating: isGeneratingContent,
+    progress: generationProgress,
+    error: contentError,
+    cancel: cancelGeneration,
+    reset: resetContentGeneration,
+  } = useAIFullCampaignGeneration();
+
+  // Wizard state - Story 6.13: Start at template-selection
+  const [step, setStep] = useState<WizardStep>("template-selection");
+  const [generatedStructure, setGeneratedStructure] = useState<GeneratedStructure | null>(null);
+  const [formData, setFormData] = useState<WizardFormData | null>(null);
+  const [isCreatingCampaign, setIsCreatingCampaign] = useState(false);
+
+  // Story 6.13: Template state
+  const [selectedTemplate, setSelectedTemplate] = useState<CampaignTemplate | null>(null);
+  const [templateProduct, setTemplateProduct] = useState<Product | null>(null);
 
   const [selectedProduct, setSelectedProduct] = useState<{
+    id: string;
     name: string;
     description: string;
   } | null>(null);
@@ -226,6 +332,17 @@ export function AICampaignWizard({
     }
   }, [toneSettings?.preset, form]);
 
+  // Compute email contexts for progress display
+  const emailContexts = useMemo(() => {
+    if (!generatedStructure?.blocks) return [];
+    return generatedStructure.blocks
+      .filter((b) => b.type === "email")
+      .map((b) => {
+        const data = b.data as { strategicContext?: string };
+        return data.strategicContext || "Email";
+      });
+  }, [generatedStructure?.blocks]);
+
   // AC #2 - Show product description preview when selected
   const handleProductChange = useCallback(
     (productId: string) => {
@@ -239,6 +356,7 @@ export function AICampaignWizard({
       const product = products?.find((p) => p.id === productId);
       if (product) {
         setSelectedProduct({
+          id: product.id,
           name: product.name,
           description: product.description,
         });
@@ -247,12 +365,85 @@ export function AICampaignWizard({
     [form, products]
   );
 
-  // AC #3, #4 - Generate campaign structure and create campaign
+  // Story 6.13: Handle template product change
+  const handleTemplateProductChange = useCallback(
+    (product: Product | null) => {
+      setTemplateProduct(product);
+      if (product) {
+        setSelectedProduct({
+          id: product.id,
+          name: product.name,
+          description: product.description,
+        });
+      } else {
+        setSelectedProduct(null);
+      }
+    },
+    []
+  );
+
+  // Story 6.13: Handle template selection -> preview
+  const handleTemplateSelect = useCallback((template: CampaignTemplate) => {
+    setSelectedTemplate(template);
+    setStep("template-preview");
+  }, []);
+
+  // Story 6.13: Handle custom campaign click -> form
+  const handleCustomClick = useCallback(() => {
+    // Carry over product selection to form
+    if (templateProduct) {
+      form.setValue("productId", templateProduct.id);
+    }
+    setStep("form");
+  }, [templateProduct, form]);
+
+  // Story 6.13: Handle back from template preview
+  const handleBackToTemplateSelection = useCallback(() => {
+    setSelectedTemplate(null);
+    setStep("template-selection");
+  }, []);
+
+  // Story 6.13 AC #4: Apply template -> strategy summary
+  const handleApplyTemplate = useCallback(() => {
+    if (!selectedTemplate) return;
+
+    // Convert template to blocks
+    const blocks = convertTemplateToBlocks(selectedTemplate);
+
+    // Create GeneratedStructure from template
+    const structure: GeneratedStructure = {
+      blocks,
+      rationale: generateTemplateRationale(selectedTemplate),
+      totalEmails: selectedTemplate.emailCount,
+      totalDays: selectedTemplate.totalDays,
+    };
+
+    setGeneratedStructure(structure);
+
+    // Create form data from template
+    const templateFormData: WizardFormData = {
+      name: "",
+      productId: templateProduct?.id || null,
+      objective: "cold_outreach", // Default for templates
+      description: "",
+      tone: defaultTone,
+      urgency: "medium",
+    };
+    setFormData(templateFormData);
+
+    // Go to strategy summary (AC 6.13 #7)
+    setStep("strategy-summary");
+  }, [selectedTemplate, templateProduct, defaultTone]);
+
+  // Step 1: Generate structure (AC #3) - for custom campaigns
   const onSubmit = useCallback(
     async (data: WizardFormData) => {
       try {
-        // 1. Generate structure via AI
-        const structure = await generate({
+        setFormData(data);
+        setStep("generating-structure");
+
+        // Generate structure via AI
+        const structure = await generateStructure({
           productId: data.productId,
           objective: data.objective,
           description: data.description || "",
@@ -260,66 +451,345 @@ export function AICampaignWizard({
           urgency: data.urgency,
         });
 
-        // 2. Create campaign
-        const campaign = await createCampaign.mutateAsync({ name: data.name });
+        setGeneratedStructure(structure);
 
-        // 3. Load generated blocks into builder store
-        loadBlocks(structure.blocks);
+        // Story 6.12.1 AC #7: Skip summary for single-email campaigns
+        if (structure.totalEmails <= 1) {
+          // Go directly to structure-only flow
+          await handleStructureOnly(data, structure.blocks);
+        } else {
+          // Show strategy summary (AC 6.12.1 #1)
+          setStep("strategy-summary");
+        }
+      } catch {
+        // Error is handled by the hook
+        setStep("form");
+      }
+    },
+    [generateStructure]
+  );
 
-        // 4. Set product context if selected (Story 6.5)
-        if (data.productId && selectedProduct) {
-          setProductId(data.productId, selectedProduct.name);
+  // Step 2a: Full generation (AC 6.12.1 #2)
+  const handleGenerateFull = useCallback(async () => {
+    // Need campaign name for templates
+    const campaignName = formData?.name || selectedTemplate?.name || "Campanha IA";
+
+    if (!generatedStructure) return;
+
+    try {
+      setStep("generating-content");
+
+      // Create campaign first
+      setIsCreatingCampaign(true);
+      const campaign = await createCampaign.mutateAsync({ name: campaignName });
+      setIsCreatingCampaign(false);
+
+      // Generate all email content
+      const populatedBlocks = await generateFullCampaign({
+        blocks: generatedStructure.blocks,
+        campaignId: campaign.id,
+        productId: selectedProduct?.id || null,
+        productName: selectedProduct?.name || null,
+        objective: formData?.objective || "cold_outreach",
+        tone: formData?.tone || defaultTone,
+      });
+
+      // Load blocks into builder store (AC 6.12.1 #5: mark as AI-generated)
+      loadBlocks(populatedBlocks, true);
+
+      // Set product context if selected
+      if (selectedProduct) {
+        setProductId(selectedProduct.id, selectedProduct.name);
+      }
+
+      // Story 6.13 AC #4: Set template name if from template
+      if (selectedTemplate) {
+        setTemplateName(selectedTemplate.name);
+      }
+
+      toast.success("Campanha criada com IA!");
+      resetWizard();
+      onOpenChange(false);
+
+      // Navigate to builder
+      router.push(`/campaigns/${campaign.id}/edit`);
+    } catch {
+      // Error is handled by hook - stay on progress screen
+      setIsCreatingCampaign(false);
+    }
+  }, [formData, generatedStructure, selectedProduct, selectedTemplate, defaultTone, createCampaign, generateFullCampaign, loadBlocks, setProductId, setTemplateName, onOpenChange, router]);
+
+  // Step 2b: Structure only (AC 6.12.1 #7)
+  const handleStructureOnly = useCallback(
+    async (data?: WizardFormData, blocks?: BuilderBlock[]) => {
+      const useData = data || formData;
+      const useBlocks = blocks || generatedStructure?.blocks;
+      const campaignName = useData?.name || selectedTemplate?.name || "Campanha IA";
+
+      if (!useBlocks) return;
+
+      try {
+        setIsCreatingCampaign(true);
+
+        // Create campaign
+        const campaign = await createCampaign.mutateAsync({ name: campaignName });
+
+        // Load blocks into builder store (empty content, AC 6.12.1 #5: mark as AI-generated)
+        loadBlocks(useBlocks, true);
+
+        // Set product context if selected
+        if (selectedProduct) {
+          setProductId(selectedProduct.id, selectedProduct.name);
+        }
+
+        // Story 6.13 AC #4: Set template name if from template
+        if (selectedTemplate) {
+          setTemplateName(selectedTemplate.name);
         }
 
         toast.success("Campanha criada com sucesso!");
-        form.reset();
+        resetWizard();
         onOpenChange(false);
 
-        // 5. Navigate to builder with pre-populated structure
+        // Navigate to builder
         router.push(`/campaigns/${campaign.id}/edit`);
       } catch (error) {
-        // Error is already handled by the hook
-        if (!(error instanceof Error && error.message.includes("generation"))) {
-          toast.error(
-            error instanceof Error ? error.message : "Erro ao criar campanha"
-          );
-        }
+        toast.error(
+          error instanceof Error ? error.message : "Erro ao criar campanha"
+        );
+      } finally {
+        setIsCreatingCampaign(false);
       }
     },
-    [generate, createCampaign, loadBlocks, setProductId, selectedProduct, form, onOpenChange, router]
+    [formData, generatedStructure, selectedProduct, selectedTemplate, createCampaign, loadBlocks, setProductId, setTemplateName, onOpenChange, router]
   );
+
+  // Handle back from strategy summary
+  const handleBackToForm = useCallback(() => {
+    // If from template, go back to template preview; otherwise, form
+    if (selectedTemplate) {
+      setStep("template-preview");
+    } else {
+      setStep("form");
+    }
+    setGeneratedStructure(null);
+  }, [selectedTemplate]);
+
+  // Handle cancel during generation
+  const handleCancelGeneration = useCallback(async () => {
+    cancelGeneration();
+
+    // If we have partial results, save them
+    if (generationProgress && generationProgress.completedEmails.length > 0) {
+      const campaignName = formData?.name || selectedTemplate?.name || "Campanha IA";
+      // Navigate to builder with partial content
+      try {
+        setIsCreatingCampaign(true);
+        const campaign = await createCampaign.mutateAsync({ name: campaignName });
+
+        // Update blocks with partial content
+        const partialBlocks = generatedStructure?.blocks.map((block) => {
+          if (block.type !== "email") return block;
+          const completed = generationProgress.completedEmails.find(
+            (e) => e.id === block.id
+          );
+          if (completed) {
+            return {
+              ...block,
+              data: { ...block.data, subject: completed.subject, body: completed.body },
+            };
+          }
+          return block;
+        }) || [];
+
+        loadBlocks(partialBlocks, true);
+
+        if (selectedProduct) {
+          setProductId(selectedProduct.id, selectedProduct.name);
+        }
+
+        if (selectedTemplate) {
+          setTemplateName(selectedTemplate.name);
+        }
+
+        toast.success(
+          `Campanha criada com ${generationProgress.completedEmails.length} emails gerados`
+        );
+        resetWizard();
+        onOpenChange(false);
+        router.push(`/campaigns/${campaign.id}/edit`);
+      } catch {
+        setStep("strategy-summary");
+      } finally {
+        setIsCreatingCampaign(false);
+      }
+    } else {
+      setStep("strategy-summary");
+    }
+  }, [cancelGeneration, generationProgress, formData, selectedTemplate, generatedStructure, createCampaign, loadBlocks, setProductId, setTemplateName, selectedProduct, onOpenChange, router]);
+
+  // Handle retry after error
+  const handleRetryGeneration = useCallback(() => {
+    resetContentGeneration();
+    handleGenerateFull();
+  }, [resetContentGeneration, handleGenerateFull]);
+
+  // Reset wizard state
+  const resetWizard = useCallback(() => {
+    form.reset();
+    resetStructureGeneration();
+    resetContentGeneration();
+    setSelectedProduct(null);
+    setSelectedTemplate(null);
+    setTemplateProduct(null);
+    setStep("template-selection");
+    setGeneratedStructure(null);
+    setFormData(null);
+    setIsCreatingCampaign(false);
+  }, [form, resetStructureGeneration, resetContentGeneration]);
 
   const handleOpenChange = useCallback(
     (newOpen: boolean) => {
       if (!newOpen) {
-        form.reset();
-        resetGeneration();
-        setSelectedProduct(null);
+        resetWizard();
       }
       onOpenChange(newOpen);
     },
-    [form, resetGeneration, onOpenChange]
+    [resetWizard, onOpenChange]
   );
 
   const handleBack = useCallback(() => {
-    form.reset();
-    resetGeneration();
-    setSelectedProduct(null);
+    resetWizard();
     onBack();
-  }, [form, resetGeneration, onBack]);
+  }, [resetWizard, onBack]);
 
-  // AC #5 - Retry on error
-  const handleRetry = useCallback(() => {
-    resetGeneration();
-  }, [resetGeneration]);
+  // AC #5 - Retry on structure error
+  const handleRetryStructure = useCallback(() => {
+    resetStructureGeneration();
+    setStep("form");
+  }, [resetStructureGeneration]);
 
-  return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
-        {/* AC #3 - Loading state during generation */}
-        {isGenerating ? (
-          <GeneratingState />
-        ) : (
+  // Get dialog title based on current step (for accessibility)
+  const getDialogTitle = (): string => {
+    switch (step) {
+      case "template-selection":
+        return "Criar Campanha com IA";
+      case "template-preview":
+        return `Preview: ${selectedTemplate?.name || "Template"}`;
+      case "generating-structure":
+        return "Gerando estrutura da campanha";
+      case "strategy-summary":
+        return "Resumo da estrategia";
+      case "generating-content":
+        return "Gerando conteudo da campanha";
+      case "form":
+        return "Campanha Personalizada";
+      default:
+        return "Criar Campanha com IA";
+    }
+  };
+
+  // Determine current step to render
+  const renderStep = () => {
+    switch (step) {
+      // Story 6.13: Template selection as entry point
+      case "template-selection":
+        return (
+          <>
+            <DialogTitle className="sr-only">{getDialogTitle()}</DialogTitle>
+            <TemplateSelector
+              products={products || []}
+              isLoadingProducts={isLoadingProducts}
+              selectedProduct={templateProduct}
+              onProductChange={handleTemplateProductChange}
+              onTemplateSelect={handleTemplateSelect}
+              onCustomClick={handleCustomClick}
+              onBack={handleBack}
+            />
+          </>
+        );
+
+      // Story 6.13: Template preview
+      case "template-preview":
+        if (!selectedTemplate) {
+          return null;
+        }
+        return (
+          <>
+            <DialogTitle className="sr-only">{getDialogTitle()}</DialogTitle>
+            <TemplatePreview
+              template={selectedTemplate}
+              selectedProduct={templateProduct}
+              onApply={handleApplyTemplate}
+              onBack={handleBackToTemplateSelection}
+            />
+          </>
+        );
+
+      case "generating-structure":
+        return (
+          <>
+            <DialogTitle className="sr-only">{getDialogTitle()}</DialogTitle>
+            <GeneratingStructureState />
+          </>
+        );
+
+      case "strategy-summary":
+        if (!generatedStructure) {
+          return (
+            <>
+              <DialogTitle className="sr-only">{getDialogTitle()}</DialogTitle>
+              <GeneratingStructureState />
+            </>
+          );
+        }
+        return (
+          <>
+            <DialogTitle className="sr-only">{getDialogTitle()}</DialogTitle>
+            <StrategySummary
+              rationale={generatedStructure.rationale}
+              totalEmails={generatedStructure.totalEmails}
+              totalDays={generatedStructure.totalDays}
+              objective={formData?.objective || "cold_outreach"}
+              onGenerateFull={handleGenerateFull}
+              onStructureOnly={() => handleStructureOnly()}
+              onBack={handleBackToForm}
+              fullGenerationDisabled={generatedStructure.totalEmails <= 1}
+              isGeneratingFull={isGeneratingContent}
+              isCreatingStructure={isCreatingCampaign}
+            />
+          </>
+        );
+
+      case "generating-content":
+        if (!generationProgress) {
+          return (
+            <>
+              <DialogTitle className="sr-only">{getDialogTitle()}</DialogTitle>
+              <GeneratingStructureState />
+            </>
+          );
+        }
+        return (
+          <>
+            <DialogTitle className="sr-only">{getDialogTitle()}</DialogTitle>
+            <GenerationProgress
+              currentStep={generationProgress.currentEmail}
+              totalSteps={generationProgress.totalEmails}
+              currentEmailContext={generationProgress.currentContext}
+              completedEmails={generationProgress.completedEmails}
+              emailContexts={emailContexts}
+              onCancel={handleCancelGeneration}
+              hasError={!!contentError}
+              errorMessage={contentError || undefined}
+              onRetry={handleRetryGeneration}
+            />
+          </>
+        );
+
+      case "form":
+      default:
+        return (
           <form onSubmit={form.handleSubmit(onSubmit)}>
             <DialogHeader>
               <div className="flex items-center gap-2">
@@ -327,17 +797,17 @@ export function AICampaignWizard({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  onClick={handleBack}
+                  onClick={() => setStep("template-selection")}
                   className="h-8 w-8"
-                  data-testid="back-to-selection"
+                  data-testid="back-to-templates"
                 >
                   <ArrowLeft className="h-4 w-4" />
-                  <span className="sr-only">Voltar</span>
+                  <span className="sr-only">Voltar aos templates</span>
                 </Button>
                 <div>
                   <DialogTitle className="flex items-center gap-2">
                     <Sparkles className="h-5 w-5 text-primary" />
-                    Criar com IA
+                    Campanha Personalizada
                   </DialogTitle>
                   <DialogDescription>
                     Preencha os parametros e deixe a IA criar a estrutura da campanha.
@@ -347,18 +817,18 @@ export function AICampaignWizard({
             </DialogHeader>
 
             {/* AC #5 - Error message with retry */}
-            {generationError && (
+            {structureError && (
               <div
                 className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive"
                 data-testid="generation-error"
               >
                 <AlertCircle className="h-4 w-4 shrink-0" />
-                <span className="flex-1">{generationError}</span>
+                <span className="flex-1">{structureError}</span>
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={handleRetry}
+                  onClick={handleRetryStructure}
                   className="h-7 px-2"
                 >
                   Tentar novamente
@@ -568,7 +1038,7 @@ export function AICampaignWizard({
               </Button>
               <Button
                 type="submit"
-                disabled={isGenerating || createCampaign.isPending}
+                disabled={isGeneratingStructure || createCampaign.isPending}
                 data-testid="generate-campaign-submit"
               >
                 {createCampaign.isPending ? (
@@ -585,7 +1055,14 @@ export function AICampaignWizard({
               </Button>
             </DialogFooter>
           </form>
-        )}
+        );
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+        {renderStep()}
       </DialogContent>
     </Dialog>
   );

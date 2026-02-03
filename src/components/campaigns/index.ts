@@ -3,6 +3,7 @@
  * Story 5.1: Campaigns Page & Data Model
  * Story 6.12: AI Campaign Structure Generation
  * Story 6.12.1: AI Full Campaign Generation
+ * Story 6.13: Smart Campaign Templates
  */
 
 export { CampaignCard } from "./CampaignCard";
@@ -13,3 +14,6 @@ export { AICampaignWizard } from "./AICampaignWizard";
 export { StrategySummary } from "./StrategySummary";
 export { GenerationProgress } from "./GenerationProgress";
 export { EmptyState } from "./EmptyState";
+export { TemplateCard } from "./TemplateCard";
+export { TemplatePreview } from "./TemplatePreview";
+export { TemplateSelector } from "./TemplateSelector";

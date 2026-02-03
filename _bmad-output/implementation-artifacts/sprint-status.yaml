@@ -164,8 +164,8 @@ development_status:
   # Rationale: Structure generation (6.12) creates empty blocks; users still need to generate content manually.
   # This story adds: (1) rationale display explaining AI's structure choice, (2) full content generation for all emails in sequence.
   # See: sprint-status.yaml discussion 2026-02-03
-  6-12-1-ai-full-campaign-generation: ready-for-dev  # P0: Campaign ready for review in <30s instead of 10+ min manual work
-  6-13-smart-campaign-templates: backlog  # Was 6.12 - Renumbered after 6.11 insertion
+  6-12-1-ai-full-campaign-generation: done  # P0: Code review 2026-02-03: 2 fixes applied (test model count, File List docs). 59 story tests passing.
+  6-13-smart-campaign-templates: done  # Code review 2026-02-03: 3 MEDIUM, 2 LOW fixes applied (TypeScript mock types, migration doc, "Sequência" accent). 80/80 tests passing
   epic-6-retrospective: optional
 
   # Epic 7: Campaign Deployment

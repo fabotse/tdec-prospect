@@ -4,11 +4,15 @@
  * Story 5.4: Delay Block Component
  * Story 5.7: Campaign Lead Association
  * Story 6.6: Personalized Icebreakers
+ * Story 6.12.1: AI Full Campaign Generation
+ * Story 6.13: Smart Campaign Templates
  *
  * AC: #6 - Builder Store (Zustand)
  * AC 5.4: Default delay data initialization
  * AC 5.7 #5: Lead count tracking
  * AC 6.6 #1, #2: Preview lead selection for personalized generation
+ * AC 6.12.1 #5: AI-generated campaign indicator
+ * AC 6.13 #4: Template name indicator
  *
  * Zustand store for managing campaign builder UI state.
  * Handles block sequence, selection, drag state, change tracking, lead count, and preview lead.
@@ -62,6 +66,10 @@ interface BuilderState {
   previewLeadId: string | null;
   /** Cached lead data for preview (Story 6.6 AC #2) */
   previewLead: PreviewLead | null;
+  /** Whether campaign was created with AI (Story 6.12.1 AC #5) */
+  isAIGenerated: boolean;
+  /** Template name if created from template (Story 6.13 AC #4) */
+  templateName: string | null;
 }
 
 interface BuilderActions {
@@ -82,13 +90,17 @@ interface BuilderActions {
   /** Reset store to initial state */
   reset: () => void;
   /** Load blocks from campaign data */
-  loadBlocks: (blocks: BuilderBlock[]) => void;
+  loadBlocks: (blocks: BuilderBlock[], isAIGenerated?: boolean) => void;
   /** Set lead count (Story 5.7 AC #5) */
   setLeadCount: (count: number) => void;
   /** Set product ID for AI context (Story 6.5) */
   setProductId: (id: string | null, name?: string | null) => void;
   /** Set preview lead for AI generation (Story 6.6 AC #1, #2) */
   setPreviewLead: (lead: PreviewLead | null) => void;
+  /** Set AI-generated flag (Story 6.12.1 AC #5) */
+  setAIGenerated: (isAIGenerated: boolean) => void;
+  /** Set template name (Story 6.13 AC #4) */
+  setTemplateName: (name: string | null) => void;
 }
 
 // ==============================================
@@ -105,6 +117,8 @@ const initialState: BuilderState = {
   productName: null,
   previewLeadId: null,
   previewLead: null,
+  isAIGenerated: false,
+  templateName: null,
 };
 
 // ==============================================
@@ -178,9 +192,12 @@ export const useBuilderStore = create<BuilderState & BuilderActions>((set) => ({
 
   reset: () => set(initialState),
 
-  loadBlocks: (blocks) => set({ blocks, hasChanges: false }),
+  loadBlocks: (blocks, isAIGenerated = false) =>
+    set({ blocks, hasChanges: false, isAIGenerated }),
 
   setLeadCount: (count) => set({ leadCount: count }),
+
+  setAIGenerated: (isAIGenerated) => set({ isAIGenerated }),
 
   setProductId: (id, name = null) =>
     set((state) => ({
@@ -194,6 +211,8 @@ export const useBuilderStore = create<BuilderState & BuilderActions>((set) => ({
       previewLeadId: lead?.id ?? null,
       previewLead: lead,
     }),
+
+  setTemplateName: (name) => set({ templateName: name }),
 }));
 
 // ==============================================

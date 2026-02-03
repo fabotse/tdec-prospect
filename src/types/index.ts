@@ -18,5 +18,6 @@ export * from "./signalhire";
 export * from "./campaign";
 export * from "./email-block";
 export * from "./delay-block";
+export * from "./campaign-template";
 // Note: team.ts exports UserRole which conflicts with database.ts
 // Import directly from "./team" when needed
