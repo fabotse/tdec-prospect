@@ -3,6 +3,9 @@
  * Story 5.1: Campaigns Page & Data Model
  *
  * AC: #1 - Display grid of campaign cards
+ *
+ * Delete Campaign:
+ * - Pass onDelete to each card for delete functionality
  */
 
 "use client";
@@ -13,9 +16,10 @@ import type { CampaignWithCount } from "@/types/campaign";
 interface CampaignListProps {
   campaigns: CampaignWithCount[];
   onCampaignClick?: (campaign: CampaignWithCount) => void;
+  onDelete?: (campaign: CampaignWithCount) => void;
 }
 
-export function CampaignList({ campaigns, onCampaignClick }: CampaignListProps) {
+export function CampaignList({ campaigns, onCampaignClick, onDelete }: CampaignListProps) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {campaigns.map((campaign) => (
@@ -23,6 +27,7 @@ export function CampaignList({ campaigns, onCampaignClick }: CampaignListProps) 
           key={campaign.id}
           campaign={campaign}
           onClick={() => onCampaignClick?.(campaign)}
+          onDelete={onDelete}
         />
       ))}
     </div>

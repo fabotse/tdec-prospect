@@ -6,6 +6,7 @@
  * Story 6.5: Campaign Product Context
  * Story 6.6: Personalized Icebreakers
  * Story 6.12: AI Campaign Structure Generation
+ * Story 6.12.1: AI Full Campaign Generation
  *
  * AC: #4 - Header do Builder
  * AC 5.7 #5: Lead count display and add leads button
@@ -13,6 +14,7 @@
  * AC 6.5 #1: Product dropdown in builder header
  * AC 6.6 #1: Lead preview selector in builder header
  * AC 6.12 #4: Campaign summary (email count, total duration)
+ * AC 6.12.1 #5: AI-generated campaign indicator
  *
  * Header showing campaign name (editable), status badge, lead count, product selector, lead preview selector, campaign summary, preview, and save button.
  */
@@ -21,7 +23,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, Save, Users, Eye, Loader2 } from "lucide-react";
+import { ArrowLeft, Save, Users, Eye, Loader2, Sparkles, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -52,6 +54,8 @@ interface BuilderHeaderProps {
   hasBlocks?: boolean;
   /** Campaign ID for lead preview selector (Story 6.6 AC #1) */
   campaignId?: string;
+  /** Callback when delete campaign button is clicked */
+  onDelete?: () => void;
 }
 
 /**
@@ -87,8 +91,11 @@ export function BuilderHeader({
   onPreview,
   hasBlocks = false,
   campaignId,
+  onDelete,
 }: BuilderHeaderProps) {
   const hasChanges = useBuilderStore((state) => state.hasChanges);
+  // Story 6.12.1 AC #5: AI-generated campaign indicator
+  const isAIGenerated = useBuilderStore((state) => state.isAIGenerated);
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(campaignName);
 
@@ -170,10 +177,36 @@ export function BuilderHeader({
           >
             {campaignStatusLabels[campaignStatus]}
           </Badge>
+
+          {/* AI-generated indicator - Story 6.12.1 AC #5 */}
+          {isAIGenerated && (
+            <Badge
+              data-testid="ai-generated-badge"
+              variant="secondary"
+              className="gap-1"
+            >
+              <Sparkles className="h-3 w-3" />
+              Criada com IA
+            </Badge>
+          )}
         </div>
 
-        {/* Right: Preview + Save buttons */}
+        {/* Right: Delete + Preview + Save buttons */}
         <div className="flex items-center gap-2">
+          {/* Delete button */}
+          {onDelete && (
+            <Button
+              data-testid="delete-campaign-button"
+              variant="ghost"
+              size="sm"
+              onClick={onDelete}
+              aria-label="Remover campanha"
+              className="gap-1.5 text-muted-foreground hover:text-destructive"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+
           {/* Preview button - Story 5.8 AC #1 */}
           <Button
             data-testid="preview-button"

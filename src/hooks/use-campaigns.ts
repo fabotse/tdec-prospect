@@ -8,6 +8,9 @@
  * AC 5.1: #5 - Lead count per campaign
  * AC 5.9: #1, #3, #5 - Salvar campanha e blocos
  *
+ * Delete Campaign:
+ * - useDeleteCampaign hook for removing campaigns
+ *
  * TanStack Query hooks for managing campaigns server state.
  */
 
@@ -162,6 +165,42 @@ export function useSaveCampaign(campaignId: string) {
       queryClient.invalidateQueries({ queryKey: SINGLE_QUERY_KEY(campaignId) });
       // Invalidate blocks cache
       queryClient.invalidateQueries({ queryKey: BLOCKS_QUERY_KEY(campaignId) });
+    },
+  });
+}
+
+// ==============================================
+// Delete Campaign
+// ==============================================
+
+/**
+ * Delete a campaign by ID
+ */
+async function deleteCampaign(campaignId: string): Promise<void> {
+  const response = await fetch(`/api/campaigns/${campaignId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const result = await response.json();
+    throw new Error(result.error?.message || "Erro ao remover campanha");
+  }
+  // 204 No Content - no body to parse
+}
+
+/**
+ * Hook to delete a campaign
+ * Invalidates campaigns list on success
+ *
+ * @returns Mutation with mutate(campaignId), isPending, isError, error states
+ */
+export function useDeleteCampaign() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: deleteCampaign,
+    onSuccess: () => {
+      // Invalidate campaigns list to refresh
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     },
   });
 }

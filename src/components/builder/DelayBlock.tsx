@@ -13,7 +13,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Clock, GripVertical, ChevronDown } from "lucide-react";
+import { Clock, GripVertical, ChevronDown, Trash2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -54,6 +54,7 @@ export function DelayBlock({ block, stepNumber, dragHandleProps }: DelayBlockPro
   const selectedBlockId = useBuilderStore((state) => state.selectedBlockId);
   const selectBlock = useBuilderStore((state) => state.selectBlock);
   const updateBlock = useBuilderStore((state) => state.updateBlock);
+  const removeBlock = useBuilderStore((state) => state.removeBlock);
 
   const isSelected = selectedBlockId === block.id;
 
@@ -156,6 +157,19 @@ export function DelayBlock({ block, stepNumber, dragHandleProps }: DelayBlockPro
         >
           <GripVertical className="h-5 w-5" />
         </div>
+
+        {/* Delete Button */}
+        <button
+          data-testid="delete-block-button"
+          className="text-muted-foreground hover:text-destructive transition-colors"
+          aria-label="Remover bloco"
+          onClick={(e) => {
+            e.stopPropagation();
+            removeBlock(block.id);
+          }}
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
 
         {/* Icon */}
         <div className="rounded-lg p-2 bg-amber-500/10">

@@ -15,6 +15,7 @@ import {
   useCampaigns,
   useCampaign,
   useCreateCampaign,
+  useDeleteCampaign,
 } from "@/hooks/use-campaigns";
 
 // Mock fetch
@@ -357,6 +358,118 @@ describe("useCampaigns Hook", () => {
 
       // AC: #4 - Campaign created with status "draft"
       expect(campaign.status).toBe("draft");
+    });
+  });
+
+  describe("useDeleteCampaign - Delete Campaign", () => {
+    const campaignId = "campaign-1";
+
+    it("deletes campaign successfully", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 204,
+      });
+
+      const { result } = renderHook(() => useDeleteCampaign(), {
+        wrapper: createWrapper(),
+      });
+
+      await result.current.mutateAsync(campaignId);
+
+      expect(mockFetch).toHaveBeenCalledWith(`/api/campaigns/${campaignId}`, {
+        method: "DELETE",
+      });
+    });
+
+    it("handles delete error - not found", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({
+          error: { code: "NOT_FOUND", message: "Campanha nao encontrada" },
+        }),
+      });
+
+      const { result } = renderHook(() => useDeleteCampaign(), {
+        wrapper: createWrapper(),
+      });
+
+      await expect(
+        result.current.mutateAsync(campaignId)
+      ).rejects.toThrow("Campanha nao encontrada");
+    });
+
+    it("handles delete error - server error", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({
+          error: { message: "Erro ao remover campanha" },
+        }),
+      });
+
+      const { result } = renderHook(() => useDeleteCampaign(), {
+        wrapper: createWrapper(),
+      });
+
+      await expect(
+        result.current.mutateAsync(campaignId)
+      ).rejects.toThrow("Erro ao remover campanha");
+    });
+
+    it("returns isPending state while deleting", async () => {
+      let resolveDelete: () => void;
+      const deletePromise = new Promise<void>((resolve) => {
+        resolveDelete = resolve;
+      });
+
+      mockFetch.mockImplementationOnce(() =>
+        deletePromise.then(() => ({ ok: true, status: 204 }))
+      );
+
+      const { result } = renderHook(() => useDeleteCampaign(), {
+        wrapper: createWrapper(),
+      });
+
+      // Start mutation
+      const mutationPromise = result.current.mutateAsync(campaignId);
+
+      // Should be pending
+      await waitFor(() => {
+        expect(result.current.isPending).toBe(true);
+      });
+
+      // Resolve the delete
+      resolveDelete!();
+      await mutationPromise;
+
+      // Should no longer be pending
+      await waitFor(() => {
+        expect(result.current.isPending).toBe(false);
+      });
+    });
+
+    it("returns isError state on failure", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({
+          error: { message: "Erro ao remover campanha" },
+        }),
+      });
+
+      const { result } = renderHook(() => useDeleteCampaign(), {
+        wrapper: createWrapper(),
+      });
+
+      try {
+        await result.current.mutateAsync(campaignId);
+      } catch {
+        // Expected to throw
+      }
+
+      await waitFor(() => {
+        expect(result.current.isError).toBe(true);
+      });
+
+      expect(result.current.error?.message).toBe("Erro ao remover campanha");
     });
   });
 });

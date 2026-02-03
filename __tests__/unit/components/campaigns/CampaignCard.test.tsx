@@ -5,9 +5,14 @@
  * AC: #1 - Display campaign name, status, lead count, date
  * AC: #5 - Show lead count
  * AC: #6 - Status badge with colors
+ *
+ * Delete Campaign:
+ * - Menu with "Remover" option
+ * - Calls onDelete callback with campaign
  */
 
 import { render, screen, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { CampaignCard } from "@/components/campaigns/CampaignCard";
 import type { CampaignWithCount } from "@/types/campaign";
@@ -180,6 +185,77 @@ describe("CampaignCard", () => {
         fireEvent.keyDown(card, { key: "Escape" });
         fireEvent.keyDown(card, { key: "a" });
       }
+
+      expect(handleClick).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Delete Menu", () => {
+    it("does not render menu when onDelete is not provided", () => {
+      render(<CampaignCard campaign={mockCampaign} />);
+
+      expect(screen.queryByTestId("campaign-menu-trigger")).not.toBeInTheDocument();
+    });
+
+    it("renders menu trigger when onDelete is provided", () => {
+      const handleDelete = vi.fn();
+      render(<CampaignCard campaign={mockCampaign} onDelete={handleDelete} />);
+
+      expect(screen.getByTestId("campaign-menu-trigger")).toBeInTheDocument();
+    });
+
+    it("opens menu when clicking menu trigger", async () => {
+      const user = userEvent.setup();
+      const handleDelete = vi.fn();
+      render(<CampaignCard campaign={mockCampaign} onDelete={handleDelete} />);
+
+      await user.click(screen.getByTestId("campaign-menu-trigger"));
+
+      expect(screen.getByText("Remover")).toBeInTheDocument();
+    });
+
+    it("calls onDelete with campaign when clicking Remover", async () => {
+      const user = userEvent.setup();
+      const handleDelete = vi.fn();
+      render(<CampaignCard campaign={mockCampaign} onDelete={handleDelete} />);
+
+      await user.click(screen.getByTestId("campaign-menu-trigger"));
+      await user.click(screen.getByText("Remover"));
+
+      expect(handleDelete).toHaveBeenCalledWith(mockCampaign);
+    });
+
+    it("does not call onClick when clicking menu trigger", async () => {
+      const user = userEvent.setup();
+      const handleClick = vi.fn();
+      const handleDelete = vi.fn();
+      render(
+        <CampaignCard
+          campaign={mockCampaign}
+          onClick={handleClick}
+          onDelete={handleDelete}
+        />
+      );
+
+      await user.click(screen.getByTestId("campaign-menu-trigger"));
+
+      expect(handleClick).not.toHaveBeenCalled();
+    });
+
+    it("does not call onClick when clicking Remover option", async () => {
+      const user = userEvent.setup();
+      const handleClick = vi.fn();
+      const handleDelete = vi.fn();
+      render(
+        <CampaignCard
+          campaign={mockCampaign}
+          onClick={handleClick}
+          onDelete={handleDelete}
+        />
+      );
+
+      await user.click(screen.getByTestId("campaign-menu-trigger"));
+      await user.click(screen.getByText("Remover"));
 
       expect(handleClick).not.toHaveBeenCalled();
     });

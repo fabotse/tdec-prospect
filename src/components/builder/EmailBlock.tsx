@@ -39,7 +39,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Mail, GripVertical } from "lucide-react";
+import { Mail, GripVertical, Trash2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -77,6 +77,7 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
   const selectedBlockId = useBuilderStore((state) => state.selectedBlockId);
   const selectBlock = useBuilderStore((state) => state.selectBlock);
   const updateBlock = useBuilderStore((state) => state.updateBlock);
+  const removeBlock = useBuilderStore((state) => state.removeBlock);
   const productId = useBuilderStore((state) => state.productId);
   // Story 6.6 AC #2: Get preview lead for personalized generation
   const previewLead = useBuilderStore((state) => state.previewLead);
@@ -371,6 +372,19 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
         >
           <GripVertical className="h-5 w-5" />
         </div>
+
+        {/* Delete Button */}
+        <button
+          data-testid="delete-block-button"
+          className="text-muted-foreground hover:text-destructive transition-colors"
+          aria-label="Remover bloco"
+          onClick={(e) => {
+            e.stopPropagation();
+            removeBlock(block.id);
+          }}
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
 
         {/* Icon */}
         <div className="rounded-lg p-2 bg-blue-500/10">

@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { GET, PATCH } from "@/app/api/campaigns/[campaignId]/route";
+import { GET, PATCH, DELETE } from "@/app/api/campaigns/[campaignId]/route";
 
 // Mock Supabase
 const mockFrom = vi.fn();
@@ -604,5 +604,170 @@ describe("PATCH /api/campaigns/[campaignId] (AC 5.9: #1, #3)", () => {
     expect(response.status).toBe(500);
     expect(body.error.code).toBe("INTERNAL_ERROR");
     expect(body.error.message).toBe("Erro ao remover blocos antigos");
+  });
+});
+
+// ==============================================
+// DELETE Tests - Delete Campaign
+// ==============================================
+
+describe("DELETE /api/campaigns/[campaignId]", () => {
+  const mockUserId = "user-123";
+  const mockCampaignId = "550e8400-e29b-41d4-a716-446655440000";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function createRouteParams(campaignId: string) {
+    return {
+      params: Promise.resolve({ campaignId }),
+    };
+  }
+
+  function createDeleteRequest(campaignId: string) {
+    return new Request(`http://localhost:3000/api/campaigns/${campaignId}`, {
+      method: "DELETE",
+    });
+  }
+
+  it("should return 401 when user is not authenticated", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const request = createDeleteRequest(mockCampaignId);
+    const response = await DELETE(request, createRouteParams(mockCampaignId));
+    const body = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(body.error.code).toBe("UNAUTHORIZED");
+    expect(body.error.message).toBe("Nao autenticado");
+  });
+
+  it("should return 400 for invalid UUID format", async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: mockUserId } },
+    });
+
+    const invalidId = "not-a-valid-uuid";
+    const request = createDeleteRequest(invalidId);
+    const response = await DELETE(request, createRouteParams(invalidId));
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toBe("ID de campanha invalido");
+  });
+
+  it("should return 404 when campaign does not exist", async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: mockUserId } },
+    });
+
+    mockFrom.mockImplementation(() => ({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: null,
+        error: { code: "PGRST116", message: "Row not found" },
+      }),
+    }));
+
+    const request = createDeleteRequest(mockCampaignId);
+    const response = await DELETE(request, createRouteParams(mockCampaignId));
+    const body = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(body.error.code).toBe("NOT_FOUND");
+    expect(body.error.message).toBe("Campanha nao encontrada");
+  });
+
+  it("should return 204 when campaign is deleted successfully", async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: mockUserId } },
+    });
+
+    // Mock for select().eq().single() chain - needs proper chaining
+    const singleMock = vi.fn().mockResolvedValue({
+      data: { id: mockCampaignId },
+      error: null,
+    });
+    const selectEqMock = vi.fn().mockReturnValue({ single: singleMock });
+    const selectMock = vi.fn().mockReturnValue({ eq: selectEqMock });
+
+    // Mock for delete().eq() chain
+    const deleteEqMock = vi.fn().mockResolvedValue({ error: null });
+    const deleteMock = vi.fn().mockReturnValue({ eq: deleteEqMock });
+
+    mockFrom.mockImplementation(() => ({
+      select: selectMock,
+      delete: deleteMock,
+    }));
+
+    const request = createDeleteRequest(mockCampaignId);
+    const response = await DELETE(request, createRouteParams(mockCampaignId));
+
+    expect(response.status).toBe(204);
+    expect(mockFrom).toHaveBeenCalledWith("campaigns");
+  });
+
+  it("should return 500 on database error when deleting", async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: mockUserId } },
+    });
+
+    // Mock for select().eq().single() chain - needs proper chaining
+    const singleMock = vi.fn().mockResolvedValue({
+      data: { id: mockCampaignId },
+      error: null,
+    });
+    const selectEqMock = vi.fn().mockReturnValue({ single: singleMock });
+    const selectMock = vi.fn().mockReturnValue({ eq: selectEqMock });
+
+    // Mock for delete().eq() chain - returns error
+    const deleteEqMock = vi.fn().mockResolvedValue({
+      error: { code: "UNKNOWN", message: "Database error" },
+    });
+    const deleteMock = vi.fn().mockReturnValue({ eq: deleteEqMock });
+
+    mockFrom.mockImplementation(() => ({
+      select: selectMock,
+      delete: deleteMock,
+    }));
+
+    const request = createDeleteRequest(mockCampaignId);
+    const response = await DELETE(request, createRouteParams(mockCampaignId));
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.error.code).toBe("INTERNAL_ERROR");
+    expect(body.error.message).toBe("Erro ao remover campanha");
+  });
+
+  it("should query correct table with campaignId for delete", async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: mockUserId } },
+    });
+
+    // Mock for select().eq().single() chain
+    const singleMock = vi.fn().mockResolvedValue({
+      data: { id: mockCampaignId },
+      error: null,
+    });
+    const selectEqMock = vi.fn().mockReturnValue({ single: singleMock });
+    const selectMock = vi.fn().mockReturnValue({ eq: selectEqMock });
+
+    // Mock for delete().eq() chain
+    const deleteEqMock = vi.fn().mockResolvedValue({ error: null });
+    const deleteMock = vi.fn().mockReturnValue({ eq: deleteEqMock });
+
+    mockFrom.mockImplementation(() => ({
+      select: selectMock,
+      delete: deleteMock,
+    }));
+
+    const request = createDeleteRequest(mockCampaignId);
+    await DELETE(request, createRouteParams(mockCampaignId));
+
+    expect(mockFrom).toHaveBeenCalledWith("campaigns");
   });
 });

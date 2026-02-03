@@ -33,7 +33,7 @@ import {
 } from "@dnd-kit/core";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { useCampaign, useSaveCampaign } from "@/hooks/use-campaigns";
+import { useCampaign, useSaveCampaign, useDeleteCampaign } from "@/hooks/use-campaigns";
 import { useCampaignBlocks } from "@/hooks/use-campaign-blocks";
 import { useCampaignLeads } from "@/hooks/use-campaign-leads";
 import { useBuilderStore } from "@/stores/use-builder-store";
@@ -44,6 +44,7 @@ import {
   AddLeadsDialog,
   CampaignPreviewPanel,
 } from "@/components/builder";
+import { DeleteCampaignDialog } from "@/components/campaigns";
 
 interface PageProps {
   params: Promise<{ campaignId: string }>;
@@ -115,8 +116,10 @@ function ErrorState({ message }: { message: string }) {
 export default function CampaignBuilderPage({ params }: PageProps) {
   const { campaignId } = use(params);
   const searchParams = useSearchParams();
+  const router = useRouter();
 
   const { data: campaign, isLoading, isError, error } = useCampaign(campaignId);
+  const deleteMutation = useDeleteCampaign();
   const {
     setDragging,
     addBlock,
@@ -147,6 +150,9 @@ export default function CampaignBuilderPage({ params }: PageProps) {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const blocks = useBuilderStore((state) => state.blocks);
   const hasBlocks = blocks.length > 0;
+
+  // Delete campaign
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
   // Story 5.7 AC #5: Update store lead count when it changes
   useEffect(() => {
@@ -315,6 +321,23 @@ export default function CampaignBuilderPage({ params }: PageProps) {
     setIsPreviewOpen(true);
   };
 
+  // Delete campaign handlers
+  const handleDeleteClick = () => {
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    try {
+      await deleteMutation.mutateAsync(campaignId);
+      toast.success("Campanha removida com sucesso");
+      router.push("/campaigns");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Erro ao remover campanha"
+      );
+    }
+  };
+
   // Loading state (campaign or blocks)
   if (isLoading || isLoadingBlocks) {
     return <LoadingState />;
@@ -353,6 +376,7 @@ export default function CampaignBuilderPage({ params }: PageProps) {
           onPreview={handlePreview}
           hasBlocks={hasBlocks}
           campaignId={campaignId}
+          onDelete={handleDeleteClick}
         />
         <div className="flex-1 flex overflow-hidden">
           <BuilderSidebar />
@@ -374,6 +398,15 @@ export default function CampaignBuilderPage({ params }: PageProps) {
         onOpenChange={setIsPreviewOpen}
         campaignName={campaign.name}
         leadCount={leadCount}
+      />
+
+      {/* Delete Campaign Dialog */}
+      <DeleteCampaignDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={setIsDeleteDialogOpen}
+        campaign={campaign}
+        onConfirm={handleDeleteConfirm}
+        isDeleting={deleteMutation.isPending}
       />
     </DndContext>
   );

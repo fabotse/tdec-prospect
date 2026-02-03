@@ -70,6 +70,7 @@ vi.mock("framer-motion", () => ({
 // Mock store functions
 const mockSelectBlock = vi.fn();
 const mockUpdateBlock = vi.fn();
+const mockRemoveBlock = vi.fn();
 let mockSelectedBlockId: string | null = null;
 let mockProductId: string | null = null;
 let mockPreviewLead: {
@@ -95,6 +96,7 @@ vi.mock("@/stores/use-builder-store", () => ({
       selectedBlockId: mockSelectedBlockId,
       selectBlock: mockSelectBlock,
       updateBlock: mockUpdateBlock,
+      removeBlock: mockRemoveBlock,
       productId: mockProductId,
       previewLead: mockPreviewLead,
       blocks: mockBlocks,
@@ -1754,6 +1756,34 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
         },
         { timeout: 3000 }
       );
+    });
+  });
+
+  // ==============================================
+  // Delete Block Tests
+  // ==============================================
+
+  describe("Delete Block", () => {
+    it("renders delete button", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      expect(screen.getByTestId("delete-block-button")).toBeInTheDocument();
+    });
+
+    it("calls removeBlock when delete button is clicked", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      fireEvent.click(screen.getByTestId("delete-block-button"));
+
+      expect(mockRemoveBlock).toHaveBeenCalledWith(mockBlock.id);
+    });
+
+    it("does not select block when delete button is clicked", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      fireEvent.click(screen.getByTestId("delete-block-button"));
+
+      expect(mockSelectBlock).not.toHaveBeenCalled();
     });
   });
 });

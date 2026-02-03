@@ -5,13 +5,23 @@
  * AC: #1 - Display campaign info (name, status, lead count, date)
  * AC: #5 - Show lead count
  * AC: #6 - Status badge with colors
+ *
+ * Delete Campaign:
+ * AC: #1 - Menu with "Remover" option opens delete dialog
  */
 
 "use client";
 
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Users, Calendar } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Users, Calendar, MoreVertical, Trash2 } from "lucide-react";
 import {
   type CampaignWithCount,
   getCampaignStatusConfig,
@@ -22,6 +32,7 @@ import { cn } from "@/lib/utils";
 interface CampaignCardProps {
   campaign: CampaignWithCount;
   onClick?: () => void;
+  onDelete?: (campaign: CampaignWithCount) => void;
 }
 
 /**
@@ -42,7 +53,7 @@ function getStatusClasses(variant: CampaignStatusVariant): string {
   }
 }
 
-export function CampaignCard({ campaign, onClick }: CampaignCardProps) {
+export function CampaignCard({ campaign, onClick, onDelete }: CampaignCardProps) {
   const statusConfig = getCampaignStatusConfig(campaign.status);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -50,6 +61,11 @@ export function CampaignCard({ campaign, onClick }: CampaignCardProps) {
       e.preventDefault();
       onClick();
     }
+  };
+
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onDelete?.(campaign);
   };
 
   return (
@@ -68,12 +84,40 @@ export function CampaignCard({ campaign, onClick }: CampaignCardProps) {
           <h3 className="font-medium text-foreground line-clamp-2">
             {campaign.name}
           </h3>
-          <Badge
-            variant="outline"
-            className={cn("shrink-0", getStatusClasses(statusConfig.variant))}
-          >
-            {statusConfig.label}
-          </Badge>
+          <div className="flex items-center gap-1 shrink-0">
+            <Badge
+              variant="outline"
+              className={getStatusClasses(statusConfig.variant)}
+            >
+              {statusConfig.label}
+            </Badge>
+            {onDelete && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    onClick={(e) => e.stopPropagation()}
+                    data-testid="campaign-menu-trigger"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                    <span className="sr-only">Opções da campanha</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={handleDeleteClick}
+                    className="text-destructive focus:text-destructive"
+                    data-testid="campaign-delete-option"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Remover
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="pt-0">

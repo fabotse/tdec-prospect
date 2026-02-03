@@ -11,6 +11,9 @@
  *
  * PATCH /api/campaigns/[campaignId]
  * Update campaign name and/or blocks
+ *
+ * DELETE /api/campaigns/[campaignId]
+ * Delete a campaign (cascade deletes blocks and leads via DB constraints)
  */
 
 import { NextResponse } from "next/server";
@@ -363,7 +366,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   }
 
   // Return updated campaign with lead count and product name
-  const { data, error: fetchError } = await supabase
+  const { data: updatedData, error: fetchError } = await supabase
     .from("campaigns")
     .select(
       `
@@ -388,17 +391,98 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     );
   }
 
-  // Transform and flatten lead_count and product_name
-  const leadCount = Array.isArray(data.lead_count)
-    ? data.lead_count[0]?.count || 0
+  // Transform and flatten lead_count and product_name for PATCH response
+  const patchLeadCount = Array.isArray(updatedData.lead_count)
+    ? updatedData.lead_count[0]?.count || 0
     : 0;
-  const productName = data.products?.name ?? null;
+  const patchProductName = updatedData.products?.name ?? null;
 
-  const campaign = transformCampaignRowWithCount({
-    ...data,
-    lead_count: leadCount,
-    product_name: productName,
+  const updatedCampaign = transformCampaignRowWithCount({
+    ...updatedData,
+    lead_count: patchLeadCount,
+    product_name: patchProductName,
   } as CampaignRowWithCount);
 
-  return NextResponse.json({ data: campaign });
+  return NextResponse.json({ data: updatedCampaign });
+}
+
+// ==============================================
+// DELETE - Delete a campaign
+// Cascade deletes blocks and leads via DB FK constraints
+// ==============================================
+
+/**
+ * DELETE /api/campaigns/[campaignId]
+ * Delete a campaign permanently
+ *
+ * @returns 204 No Content on success
+ * @returns 401 if not authenticated
+ * @returns 400 if campaignId is not a valid UUID
+ * @returns 404 if campaign not found
+ * @returns 500 on database error
+ */
+export async function DELETE(_request: Request, { params }: RouteParams) {
+  const supabase = await createClient();
+
+  // Auth check
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json(
+      { error: { code: "UNAUTHORIZED", message: "Nao autenticado" } },
+      { status: 401 }
+    );
+  }
+
+  const { campaignId } = await params;
+
+  // Validate UUID format
+  if (!UUID_REGEX.test(campaignId)) {
+    return NextResponse.json(
+      {
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "ID de campanha invalido",
+        },
+      },
+      { status: 400 }
+    );
+  }
+
+  // Check if campaign exists before deleting
+  const { data: existingCampaign, error: existsError } = await supabase
+    .from("campaigns")
+    .select("id")
+    .eq("id", campaignId)
+    .single();
+
+  if (existsError || !existingCampaign) {
+    return NextResponse.json(
+      { error: { code: "NOT_FOUND", message: "Campanha nao encontrada" } },
+      { status: 404 }
+    );
+  }
+
+  // Delete campaign (blocks and leads cascade via DB constraints)
+  const { error: deleteError } = await supabase
+    .from("campaigns")
+    .delete()
+    .eq("id", campaignId);
+
+  if (deleteError) {
+    console.error("[Campaign API] DELETE error:", deleteError);
+    return NextResponse.json(
+      {
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Erro ao remover campanha",
+        },
+      },
+      { status: 500 }
+    );
+  }
+
+  // 204 No Content - standard for successful DELETE
+  return new NextResponse(null, { status: 204 });
 }

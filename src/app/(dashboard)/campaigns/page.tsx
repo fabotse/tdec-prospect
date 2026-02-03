@@ -4,6 +4,9 @@
  *
  * AC: #1 - View campaigns list with name, status, lead count, date
  * AC: #4 - Create new campaign via dialog
+ *
+ * Delete Campaign:
+ * AC: #1-8 - Delete campaign via card menu + confirmation dialog
  */
 
 "use client";
@@ -11,23 +14,58 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   CampaignList,
   CreateCampaignDialog,
+  DeleteCampaignDialog,
   EmptyState,
 } from "@/components/campaigns";
-import { useCampaigns } from "@/hooks/use-campaigns";
+import { useCampaigns, useDeleteCampaign } from "@/hooks/use-campaigns";
 import type { CampaignWithCount } from "@/types/campaign";
 
 export default function CampaignsPage() {
   const router = useRouter();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<CampaignWithCount | null>(null);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+
   const { data: campaigns, isLoading, error } = useCampaigns();
+  const deleteMutation = useDeleteCampaign();
 
   const handleCampaignClick = (campaign: CampaignWithCount) => {
     // Navigate to builder (Story 5.2)
     router.push(`/campaigns/${campaign.id}/edit`);
+  };
+
+  // F10 FIX: Explicit return types for handlers
+  const handleDeleteClick = (campaign: CampaignWithCount): void => {
+    setDeleteTarget(campaign);
+    setIsDeleteDialogOpen(true);
+  };
+
+  // F4 FIX: Clear deleteTarget when dialog closes to prevent memory leak
+  const handleDeleteDialogChange = (open: boolean): void => {
+    setIsDeleteDialogOpen(open);
+    if (!open) {
+      setDeleteTarget(null);
+    }
+  };
+
+  const handleDeleteConfirm = async (): Promise<void> => {
+    if (!deleteTarget) return;
+
+    try {
+      await deleteMutation.mutateAsync(deleteTarget.id);
+      toast.success("Campanha removida com sucesso");
+      setIsDeleteDialogOpen(false);
+      setDeleteTarget(null);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Erro ao remover campanha"
+      );
+    }
   };
 
   return (
@@ -64,6 +102,7 @@ export default function CampaignsPage() {
         <CampaignList
           campaigns={campaigns}
           onCampaignClick={handleCampaignClick}
+          onDelete={handleDeleteClick}
         />
       ) : (
         <EmptyState onCreateClick={() => setIsCreateDialogOpen(true)} />
@@ -73,6 +112,15 @@ export default function CampaignsPage() {
       <CreateCampaignDialog
         open={isCreateDialogOpen}
         onOpenChange={setIsCreateDialogOpen}
+      />
+
+      {/* Delete Dialog */}
+      <DeleteCampaignDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={handleDeleteDialogChange}
+        campaign={deleteTarget}
+        onConfirm={handleDeleteConfirm}
+        isDeleting={deleteMutation.isPending}
       />
     </div>
   );
