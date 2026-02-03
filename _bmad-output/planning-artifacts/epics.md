@@ -273,18 +273,22 @@ Usuários podem construir visualmente sequências de campanha usando drag-and-dr
 ---
 
 ### Epic 6: AI Content Generation
-Usuários obtêm textos personalizados que soam autênticos, usando a base de conhecimento e tom de voz configurados.
+Usuários obtêm textos personalizados que soam autênticos, usando a base de conhecimento, tom de voz e contexto de produto específico configurados. Inclui também geração automatizada de estrutura de campanha.
 
-**FRs cobertos:** FR20, FR21, FR22, FR23, FR24, FR25, FR26
+**FRs cobertos:** FR20, FR21, FR22, FR23, FR24, FR25, FR26 + NEW (AI Campaign Generation, Product Context)
 
 **Entregáveis:**
 - AITextGenerator integrado ao builder
 - Geração contextualizada com streaming
-- Quebra-gelos personalizados por lead
+- **[NEW]** Catálogo de produtos com CRUD completo
+- **[NEW]** Contexto de produto específico por campanha
+- Quebra-gelos personalizados por lead (com contexto de produto)
 - Edição inline de textos
 - Botão de regenerar
 - Aplicação de tom de voz
 - Uso de exemplos de sucesso
+- Geração automática de estrutura de campanha com IA
+- Templates de campanha pré-configurados baseados em pesquisa
 
 ---
 
@@ -1189,27 +1193,133 @@ So that generated texts reflect my business accurately.
 
 ---
 
-### Story 6.4: Personalized Icebreakers
+### Story 6.4: Product Catalog CRUD
+
+As an admin/user,
+I want to register and manage my business products,
+So that I can reuse them across multiple campaigns with specific context.
+
+**Context:** Esta story cria a infraestrutura para cadastro de produtos que serão usados como contexto específico nas campanhas. Diferente do knowledge base geral (empresa, tom de voz), produtos são entidades reutilizáveis que podem ser vinculadas a campanhas específicas.
+
+**Acceptance Criteria:**
+
+**Given** I am authenticated
+**When** I navigate to Configurações > Produtos (new tab)
+**Then** I see a list of my registered products
+**And** I see a "Novo Produto" button
+**And** empty state shows "Nenhum produto cadastrado. Adicione produtos para usar como contexto em campanhas."
+
+**Given** I click "Novo Produto"
+**When** the form opens
+**Then** I see fields for:
+  - Nome do produto (text, required)
+  - Descrição (textarea, required) - explicação detalhada do que é o produto
+  - Características principais (textarea) - features, funcionalidades
+  - Diferenciais (textarea) - o que diferencia dos concorrentes
+  - Público-alvo (textarea) - para quem é ideal
+**And** I can save or cancel
+
+**Given** I save a product
+**When** the save completes
+**Then** the product appears in the list
+**And** I see success notification "Produto salvo com sucesso"
+**And** the products table is created with: id, tenant_id, name, description, features, differentials, target_audience, created_at, updated_at
+**And** RLS ensures tenant isolation
+
+**Given** I have products in the list
+**When** I view the products page
+**Then** I can search/filter products by name
+**And** I can click to edit any product
+**And** I can delete products (with confirmation dialog)
+**And** products in use by campaigns show indicator "Usado em X campanhas"
+
+**Technical Notes:**
+- Nova aba "Produtos" em Configurações (após Base de Conhecimento)
+- Tabela `products` com RLS por tenant_id
+- UI similar ao padrão de listas do sistema (estilo Airtable)
+
+---
+
+### Story 6.5: Campaign Product Context
+
+As a user,
+I want to link a specific product to each campaign,
+So that AI generates texts contextualized for that product.
+
+**Context:** Esta story conecta o catálogo de produtos (Story 6.4) às campanhas. Quando um produto é selecionado, a IA usa as informações do produto como contexto prioritário na geração de textos, em vez de usar apenas a descrição genérica da empresa.
+
+**Acceptance Criteria:**
+
+**Given** I am in the campaign builder
+**When** I view the campaign header/settings
+**Then** I see a "Produto" dropdown field
+**And** the dropdown shows:
+  - "Contexto Geral" (default - usa knowledge base da empresa)
+  - Lista de produtos cadastrados (Story 6.4)
+**And** the field has tooltip: "Selecione um produto para contextualizar os textos desta campanha"
+
+**Given** I select a product for the campaign
+**When** the selection is saved
+**Then** the builder shows indicator: "Contexto: [Nome do Produto]"
+**And** the campaign record is updated with product_id (campaigns.product_id FK to products.id)
+**And** subsequent AI generations will use this product's context
+
+**Given** a campaign has a product selected
+**When** AI generates text (subject, body, icebreaker)
+**Then** the prompt includes:
+  - Product name and description
+  - Product features and differentials
+  - Product target audience
+**And** these REPLACE the generic company product description
+**And** company name, tone of voice, and ICP still apply
+**And** generated text is specific to that product
+
+**Given** a campaign has "Contexto Geral" selected
+**When** AI generates text
+**Then** behavior is unchanged from current implementation
+**And** uses knowledge base company description
+
+**Given** I want to change the product mid-campaign
+**When** I select a different product
+**Then** existing generated texts are NOT automatically regenerated
+**And** I see warning: "Textos existentes não serão alterados. Regenere manualmente se necessário."
+**And** new generations use the new product context
+
+**Technical Notes:**
+- Adicionar coluna `product_id` (nullable, FK) na tabela `campaigns`
+- Atualizar PromptManager para incluir contexto de produto quando disponível
+- Hierarquia de contexto: Produto (se selecionado) > Knowledge Base > Defaults
+- Migration para adicionar FK com ON DELETE SET NULL
+
+---
+
+### Story 6.6: Personalized Icebreakers
 
 As a user,
 I want AI to generate personalized icebreakers,
 So that my emails don't start with generic greetings.
 
+**Context:** Esta story depende de 6.3 (Knowledge Base) e 6.5 (Campaign Product Context). Os icebreakers são personalizados usando: (1) informações do lead, (2) contexto do produto da campanha (se selecionado), (3) knowledge base geral.
+
 **Acceptance Criteria:**
 
 **Given** I am generating text for an email
 **When** the AI generates content
-**Then** it includes a personalized icebreaker based on lead info:
-  - Company name and industry
-  - Job title and role
-  - Company size and location
-  - Any available LinkedIn context
+**Then** it includes a personalized icebreaker based on:
+  - Lead info: company name, industry, job title, company size, location, LinkedIn context
+  - Product context: se a campanha tem produto selecionado, o icebreaker menciona relevância do produto para o lead
+  - Company context: knowledge base geral
 **And** the icebreaker feels natural and relevant
 **And** it avoids generic phrases like "Olá {nome}"
 
+**Given** the campaign has a product selected
+**When** AI generates icebreaker
+**Then** it connects the lead's context with the product's value proposition
+**And** example: "Vi que a [Empresa do Lead] está expandindo para [Setor]. Nosso [Produto] tem ajudado empresas nessa fase com [Diferencial específico]..."
+
 ---
 
-### Story 6.5: Inline Text Editing
+### Story 6.7: Inline Text Editing
 
 As a user,
 I want to edit AI-generated text inline,
@@ -1227,11 +1337,13 @@ So that I can make adjustments without leaving the builder.
 
 ---
 
-### Story 6.6: Text Regeneration
+### Story 6.8: Text Regeneration
 
 As a user,
 I want to regenerate text if I'm not satisfied,
 So that I can get alternative versions.
+
+**Context:** A regeneração usa o mesmo contexto da geração original, incluindo o produto da campanha (se selecionado via Story 6.5).
 
 **Acceptance Criteria:**
 
@@ -1241,15 +1353,17 @@ So that I can get alternative versions.
 **And** the previous text is replaced
 **And** I see the streaming animation again
 **And** I can regenerate multiple times
-**And** each regeneration considers the same context
+**And** each regeneration considers the same context (lead + product + knowledge base)
 
 ---
 
-### Story 6.7: Tone of Voice Application
+### Story 6.9: Tone of Voice Application
 
 As a user,
 I want AI to maintain my configured tone of voice,
 So that all emails sound consistent with my brand.
+
+**Context:** O tom de voz é aplicado em conjunto com o contexto de produto (Story 6.5). Mesmo com produto específico, o tom configurado na knowledge base é respeitado.
 
 **Acceptance Criteria:**
 
@@ -1258,12 +1372,14 @@ So that all emails sound consistent with my brand.
 **Then** the language is conversational and friendly
 **And** formal constructs are avoided
 **And** the text feels human, not robotic
+**And** product-specific content (if any) also follows this tone
 
 **Given** I have configured tone as "Técnico"
 **When** AI generates text
 **Then** appropriate technical terminology is used
 **And** the text is precise and professional
 **And** industry-specific language is included
+**And** product features are described with technical accuracy
 
 **Given** I have custom tone guidelines
 **When** AI generates text
@@ -1271,11 +1387,13 @@ So that all emails sound consistent with my brand.
 
 ---
 
-### Story 6.8: Use of Successful Examples
+### Story 6.10: Use of Successful Examples
 
 As a user,
 I want AI to learn from my successful email examples,
 So that generated texts match my proven style.
+
+**Context:** Exemplos de sucesso são combinados com o contexto de produto (Story 6.5) quando disponível. A IA aprende o estilo dos exemplos e aplica ao conteúdo do produto específico.
 
 **Acceptance Criteria:**
 
@@ -1285,11 +1403,141 @@ So that generated texts match my proven style.
 **And** generated text adopts similar structure and patterns
 **And** personalization techniques from examples are applied
 **And** the output feels like the user could have written it
+**And** product-specific content (if any) follows the same style patterns
 
 **Given** no examples are configured
 **When** AI generates text
 **Then** it uses general best practices
 **And** the system suggests adding examples for better results
+
+---
+
+### Story 6.11: AI Campaign Structure Generation
+
+As a user,
+I want AI to generate the complete campaign structure automatically,
+So that I don't need to manually decide how many emails and delays to include.
+
+**Context:** Esta story adiciona um modo alternativo de criação de campanha. O usuário pode escolher entre: (A) criar manualmente via builder drag-and-drop (Epic 5), ou (B) usar IA para gerar a estrutura completa automaticamente. O modo AI usa pesquisa e boas práticas para sugerir quantidade de touchpoints, intervalos ideais e abordagem estratégica. **Integra com Story 6.5** permitindo seleção de produto específico para contextualizar a estrutura.
+
+**Acceptance Criteria:**
+
+**Given** I am on the Campaigns page
+**When** I click "Nova Campanha"
+**Then** I see two options:
+  - "Criar Manualmente" (abre builder vazio - comportamento atual)
+  - "✨ Criar com IA" (abre wizard de criação assistida)
+
+**Given** I select "✨ Criar com IA"
+**When** the wizard opens
+**Then** I see a form asking:
+  - Produto (dropdown: "Contexto Geral" + lista de produtos cadastrados - Story 6.4)
+  - Objetivo da campanha (dropdown: Cold Outreach, Reengajamento, Follow-up, Nutrição)
+  - Descrição adicional (textarea, opcional - complementa o contexto do produto selecionado)
+  - Tom desejado (dropdown: Formal, Casual, Técnico - default da Knowledge Base)
+  - Urgência (dropdown: Baixa, Média, Alta)
+**And** fields have helpful tooltips explaining each option
+**And** if a product is selected, its description is shown as preview
+
+**Given** I fill the wizard form and click "Gerar Campanha"
+**When** AI processes the request
+**Then** I see "Analisando e criando sua campanha..." with animation
+**And** AI generates:
+  - Recommended number of emails (typically 3-7 based on objective)
+  - Delay intervals between emails (based on best practices)
+  - Strategic approach for each touchpoint (intro, value prop, social proof, urgency, etc.)
+**And** the complete structure is created in the builder canvas
+**And** each email block has placeholder context (ex: "Email 1: Introdução e gancho inicial")
+**And** the selected product (if any) is automatically linked to the campaign
+**And** generation completes in <10 seconds
+
+**Given** the campaign structure is generated
+**When** I view the builder
+**Then** I see all email blocks and delay blocks pre-positioned
+**And** I see the product context indicator if a product was selected
+**And** I can modify, add, or remove blocks manually
+**And** I can click "Gerar Conteúdo" on each email to generate the actual text (Story 6.2) - which will use the product context
+**And** I see a summary panel: "Campanha de X emails, duração total de Y dias"
+
+**Given** AI cannot generate a valid structure
+**When** an error occurs
+**Then** I see "Não foi possível gerar a estrutura. Tente ajustar os parâmetros."
+**And** I can retry or switch to manual creation
+
+**Technical Notes:**
+- Novo prompt `campaign_structure_generation` na tabela ai_prompts
+- Usa mesma infraestrutura de AI Provider (Story 6.1)
+- Estrutura gerada é convertida para blocos no canvas
+- Valores de delay baseados em pesquisa de cold email best practices
+- Produto selecionado no wizard é salvo em campaigns.product_id (Story 6.5)
+
+---
+
+### Story 6.12: Smart Campaign Templates
+
+As a user,
+I want to choose from pre-built campaign templates,
+So that I can quickly start with proven structures based on common scenarios.
+
+**Context:** Templates são estruturas pré-definidas baseadas em pesquisa e boas práticas de cold email. Diferente da Story 6.11 (geração dinâmica), templates são estáticos mas otimizados. O usuário seleciona um template e a estrutura é criada instantaneamente, podendo depois gerar o conteúdo com IA ou escrever manualmente. **Integra com Story 6.5** permitindo seleção de produto ao usar o template.
+
+**Acceptance Criteria:**
+
+**Given** I select "✨ Criar com IA" from the campaigns page
+**When** the wizard opens
+**Then** I see a "Produto" dropdown at the top (same as Story 6.11)
+**And** I see a "Templates Prontos" section
+**And** I see 4-6 template cards with:
+  - Template name
+  - Brief description
+  - Number of emails and total duration
+  - Recommended use case
+
+**Given** the following templates are available
+**When** I view the templates section
+**Then** I see at least these options:
+  | Template | Emails | Duração | Uso |
+  |----------|--------|---------|-----|
+  | Cold Outreach Clássico | 5 | 14 dias | Primeiro contato com leads frios |
+  | Reengajamento Rápido | 3 | 7 dias | Leads que não responderam antes |
+  | Nutrição Longa | 7 | 30 dias | Relacionamento de longo prazo |
+  | Follow-up Urgente | 3 | 5 dias | Leads quentes, decisão próxima |
+  | Apresentação de Produto | 4 | 10 dias | Lançamento ou demo de produto |
+
+**Given** I click on a template card
+**When** the template is selected
+**Then** I see a preview of the structure (emails + delays)
+**And** I see the strategic rationale for each touchpoint
+**And** I can click "Usar Este Template" or go back to browse
+
+**Given** I click "Usar Este Template"
+**When** the template is applied
+**Then** the campaign builder opens with the structure pre-populated
+**And** all email blocks and delay blocks are positioned
+**And** each email has strategic context placeholder (ex: "Email 3: Prova social e case de sucesso")
+**And** the selected product (if any) is linked to the campaign
+**And** I see product context indicator if product was selected
+**And** I can modify the structure freely
+**And** I see "Template: [Nome]" indicator in the campaign header
+
+**Given** I want a custom structure instead of templates
+**When** I scroll past templates in the wizard
+**Then** I see "Ou crie uma campanha personalizada:" section
+**And** I can fill the custom form (Story 6.11) to generate a unique structure
+**And** the product selection carries over to the custom form
+
+**Given** templates need to be updated
+**When** an admin updates template definitions
+**Then** templates are stored in campaign_templates table (id, name, description, structure_json, use_case, is_active, created_at)
+**And** structure_json contains: emails array with position and context, delays array with duration
+**And** RLS allows read access to all authenticated users
+
+**Technical Notes:**
+- Templates seeded via migration with research-based defaults
+- structure_json format: `{ emails: [{ position: 1, context: "..." }], delays: [{ afterEmail: 1, days: 3 }] }`
+- Future: admin UI to manage templates (out of scope for this story)
+- Templates são globais (não por tenant) inicialmente
+- Produto selecionado no wizard é salvo em campaigns.product_id (Story 6.5)
 
 ---
 

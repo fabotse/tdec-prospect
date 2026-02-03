@@ -122,7 +122,36 @@ vi.mock("@/hooks/use-ai-generate", () => ({
     cancel: vi.fn(),
     isGenerating: false,
   }),
-  DEFAULT_GENERATION_VARIABLES: {},
+}));
+
+// Mock useKnowledgeBaseContext hook (Story 6.3)
+vi.mock("@/hooks/use-knowledge-base-context", () => ({
+  useKnowledgeBaseContext: () => ({
+    context: null,
+    variables: {
+      company_context: "Test company",
+      lead_name: "Lead Name",
+      lead_title: "CTO",
+      lead_company: "Lead Corp",
+      lead_industry: "Tech",
+      lead_location: "Brasil",
+      tone_description: "Professional",
+      tone_style: "formal",
+      writing_guidelines: "",
+      icp_summary: "",
+      target_industries: "",
+      target_titles: "",
+      pain_points: "",
+      successful_examples: "",
+      products_services: "",
+      competitive_advantages: "",
+      email_objective: "Prospecção",
+      icebreaker: "",
+    },
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
 }));
 
 describe("BuilderCanvas (AC: #2, #5)", () => {
