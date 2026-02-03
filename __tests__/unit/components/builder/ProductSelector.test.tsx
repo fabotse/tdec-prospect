@@ -164,8 +164,14 @@ describe("ProductSelector", () => {
     });
   });
 
-  describe("Context Indicator (AC: #2)", () => {
-    it("shows product name indicator when product selected", () => {
+  describe("Context Label", () => {
+    it("shows static Contexto label", () => {
+      render(<ProductSelector />);
+
+      expect(screen.getByText("Contexto:")).toBeInTheDocument();
+    });
+
+    it("shows selected product name in dropdown", () => {
       vi.mocked(useBuilderStore).mockReturnValue({
         productId: "product-1",
         productName: "Premium SaaS",
@@ -175,13 +181,10 @@ describe("ProductSelector", () => {
 
       render(<ProductSelector />);
 
-      expect(screen.getByText("Contexto: Premium SaaS")).toBeInTheDocument();
-    });
-
-    it("does not show indicator when no product selected", () => {
-      render(<ProductSelector />);
-
-      expect(screen.queryByText(/^Contexto:/)).not.toBeInTheDocument();
+      // Product name shown in the dropdown trigger
+      expect(
+        screen.getByRole("combobox", { name: /selecionar produto/i })
+      ).toBeInTheDocument();
     });
   });
 

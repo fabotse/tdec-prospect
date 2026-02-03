@@ -119,69 +119,110 @@ export function BuilderHeader({
   return (
     <header
       data-testid="builder-header"
-      className="h-16 border-b border-border bg-background px-4 flex items-center justify-between"
+      className="border-b border-border bg-background"
     >
-      {/* Left section: Back link + Campaign name */}
-      <div className="flex items-center gap-4">
-        <Link
-          href="/campaigns"
-          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-          data-testid="back-to-campaigns"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          <span>Campanhas</span>
-        </Link>
-
-        <div className="h-6 w-px bg-border" />
-
-        {/* Editable campaign name */}
-        {isEditing ? (
-          <Input
-            data-testid="campaign-name-input"
-            value={editedName}
-            onChange={(e) => setEditedName(e.target.value)}
-            onBlur={handleNameSubmit}
-            onKeyDown={handleKeyDown}
-            className="h-8 w-64 font-semibold"
-            autoFocus
-          />
-        ) : (
-          <button
-            data-testid="campaign-name"
-            onClick={() => setIsEditing(true)}
-            className={cn(
-              "text-lg font-semibold hover:text-primary transition-colors",
-              "focus-visible:outline-none focus-visible:underline"
-            )}
+      {/* Row 1: Navigation + Campaign Identity + Actions */}
+      <div className="h-14 px-4 flex items-center justify-between">
+        {/* Left: Back link + Campaign name + Status */}
+        <div className="flex items-center gap-4">
+          <Link
+            href="/campaigns"
+            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            data-testid="back-to-campaigns"
           >
-            {campaignName}
-          </button>
-        )}
+            <ArrowLeft className="h-4 w-4" />
+            <span>Campanhas</span>
+          </Link>
 
-        {/* Status badge */}
-        <Badge
-          data-testid="campaign-status-badge"
-          variant={getStatusBadgeVariant(campaignStatus)}
-        >
-          {campaignStatusLabels[campaignStatus]}
-        </Badge>
+          <div className="h-6 w-px bg-border" />
 
-        <div className="h-6 w-px bg-border" />
+          {/* Editable campaign name */}
+          {isEditing ? (
+            <Input
+              data-testid="campaign-name-input"
+              value={editedName}
+              onChange={(e) => setEditedName(e.target.value)}
+              onBlur={handleNameSubmit}
+              onKeyDown={handleKeyDown}
+              className="h-8 w-64 font-semibold"
+              autoFocus
+            />
+          ) : (
+            <button
+              data-testid="campaign-name"
+              onClick={() => setIsEditing(true)}
+              className={cn(
+                "text-lg font-semibold hover:text-primary transition-colors",
+                "focus-visible:outline-none focus-visible:underline"
+              )}
+            >
+              {campaignName}
+            </button>
+          )}
 
+          {/* Status badge */}
+          <Badge
+            data-testid="campaign-status-badge"
+            variant={getStatusBadgeVariant(campaignStatus)}
+          >
+            {campaignStatusLabels[campaignStatus]}
+          </Badge>
+        </div>
+
+        {/* Right: Preview + Save buttons */}
+        <div className="flex items-center gap-2">
+          {/* Preview button - Story 5.8 AC #1 */}
+          <Button
+            data-testid="preview-button"
+            variant="outline"
+            size="sm"
+            onClick={onPreview}
+            disabled={!hasBlocks}
+            aria-label="Preview da campanha"
+            className="gap-1.5"
+          >
+            <Eye className="h-4 w-4" />
+            Preview
+          </Button>
+
+          <Button
+            data-testid="save-button"
+            onClick={onSave}
+            disabled={!hasChanges || isSaving}
+            size="sm"
+            className="gap-1.5"
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Salvando...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4" />
+                Salvar
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* Row 2: Context Configuration (Leads, Product, Preview Lead) */}
+      <div className="h-10 px-4 flex items-center gap-6 border-t border-border/50 bg-muted/30">
         {/* Lead count button - Story 5.7 AC #5 */}
         <Button
           data-testid="lead-count-button"
           variant="ghost"
           size="sm"
           onClick={onAddLeads}
-          className="gap-1.5"
+          className="gap-1.5 h-7 px-2"
           aria-label={`${leadCount} lead${leadCount !== 1 ? "s" : ""} na campanha. Clique para adicionar ou ver leads.`}
         >
           <Users className="h-4 w-4" />
           {leadCount} lead{leadCount !== 1 ? "s" : ""}
         </Button>
 
-        <div className="h-6 w-px bg-border" />
+        <div className="h-5 w-px bg-border" />
 
         {/* Product selector - Story 6.5 AC #1 */}
         <ProductSelector />
@@ -189,47 +230,10 @@ export function BuilderHeader({
         {/* Lead preview selector - Story 6.6 AC #1 */}
         {campaignId && (
           <>
-            <div className="h-6 w-px bg-border" />
+            <div className="h-5 w-px bg-border" />
             <LeadPreviewSelector campaignId={campaignId} />
           </>
         )}
-      </div>
-
-      {/* Right section: Preview + Save buttons */}
-      <div className="flex items-center gap-2">
-        {/* Preview button - Story 5.8 AC #1 */}
-        <Button
-          data-testid="preview-button"
-          variant="outline"
-          size="sm"
-          onClick={onPreview}
-          disabled={!hasBlocks}
-          aria-label="Preview da campanha"
-          className="gap-1.5"
-        >
-          <Eye className="h-4 w-4" />
-          Preview
-        </Button>
-
-        <Button
-          data-testid="save-button"
-          onClick={onSave}
-          disabled={!hasChanges || isSaving}
-          size="sm"
-          className="gap-1.5"
-        >
-          {isSaving ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Salvando...
-            </>
-          ) : (
-            <>
-              <Save className="h-4 w-4" />
-              Salvar
-            </>
-          )}
-        </Button>
       </div>
     </header>
   );
