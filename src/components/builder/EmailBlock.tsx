@@ -5,6 +5,7 @@
  * Story 6.6: Personalized Icebreakers
  * Story 6.7: Inline Text Editing
  * Story 6.8: Text Regeneration
+ * Story 6.10: Use of Successful Examples
  *
  * AC 5.3: #1 - Arrastar Email Block para Canvas
  * AC 5.3: #2 - Visual do Email Block (Estilo Attio)
@@ -26,6 +27,8 @@
  *
  * AC 6.8: #1 - Regenerate Button Visibility
  * AC 6.8: #6 - Reset to Initial State
+ *
+ * AC 6.10: #7 - User Guidance When Examples Missing
  */
 
 "use client";
@@ -43,6 +46,7 @@ import { useAIGenerate } from "@/hooks/use-ai-generate";
 import { useKnowledgeBaseContext } from "@/hooks/use-knowledge-base-context";
 import { useDebouncedCallback } from "@/hooks/use-debounce";
 import { AIGenerateButton } from "./AIGenerateButton";
+import { ExamplesHint } from "./ExamplesHint";
 
 interface EmailBlockProps {
   block: BuilderBlock;
@@ -79,8 +83,8 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
     isGenerating,
   } = useAIGenerate();
 
-  // Knowledge Base context for AI generation (Story 6.3)
-  const { variables: kbVariables, isLoading: kbLoading } = useKnowledgeBaseContext();
+  // Knowledge Base context for AI generation (Story 6.3, 6.10)
+  const { variables: kbVariables, isLoading: kbLoading, hasExamples } = useKnowledgeBaseContext();
 
   // Story 6.6 AC #2: Merge KB variables with real lead data when available
   const mergedVariables = useMemo(() => {
@@ -359,14 +363,17 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
             </p>
           )}
 
-          {/* Generate Button (AC 6.2 #1, AC 6.3 #1, AC 6.8 #1) */}
-          <AIGenerateButton
-            phase={aiPhase}
-            error={aiError}
-            onClick={handleGenerate}
-            disabled={isGenerating || kbLoading}
-            hasContent={hasContent}
-          />
+          {/* Generate Button with Examples Hint (AC 6.2 #1, AC 6.3 #1, AC 6.8 #1, AC 6.10 #7) */}
+          <div className="flex items-center gap-2">
+            <ExamplesHint hasExamples={hasExamples} />
+            <AIGenerateButton
+              phase={aiPhase}
+              error={aiError}
+              onClick={handleGenerate}
+              disabled={isGenerating || kbLoading}
+              hasContent={hasContent}
+            />
+          </div>
 
           {/* KB Loading indicator (AC 6.3 #4) */}
           {kbLoading && (

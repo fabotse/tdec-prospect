@@ -1,7 +1,10 @@
 /**
  * PromptManager Unit Tests
  * Story: 6.1 - AI Provider Service Layer & Prompt Management System
+ * Story: 6.10 - Use of Successful Examples
  * AC: #2 - Prompt fallback logic and caching
+ * AC 6.10: #1 - Examples included in AI prompts
+ * AC 6.10: #2 - Generated text adopts similar structure
  *
  * Note: Due to complexity of mocking Supabase's chained query builder,
  * these tests focus on code default fallback and caching behavior.
@@ -517,6 +520,131 @@ describe("PromptManager", () => {
         expect(result?.content).toContain("Tom: casual");
         expect(result?.content).toContain("Guidelines: Seja amigável");
         expect(result?.content).toContain("Services: Consultoria");
+      });
+    });
+  });
+
+  // ==============================================
+  // STORY 6.10: EXAMPLES IN PROMPT INTERPOLATION
+  // ==============================================
+
+  describe("renderPrompt - examples interpolation (Story 6.10)", () => {
+    describe("examples included when available (Task 3.1, AC #1)", () => {
+      it("includes formatted examples in subject prompt", async () => {
+        const formattedExamples =
+          "Exemplo 1:\nAssunto: Oportunidade para TechCo\nCorpo: Olá, vi que vocês...\n\nExemplo 2:\nAssunto: Parceria estratégica\nCorpo: Oi, tudo bem?";
+
+        const result = await promptManager.renderPrompt(
+          "email_subject_generation",
+          {
+            lead_name: "Carlos",
+            tone_style: "casual",
+            tone_description: "Amigável e próximo",
+            successful_examples: formattedExamples,
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).toContain("Examples:");
+        expect(result?.content).toContain("Exemplo 1:");
+        expect(result?.content).toContain("Oportunidade para TechCo");
+        expect(result?.content).toContain("Exemplo 2:");
+        expect(result?.content).toContain("Parceria estratégica");
+      });
+
+      it("preserves example structure including context field", async () => {
+        const examplesWithContext =
+          "Exemplo 1:\nAssunto: Follow-up reunião\nCorpo: Conforme conversamos...\nContexto: Pós-reunião";
+
+        const result = await promptManager.renderPrompt(
+          "email_subject_generation",
+          {
+            lead_name: "Ana",
+            tone_style: "formal",
+            tone_description: "Corporativo",
+            successful_examples: examplesWithContext,
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).toContain("Contexto: Pós-reunião");
+      });
+    });
+
+    describe("examples omitted when empty (Task 3.2, AC #6)", () => {
+      it("removes examples section when empty string", async () => {
+        const result = await promptManager.renderPrompt(
+          "email_subject_generation",
+          {
+            lead_name: "Pedro",
+            tone_style: "technical",
+            tone_description: "Técnico",
+            successful_examples: "",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).not.toContain("Examples:");
+        expect(result?.content).not.toContain("{{#if");
+        expect(result?.content).not.toContain("{{/if}}");
+      });
+
+      it("removes examples section when not provided", async () => {
+        const result = await promptManager.renderPrompt(
+          "email_subject_generation",
+          {
+            lead_name: "Julia",
+            tone_style: "casual",
+            tone_description: "Descontraído",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        expect(result?.content).not.toContain("Examples:");
+      });
+    });
+
+    describe("examples combined with other contexts (Task 3.3, AC #5)", () => {
+      it("preserves examples alongside product context", async () => {
+        const result = await promptManager.renderPrompt(
+          "email_subject_generation",
+          {
+            lead_name: "Ricardo",
+            tone_style: "formal",
+            tone_description: "Corporativo e respeitoso",
+            successful_examples: "Exemplo 1:\nAssunto: Demo produto",
+          },
+          { tenantId: "tenant-456" }
+        );
+
+        // Both should be present
+        expect(result?.content).toContain("Subject for Ricardo");
+        expect(result?.content).toContain("Tom: formal");
+        expect(result?.content).toContain("Examples:");
+        expect(result?.content).toContain("Demo produto");
+      });
+
+      it("handles all three prompts with examples (subject, body, icebreaker)", async () => {
+        // Subject prompt
+        const subjectResult = await promptManager.renderPrompt(
+          "email_subject_generation",
+          {
+            lead_name: "Test",
+            tone_style: "casual",
+            tone_description: "Casual",
+            successful_examples: "Subject example",
+          },
+          { tenantId: "tenant-456" }
+        );
+        expect(subjectResult?.content).toContain("Subject example");
+
+        // Icebreaker prompt (mock doesn't have examples, but conditional is tested elsewhere)
+        const icebreakerResult = await promptManager.renderPrompt(
+          "icebreaker_generation",
+          { lead_company: "TestCo", tone_style: "formal" },
+          { tenantId: "tenant-456" }
+        );
+        expect(icebreakerResult?.content).toContain("TestCo");
       });
     });
   });

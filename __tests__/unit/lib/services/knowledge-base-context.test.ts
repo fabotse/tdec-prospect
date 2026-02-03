@@ -2,6 +2,7 @@
  * Knowledge Base Context Service Tests
  * Story 6.3: Knowledge Base Integration for Context
  * Story 6.9: Tone of Voice Application
+ * Story 6.10: Use of Successful Examples
  *
  * Tests for buildAIVariables and getDefaultAIVariables functions.
  * AC 6.3: #1 - Knowledge Base Context in AI Prompts
@@ -9,6 +10,9 @@
  * AC 6.9: #1-#3 - Tone preset vocabulary hints
  * AC 6.9: #4 - Custom guidelines application
  * AC 6.9: #7 - Graceful degradation (default to casual)
+ * AC 6.10: #1 - Examples included in AI prompts
+ * AC 6.10: #5 - Examples combined with product context
+ * AC 6.10: #6 - Graceful degradation (no examples)
  */
 
 import { describe, it, expect } from "vitest";
@@ -357,6 +361,214 @@ describe("knowledge-base-context service", () => {
 
       expect(result.tone_description).toBe(DEFAULT_TONE_DESCRIPTION);
       expect(result.tone_style).toBe(DEFAULT_TONE_STYLE);
+    });
+  });
+
+  // ==============================================
+  // STORY 6.10: USE OF SUCCESSFUL EXAMPLES
+  // ==============================================
+
+  describe("Story 6.10 - Examples in AI Variables", () => {
+    describe("formatEmailExamples output format (Task 2.1)", () => {
+      it("should format examples with subject, body, and context", () => {
+        const context: KnowledgeBaseContext = {
+          company: null,
+          tone: null,
+          icp: null,
+          examples: [
+            {
+              id: "1",
+              tenant_id: "t1",
+              subject: "Test Subject",
+              body: "Test Body Content",
+              context: "Initial Outreach",
+              created_at: "2026-01-01",
+              updated_at: "2026-01-01",
+            },
+          ],
+        };
+
+        const result = buildAIVariables(context);
+
+        expect(result.successful_examples).toContain("Exemplo 1:");
+        expect(result.successful_examples).toContain("Assunto: Test Subject");
+        expect(result.successful_examples).toContain("Corpo: Test Body Content");
+        expect(result.successful_examples).toContain("Contexto: Initial Outreach");
+      });
+
+      it("should omit context line when context is null", () => {
+        const context: KnowledgeBaseContext = {
+          company: null,
+          tone: null,
+          icp: null,
+          examples: [
+            {
+              id: "1",
+              tenant_id: "t1",
+              subject: "Subject Without Context",
+              body: "Body Content",
+              context: null,
+              created_at: "2026-01-01",
+              updated_at: "2026-01-01",
+            },
+          ],
+        };
+
+        const result = buildAIVariables(context);
+
+        expect(result.successful_examples).toContain("Assunto: Subject Without Context");
+        expect(result.successful_examples).toContain("Corpo: Body Content");
+        expect(result.successful_examples).not.toContain("Contexto:");
+      });
+    });
+
+    describe("MAX_EXAMPLES_IN_PROMPT limit (Task 2.2)", () => {
+      it("should limit to exactly 3 examples when more are provided", () => {
+        const fiveExamples: EmailExample[] = Array.from({ length: 5 }, (_, i) => ({
+          id: `${i + 1}`,
+          tenant_id: "t1",
+          subject: `Subject ${i + 1}`,
+          body: `Body ${i + 1}`,
+          context: null,
+          created_at: `2026-01-0${i + 1}`,
+          updated_at: `2026-01-0${i + 1}`,
+        }));
+
+        const context: KnowledgeBaseContext = {
+          company: null,
+          tone: null,
+          icp: null,
+          examples: fiveExamples,
+        };
+
+        const result = buildAIVariables(context);
+
+        // Should have exactly 3 examples
+        expect(result.successful_examples).toContain("Exemplo 1:");
+        expect(result.successful_examples).toContain("Exemplo 2:");
+        expect(result.successful_examples).toContain("Exemplo 3:");
+        expect(result.successful_examples).not.toContain("Exemplo 4:");
+        expect(result.successful_examples).not.toContain("Exemplo 5:");
+      });
+    });
+
+    describe("empty examples handling (Task 2.3, Task 2.6)", () => {
+      it("should return empty string when examples array is empty", () => {
+        const context: KnowledgeBaseContext = {
+          company: null,
+          tone: null,
+          icp: null,
+          examples: [],
+        };
+
+        const result = buildAIVariables(context);
+
+        expect(result.successful_examples).toBe("");
+      });
+
+      it("should return empty successful_examples when KB is null", () => {
+        const result = buildAIVariables(null);
+
+        expect(result.successful_examples).toBe("");
+      });
+    });
+
+    describe("examples with product context combined (Task 2.5, AC #5)", () => {
+      it("should include both examples and product context correctly", () => {
+        const contextWithExamples: KnowledgeBaseContext = {
+          company: {
+            company_name: "Tech Corp",
+            business_description: "Software company",
+            products_services: "General services",
+            competitive_advantages: "Fast delivery",
+          },
+          tone: { preset: "casual", custom_description: "", writing_guidelines: "" },
+          icp: null,
+          examples: [
+            {
+              id: "1",
+              tenant_id: "t1",
+              subject: "Cool email subject",
+              body: "Hey, just checking in about your needs...",
+              context: "Follow-up",
+              created_at: "2026-01-01",
+              updated_at: "2026-01-01",
+            },
+          ],
+        };
+
+        const mockProduct = {
+          id: "prod-1",
+          tenantId: "t1",
+          name: "Super Analytics",
+          description: "Real-time analytics platform",
+          features: "Dashboard, Reports",
+          differentials: "AI-powered insights",
+          targetAudience: "Marketing teams",
+          createdAt: "2026-01-01",
+          updatedAt: "2026-01-01",
+        };
+
+        const result = buildAIVariables(contextWithExamples, mockProduct);
+
+        // Examples should be present
+        expect(result.successful_examples).toContain("Exemplo 1:");
+        expect(result.successful_examples).toContain("Hey, just checking in");
+        expect(result.successful_examples).toContain("Follow-up");
+
+        // Product context should be present
+        expect(result.product_name).toBe("Super Analytics");
+        expect(result.product_description).toBe("Real-time analytics platform");
+        expect(result.product_features).toBe("Dashboard, Reports");
+        expect(result.product_differentials).toBe("AI-powered insights");
+        expect(result.product_target_audience).toBe("Marketing teams");
+
+        // products_services should use product info
+        expect(result.products_services).toContain("Super Analytics");
+
+        // Company context should still be present
+        expect(result.company_context).toContain("Tech Corp");
+
+        // Tone should be preserved
+        expect(result.tone_style).toBe("casual");
+      });
+
+      it("should handle examples + product when KB company is null", () => {
+        const contextWithOnlyExamples: KnowledgeBaseContext = {
+          company: null,
+          tone: null,
+          icp: null,
+          examples: [
+            {
+              id: "1",
+              tenant_id: "t1",
+              subject: "Example subject",
+              body: "Example body",
+              context: null,
+              created_at: "2026-01-01",
+              updated_at: "2026-01-01",
+            },
+          ],
+        };
+
+        const product = {
+          id: "p1",
+          tenantId: "t1",
+          name: "Product X",
+          description: "Description X",
+          features: null,
+          differentials: null,
+          targetAudience: null,
+          createdAt: "2026-01-01",
+          updatedAt: "2026-01-01",
+        };
+
+        const result = buildAIVariables(contextWithOnlyExamples, product);
+
+        // Both should work together
+        expect(result.successful_examples).toContain("Example subject");
+        expect(result.product_name).toBe("Product X");
+      });
     });
   });
 

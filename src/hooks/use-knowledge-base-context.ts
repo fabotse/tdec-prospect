@@ -1,9 +1,11 @@
 /**
  * useKnowledgeBaseContext Hook
  * Story 6.3: Knowledge Base Integration for Context
+ * Story 6.10: Use of Successful Examples
  *
- * AC: #1 - Knowledge Base Context in AI Prompts
- * AC: #5 - Graceful Degradation when KB empty
+ * AC 6.3: #1 - Knowledge Base Context in AI Prompts
+ * AC 6.3: #5 - Graceful Degradation when KB empty
+ * AC 6.10: #7 - User Guidance When Examples Missing
  *
  * Fetches and caches KB context for AI generation.
  * Uses TanStack Query with 5 minute stale time.
@@ -78,6 +80,8 @@ export interface UseKnowledgeBaseContextReturn {
   error: string | null;
   /** Refetch function */
   refetch: () => void;
+  /** Whether the KB has email examples configured (AC 6.10 #7) */
+  hasExamples: boolean;
 }
 
 /**
@@ -117,6 +121,11 @@ export function useKnowledgeBaseContext(): UseKnowledgeBaseContextReturn {
     return getDefaultAIVariables();
   }, [context]);
 
+  // Check if KB has email examples configured (AC 6.10 #7)
+  const hasExamples = useMemo(() => {
+    return (context?.examples?.length ?? 0) > 0;
+  }, [context]);
+
   return {
     context: context ?? null,
     variables,
@@ -125,6 +134,7 @@ export function useKnowledgeBaseContext(): UseKnowledgeBaseContextReturn {
     refetch: () => {
       refetch();
     },
+    hasExamples,
   };
 }
 
