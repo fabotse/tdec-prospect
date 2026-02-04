@@ -78,7 +78,6 @@ function getServerAuthSnapshot(): AuthState {
  * Used during logout to ensure clean state before redirect
  */
 export function resetAuthState() {
-  console.log("[useUser] Resetting auth state for logout");
   authState = {
     user: null,
     profile: null,
@@ -115,16 +114,13 @@ function initializeAuth() {
   if (isAuthInitialized) return; // Already initialized
   isAuthInitialized = true;
 
-  console.log("[useUser] Initializing shared auth state...");
   const supabase = createClient();
 
   // Helper function to load user and profile
   async function loadUserAndProfile(user: User | null) {
     let newProfile: Profile | null = null;
     if (user) {
-      console.log("[useUser] Fetching profile...");
       newProfile = await fetchProfileData(user.id);
-      console.log("[useUser] Profile fetched:", newProfile?.role);
     }
 
     authState = {
@@ -135,29 +131,30 @@ function initializeAuth() {
       isProfileLoading: false,
     };
 
-    console.log("[useUser] Auth state updated:", { hasUser: !!user, hasProfile: !!newProfile, role: newProfile?.role });
     notifyListeners();
   }
 
   // Register listener FIRST but ignore events until initial load is complete
   supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, session: Session | null) => {
-    console.log(`[useUser] onAuthStateChange: event=${event}, hasSession=${!!session}, initialLoadComplete=${isInitialLoadComplete}`);
-
     // Ignore ALL events until getSession() completes (prevents race condition)
     if (!isInitialLoadComplete) {
-      console.log("[useUser] Ignoring event - waiting for initial getSession() to complete");
       return;
     }
 
     const newUser = session?.user ?? null;
+
+    // Only show loading for actual user changes (different user or sign out)
+    // Skip loading if same user is being re-authenticated (tab focus triggers this)
+    const isSameUser = authState.user?.id === newUser?.id;
+    const isActualUserChange = !isSameUser && (event === "SIGNED_IN" || event === "SIGNED_OUT");
 
     // Update state for auth change
     authState = {
       ...authState,
       user: newUser,
       isInitialized: true,
-      isLoading: !!newUser,
-      isProfileLoading: !!newUser,
+      isLoading: isActualUserChange && !!newUser,
+      isProfileLoading: isActualUserChange && !!newUser,
     };
     notifyListeners();
 
@@ -167,8 +164,6 @@ function initializeAuth() {
 
   // CRITICAL: Use getSession() for initial load - this properly syncs the client
   supabase.auth.getSession().then(async ({ data: { session } }: { data: { session: Session | null } }) => {
-    console.log("[useUser] Initial getSession completed:", { hasSession: !!session });
-
     const initialUser = session?.user ?? null;
 
     // Set initial state immediately
@@ -197,7 +192,6 @@ function initializeAuth() {
 
     // Mark initial load as complete - now onAuthStateChange can process events
     isInitialLoadComplete = true;
-    console.log("[useUser] Initial load complete - onAuthStateChange now active");
   });
 
   // Fallback if no session loads within 5 seconds
@@ -245,7 +239,7 @@ export function useUser(): UseUserReturn {
       authState = { ...authState, profile, isProfileLoading: false };
       notifyListeners();
     }
-  }, [state.user?.id]);
+  }, [state.user]);
 
   return {
     user: state.user,
