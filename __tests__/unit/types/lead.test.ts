@@ -15,6 +15,7 @@ import {
   type LeadStatus,
   type Lead,
   type LeadRow,
+  type LinkedInPostsCache,
 } from "@/types/lead";
 
 describe("lead types", () => {
@@ -276,6 +277,22 @@ describe("lead types", () => {
   // ==============================================
 
   describe("transformLeadRow", () => {
+    // Story 6.5.4: Mock LinkedIn posts cache for testing
+    const mockLinkedInPostsCache: LinkedInPostsCache = {
+      posts: [
+        {
+          postUrl: "https://linkedin.com/feed/update/123",
+          text: "Excited to share our new product launch!",
+          publishedAt: "2026-02-01T10:00:00Z",
+          likesCount: 42,
+          commentsCount: 5,
+          repostsCount: 3,
+        },
+      ],
+      fetchedAt: "2026-02-04T12:00:00Z",
+      profileUrl: "https://linkedin.com/in/joaosilva",
+    };
+
     const mockLeadRow: LeadRow = {
       id: "uuid-123",
       tenant_id: "tenant-456",
@@ -297,6 +314,10 @@ describe("lead types", () => {
       has_direct_phone: "Yes",
       created_at: "2026-01-30T10:00:00Z",
       updated_at: "2026-01-30T12:00:00Z",
+      // Story 6.5.4: Icebreaker fields
+      icebreaker: null,
+      icebreaker_generated_at: null,
+      linkedin_posts_cache: null,
     };
 
     it("should transform snake_case to camelCase", () => {
@@ -327,6 +348,10 @@ describe("lead types", () => {
         title: null,
         linkedin_url: null,
         photo_url: null,
+        // Story 6.5.4: Icebreaker fields null handling
+        icebreaker: null,
+        icebreaker_generated_at: null,
+        linkedin_posts_cache: null,
       };
 
       const result = transformLeadRow(rowWithNulls);
@@ -342,6 +367,10 @@ describe("lead types", () => {
       expect(result.title).toBeNull();
       expect(result.linkedinUrl).toBeNull();
       expect(result.photoUrl).toBeNull();
+      // Story 6.5.4: Icebreaker fields
+      expect(result.icebreaker).toBeNull();
+      expect(result.icebreakerGeneratedAt).toBeNull();
+      expect(result.linkedinPostsCache).toBeNull();
     });
 
     it("should handle all fields correctly", () => {
@@ -440,6 +469,72 @@ describe("lead types", () => {
 
       const result = transformLeadRow(rowWithTrue);
       expect(result._isImported).toBe(true);
+    });
+
+    // ==============================================
+    // Story 6.5.4: Icebreaker Field Tests (AC #1-#5)
+    // ==============================================
+
+    describe("icebreaker fields (Story 6.5.4)", () => {
+      it("should transform icebreaker field correctly", () => {
+        const rowWithIcebreaker: LeadRow = {
+          ...mockLeadRow,
+          icebreaker: "Vi seu post sobre o lançamento do produto - parabéns pelo sucesso!",
+        };
+
+        const result = transformLeadRow(rowWithIcebreaker);
+        expect(result.icebreaker).toBe("Vi seu post sobre o lançamento do produto - parabéns pelo sucesso!");
+      });
+
+      it("should transform icebreaker_generated_at to icebreakerGeneratedAt", () => {
+        const rowWithTimestamp: LeadRow = {
+          ...mockLeadRow,
+          icebreaker: "Test icebreaker",
+          icebreaker_generated_at: "2026-02-04T15:30:00Z",
+        };
+
+        const result = transformLeadRow(rowWithTimestamp);
+        expect(result.icebreakerGeneratedAt).toBe("2026-02-04T15:30:00Z");
+      });
+
+      it("should transform linkedin_posts_cache to linkedinPostsCache", () => {
+        const rowWithCache: LeadRow = {
+          ...mockLeadRow,
+          icebreaker: "Test icebreaker",
+          icebreaker_generated_at: "2026-02-04T15:30:00Z",
+          linkedin_posts_cache: mockLinkedInPostsCache,
+        };
+
+        const result = transformLeadRow(rowWithCache);
+        expect(result.linkedinPostsCache).toEqual(mockLinkedInPostsCache);
+        expect(result.linkedinPostsCache?.posts).toHaveLength(1);
+        expect(result.linkedinPostsCache?.profileUrl).toBe("https://linkedin.com/in/joaosilva");
+      });
+
+      it("should handle null values for all icebreaker fields", () => {
+        // AC #2, #3: Existing leads without icebreakers still work
+        const result = transformLeadRow(mockLeadRow);
+
+        expect(result.icebreaker).toBeNull();
+        expect(result.icebreakerGeneratedAt).toBeNull();
+        expect(result.linkedinPostsCache).toBeNull();
+      });
+
+      it("should handle complete icebreaker data for existing lead", () => {
+        // AC #2: All three fields updated when icebreaker is saved
+        const rowWithFullIcebreaker: LeadRow = {
+          ...mockLeadRow,
+          icebreaker: "Adorei seu post sobre inovação em tecnologia!",
+          icebreaker_generated_at: "2026-02-04T16:00:00Z",
+          linkedin_posts_cache: mockLinkedInPostsCache,
+        };
+
+        const result = transformLeadRow(rowWithFullIcebreaker);
+
+        expect(result.icebreaker).toBe("Adorei seu post sobre inovação em tecnologia!");
+        expect(result.icebreakerGeneratedAt).toBe("2026-02-04T16:00:00Z");
+        expect(result.linkedinPostsCache).toEqual(mockLinkedInPostsCache);
+      });
     });
   });
 

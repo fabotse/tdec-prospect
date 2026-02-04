@@ -216,6 +216,10 @@ export function transformApolloToLeadRow(
     has_direct_phone: person.has_direct_phone,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
+    // Story 6.5.4: Icebreaker fields (default to null for new leads)
+    icebreaker: null,
+    icebreaker_generated_at: null,
+    linkedin_posts_cache: null,
   };
 }
 

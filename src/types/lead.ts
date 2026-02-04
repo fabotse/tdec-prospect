@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod";
+import type { LinkedInPost } from "./apify";
 
 // ==============================================
 // STATUS TYPES
@@ -99,6 +100,23 @@ export function getStatusConfig(
 }
 
 // ==============================================
+// ICEBREAKER TYPES (Story 6.5.4)
+// ==============================================
+
+/**
+ * Cached LinkedIn posts structure for icebreaker generation
+ * Story 6.5.4: AC #1 - linkedin_posts_cache column
+ *
+ * Stores the raw posts data used for generating icebreakers,
+ * enabling reference/debugging and avoiding re-fetching.
+ */
+export interface LinkedInPostsCache {
+  posts: LinkedInPost[];
+  fetchedAt: string;
+  profileUrl: string;
+}
+
+// ==============================================
 // LEAD INTERFACES
 // ==============================================
 
@@ -135,6 +153,12 @@ export interface Lead {
    * undefined = not checked, true = exists in DB, false = Apollo-only
    */
   _isImported?: boolean;
+  /** Story 6.5.4: Generated icebreaker text from LinkedIn posts */
+  icebreaker: string | null;
+  /** Story 6.5.4: Timestamp when icebreaker was generated */
+  icebreakerGeneratedAt: string | null;
+  /** Story 6.5.4: Cached LinkedIn posts used for generation */
+  linkedinPostsCache: LinkedInPostsCache | null;
 }
 
 /**
@@ -169,6 +193,12 @@ export interface LeadRow {
    * Set by API after checking apollo_id against DB
    */
   _is_imported?: boolean;
+  /** Story 6.5.4: Generated icebreaker text from LinkedIn posts */
+  icebreaker: string | null;
+  /** Story 6.5.4: Timestamp when icebreaker was generated */
+  icebreaker_generated_at: string | null;
+  /** Story 6.5.4: Cached LinkedIn posts used for generation */
+  linkedin_posts_cache: LinkedInPostsCache | null;
 }
 
 // ==============================================
@@ -204,6 +234,10 @@ export function transformLeadRow(row: LeadRow): Lead {
     updatedAt: row.updated_at,
     // Use _is_imported from row if explicitly set (Apollo search), otherwise true (DB query)
     _isImported: row._is_imported ?? true,
+    // Story 6.5.4: Icebreaker fields
+    icebreaker: row.icebreaker,
+    icebreakerGeneratedAt: row.icebreaker_generated_at,
+    linkedinPostsCache: row.linkedin_posts_cache,
   };
 }
 
