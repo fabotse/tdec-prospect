@@ -180,8 +180,8 @@ development_status:
   6-5-4-lead-icebreaker-database-schema: done  # Code review 2026-02-04: 3 fixes applied (File List docs, partial index comment, test count)
   6-5-5-icebreaker-enrichment-api: done  # Code review 2026-02-04: 3 HIGH, 3 MEDIUM fixes (skipped count logic, KB integration, batch test, DB error msg, OpenAI key test)
   6-5-6-icebreaker-ui-lead-table-integration: done  # Code review 2026-02-04: 4 fixes applied (double toast, error capture, tooltip tests, hook mock)
-  6-5-7-icebreaker-integration-with-email-generation: backlog  # Conectar icebreaker premium com geração de emails
-  6-5-8-apify-cost-tracking: backlog  # P2: Tracking de uso e custos (future enhancement)
+  6-5-7-icebreaker-integration-with-email-generation: done  # Code review 2026-02-04: 1 HIGH, 3 MEDIUM fixes (removed unused hook, consolidated interfaces, added badge tests)
+  6-5-8-apify-cost-tracking: done  # Code review 2026-02-04: 3 HIGH, 4 MEDIUM fixes (nullish coalescing, admin check, custom date, try/catch, UsagePage tests, retry button). 44 tests passing
   epic-6-5-retrospective: optional
 
   # Epic 7: Campaign Deployment

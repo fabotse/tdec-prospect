@@ -21,6 +21,7 @@ import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { decryptApiKey } from "@/lib/crypto/encryption";
 import { ApifyService } from "@/lib/services/apify";
 import { createAIProvider, promptManager } from "@/lib/ai";
+import { logApifySuccess, logApifyFailure } from "@/lib/services/usage-logger";
 import type { LeadRow, LinkedInPostsCache } from "@/types/lead";
 import type { FetchLinkedInPostsResult, LinkedInPost } from "@/types/apify";
 import type { PromptKey } from "@/types/ai-prompt";
@@ -270,6 +271,8 @@ async function processLeadIcebreaker(
   }
 
   // AC #2: Call ApifyService.fetchLinkedInPosts()
+  // Story 6.5.8: Track timing for usage logging
+  const apifyStartTime = Date.now();
   let postsResult: FetchLinkedInPostsResult;
   try {
     postsResult = await apifyService.fetchLinkedInPosts(
@@ -278,7 +281,16 @@ async function processLeadIcebreaker(
       3 // Fetch 3 posts as per Dev Notes
     );
   } catch (error) {
+    const durationMs = Date.now() - apifyStartTime;
     console.error(`[processLeadIcebreaker] Apify error for lead ${lead.id}:`, error);
+    // Story 6.5.8: Log failed Apify call (non-blocking)
+    logApifyFailure({
+      tenantId,
+      leadId: lead.id,
+      errorMessage: error instanceof Error ? error.message : ERROR_MESSAGES.APIFY_ERROR,
+      durationMs,
+      metadata: { linkedinProfileUrl: lead.linkedin_url, postLimit: 3 },
+    }).catch(() => {}); // Fire and forget
     return {
       leadId: lead.id,
       success: false,
@@ -286,8 +298,18 @@ async function processLeadIcebreaker(
     };
   }
 
+  const apifyDurationMs = Date.now() - apifyStartTime;
+
   // Check Apify result
   if (!postsResult.success) {
+    // Story 6.5.8: Log failed Apify call (non-blocking)
+    logApifyFailure({
+      tenantId,
+      leadId: lead.id,
+      errorMessage: postsResult.error || ERROR_MESSAGES.APIFY_ERROR,
+      durationMs: apifyDurationMs,
+      metadata: { linkedinProfileUrl: lead.linkedin_url, postLimit: 3 },
+    }).catch(() => {}); // Fire and forget
     return {
       leadId: lead.id,
       success: false,
@@ -297,12 +319,33 @@ async function processLeadIcebreaker(
 
   // AC #5: Handle empty posts
   if (postsResult.posts.length === 0) {
+    // Story 6.5.8: Log with zero posts (partial success)
+    logApifySuccess({
+      tenantId,
+      leadId: lead.id,
+      postsFetched: 0,
+      durationMs: apifyDurationMs,
+      metadata: { linkedinProfileUrl: lead.linkedin_url, postLimit: 3, noPosts: true },
+    }).catch(() => {}); // Fire and forget
     return {
       leadId: lead.id,
       success: false,
       error: ERROR_MESSAGES.NO_POSTS_FOUND,
     };
   }
+
+  // Story 6.5.8: Log successful Apify call (non-blocking)
+  logApifySuccess({
+    tenantId,
+    leadId: lead.id,
+    postsFetched: postsResult.posts.length,
+    durationMs: apifyDurationMs,
+    metadata: {
+      linkedinProfileUrl: lead.linkedin_url,
+      postLimit: 3,
+      deepScrape: true,
+    },
+  }).catch(() => {}); // Fire and forget
 
   // AC #2: Build variables for prompt (with KB context)
   const variables = buildIcebreakerVariables(lead, postsResult.posts, kbContext);
