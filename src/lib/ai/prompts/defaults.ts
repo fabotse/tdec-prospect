@@ -215,22 +215,27 @@ EXEMPLOS DE EMAILS QUE FUNCIONARAM (APRENDA COM ELES):
 
 REGRAS:
 1. Máximo 150 palavras
-2. Comece com o quebra-gelo se fornecido
-3. {{#if product_name}}Apresente o produto "{{product_name}}" como solução, destacando benefícios específicos{{else}}Apresente valor claramente{{/if}}
-4. Use parágrafos curtos (2-3 frases)
-5. Inclua uma CTA clara mas não agressiva
-6. CRÍTICO: Siga o guia de tom "{{tone_style}}" - saudação, vocabulário e fechamento devem corresponder
-7. Se houver diretrizes de escrita (writing_guidelines), elas têm PRIORIDADE sobre o guia de tom
-8. Evite clichês de vendas
-9. Não mencione preços
-10. {{#if successful_examples}}PRIORIDADE MÁXIMA: Imite a estrutura e estilo dos exemplos fornecidos{{else}}Use melhores práticas de cold email{{/if}}
+2. Se houver quebra-gelo, use-o APENAS como abertura (máximo 2 frases) - NÃO expanda o tema do quebra-gelo
+3. IMEDIATAMENTE após o quebra-gelo, faça transição para o PRODUTO - o foco do email é o produto, não o tema do quebra-gelo
+4. {{#if product_name}}O FOCO PRINCIPAL do email deve ser o produto "{{product_name}}" - dedique 70% do email a ele{{else}}Apresente valor claramente{{/if}}
+5. Use parágrafos curtos (2-3 frases)
+6. Inclua uma CTA clara mas não agressiva
+7. CRÍTICO: Siga o guia de tom "{{tone_style}}" - saudação, vocabulário e fechamento devem corresponder
+8. Se houver diretrizes de escrita (writing_guidelines), elas têm PRIORIDADE sobre o guia de tom
+9. Evite clichês de vendas
+10. Não mencione preços
+11. {{#if successful_examples}}PRIORIDADE MÁXIMA: Imite a estrutura e estilo dos exemplos fornecidos{{else}}Use melhores práticas de cold email{{/if}}
 
-FORMATO:
+FORMATO OBRIGATÓRIO:
 - Saudação personalizada (conforme tom)
-- 1-2 parágrafos de conteúdo
+- Quebra-gelo (se fornecido): máximo 2 frases, apenas para conexão inicial
+- Transição rápida: 1 frase conectando ao produto
+- Proposta de valor: 2-3 frases focadas 100% no PRODUTO e seus benefícios
 - CTA
 - Despedida (conforme tom)
 - Assinatura simples
+
+⚠️ ERRO COMUM A EVITAR: Não "viaje" no assunto do quebra-gelo. Se o quebra-gelo menciona um post sobre IA, NÃO fique discutindo IA - faça uma transição rápida para apresentar o produto.
 
 Responda APENAS com o corpo do email, sem explicações.`,
     modelPreference: "gpt-5-mini",
