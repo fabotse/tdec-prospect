@@ -45,6 +45,8 @@ import {
   SearchX,
   Mail,
   Phone,
+  Loader2,
+  Sparkles,
 } from "lucide-react";
 import { Lead } from "@/types/lead";
 import { LeadStatusDropdown } from "./LeadStatusDropdown";
@@ -92,6 +94,8 @@ interface Column {
   minWidth: number;
   sortable: boolean;
   truncate: boolean;
+  /** Story 6.5.6: Optional tooltip text for column header */
+  headerTooltip?: string;
 }
 
 interface LeadTableProps {
@@ -105,6 +109,10 @@ interface LeadTableProps {
   onRowClick?: (lead: Lead) => void;
   /** Story 4.6: AC #4 - Show status badge on import indicator for Apollo search */
   showImportStatus?: boolean;
+  /** Story 6.5.6: AC #1 - Show "Icebreaker" column */
+  showIcebreaker?: boolean;
+  /** Story 6.5.6: AC #4 - Set of lead IDs currently generating icebreakers */
+  generatingIcebreakerIds?: Set<string>;
 }
 
 // ==============================================
@@ -178,6 +186,16 @@ const COLUMNS: Column[] = [
     sortable: true,
     truncate: false,
   },
+  // Story 6.5.6: AC #1 - "Icebreaker" column (optional, shown via showIcebreaker prop)
+  {
+    key: "icebreaker",
+    label: "Icebreaker",
+    defaultWidth: 200,
+    minWidth: 150,
+    sortable: false,
+    truncate: true,
+    headerTooltip: "Gerado automaticamente a partir dos posts do LinkedIn",
+  },
   // Story 4.2.2: AC #2 - "Importado em" column (optional, shown via showCreatedAt prop)
   {
     key: "createdAt",
@@ -201,12 +219,17 @@ export function LeadTable({
   showCreatedAt = false,
   onRowClick,
   showImportStatus = false,
+  showIcebreaker = false,
+  generatingIcebreakerIds = new Set(),
 }: LeadTableProps) {
-  // Story 4.2.2: Filter columns based on showCreatedAt prop
+  // Story 4.2.2, 6.5.6: Filter columns based on showCreatedAt and showIcebreaker props
   const visibleColumns = useMemo(() => {
-    if (showCreatedAt) return COLUMNS;
-    return COLUMNS.filter((col) => col.key !== "createdAt");
-  }, [showCreatedAt]);
+    return COLUMNS.filter((col) => {
+      if (col.key === "createdAt" && !showCreatedAt) return false;
+      if (col.key === "icebreaker" && !showIcebreaker) return false;
+      return true;
+    });
+  }, [showCreatedAt, showIcebreaker]);
   // Sort state
   const [sort, setSort] = useState<SortState>({
     column: null,
@@ -416,6 +439,7 @@ export function LeadTable({
     [
       focusedCell,
       sortedLeads,
+      visibleColumns.length,
       allSelected,
       selectedIds,
       handleSelectAll,
@@ -525,7 +549,24 @@ export function LeadTable({
                     />
                   ) : (
                     <div className="flex items-center gap-1">
-                      <span>{col.label}</span>
+                      {/* Story 6.5.6: AC #1 - Column header with optional tooltip */}
+                      {col.headerTooltip ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="flex items-center gap-1">
+                              {col.label}
+                              {col.key === "icebreaker" && (
+                                <Sparkles className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+                              )}
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            {col.headerTooltip}
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        <span>{col.label}</span>
+                      )}
                       {col.sortable && (
                         <SortIndicator
                           direction={
@@ -736,17 +777,34 @@ export function LeadTable({
                   <LeadStatusDropdown lead={lead} currentStatus={lead.status} />
                 </TableCell>
 
-                {/* Story 4.2.2: AC #2 - Importado em column (optional) */}
-                {showCreatedAt && (
-                  <TableCell
-                    role="gridcell"
-                    className="text-muted-foreground"
+                {/* Story 6.5.6: AC #1 - Icebreaker column (optional) */}
+                {showIcebreaker && (
+                  <IcebreakerCell
+                    icebreaker={lead.icebreaker}
+                    isGenerating={generatingIcebreakerIds.has(lead.id)}
                     onFocus={() =>
                       setFocusedCell({ row: rowIndex + 1, col: 8 })
                     }
                     tabIndex={
                       focusedCell?.row === rowIndex + 1 &&
                       focusedCell?.col === 8
+                        ? 0
+                        : -1
+                    }
+                  />
+                )}
+
+                {/* Story 4.2.2: AC #2 - Importado em column (optional) */}
+                {showCreatedAt && (
+                  <TableCell
+                    role="gridcell"
+                    className="text-muted-foreground"
+                    onFocus={() =>
+                      setFocusedCell({ row: rowIndex + 1, col: showIcebreaker ? 9 : 8 })
+                    }
+                    tabIndex={
+                      focusedCell?.row === rowIndex + 1 &&
+                      focusedCell?.col === (showIcebreaker ? 9 : 8)
                         ? 0
                         : -1
                     }
@@ -998,6 +1056,79 @@ function LeadNameCell({
           </TooltipContent>
         </Tooltip>
       </div>
+    </TableCell>
+  );
+}
+
+// ==============================================
+// ICEBREAKER CELL SUB-COMPONENT
+// Story 6.5.6: AC #1, #4 - Icebreaker column display
+// ==============================================
+
+interface IcebreakerCellProps {
+  icebreaker: string | null;
+  isGenerating?: boolean;
+  onFocus?: () => void;
+  tabIndex?: number;
+}
+
+/**
+ * Displays icebreaker text with truncation and tooltip
+ * Story 6.5.6: AC #1 - Show icebreaker or empty state
+ * Story 6.5.6: AC #4 - Show loading spinner when generating
+ */
+function IcebreakerCell({
+  icebreaker,
+  isGenerating = false,
+  onFocus,
+  tabIndex,
+}: IcebreakerCellProps) {
+  // AC #4: Loading state during generation
+  if (isGenerating) {
+    return (
+      <TableCell
+        role="gridcell"
+        onFocus={onFocus}
+        tabIndex={tabIndex}
+      >
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          <span className="text-sm">Gerando...</span>
+        </div>
+      </TableCell>
+    );
+  }
+
+  // AC #1: Empty state
+  if (!icebreaker) {
+    return (
+      <TableCell
+        className="text-muted-foreground"
+        role="gridcell"
+        onFocus={onFocus}
+        tabIndex={tabIndex}
+      >
+        —
+      </TableCell>
+    );
+  }
+
+  // AC #1: Show truncated icebreaker with tooltip for full text
+  return (
+    <TableCell
+      className="max-w-0"
+      role="gridcell"
+      onFocus={onFocus}
+      tabIndex={tabIndex}
+    >
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="block truncate text-sm">{icebreaker}</span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-md">
+          <p className="whitespace-pre-wrap">{icebreaker}</p>
+        </TooltipContent>
+      </Tooltip>
     </TableCell>
   );
 }

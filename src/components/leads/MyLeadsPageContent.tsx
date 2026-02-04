@@ -80,6 +80,9 @@ export function MyLeadsPageContent() {
   // Story 4.7: AC #1 - State for import campaign results dialog
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
 
+  // Story 6.5.6: AC #4 - Track leads currently generating icebreakers
+  const [generatingIcebreakerIds, setGeneratingIcebreakerIds] = useState<Set<string>>(new Set());
+
   // Story 4.3: AC #1 - Open panel when row is clicked
   const handleRowClick = useCallback((lead: Lead) => {
     setSelectedLead(lead);
@@ -94,6 +97,16 @@ export function MyLeadsPageContent() {
   // Story 4.4.1: Update selected lead when enriched
   const handleLeadUpdate = useCallback((updatedLead: Lead) => {
     setSelectedLead(updatedLead);
+  }, []);
+
+  // Story 6.5.6: AC #4 - Handle icebreaker generation start
+  const handleIcebreakerGenerationStart = useCallback((leadIds: string[]) => {
+    setGeneratingIcebreakerIds(new Set(leadIds));
+  }, []);
+
+  // Story 6.5.6: AC #4 - Handle icebreaker generation end
+  const handleIcebreakerGenerationEnd = useCallback(() => {
+    setGeneratingIcebreakerIds(new Set());
   }, []);
 
   // Count visible selected leads
@@ -204,13 +217,16 @@ export function MyLeadsPageContent() {
           <CardContent className="space-y-4">
             {/* AC: #2 - LeadTable with showCreatedAt for "Importado em" column */}
             {/* Story 4.3: AC #1 - Row click opens detail panel */}
+            {/* Story 6.5.6: AC #1 - showIcebreaker column on My Leads page */}
             <LeadTable
               leads={leads}
               selectedIds={selectedIds}
               onSelectionChange={setSelectedIds}
               isLoading={isFetching}
               showCreatedAt
+              showIcebreaker
               onRowClick={handleRowClick}
+              generatingIcebreakerIds={generatingIcebreakerIds}
             />
 
             {/* AC: #7 - Pagination controls */}
@@ -289,11 +305,15 @@ export function MyLeadsPageContent() {
       {/* AC: #5 - Selection bar for batch actions */}
       {/* Story 4.4.1: AC #4 - showEnrichment on My Leads page */}
       {/* Story 4.5: AC #4.2 - showPhoneLookup only on My Leads page */}
+      {/* Story 6.5.6: AC #2 - showIcebreaker button on My Leads page */}
       <LeadSelectionBar
         visibleSelectedCount={visibleSelectedCount}
         leads={leads}
         showEnrichment
         showPhoneLookup
+        showIcebreaker
+        onIcebreakerGenerationStart={handleIcebreakerGenerationStart}
+        onIcebreakerGenerationEnd={handleIcebreakerGenerationEnd}
       />
 
       {/* Story 4.3: AC #1 - Lead detail sidepanel */}

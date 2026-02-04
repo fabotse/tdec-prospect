@@ -39,6 +39,7 @@ import {
   Calendar,
   Copy,
   AlertCircle,
+  Sparkles,
 } from "lucide-react";
 import {
   Sheet,
@@ -62,6 +63,7 @@ import {
   getLeadIdentifier,
 } from "@/hooks/use-phone-lookup";
 import { useEnrichPersistedLead } from "@/hooks/use-enrich-persisted-lead";
+import { useIcebreakerEnrichment } from "@/hooks/use-icebreaker-enrichment";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 import type { Lead } from "@/types/lead";
 import { transformLeadRow } from "@/types/lead";
@@ -76,23 +78,23 @@ interface LeadDetailPanelProps {
 }
 
 /**
- * Get icon for interaction type
+ * Render icon for interaction type
  * AC: #3 - Interaction type icons
  */
-function getInteractionIcon(type: InteractionType) {
+function renderInteractionIcon(type: InteractionType, className: string) {
   switch (type) {
     case "note":
-      return StickyNote;
+      return <StickyNote className={className} />;
     case "status_change":
-      return RefreshCw;
+      return <RefreshCw className={className} />;
     case "import":
-      return Download;
+      return <Download className={className} />;
     case "campaign_sent":
-      return Send;
+      return <Send className={className} />;
     case "campaign_reply":
-      return Reply;
+      return <Reply className={className} />;
     default:
-      return StickyNote;
+      return <StickyNote className={className} />;
   }
 }
 
@@ -112,12 +114,10 @@ function formatDate(dateString: string, includeTime = false): string {
  * AC: #3 - Each interaction shows: type icon, content, timestamp
  */
 function InteractionItem({ interaction }: { interaction: LeadInteraction }) {
-  const Icon = getInteractionIcon(interaction.type);
-
   return (
     <div className="flex gap-3 p-4 rounded-md bg-muted/50">
       <div className="flex-shrink-0 mt-1">
-        <Icon className="h-4 w-4 text-muted-foreground" />
+        {renderInteractionIcon(interaction.type, "h-4 w-4 text-muted-foreground")}
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm text-foreground whitespace-pre-wrap break-words">
@@ -229,7 +229,9 @@ function PhoneSection({ lead }: { lead: Lead }) {
 
   // Reset error states when lead changes
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional reset on lead change
     setLookupError(null);
+     
     setNotFoundMessage(null);
     reset();
   }, [lead.id, reset]);
@@ -374,6 +376,137 @@ function PhoneSection({ lead }: { lead: Lead }) {
 }
 
 /**
+ * Icebreaker Section Component
+ * Story 6.5.6: AC #3, #4, #5, #6
+ * Handles icebreaker display and generation
+ */
+function IcebreakerSection({ lead }: { lead: Lead }) {
+  const { generateForLead, isGenerating } = useIcebreakerEnrichment();
+  const [error, setError] = useState<string | null>(null);
+
+  // Reset error when lead changes
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional reset on lead change
+    setError(null);
+  }, [lead.id]);
+
+  // Handle generate/regenerate icebreaker
+  const handleGenerate = async (regenerate: boolean = false) => {
+    setError(null);
+
+    // AC #5: Check for LinkedIn URL
+    if (!lead.linkedinUrl) {
+      setError("Este lead não possui LinkedIn cadastrado");
+      return;
+    }
+
+    try {
+      await generateForLead(lead.id, regenerate);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Erro ao gerar icebreaker";
+      setError(message);
+    }
+  };
+
+  // Format timestamp for display (AC #6)
+  const formatTimestamp = (dateString: string | null): string | null => {
+    if (!dateString) return null;
+    try {
+      const date = new Date(dateString);
+      return format(date, "dd/MM/yyyy HH:mm", { locale: ptBR });
+    } catch {
+      return null;
+    }
+  };
+
+  const timestamp = formatTimestamp(lead.icebreakerGeneratedAt);
+
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+          <Sparkles className="h-3.5 w-3.5" />
+          Icebreaker
+        </h3>
+        {/* AC #3: Regenerar button for existing icebreakers */}
+        {lead.icebreaker && !isGenerating && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleGenerate(true)}
+            disabled={isGenerating}
+            className="h-7 px-2 text-xs"
+          >
+            <RefreshCw className="h-3 w-3 mr-1" />
+            Regenerar
+          </Button>
+        )}
+      </div>
+
+      <div className="rounded-lg border bg-card p-4">
+        {/* AC #4: Loading state during generation */}
+        {isGenerating ? (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span className="text-sm">Gerando icebreaker...</span>
+          </div>
+        ) : lead.icebreaker ? (
+          /* AC #3: Display full icebreaker text */
+          <div className="space-y-2">
+            <p className="text-sm whitespace-pre-wrap">{lead.icebreaker}</p>
+            {/* AC #6: Generation timestamp */}
+            {timestamp && (
+              <p className="text-xs text-muted-foreground">
+                Gerado em {timestamp}
+              </p>
+            )}
+          </div>
+        ) : (
+          /* AC #3: Generate button for leads without icebreaker */
+          <div className="space-y-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleGenerate(false)}
+              disabled={isGenerating || !lead.linkedinUrl}
+              className="w-full"
+            >
+              <Sparkles className="h-4 w-4 mr-2" />
+              Gerar Icebreaker
+            </Button>
+
+            {/* AC #5: No LinkedIn URL message */}
+            {!lead.linkedinUrl && (
+              <p className="text-xs text-muted-foreground text-center">
+                Lead sem LinkedIn cadastrado
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* AC #5: Error message */}
+        {error && (
+          <Alert variant="destructive" className="mt-3 py-2">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="text-xs">
+              {error}
+              {error.includes("LinkedIn") && (
+                <>
+                  <br />
+                  <span className="text-muted-foreground">
+                    Atualize os dados do lead para incluir o LinkedIn
+                  </span>
+                </>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/**
  * Lead Detail Panel
  * AC: #1 - Sidepanel with Sheet component
  * AC: #2 - Lead information display
@@ -409,6 +542,7 @@ export function LeadDetailPanel({
   // Reset form state when panel closes
   useEffect(() => {
     if (!isOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional reset on close
       setShowNoteForm(false);
     }
   }, [isOpen]);
@@ -484,6 +618,9 @@ export function LeadDetailPanel({
               </Alert>
             </section>
           )}
+
+          {/* Story 6.5.6: AC #3 - Icebreaker Section */}
+          <IcebreakerSection lead={lead} />
 
           {/* Lead Info Section */}
           <section className="space-y-2">

@@ -28,6 +28,7 @@ import { useSelectionStore } from "@/stores/use-selection-store";
 import { useBulkUpdateStatus } from "@/hooks/use-lead-status";
 import { useImportLeads, type LeadDataForImport } from "@/hooks/use-import-leads";
 import { useEnrichPersistedLead } from "@/hooks/use-enrich-persisted-lead";
+import { useIcebreakerEnrichment, estimateIcebreakerCost } from "@/hooks/use-icebreaker-enrichment";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,7 +37,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, X, RefreshCw, Loader2, Download, Phone } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { MoreHorizontal, X, RefreshCw, Loader2, Download, Phone, Sparkles } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { SegmentDropdown } from "./SegmentDropdown";
@@ -44,7 +55,6 @@ import { LeadStatusBadge } from "./LeadStatusBadge";
 import { PhoneLookupProgress } from "./PhoneLookupProgress";
 import { LEAD_STATUSES, type LeadStatus } from "@/types/lead";
 import type { Lead } from "@/types/lead";
-import type { BatchPhoneLookupResult } from "@/hooks/use-phone-lookup";
 
 interface LeadSelectionBarProps {
   /** Optional: limit count display to visible leads only */
@@ -55,6 +65,12 @@ interface LeadSelectionBarProps {
   showPhoneLookup?: boolean;
   /** Show enrichment button (only for My Leads page) - AC 4.4.1 #4 */
   showEnrichment?: boolean;
+  /** Story 6.5.6: Show icebreaker generation button - AC #2 */
+  showIcebreaker?: boolean;
+  /** Story 6.5.6: Callback when icebreaker generation starts - for loading state */
+  onIcebreakerGenerationStart?: (leadIds: string[]) => void;
+  /** Story 6.5.6: Callback when icebreaker generation ends */
+  onIcebreakerGenerationEnd?: () => void;
 }
 
 export function LeadSelectionBar({
@@ -62,6 +78,9 @@ export function LeadSelectionBar({
   leads = [],
   showPhoneLookup = false,
   showEnrichment = false,
+  showIcebreaker = false,
+  onIcebreakerGenerationStart,
+  onIcebreakerGenerationEnd,
 }: LeadSelectionBarProps) {
   const { selectedIds, clearSelection } = useSelectionStore();
   const router = useRouter();
@@ -83,6 +102,24 @@ export function LeadSelectionBar({
 
   // Story 4.5: AC #4 - Batch phone lookup state
   const [showBatchLookup, setShowBatchLookup] = useState(false);
+
+  // Story 6.5.6: AC #2 - Icebreaker generation state
+  const [showIcebreakerConfirm, setShowIcebreakerConfirm] = useState(false);
+  const [icebreakerProgress, setIcebreakerProgress] = useState<{
+    current: number;
+    total: number;
+    isRunning: boolean;
+  }>({ current: 0, total: 0, isRunning: false });
+
+  const icebreakerEnrichment = useIcebreakerEnrichment({
+    onProgress: (current, total) => {
+      setIcebreakerProgress({ current, total, isRunning: true });
+    },
+    onComplete: () => {
+      setIcebreakerProgress({ current: 0, total: 0, isRunning: false });
+      onIcebreakerGenerationEnd?.();
+    },
+  });
 
   // Use visible count if provided, otherwise total selected
   const count = visibleSelectedCount ?? selectedIds.length;
@@ -150,7 +187,7 @@ export function LeadSelectionBar({
       try {
         await enrichMutation.mutateAsync(leadId);
         enriched++;
-      } catch (error) {
+      } catch {
         // Count as not found (error toast already shown by hook)
         notFound++;
       }
@@ -171,7 +208,7 @@ export function LeadSelectionBar({
   }, [selectedIds, enrichMutation, queryClient]);
 
   // Story 4.5: AC #4 - Handle batch phone lookup complete
-  const handleBatchLookupComplete = (_results: BatchPhoneLookupResult[]) => {
+  const handleBatchLookupComplete = () => {
     setShowBatchLookup(false);
     // Don't clear selection - user may want to do other actions
   };
@@ -180,6 +217,16 @@ export function LeadSelectionBar({
   const handleBatchLookupCancel = () => {
     setShowBatchLookup(false);
   };
+
+  // Story 6.5.6: AC #2 - Handle icebreaker generation
+  const handleGenerateIcebreakers = useCallback(async () => {
+    const leadIds = [...selectedIds];
+    setShowIcebreakerConfirm(false);
+    setIcebreakerProgress({ current: 0, total: leadIds.length, isRunning: true });
+    onIcebreakerGenerationStart?.(leadIds);
+
+    await icebreakerEnrichment.generateForLeads(leadIds);
+  }, [selectedIds, icebreakerEnrichment, onIcebreakerGenerationStart]);
 
   return (
     <>
@@ -242,6 +289,26 @@ export function LeadSelectionBar({
                     {enrichProgress.isRunning
                       ? `Enriquecendo leads... ${enrichProgress.current} de ${enrichProgress.total}`
                       : `Enriquecer Dados (${selectedIds.length})`}
+                  </Button>
+                )}
+
+                {/* Story 6.5.6: AC #2 - Bulk icebreaker generation button */}
+                {showIcebreaker && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => setShowIcebreakerConfirm(true)}
+                    disabled={icebreakerProgress.isRunning || selectedIds.length === 0}
+                    className="gap-2"
+                    data-testid="generate-icebreaker-button"
+                  >
+                    {icebreakerProgress.isRunning ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-4 w-4" />
+                    )}
+                    {icebreakerProgress.isRunning
+                      ? `Gerando icebreakers... ${icebreakerProgress.current} de ${icebreakerProgress.total}`
+                      : `Gerar Icebreaker (${selectedIds.length})`}
                   </Button>
                 )}
 
@@ -334,6 +401,25 @@ export function LeadSelectionBar({
         onComplete={handleBatchLookupComplete}
         onCancel={handleBatchLookupCancel}
       />
+
+      {/* Story 6.5.6: AC #2 - Icebreaker generation confirmation dialog */}
+      <AlertDialog open={showIcebreakerConfirm} onOpenChange={setShowIcebreakerConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Gerar Icebreakers</AlertDialogTitle>
+            <AlertDialogDescription>
+              Gerar icebreaker para {selectedIds.length} lead{selectedIds.length !== 1 ? "s" : ""}?
+              {" "}Custo estimado: {estimateIcebreakerCost(selectedIds.length)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleGenerateIcebreakers}>
+              Gerar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

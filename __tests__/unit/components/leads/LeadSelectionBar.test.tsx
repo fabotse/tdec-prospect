@@ -306,11 +306,16 @@ describe("LeadSelectionBar", () => {
         location: "São Paulo, BR",
         title: "CEO",
         linkedinUrl: "https://linkedin.com/in/joaosilva",
+        photoUrl: null,
         hasEmail: true,
         hasDirectPhone: "Yes",
         status: "novo" as const,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        // Story 6.5.4: Icebreaker fields
+        icebreaker: null,
+        icebreakerGeneratedAt: null,
+        linkedinPostsCache: null,
       },
       {
         id: "lead-2",
@@ -326,11 +331,16 @@ describe("LeadSelectionBar", () => {
         location: "Rio de Janeiro, BR",
         title: "CTO",
         linkedinUrl: null,
+        photoUrl: null,
         hasEmail: true,
         hasDirectPhone: "No",
         status: "novo" as const,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        // Story 6.5.4: Icebreaker fields
+        icebreaker: null,
+        icebreakerGeneratedAt: null,
+        linkedinPostsCache: null,
       },
     ];
 
@@ -543,6 +553,298 @@ describe("LeadSelectionBar", () => {
 
       // Store still has all 4 selections
       expect(useSelectionStore.getState().selectedIds).toHaveLength(4);
+    });
+  });
+
+  // ==============================================
+  // ICEBREAKER GENERATION TESTS (Story 6.5.6: AC #2, #4)
+  // ==============================================
+
+  describe("Icebreaker Generation (Story 6.5.6)", () => {
+    const sampleLeads = [
+      {
+        id: "lead-1",
+        tenantId: "tenant-1",
+        apolloId: "apollo-123",
+        firstName: "João",
+        lastName: "Silva",
+        email: "joao@example.com",
+        phone: "+5511999999999",
+        companyName: "Empresa ABC",
+        companySize: "51-200",
+        industry: "Technology",
+        location: "São Paulo, BR",
+        title: "CEO",
+        linkedinUrl: "https://linkedin.com/in/joaosilva",
+        photoUrl: null,
+        hasEmail: true,
+        hasDirectPhone: "Yes" as const,
+        status: "novo" as const,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        icebreaker: null,
+        icebreakerGeneratedAt: null,
+        linkedinPostsCache: null,
+      },
+      {
+        id: "lead-2",
+        tenantId: "tenant-1",
+        apolloId: "apollo-456",
+        firstName: "Maria",
+        lastName: "Santos",
+        email: "maria@example.com",
+        phone: null,
+        companyName: "Empresa XYZ",
+        companySize: "11-50",
+        industry: "Finance",
+        location: "Rio de Janeiro, BR",
+        title: "CTO",
+        linkedinUrl: "https://linkedin.com/in/mariasantos",
+        photoUrl: null,
+        hasEmail: true,
+        hasDirectPhone: "No" as const,
+        status: "novo" as const,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        icebreaker: null,
+        icebreakerGeneratedAt: null,
+        linkedinPostsCache: null,
+      },
+    ];
+
+    beforeEach(() => {
+      useSelectionStore.setState({ selectedIds: ["lead-1", "lead-2"] });
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ data: [] }),
+      });
+    });
+
+    it("AC#2: does not show icebreaker button when showIcebreaker is false", () => {
+      render(
+        <LeadSelectionBar
+          visibleSelectedCount={2}
+          leads={sampleLeads}
+          showIcebreaker={false}
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      expect(screen.queryByTestId("generate-icebreaker-button")).not.toBeInTheDocument();
+    });
+
+    it("AC#2: shows icebreaker button when showIcebreaker is true", () => {
+      render(
+        <LeadSelectionBar
+          visibleSelectedCount={2}
+          leads={sampleLeads}
+          showIcebreaker
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      expect(screen.getByTestId("generate-icebreaker-button")).toBeInTheDocument();
+      expect(screen.getByText(/Gerar Icebreaker/)).toBeInTheDocument();
+    });
+
+    it("AC#2: shows lead count in icebreaker button", () => {
+      render(
+        <LeadSelectionBar
+          visibleSelectedCount={2}
+          leads={sampleLeads}
+          showIcebreaker
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      expect(screen.getByText("Gerar Icebreaker (2)")).toBeInTheDocument();
+    });
+
+    it("AC#2: shows confirmation dialog when icebreaker button clicked", async () => {
+      const user = userEvent.setup();
+      render(
+        <LeadSelectionBar
+          visibleSelectedCount={2}
+          leads={sampleLeads}
+          showIcebreaker
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      await user.click(screen.getByTestId("generate-icebreaker-button"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Gerar Icebreakers")).toBeInTheDocument();
+        expect(screen.getByText(/Gerar icebreaker para 2 leads/)).toBeInTheDocument();
+        expect(screen.getByText(/Custo estimado/)).toBeInTheDocument();
+      });
+    });
+
+    it("AC#2: confirmation dialog shows cost estimate", async () => {
+      const user = userEvent.setup();
+      render(
+        <LeadSelectionBar
+          visibleSelectedCount={2}
+          leads={sampleLeads}
+          showIcebreaker
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      await user.click(screen.getByTestId("generate-icebreaker-button"));
+
+      await waitFor(() => {
+        // Cost for 2 leads is ~$0.008, displayed as "<$0.01"
+        expect(screen.getByText(/<\$0\.01/)).toBeInTheDocument();
+      });
+    });
+
+    it("AC#2: can cancel confirmation dialog", async () => {
+      const user = userEvent.setup();
+      render(
+        <LeadSelectionBar
+          visibleSelectedCount={2}
+          leads={sampleLeads}
+          showIcebreaker
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      await user.click(screen.getByTestId("generate-icebreaker-button"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Cancelar")).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByText("Cancelar"));
+
+      await waitFor(() => {
+        expect(screen.queryByText("Gerar Icebreakers")).not.toBeInTheDocument();
+      });
+    });
+
+    it("AC#2: calls API when generation confirmed", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ data: [] }),
+        })
+        .mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            success: true,
+            results: [{ leadId: "lead-1", success: true, icebreaker: "Test" }],
+            summary: { total: 1, generated: 1, skipped: 0, failed: 0 },
+          }),
+        });
+
+      const user = userEvent.setup();
+      render(
+        <LeadSelectionBar
+          visibleSelectedCount={2}
+          leads={sampleLeads}
+          showIcebreaker
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      await user.click(screen.getByTestId("generate-icebreaker-button"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Gerar", { selector: "button" })).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByText("Gerar", { selector: "button" }));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          "/api/leads/enrich-icebreaker",
+          expect.objectContaining({
+            method: "POST",
+          })
+        );
+      });
+    });
+
+    it("AC#4: button is disabled during generation", async () => {
+      let resolveGeneration: (value: unknown) => void;
+      const generationPromise = new Promise((resolve) => {
+        resolveGeneration = resolve;
+      });
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ data: [] }),
+        })
+        .mockReturnValueOnce(generationPromise);
+
+      const user = userEvent.setup();
+      render(
+        <LeadSelectionBar
+          visibleSelectedCount={2}
+          leads={sampleLeads}
+          showIcebreaker
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      await user.click(screen.getByTestId("generate-icebreaker-button"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Gerar", { selector: "button" })).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByText("Gerar", { selector: "button" }));
+
+      await waitFor(() => {
+        const button = screen.getByTestId("generate-icebreaker-button");
+        expect(button).toBeDisabled();
+      });
+
+      resolveGeneration!({
+        ok: true,
+        json: async () => ({
+          success: true,
+          results: [{ leadId: "lead-1", success: true }],
+          summary: { total: 1, generated: 1, skipped: 0, failed: 0 },
+        }),
+      });
+    });
+
+    it("AC#4: calls onIcebreakerGenerationStart callback", async () => {
+      const onStart = vi.fn();
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          success: true,
+          results: [{ leadId: "lead-1", success: true, icebreaker: "Test" }],
+          summary: { total: 1, generated: 1, skipped: 0, failed: 0 },
+        }),
+      });
+
+      const user = userEvent.setup();
+      render(
+        <LeadSelectionBar
+          visibleSelectedCount={2}
+          leads={sampleLeads}
+          showIcebreaker
+          onIcebreakerGenerationStart={onStart}
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      await user.click(screen.getByTestId("generate-icebreaker-button"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Gerar", { selector: "button" })).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByText("Gerar", { selector: "button" }));
+
+      await waitFor(() => {
+        expect(onStart).toHaveBeenCalledWith(["lead-1", "lead-2"]);
+      });
     });
   });
 

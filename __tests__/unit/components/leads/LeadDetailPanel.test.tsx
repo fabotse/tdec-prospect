@@ -48,6 +48,18 @@ vi.mock("@/hooks/use-lead-interactions", () => ({
   })),
 }));
 
+// Mock useIcebreakerEnrichment hook (Story 6.5.6)
+const mockGenerateForLead = vi.fn();
+vi.mock("@/hooks/use-icebreaker-enrichment", () => ({
+  useIcebreakerEnrichment: vi.fn(() => ({
+    generateForLead: mockGenerateForLead,
+    generateForLeads: vi.fn(),
+    isGenerating: false,
+    error: null,
+    mutation: { isPending: false },
+  })),
+}));
+
 // ==============================================
 // HELPER: Create mock lead
 // ==============================================
@@ -67,12 +79,17 @@ function createMockLead(overrides: Partial<Lead> = {}): Lead {
     location: "Sao Paulo, BR",
     title: "CEO",
     linkedinUrl: "https://linkedin.com/in/joaosilva",
+    photoUrl: null,
     hasEmail: true,
     hasDirectPhone: "Yes",
     status: "novo",
     createdAt: "2026-01-15T10:00:00Z",
     updatedAt: "2026-01-15T10:00:00Z",
     _isImported: true,
+    // Story 6.5.4: Icebreaker fields
+    icebreaker: null,
+    icebreakerGeneratedAt: null,
+    linkedinPostsCache: null,
     ...overrides,
   };
 }
@@ -437,6 +454,120 @@ describe("LeadDetailPanel", () => {
       await user.click(copyButtons[1]);
 
       expect(mockCopyToClipboard).toHaveBeenCalledWith("+55 11 99999-9999");
+    });
+  });
+
+  // ==============================================
+  // STORY 6.5.6: ICEBREAKER SECTION
+  // ==============================================
+
+  describe("Icebreaker Section (Story 6.5.6)", () => {
+    it("AC#3: displays Icebreaker section header", () => {
+      const lead = createMockLead();
+      const onClose = vi.fn();
+
+      renderWithProviders(
+        <LeadDetailPanel lead={lead} isOpen={true} onClose={onClose} />
+      );
+
+      expect(screen.getByText("Icebreaker")).toBeInTheDocument();
+    });
+
+    it("AC#3: shows 'Gerar Icebreaker' button when lead has no icebreaker", () => {
+      const lead = createMockLead({ icebreaker: null });
+      const onClose = vi.fn();
+
+      renderWithProviders(
+        <LeadDetailPanel lead={lead} isOpen={true} onClose={onClose} />
+      );
+
+      expect(screen.getByText("Gerar Icebreaker")).toBeInTheDocument();
+    });
+
+    it("AC#3: shows icebreaker text when lead has icebreaker", () => {
+      const lead = createMockLead({
+        icebreaker: "Vi que você postou sobre IA recentemente!",
+        icebreakerGeneratedAt: "2026-02-04T10:00:00Z",
+      });
+      const onClose = vi.fn();
+
+      renderWithProviders(
+        <LeadDetailPanel lead={lead} isOpen={true} onClose={onClose} />
+      );
+
+      expect(screen.getByText("Vi que você postou sobre IA recentemente!")).toBeInTheDocument();
+    });
+
+    it("AC#3: shows 'Regenerar' button when lead has icebreaker", () => {
+      const lead = createMockLead({
+        icebreaker: "Vi que você postou sobre IA!",
+        icebreakerGeneratedAt: "2026-02-04T10:00:00Z",
+      });
+      const onClose = vi.fn();
+
+      renderWithProviders(
+        <LeadDetailPanel lead={lead} isOpen={true} onClose={onClose} />
+      );
+
+      expect(screen.getByText("Regenerar")).toBeInTheDocument();
+    });
+
+    it("AC#5: shows message when lead has no LinkedIn URL", () => {
+      const lead = createMockLead({
+        icebreaker: null,
+        linkedinUrl: null,
+      });
+      const onClose = vi.fn();
+
+      renderWithProviders(
+        <LeadDetailPanel lead={lead} isOpen={true} onClose={onClose} />
+      );
+
+      expect(screen.getByText("Lead sem LinkedIn cadastrado")).toBeInTheDocument();
+    });
+
+    it("AC#5: disables 'Gerar Icebreaker' button when no LinkedIn URL", () => {
+      const lead = createMockLead({
+        icebreaker: null,
+        linkedinUrl: null,
+      });
+      const onClose = vi.fn();
+
+      renderWithProviders(
+        <LeadDetailPanel lead={lead} isOpen={true} onClose={onClose} />
+      );
+
+      const generateButton = screen.getByText("Gerar Icebreaker");
+      expect(generateButton.closest("button")).toBeDisabled();
+    });
+
+    it("AC#6: displays generation timestamp when icebreaker exists", () => {
+      const lead = createMockLead({
+        icebreaker: "Vi que você postou sobre IA!",
+        icebreakerGeneratedAt: "2026-02-04T10:30:00Z",
+      });
+      const onClose = vi.fn();
+
+      renderWithProviders(
+        <LeadDetailPanel lead={lead} isOpen={true} onClose={onClose} />
+      );
+
+      // Should show timestamp in format "Gerado em DD/MM/YYYY HH:MM"
+      expect(screen.getByText(/Gerado em 04\/02\/2026 10:30/)).toBeInTheDocument();
+    });
+
+    it("AC#6: does not display timestamp when no icebreaker", () => {
+      const lead = createMockLead({
+        icebreaker: null,
+        icebreakerGeneratedAt: null,
+      });
+      const onClose = vi.fn();
+
+      renderWithProviders(
+        <LeadDetailPanel lead={lead} isOpen={true} onClose={onClose} />
+      );
+
+      expect(screen.queryByText(/Gerado em/)).not.toBeInTheDocument();
     });
   });
 });
