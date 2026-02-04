@@ -191,7 +191,7 @@ development_status:
   # Decisões aprovadas: Light mode incluído, glow mantido, charts grayscale, UI TripleD incluído
   epic-8: in-progress
   8-1-dark-theme-bw-conversion: done  # Code review 2026-02-04: 1 HIGH fix (chart colors), 3 action items created
-  8-2-light-theme-bw-conversion: backlog  # Atualizar .light theme para B&W neutro
+  8-2-light-theme-bw-conversion: done  # Code review 2026-02-04: 5 fixes applied (WCAG contrast, ring visibility, hue consistency, glow opacity)
   8-3-charts-grayscale-conversion: backlog  # Charts em escala de cinzas
   8-4-ui-tripled-components-integration: backlog  # Native Magnetic, Glass Cards, Animated Lists, etc.
   8-5-visual-qa-contrast-review: backlog  # QA de todas as telas para garantir contraste WCAG AA

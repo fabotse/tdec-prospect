@@ -196,72 +196,72 @@
    ========================================================================== */
 
 .light {
-  /* Background colors */
-  --background: hsl(0 0% 100%);               /* #FFFFFF */
-  --background-secondary: hsl(210 40% 98%);   /* #F8FAFC */
-  --background-tertiary: hsl(210 40% 96%);    /* #F1F5F9 */
+  /* Background colors - B&W Neutral (0% saturation) */
+  --background: hsl(0 0% 100%);               /* #FFFFFF - Branco puro (manter) */
+  --background-secondary: hsl(0 0% 98%);      /* #FAFAFA - Near-white neutro */
+  --background-tertiary: hsl(0 0% 96%);       /* #F5F5F5 - Off-white neutro */
 
-  /* Foreground colors */
-  --foreground: hsl(222 47% 11%);             /* #0F172A */
-  --foreground-muted: hsl(215 16% 47%);       /* #64748B */
+  /* Foreground colors - B&W Neutral */
+  --foreground: hsl(0 0% 9%);                 /* #171717 - Near-black neutro */
+  --foreground-muted: hsl(0 0% 40%);          /* #666666 - Cinza médio (WCAG AA compliant) */
 
-  /* Border colors */
-  --border: hsl(214 32% 91%);                 /* #E2E8F0 */
-  --border-hover: hsl(213 27% 84%);           /* #CBD5E1 */
-  --input: hsl(214 32% 91%);                  /* #E2E8F0 */
-  --ring: hsl(239 84% 67%);                   /* #6366F1 - Same as dark */
+  /* Border colors - B&W Neutral */
+  --border: hsl(0 0% 88%);                    /* #E0E0E0 - Cinza claro */
+  --border-hover: hsl(0 0% 80%);              /* #CCCCCC - Cinza médio */
+  --input: hsl(0 0% 88%);                     /* #E0E0E0 - Mesmo que border */
+  --ring: hsl(0 0% 25%);                      /* #404040 - Cinza escuro para focus ring (melhor visibilidade) */
 
-  /* Primary - Indigo (same hue, adjusted for light) */
-  --primary: hsl(239 84% 67%);                /* #6366F1 */
-  --primary-hover: hsl(239 84% 60%);
-  --primary-foreground: hsl(0 0% 100%);       /* #FFFFFF */
+  /* Primary - Preto (inversão do dark theme branco) */
+  --primary: hsl(0 0% 9%);                    /* #171717 - Near-black */
+  --primary-hover: hsl(0 0% 20%);             /* #333333 - Cinza escuro hover */
+  --primary-foreground: hsl(0 0% 100%);       /* #FFFFFF - Branco para contraste */
 
-  /* Secondary */
-  --secondary: hsl(210 40% 96%);              /* #F1F5F9 */
-  --secondary-foreground: hsl(222 47% 11%);   /* #0F172A */
+  /* Secondary - B&W Neutral */
+  --secondary: hsl(0 0% 96%);                 /* #F5F5F5 - Mesmo que background-tertiary */
+  --secondary-foreground: hsl(0 0% 9%);       /* #171717 - Near-black */
 
-  /* Muted */
-  --muted: hsl(210 40% 96%);                  /* #F1F5F9 */
-  --muted-foreground: hsl(215 16% 47%);       /* #64748B */
+  /* Muted - B&W Neutral */
+  --muted: hsl(0 0% 96%);                     /* #F5F5F5 - Mesmo que secondary */
+  --muted-foreground: hsl(0 0% 45%);          /* #737373 - Cinza médio */
 
-  /* Accent - Violet */
-  --accent: hsl(263 70% 66%);                 /* #8B5CF6 */
-  --accent-foreground: hsl(0 0% 100%);        /* #FFFFFF */
+  /* Accent - Cinza muito claro (não violet) */
+  --accent: hsl(0 0% 92%);                    /* #EBEBEB - Cinza muito claro */
+  --accent-foreground: hsl(0 0% 9%);          /* #171717 - Near-black */
 
-  /* Status Colors (same as dark) */
+  /* Status Colors - Mantidas (cores funcionais) */
   --success: hsl(142 71% 45%);
-  --success-muted: hsl(142 50% 90%);
+  --success-muted: hsl(142 50% 90%);          /* Verde claro para background claro */
   --warning: hsl(38 92% 50%);
-  --warning-muted: hsl(38 80% 90%);
+  --warning-muted: hsl(32 80% 90%);           /* Amarelo claro para background claro (hue consistente com dark) */
   --destructive: hsl(0 84% 60%);
-  --destructive-muted: hsl(0 70% 90%);
+  --destructive-muted: hsl(0 70% 90%);        /* Vermelho claro para background claro */
 
-  /* Card & Popover */
-  --card: hsl(0 0% 100%);                     /* #FFFFFF */
-  --card-foreground: hsl(222 47% 11%);        /* #0F172A */
-  --popover: hsl(0 0% 100%);
-  --popover-foreground: hsl(222 47% 11%);
+  /* Card & Popover - B&W Neutral */
+  --card: hsl(0 0% 100%);                     /* #FFFFFF - Branco puro (manter) */
+  --card-foreground: hsl(0 0% 9%);            /* #171717 - Near-black */
+  --popover: hsl(0 0% 100%);                  /* #FFFFFF */
+  --popover-foreground: hsl(0 0% 9%);         /* #171717 */
 
-  /* Sidebar */
-  --sidebar: hsl(210 40% 98%);                /* #F8FAFC */
-  --sidebar-foreground: hsl(222 47% 11%);
-  --sidebar-primary: hsl(239 84% 67%);
-  --sidebar-primary-foreground: hsl(0 0% 100%);
-  --sidebar-accent: hsl(210 40% 96%);
-  --sidebar-accent-foreground: hsl(222 47% 11%);
-  --sidebar-border: hsl(214 32% 91%);
-  --sidebar-ring: hsl(239 84% 67%);
+  /* Sidebar - B&W Neutral */
+  --sidebar: hsl(0 0% 98%);                   /* #FAFAFA - Near-white */
+  --sidebar-foreground: hsl(0 0% 9%);         /* #171717 */
+  --sidebar-primary: hsl(0 0% 9%);            /* #171717 - Preto */
+  --sidebar-primary-foreground: hsl(0 0% 100%); /* #FFFFFF - Branco */
+  --sidebar-accent: hsl(0 0% 92%);            /* #EBEBEB - Cinza muito claro */
+  --sidebar-accent-foreground: hsl(0 0% 9%);  /* #171717 */
+  --sidebar-border: hsl(0 0% 88%);            /* #E0E0E0 - Cinza claro */
+  --sidebar-ring: hsl(0 0% 25%);              /* #404040 - Cinza escuro (consistente com --ring) */
 
-  /* Charts */
-  --chart-1: hsl(239 84% 60%);
-  --chart-2: hsl(263 70% 58%);
-  --chart-3: hsl(142 71% 40%);
-  --chart-4: hsl(38 92% 45%);
-  --chart-5: hsl(0 84% 55%);
+  /* Charts - B&W Neutral (chart-1/2), Status colors (chart-3/4/5) */
+  --chart-1: hsl(0 0% 20%);                   /* Cinza escuro */
+  --chart-2: hsl(0 0% 40%);                   /* Cinza médio */
+  --chart-3: hsl(142 71% 40%);                /* Success green (status) */
+  --chart-4: hsl(38 92% 45%);                 /* Warning yellow (status) */
+  --chart-5: hsl(0 84% 55%);                  /* Destructive red (status) */
 
-  /* Glow Effects - Lighter for light mode */
-  --glow-primary: 0 0 20px hsla(239, 84%, 67%, 0.2);
-  --glow-accent: 0 0 20px hsla(263, 70%, 66%, 0.2);
+  /* Glow Effects - Preto sutil (não indigo/violet) */
+  --glow-primary: 0 0 20px hsla(0, 0%, 0%, 0.12);  /* Preto sutil (visibilidade melhorada) */
+  --glow-accent: 0 0 20px hsla(0, 0%, 0%, 0.1);    /* Preto muito sutil */
 }
 
 /* ==========================================================================
