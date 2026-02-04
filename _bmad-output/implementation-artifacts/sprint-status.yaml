@@ -176,7 +176,7 @@ development_status:
   epic-6-5: in-progress
   6-5-1-apify-integration-configuration: done  # Adicionar Apify às integrações (card config, teste conexão)
   6-5-2-apify-linkedin-posts-service: done  # Serviço para buscar posts do LinkedIn via Apify actor (code review complete)
-  6-5-3-icebreaker-prompt-configuration: backlog  # Prompt específico e configurável para geração de icebreaker
+  6-5-3-icebreaker-prompt-configuration: done  # Prompt específico e configurável para geração de icebreaker (code review complete)
   6-5-4-lead-icebreaker-database-schema: backlog  # Colunas icebreaker, icebreaker_generated_at, linkedin_posts_cache
   6-5-5-icebreaker-enrichment-api: backlog  # POST /api/leads/enrich-icebreaker
   6-5-6-icebreaker-ui-lead-table-integration: backlog  # Coluna icebreaker + botão "Gerar Icebreaker"
