@@ -13,10 +13,11 @@ describe("integration types", () => {
       expect(SERVICE_NAMES).toContain("signalhire");
       expect(SERVICE_NAMES).toContain("snovio");
       expect(SERVICE_NAMES).toContain("instantly");
+      expect(SERVICE_NAMES).toContain("apify");
     });
 
-    it("should have exactly 4 services", () => {
-      expect(SERVICE_NAMES).toHaveLength(4);
+    it("should have exactly 5 services", () => {
+      expect(SERVICE_NAMES).toHaveLength(5);
     });
   });
 
@@ -26,6 +27,7 @@ describe("integration types", () => {
       expect(SERVICE_LABELS.signalhire).toBe("SignalHire");
       expect(SERVICE_LABELS.snovio).toBe("Snov.io");
       expect(SERVICE_LABELS.instantly).toBe("Instantly");
+      expect(SERVICE_LABELS.apify).toBe("Apify");
     });
 
     it("should have a label for every service name", () => {
@@ -42,6 +44,7 @@ describe("integration types", () => {
       expect(isValidServiceName("signalhire")).toBe(true);
       expect(isValidServiceName("snovio")).toBe(true);
       expect(isValidServiceName("instantly")).toBe(true);
+      expect(isValidServiceName("apify")).toBe(true);
     });
 
     it("should return false for invalid service names", () => {

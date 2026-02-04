@@ -89,6 +89,7 @@ const initialConfigs: IntegrationConfigs = {
   signalhire: { ...initialConfig },
   snovio: { ...initialConfig },
   instantly: { ...initialConfig },
+  apify: { ...initialConfig },
 };
 
 /**
@@ -107,7 +108,6 @@ export function useIntegrationConfig() {
    * Fetch configs on mount
    */
   useEffect(() => {
-    console.log("[useIntegrationConfig] useEffect triggered - starting loadConfigs");
     // Cancel any previous pending request
     abortControllerRef.current?.abort();
     abortControllerRef.current = new AbortController();
@@ -116,24 +116,15 @@ export function useIntegrationConfig() {
     let isMounted = true;
 
     async function loadConfigs() {
-      console.log("[useIntegrationConfig] loadConfigs() called");
-      const startTime = Date.now();
       setIsLoading(true);
       try {
-        console.log("[useIntegrationConfig] Calling getApiConfigs server action...");
         const result = await withTimeout(getApiConfigs(), API_TIMEOUT_MS, signal);
-        console.log(`[useIntegrationConfig] getApiConfigs returned in ${Date.now() - startTime}ms`, {
-          success: result.success,
-          error: !result.success ? result.error : undefined
-        });
 
         if (!isMounted || signal.aborted) {
-          console.log("[useIntegrationConfig] Aborted or unmounted, ignoring result");
           return;
         }
 
         if (result.success) {
-          console.log("[useIntegrationConfig] Success - updating configs");
           setConfigs((prev) => {
             const updated = { ...prev };
             result.data.forEach((config: ApiConfigResponse) => {
@@ -149,14 +140,9 @@ export function useIntegrationConfig() {
             });
             return updated;
           });
-        } else {
-          // On error, keep initial state but don't show error toast
-          // (user might not be admin or not authenticated yet)
-          console.error("[useIntegrationConfig] Failed to load configs:", result.error);
         }
       } catch (error) {
         if (!isMounted || signal.aborted) {
-          console.log("[useIntegrationConfig] Caught error but aborted/unmounted");
           return;
         }
 
@@ -166,7 +152,6 @@ export function useIntegrationConfig() {
         }
       } finally {
         if (isMounted && !signal.aborted) {
-          console.log(`[useIntegrationConfig] Setting isLoading=false (total: ${Date.now() - startTime}ms)`);
           setIsLoading(false);
         }
       }
@@ -175,7 +160,6 @@ export function useIntegrationConfig() {
     loadConfigs();
 
     return () => {
-      console.log("[useIntegrationConfig] Cleanup - aborting and unmounting");
       isMounted = false;
       abortControllerRef.current?.abort();
     };

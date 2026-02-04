@@ -40,6 +40,12 @@ const integrations: IntegrationMeta[] = [
     icon: "⚡",
     description: "Exportação de campanhas de cold email",
   },
+  {
+    name: "apify",
+    displayName: "Apify",
+    icon: "🔧",
+    description: "Extracao de posts do LinkedIn para icebreakers personalizados",
+  },
 ];
 
 /**
@@ -82,31 +88,18 @@ function IntegrationCardSkeleton() {
  */
 export default function IntegrationsPage() {
   const router = useRouter();
-  const { user, isLoading: isUserLoading, profile } = useUser();
+  const { user, isLoading: isUserLoading } = useUser();
   const { configs, isLoading, saveConfig, testConnection } = useIntegrationConfig();
-
-  // Debug logging
-  useEffect(() => {
-    console.log("[IntegrationsPage] Render state:", {
-      isUserLoading,
-      isConfigLoading: isLoading,
-      hasUser: !!user,
-      hasProfile: !!profile,
-      profileRole: profile?.role
-    });
-  }, [isUserLoading, isLoading, user, profile]);
 
   // Redirect to login if not authenticated (after user loading completes)
   useEffect(() => {
     if (!isUserLoading && !user) {
-      console.log("[IntegrationsPage] No user after loading - redirecting to login");
       router.push("/login");
     }
   }, [isUserLoading, user, router]);
 
   // Show loading while checking auth
   if (isUserLoading) {
-    console.log("[IntegrationsPage] Waiting for user auth check...");
     return (
       <div className="space-y-4">
         <div className="grid gap-4 md:grid-cols-2">
@@ -125,7 +118,6 @@ export default function IntegrationsPage() {
 
   // Show loading skeletons while fetching configs
   if (isLoading) {
-    console.log("[IntegrationsPage] Showing loading skeleton (isLoading=true)");
     return (
       <div className="space-y-4">
         <div className="grid gap-4 md:grid-cols-2">

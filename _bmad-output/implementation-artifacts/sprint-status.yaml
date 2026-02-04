@@ -41,8 +41,8 @@ story_location: _bmad-output/implementation-artifacts
 
 # GIT BRANCH TRACKING
 # ===================
-current_branch: epic/6-ai-content-generation
-base_branch: epic/5-campaign-builder
+current_branch: epic/6.5-icebreaker-premium
+base_branch: epic/6-ai-content-generation
 
 branch_strategy:
   # Branch naming convention:
@@ -61,7 +61,8 @@ branches:
   epic/2-administration-configuration: "Epic 2 - Administration & Configuration (DONE)"
   epic/3-lead-discovery: "Epic 3 & 4 - Lead Discovery & Management (DONE)"
   epic/5-campaign-builder: "Epic 5 - Campaign Builder (DONE)"
-  epic/6-ai-content-generation: "Epic 6 - AI Content Generation (CURRENT)"
+  epic/6-ai-content-generation: "Epic 6 - AI Content Generation (DONE)"
+  epic/6.5-icebreaker-premium: "Epic 6.5 - Icebreaker Premium (IN-PROGRESS)"
 
 development_status:
   # Epic 1: Foundation & Authentication
@@ -137,7 +138,7 @@ development_status:
   epic-5-retrospective: done  # Completed 2026-02-02 - 100% stories, 36 code review fixes
 
   # Epic 6: AI Content Generation
-  epic-6: in-progress
+  epic-6: done
   6-1-ai-provider-service-layer: done  # Code review 2026-02-02: 3 HIGH, 3 MEDIUM fixes (import type, streaming timeout, search_translation seed, promptKey validation, mock improvement, error logging)
   6-2-ai-text-generation-in-builder: done  # Code review 2026-02-02: 1 HIGH, 3 MEDIUM fixes (5s timeout, test count, body gen test, stale closure)
   6-3-knowledge-base-integration-for-context: done  # Code review 2026-02-02: 1 HIGH, 2 MEDIUM fixes (conditional blocks, File List docs, test warnings)
@@ -166,7 +167,22 @@ development_status:
   # See: sprint-status.yaml discussion 2026-02-03
   6-12-1-ai-full-campaign-generation: done  # P0: Code review 2026-02-03: 2 fixes applied (test model count, File List docs). 59 story tests passing.
   6-13-smart-campaign-templates: done  # Code review 2026-02-03: 3 MEDIUM, 2 LOW fixes applied (TypeScript mock types, migration doc, "Sequência" accent). 80/80 tests passing
-  epic-6-retrospective: optional
+  epic-6-retrospective: done  # Completed 2026-02-03 - 14/14 stories, all code review fixes applied
+
+  # Epic 6.5: Icebreaker Premium
+  # Icebreakers personalizados baseados em posts reais do LinkedIn do lead
+  # Dependências: Epic 6 (AI infrastructure), Apollo (lead data), OpenAI (generation)
+  # Pesquisa: technical-lead-enrichment-icebreakers-research-2026-02-03.md
+  epic-6-5: in-progress
+  6-5-1-apify-integration-configuration: done  # Adicionar Apify às integrações (card config, teste conexão)
+  6-5-2-apify-linkedin-posts-service: backlog  # Serviço para buscar posts do LinkedIn via Apify actor
+  6-5-3-icebreaker-prompt-configuration: backlog  # Prompt específico e configurável para geração de icebreaker
+  6-5-4-lead-icebreaker-database-schema: backlog  # Colunas icebreaker, icebreaker_generated_at, linkedin_posts_cache
+  6-5-5-icebreaker-enrichment-api: backlog  # POST /api/leads/enrich-icebreaker
+  6-5-6-icebreaker-ui-lead-table-integration: backlog  # Coluna icebreaker + botão "Gerar Icebreaker"
+  6-5-7-icebreaker-integration-with-email-generation: backlog  # Conectar icebreaker premium com geração de emails
+  6-5-8-apify-cost-tracking: backlog  # P2: Tracking de uso e custos (future enhancement)
+  epic-6-5-retrospective: optional
 
   # Epic 7: Campaign Deployment
   epic-7: backlog

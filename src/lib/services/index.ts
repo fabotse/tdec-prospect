@@ -12,6 +12,7 @@ import { ApolloService } from "./apollo";
 import { SignalHireService } from "./signalhire";
 import { SnovioService } from "./snovio";
 import { InstantlyService } from "./instantly";
+import { ApifyService } from "./apify";
 
 // ==============================================
 // RE-EXPORTS
@@ -28,6 +29,7 @@ export { ApolloService } from "./apollo";
 export { SignalHireService } from "./signalhire";
 export { SnovioService } from "./snovio";
 export { InstantlyService } from "./instantly";
+export { ApifyService } from "./apify";
 
 // ==============================================
 // SERVICE INSTANCES
@@ -38,6 +40,7 @@ const services: Record<ServiceName, ExternalService> = {
   signalhire: new SignalHireService(),
   snovio: new SnovioService(),
   instantly: new InstantlyService(),
+  apify: new ApifyService(),
 };
 
 // ==============================================
@@ -47,7 +50,7 @@ const services: Record<ServiceName, ExternalService> = {
 /**
  * Get service instance by name
  *
- * @param serviceName - The service name (apollo, signalhire, snovio, instantly)
+ * @param serviceName - The service name (apollo, signalhire, snovio, instantly, apify)
  * @returns The service instance
  * @throws Error if service name is invalid
  */
