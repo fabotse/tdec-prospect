@@ -178,7 +178,7 @@ development_status:
   6-5-2-apify-linkedin-posts-service: done  # Serviço para buscar posts do LinkedIn via Apify actor (code review complete)
   6-5-3-icebreaker-prompt-configuration: done  # Prompt específico e configurável para geração de icebreaker (code review complete)
   6-5-4-lead-icebreaker-database-schema: done  # Code review 2026-02-04: 3 fixes applied (File List docs, partial index comment, test count)
-  6-5-5-icebreaker-enrichment-api: backlog  # POST /api/leads/enrich-icebreaker
+  6-5-5-icebreaker-enrichment-api: done  # Code review 2026-02-04: 3 HIGH, 3 MEDIUM fixes (skipped count logic, KB integration, batch test, DB error msg, OpenAI key test)
   6-5-6-icebreaker-ui-lead-table-integration: backlog  # Coluna icebreaker + botão "Gerar Icebreaker"
   6-5-7-icebreaker-integration-with-email-generation: backlog  # Conectar icebreaker premium com geração de emails
   6-5-8-apify-cost-tracking: backlog  # P2: Tracking de uso e custos (future enhancement)
