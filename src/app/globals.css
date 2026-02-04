@@ -95,38 +95,38 @@
   --space-12: 48px;
   --space-16: 64px;
 
-  /* Dark Mode Colors (Default) - UX Specification */
+  /* Dark Mode Colors (Default) - B&W Neutral Theme */
   /* Background colors */
-  --background: hsl(222 60% 7%);              /* #070C1B - Main application background */
-  --background-secondary: hsl(222 47% 10%);   /* #0D1425 - Cards, elevated surfaces */
-  --background-tertiary: hsl(222 40% 13%);    /* #141D2F - Hover states, sidepanels */
+  --background: hsl(0 0% 4%);                 /* #0A0A0A - Near-black main background */
+  --background-secondary: hsl(0 0% 7%);       /* #121212 - Cards, elevated surfaces */
+  --background-tertiary: hsl(0 0% 10%);       /* #1A1A1A - Hover states, sidepanels */
 
   /* Foreground colors */
-  --foreground: hsl(210 40% 98%);             /* #F8FAFC - Primary text */
-  --foreground-muted: hsl(215 16% 62%);       /* #94A3B8 - Secondary text */
+  --foreground: hsl(0 0% 98%);                /* #FAFAFA - Primary text */
+  --foreground-muted: hsl(0 0% 62%);          /* #9E9E9E - Secondary text */
 
   /* Border colors */
-  --border: hsl(217 33% 17%);                 /* #1E293B - Subtle borders */
-  --border-hover: hsl(215 25% 27%);           /* #334155 - Borders on hover */
-  --input: hsl(217 33% 17%);                  /* #1E293B - Input borders */
-  --ring: hsl(239 84% 67%);                   /* #6366F1 - Focus ring (indigo) */
+  --border: hsl(0 0% 17%);                    /* #2B2B2B - Subtle borders */
+  --border-hover: hsl(0 0% 27%);              /* #454545 - Borders on hover */
+  --input: hsl(0 0% 17%);                     /* #2B2B2B - Input borders (same as border) */
+  --ring: hsl(0 0% 50%);                      /* #808080 - Focus ring (gray) */
 
-  /* Primary - Indigo */
-  --primary: hsl(239 84% 67%);                /* #6366F1 - Primary actions, CTAs */
-  --primary-hover: hsl(239 80% 74%);          /* #818CF8 - Primary on hover */
-  --primary-foreground: hsl(0 0% 100%);       /* #FFFFFF - Text on primary */
+  /* Primary - White */
+  --primary: hsl(0 0% 98%);                   /* #FAFAFA - Primary actions, CTAs */
+  --primary-hover: hsl(0 0% 85%);             /* #D9D9D9 - Primary on hover */
+  --primary-foreground: hsl(0 0% 4%);         /* #0A0A0A - Text on primary (black for contrast) */
 
   /* Secondary */
-  --secondary: hsl(217 33% 17%);              /* #1E293B - Secondary backgrounds */
-  --secondary-foreground: hsl(210 40% 98%);   /* #F8FAFC - Text on secondary */
+  --secondary: hsl(0 0% 14%);                 /* #242424 - Secondary backgrounds */
+  --secondary-foreground: hsl(0 0% 98%);      /* #FAFAFA - Text on secondary */
 
   /* Muted */
-  --muted: hsl(217 33% 17%);                  /* #1E293B - Muted backgrounds */
-  --muted-foreground: hsl(215 16% 62%);       /* #94A3B8 - Secondary/placeholder text */
+  --muted: hsl(0 0% 14%);                     /* #242424 - Muted backgrounds (same as secondary) */
+  --muted-foreground: hsl(0 0% 55%);          /* #8C8C8C - Secondary/placeholder text */
 
-  /* Accent - Violet */
-  --accent: hsl(263 70% 66%);                 /* #8B5CF6 - Special highlights, AI */
-  --accent-foreground: hsl(0 0% 100%);        /* #FFFFFF - Text on accent */
+  /* Accent - Gray */
+  --accent: hsl(0 0% 20%);                    /* #333333 - Special highlights, AI */
+  --accent-foreground: hsl(0 0% 98%);         /* #FAFAFA - Text on accent */
 
   /* Status Colors */
   --success: hsl(142 71% 45%);                /* #22C55E - Confirmations */
@@ -137,31 +137,31 @@
   --destructive-muted: hsl(0 70% 35%);        /* #991B1B - Error badge bg */
 
   /* Card & Popover */
-  --card: hsl(222 47% 10%);                   /* #0D1425 - Same as background-secondary */
-  --card-foreground: hsl(210 40% 98%);        /* #F8FAFC */
-  --popover: hsl(222 47% 10%);                /* #0D1425 */
-  --popover-foreground: hsl(210 40% 98%);     /* #F8FAFC */
+  --card: hsl(0 0% 7%);                       /* #121212 - Same as background-secondary */
+  --card-foreground: hsl(0 0% 98%);           /* #FAFAFA */
+  --popover: hsl(0 0% 7%);                    /* #121212 */
+  --popover-foreground: hsl(0 0% 98%);        /* #FAFAFA */
 
   /* Sidebar */
-  --sidebar: hsl(222 47% 10%);                /* #0D1425 */
-  --sidebar-foreground: hsl(210 40% 98%);     /* #F8FAFC */
-  --sidebar-primary: hsl(239 84% 67%);        /* #6366F1 */
-  --sidebar-primary-foreground: hsl(0 0% 100%);
-  --sidebar-accent: hsl(222 40% 13%);         /* #141D2F */
-  --sidebar-accent-foreground: hsl(210 40% 98%);
-  --sidebar-border: hsl(217 33% 17%);         /* #1E293B */
-  --sidebar-ring: hsl(239 84% 67%);           /* #6366F1 */
+  --sidebar: hsl(0 0% 7%);                    /* #121212 */
+  --sidebar-foreground: hsl(0 0% 98%);        /* #FAFAFA */
+  --sidebar-primary: hsl(0 0% 98%);           /* #FAFAFA */
+  --sidebar-primary-foreground: hsl(0 0% 4%); /* #0A0A0A */
+  --sidebar-accent: hsl(0 0% 14%);            /* #242424 */
+  --sidebar-accent-foreground: hsl(0 0% 98%); /* #FAFAFA */
+  --sidebar-border: hsl(0 0% 17%);            /* #2B2B2B */
+  --sidebar-ring: hsl(0 0% 50%);              /* #808080 */
 
-  /* Charts */
-  --chart-1: hsl(239 84% 67%);
-  --chart-2: hsl(263 70% 66%);
-  --chart-3: hsl(142 71% 45%);
-  --chart-4: hsl(38 92% 50%);
-  --chart-5: hsl(0 84% 60%);
+  /* Charts - Neutral grays for B&W theme, status colors preserved */
+  --chart-1: hsl(0 0% 70%);               /* Light gray */
+  --chart-2: hsl(0 0% 50%);               /* Medium gray */
+  --chart-3: hsl(142 71% 45%);            /* Success green (status) */
+  --chart-4: hsl(38 92% 50%);             /* Warning yellow (status) */
+  --chart-5: hsl(0 84% 60%);              /* Destructive red (status) */
 
-  /* Glow Effects - Premium Feel */
-  --glow-primary: 0 0 20px hsla(239, 84%, 67%, 0.3);
-  --glow-accent: 0 0 20px hsla(263, 70%, 66%, 0.3);
+  /* Glow Effects - Subtle White */
+  --glow-primary: 0 0 20px hsla(0, 0%, 100%, 0.15);
+  --glow-accent: 0 0 20px hsla(0, 0%, 100%, 0.1);
 
   /* Typography - Font families set via next/font */
   --font-inter: "Inter", ui-sans-serif, system-ui, sans-serif;

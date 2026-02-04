@@ -41,8 +41,8 @@ story_location: _bmad-output/implementation-artifacts
 
 # GIT BRANCH TRACKING
 # ===================
-current_branch: epic/6.5-icebreaker-premium
-base_branch: epic/6-ai-content-generation
+current_branch: epic/8-visual-refresh
+base_branch: epic/6.5-icebreaker-premium
 
 branch_strategy:
   # Branch naming convention:
@@ -62,7 +62,8 @@ branches:
   epic/3-lead-discovery: "Epic 3 & 4 - Lead Discovery & Management (DONE)"
   epic/5-campaign-builder: "Epic 5 - Campaign Builder (DONE)"
   epic/6-ai-content-generation: "Epic 6 - AI Content Generation (DONE)"
-  epic/6.5-icebreaker-premium: "Epic 6.5 - Icebreaker Premium (IN-PROGRESS)"
+  epic/6.5-icebreaker-premium: "Epic 6.5 - Icebreaker Premium (DONE)"
+  epic/8-visual-refresh: "Epic 8 - Visual Refresh B&W Theme (IN-PROGRESS)"
 
 development_status:
   # Epic 1: Foundation & Authentication
@@ -184,7 +185,19 @@ development_status:
   6-5-8-apify-cost-tracking: done  # Code review 2026-02-04: 3 HIGH, 4 MEDIUM fixes (nullish coalescing, admin check, custom date, try/catch, UsagePage tests, retry button). 44 tests passing
   epic-6-5-retrospective: optional
 
-  # Epic 7: Campaign Deployment
+  # Epic 8: Visual Refresh - Clean B&W Theme (PRIORIDADE ANTES DA EPIC 7)
+  # Transformação visual: tema azulado → preto e branco neutro
+  # Referência: ui.tripled.work
+  # Decisões aprovadas: Light mode incluído, glow mantido, charts grayscale, UI TripleD incluído
+  epic-8: in-progress
+  8-1-dark-theme-bw-conversion: done  # Code review 2026-02-04: 1 HIGH fix (chart colors), 3 action items created
+  8-2-light-theme-bw-conversion: backlog  # Atualizar .light theme para B&W neutro
+  8-3-charts-grayscale-conversion: backlog  # Charts em escala de cinzas
+  8-4-ui-tripled-components-integration: backlog  # Native Magnetic, Glass Cards, Animated Lists, etc.
+  8-5-visual-qa-contrast-review: backlog  # QA de todas as telas para garantir contraste WCAG AA
+  epic-8-retrospective: optional
+
+  # Epic 7: Campaign Deployment (MOVIDO PARA DEPOIS DA EPIC 8)
   epic-7: backlog
   7-1-snov-io-integration-service: backlog
   7-2-instantly-integration-service: backlog
