@@ -35,8 +35,8 @@ export function PreviewDelayStep({
       {/* Timeline line */}
       <div className="flex flex-col items-center">
         <div className="w-px h-4 bg-border" />
-        <div className="flex items-center justify-center h-6 w-6 rounded-full bg-amber-500/10 border border-amber-500/20">
-          <Clock className="h-3 w-3 text-amber-500" />
+        <div className="flex items-center justify-center h-6 w-6 rounded-full bg-accent border border-border">
+          <Clock className="h-3 w-3 text-accent-foreground" />
         </div>
         <div className="w-px h-4 bg-border" />
       </div>

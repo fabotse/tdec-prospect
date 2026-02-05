@@ -1092,7 +1092,7 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
       render(<EmailBlock block={blockWithLongSubject} stepNumber={1} />);
 
       const charCount = screen.getByTestId("subject-char-count");
-      expect(charCount).toHaveClass("text-amber-500");
+      expect(charCount).toHaveClass("text-foreground");
     });
 
     it("shows normal color when at or under 60 characters", () => {

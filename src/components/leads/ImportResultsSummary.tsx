@@ -59,8 +59,8 @@ export function ImportResultsSummary({
 
         {hasCreated && (
           <div className="flex items-center gap-3 p-4 rounded-lg bg-muted">
-            <div className="p-2 rounded-full bg-blue-500/10">
-              <UserPlus className="h-5 w-5 text-blue-500" />
+            <div className="p-2 rounded-full bg-muted">
+              <UserPlus className="h-5 w-5 text-muted-foreground" />
             </div>
             <div>
               <p className="text-2xl font-bold">{result.created}</p>

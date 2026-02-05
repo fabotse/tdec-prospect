@@ -75,15 +75,15 @@ function DraggableBlock({ type, icon: Icon, label, description }: DraggableBlock
       <div
         className={cn(
           "rounded-md p-2",
-          type === "email" && "bg-blue-500/10",
-          type === "delay" && "bg-amber-500/10"
+          type === "email" && "bg-muted",
+          type === "delay" && "bg-accent"
         )}
       >
         <Icon
           className={cn(
             "h-5 w-5",
-            type === "email" && "text-blue-500",
-            type === "delay" && "text-amber-500"
+            type === "email" && "text-muted-foreground",
+            type === "delay" && "text-accent-foreground"
           )}
         />
       </div>

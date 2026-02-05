@@ -49,7 +49,7 @@ export function DeleteProductDialog({
             permanentemente do catálogo.
           </AlertDialogDescription>
           {hasCampaigns && (
-            <p className="text-amber-500 text-sm mt-2">
+            <p className="text-muted-foreground text-sm mt-2">
               ⚠️ Este produto está vinculado a {product?.campaignCount}{" "}
               {product?.campaignCount === 1 ? "campanha" : "campanhas"}.
               Removê-lo não afetará campanhas existentes.

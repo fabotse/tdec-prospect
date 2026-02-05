@@ -972,7 +972,7 @@ function ContactAvailabilityCell({
             <Mail
               className={cn(
                 "h-4 w-4",
-                hasEmail ? "text-green-500" : "text-muted-foreground/40"
+                hasEmail ? "text-green-500" : "text-muted-foreground/60"
               )}
               aria-hidden="true"
             />
@@ -987,7 +987,7 @@ function ContactAvailabilityCell({
             <Phone
               className={cn(
                 "h-4 w-4",
-                phoneAvailable ? "text-green-500" : "text-muted-foreground/40"
+                phoneAvailable ? "text-green-500" : "text-muted-foreground/60"
               )}
               aria-hidden="true"
             />

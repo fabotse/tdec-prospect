@@ -194,7 +194,7 @@ development_status:
   8-2-light-theme-bw-conversion: done  # Code review 2026-02-04: 5 fixes applied (WCAG contrast, ring visibility, hue consistency, glow opacity)
   8-3-charts-grayscale-conversion: done  # Code review 2026-02-05: 3 MEDIUM fixes (docs deviation, regression test). 4 new tests
   8-4-ui-tripled-components-integration: done  # Code review 2026-02-05: 2 HIGH, 4 MEDIUM fixes (onComplete ref, rgb hardcoded, dead import, dead code, desvios documentados). 54 testes passando.
-  8-5-visual-qa-contrast-review: backlog  # QA de todas as telas para garantir contraste WCAG AA
+  8-5-visual-qa-contrast-review: done  # Code review 2026-02-05: 7 findings (1H, 3M, 3L). Fixes: hex/ratio docs corrigidos, scan expandido para src/app/, checklist atualizado. 18/18 testes passando.
   epic-8-retrospective: optional
 
   # Epic 7: Campaign Deployment (MOVIDO PARA DEPOIS DA EPIC 8)

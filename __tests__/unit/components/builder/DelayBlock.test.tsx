@@ -113,12 +113,12 @@ describe("DelayBlock (AC: #1, #2, #3, #4, #5, #6)", () => {
         <DelayBlock block={mockBlock} stepNumber={2} />
       );
 
-      // Check for amber icon container
-      const iconContainer = container.querySelector(".bg-amber-500\\/10");
+      // Check for accent icon container (B&W theme)
+      const iconContainer = container.querySelector(".bg-accent");
       expect(iconContainer).toBeInTheDocument();
 
-      // Check for clock icon with amber color
-      const clockIcon = container.querySelector(".text-amber-500");
+      // Check for clock icon with accent-foreground color (B&W theme)
+      const clockIcon = container.querySelector(".text-accent-foreground");
       expect(clockIcon).toBeInTheDocument();
     });
   });

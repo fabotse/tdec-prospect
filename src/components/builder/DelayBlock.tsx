@@ -12,7 +12,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Clock, GripVertical, ChevronDown, Trash2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -76,20 +76,22 @@ export function DelayBlock({ block, stepNumber, dragHandleProps }: DelayBlockPro
   const [isCustom, setIsCustom] = useState(false);
 
   // Sync local state when block.data changes externally (undo/redo, server sync)
-  // Using block.data directly to avoid unnecessary effect runs from recomputed blockData
-  useEffect(() => {
-    const rawData = block.data as Record<string, unknown>;
+  // React recommended pattern: adjust state during render instead of useEffect
+  const [prevBlockData, setPrevBlockData] = useState(block.data);
+  if (block.data !== prevBlockData) {
+    setPrevBlockData(block.data);
+    const raw = block.data as Record<string, unknown>;
     const newDelayValue =
-      typeof rawData.delayValue === "number"
-        ? rawData.delayValue
+      typeof raw.delayValue === "number"
+        ? raw.delayValue
         : DEFAULT_DELAY_BLOCK_DATA.delayValue;
     const newDelayUnit =
-      rawData.delayUnit === "days" || rawData.delayUnit === "hours"
-        ? rawData.delayUnit
+      raw.delayUnit === "days" || raw.delayUnit === "hours"
+        ? raw.delayUnit
         : DEFAULT_DELAY_BLOCK_DATA.delayUnit;
     setDelayValue(newDelayValue);
     setDelayUnit(newDelayUnit);
-  }, [block.data]);
+  }
 
   // Update store when delay changes
   const handleDelayChange = (value: number, unit: DelayUnit) => {
@@ -172,8 +174,8 @@ export function DelayBlock({ block, stepNumber, dragHandleProps }: DelayBlockPro
         </button>
 
         {/* Icon */}
-        <div className="rounded-lg p-2 bg-amber-500/10">
-          <Clock className="h-5 w-5 text-amber-500" />
+        <div className="rounded-lg p-2 bg-accent">
+          <Clock className="h-5 w-5 text-accent-foreground" />
         </div>
 
         {/* Title and Value */}
@@ -211,7 +213,7 @@ export function DelayBlock({ block, stepNumber, dragHandleProps }: DelayBlockPro
               >
                 <span>{preset.label}</span>
                 {"recommended" in preset && preset.recommended && (
-                  <span className="text-xs text-amber-500 font-medium">
+                  <span className="text-xs text-foreground font-medium">
                     Recomendado
                   </span>
                 )}

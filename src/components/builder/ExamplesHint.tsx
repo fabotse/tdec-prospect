@@ -47,7 +47,7 @@ export function ExamplesHint({ hasExamples }: ExamplesHintProps) {
           <Link
             href="/settings/knowledge-base"
             data-testid="examples-hint-link"
-            className="text-muted-foreground hover:text-amber-500 transition-colors"
+            className="text-muted-foreground hover:text-foreground transition-colors"
             aria-label="Adicione exemplos de emails para melhorar a qualidade da geracao"
           >
             <Lightbulb className="h-3.5 w-3.5" />

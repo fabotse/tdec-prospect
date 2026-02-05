@@ -743,7 +743,7 @@ describe("LeadTable", () => {
       );
 
       // The icon should have muted color class
-      const grayIcons = document.querySelectorAll("svg.text-muted-foreground\\/40");
+      const grayIcons = document.querySelectorAll("svg.text-muted-foreground\\/60");
       expect(grayIcons.length).toBeGreaterThan(0);
     });
 
@@ -772,7 +772,7 @@ describe("LeadTable", () => {
 
       // Should have 1 green icon (email) and 1 gray icon (phone)
       const greenIcons = document.querySelectorAll("svg.text-green-500");
-      const grayIcons = document.querySelectorAll("svg.text-muted-foreground\\/40");
+      const grayIcons = document.querySelectorAll("svg.text-muted-foreground\\/60");
       expect(greenIcons.length).toBe(1);
       expect(grayIcons.length).toBe(1);
     });

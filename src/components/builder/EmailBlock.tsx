@@ -444,8 +444,8 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
         </button>
 
         {/* Icon */}
-        <div className="rounded-lg p-2 bg-blue-500/10">
-          <Mail className="h-5 w-5 text-blue-500" />
+        <div className="rounded-lg p-2 bg-muted">
+          <Mail className="h-5 w-5 text-muted-foreground" />
         </div>
 
         {/* Title and Mode Selector */}
@@ -535,7 +535,7 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
             className={cn(
               "text-xs text-right",
               subject.length > 60
-                ? "text-amber-500"
+                ? "text-foreground"
                 : "text-muted-foreground"
             )}
           >

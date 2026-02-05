@@ -26,15 +26,15 @@ const BLOCK_CONFIG = {
     icon: Mail,
     label: "Email",
     description: "Bloco de email",
-    bgClass: "bg-blue-500/10",
-    iconClass: "text-blue-500",
+    bgClass: "bg-muted",
+    iconClass: "text-muted-foreground",
   },
   delay: {
     icon: Clock,
     label: "Aguardar",
     description: "Intervalo de tempo",
-    bgClass: "bg-amber-500/10",
-    iconClass: "text-amber-500",
+    bgClass: "bg-accent",
+    iconClass: "text-accent-foreground",
   },
 } as const;
 

@@ -65,7 +65,7 @@ describe("PreviewDelayStep", () => {
       const { container } = render(
         <PreviewDelayStep delayValue={2} delayUnit="days" />
       );
-      const iconContainer = container.querySelector(".bg-amber-500\\/10");
+      const iconContainer = container.querySelector(".bg-accent");
       expect(iconContainer).toBeInTheDocument();
     });
 

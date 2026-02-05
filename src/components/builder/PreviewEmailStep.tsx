@@ -56,8 +56,8 @@ export function PreviewEmailStep({
     >
       {/* Header */}
       <div className="flex items-center gap-3 mb-3">
-        <div className="flex items-center justify-center h-8 w-8 rounded-full bg-blue-500/10">
-          <Mail className="h-4 w-4 text-blue-500" />
+        <div className="flex items-center justify-center h-8 w-8 rounded-full bg-muted">
+          <Mail className="h-4 w-4 text-muted-foreground" />
         </div>
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-muted-foreground">

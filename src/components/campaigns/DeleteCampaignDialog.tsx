@@ -57,7 +57,7 @@ export function DeleteCampaignDialog({
             permanentemente, incluindo todos os blocos de email e delay.
           </AlertDialogDescription>
           {hasLeads && (
-            <p className="text-amber-500 text-sm mt-2">
+            <p className="text-muted-foreground text-sm mt-2">
               ⚠️ Esta campanha possui {campaign?.leadCount}{" "}
               {campaign?.leadCount === 1 ? "lead associado" : "leads associados"}.
               Os dados de relacionamento serão removidos.
