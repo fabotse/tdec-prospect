@@ -55,9 +55,9 @@ export const AI_ERROR_MESSAGES = {
 export class AIService {
   private client: OpenAI;
 
-  constructor() {
+  constructor(apiKey?: string) {
     this.client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
+      apiKey: apiKey || process.env.OPENAI_API_KEY,
     });
   }
 
@@ -219,8 +219,9 @@ export class AIService {
 
       return transcription;
     } catch (error) {
-      console.error("Whisper transcription error:", error);
-      throw new Error(AI_ERROR_MESSAGES.TRANSCRIPTION_ERROR);
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error("Whisper transcription error:", detail, error);
+      throw new Error(`${AI_ERROR_MESSAGES.TRANSCRIPTION_ERROR} (${detail})`);
     }
   }
 }

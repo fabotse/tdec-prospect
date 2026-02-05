@@ -10,7 +10,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LeadPreviewPanel } from "@/components/leads/LeadPreviewPanel";
-import type { Lead } from "@/types/lead";
+import { createMockLead } from "../../../helpers/mock-data";
 
 // Mock sonner toast
 vi.mock("sonner", () => ({
@@ -31,40 +31,6 @@ vi.mock("@/hooks/use-import-leads", () => ({
   }),
   LeadDataForImport: {},
 }));
-
-// ==============================================
-// HELPER: Create mock lead
-// ==============================================
-
-function createMockLead(overrides: Partial<Lead> = {}): Lead {
-  return {
-    id: "lead-123",
-    tenantId: "tenant-1",
-    apolloId: "apollo-12345",
-    firstName: "Maria",
-    lastName: "Santos",
-    email: "maria@example.com",
-    phone: "+55 11 88888-8888",
-    companyName: "Tech Corp",
-    companySize: "201-500",
-    industry: "Software",
-    location: "Rio de Janeiro, BR",
-    title: "CTO",
-    linkedinUrl: "https://linkedin.com/in/mariasantos",
-    photoUrl: null,
-    hasEmail: true,
-    hasDirectPhone: "Yes",
-    status: "novo",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    _isImported: false, // Not imported (Apollo lead)
-    // Story 6.5.4: Icebreaker fields
-    icebreaker: null,
-    icebreakerGeneratedAt: null,
-    linkedinPostsCache: null,
-    ...overrides,
-  };
-}
 
 // ==============================================
 // HELPER: Render with providers
@@ -124,7 +90,7 @@ describe("LeadPreviewPanel", () => {
         <LeadPreviewPanel lead={lead} isOpen={true} onClose={onClose} />
       );
 
-      expect(screen.getByText("Maria Santos")).toBeInTheDocument();
+      expect(screen.getByText("João Silva")).toBeInTheDocument();
     });
 
     it("displays lead info without interaction history section", () => {
@@ -136,8 +102,8 @@ describe("LeadPreviewPanel", () => {
       );
 
       // Should have lead info
-      expect(screen.getByText("Tech Corp")).toBeInTheDocument();
-      expect(screen.getByText("CTO")).toBeInTheDocument();
+      expect(screen.getByText("Empresa ABC")).toBeInTheDocument();
+      expect(screen.getByText("Diretor de Tecnologia")).toBeInTheDocument();
 
       // Should NOT have interaction history (only has message about importing)
       expect(
@@ -197,7 +163,7 @@ describe("LeadPreviewPanel", () => {
         <LeadPreviewPanel lead={lead} isOpen={true} onClose={onClose} />
       );
 
-      expect(screen.getByText("maria@example.com")).toBeInTheDocument();
+      expect(screen.getByText("joao@empresa.com")).toBeInTheDocument();
       const copyButtons = screen.getAllByText("Copiar");
       expect(copyButtons.length).toBeGreaterThan(0);
     });
@@ -210,7 +176,7 @@ describe("LeadPreviewPanel", () => {
         <LeadPreviewPanel lead={lead} isOpen={true} onClose={onClose} />
       );
 
-      expect(screen.getByText("+55 11 88888-8888")).toBeInTheDocument();
+      expect(screen.getByText("+55 11 99999-1111")).toBeInTheDocument();
     });
 
     it("displays location", () => {
@@ -221,7 +187,7 @@ describe("LeadPreviewPanel", () => {
         <LeadPreviewPanel lead={lead} isOpen={true} onClose={onClose} />
       );
 
-      expect(screen.getByText("Rio de Janeiro, BR")).toBeInTheDocument();
+      expect(screen.getByText("São Paulo, SP")).toBeInTheDocument();
     });
 
     it("displays status badge", () => {

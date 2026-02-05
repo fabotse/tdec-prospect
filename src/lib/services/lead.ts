@@ -93,11 +93,6 @@ export class LeadService {
       };
     }
 
-    // Log enrichment activity
-    console.info(
-      `[LeadService] Lead ${leadId} enriched with fields: ${updatedFields.join(", ")}`
-    );
-
     return {
       success: true,
       leadId,

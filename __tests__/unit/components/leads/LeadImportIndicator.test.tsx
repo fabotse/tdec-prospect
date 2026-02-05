@@ -13,44 +13,10 @@ import { axe } from "vitest-axe";
 import * as matchers from "vitest-axe/matchers";
 import { LeadImportIndicator } from "@/components/leads/LeadImportIndicator";
 import { isLeadImported } from "@/types/lead";
-import type { Lead } from "@/types/lead";
+import { createMockLead } from "../../../helpers/mock-data";
 
 // Extend Vitest matchers with axe
 expect.extend(matchers);
-
-// ==============================================
-// HELPER: Create mock lead
-// ==============================================
-
-function createMockLead(overrides: Partial<Lead> = {}): Lead {
-  return {
-    id: "550e8400-e29b-41d4-a716-446655440000", // UUID format for React key
-    tenantId: "tenant-1",
-    apolloId: "apollo-12345",
-    firstName: "João",
-    lastName: "Silva",
-    email: "joao@example.com",
-    phone: null,
-    companyName: "Empresa ABC",
-    companySize: "51-200",
-    industry: "Technology",
-    location: "São Paulo, BR",
-    title: "CEO",
-    linkedinUrl: null,
-    photoUrl: null,
-    hasEmail: true,
-    hasDirectPhone: "No",
-    status: "novo",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    _isImported: false, // Default: not imported
-    // Story 6.5.4: Icebreaker fields
-    icebreaker: null,
-    icebreakerGeneratedAt: null,
-    linkedinPostsCache: null,
-    ...overrides,
-  };
-}
 
 // ==============================================
 // isLeadImported HELPER FUNCTION TESTS

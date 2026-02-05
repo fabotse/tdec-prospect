@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
+import { decryptApiKey } from "@/lib/crypto/encryption";
 import { AIService, AI_ERROR_MESSAGES } from "@/lib/ai";
 import { ApolloService } from "@/lib/services/apollo";
 import { ExternalServiceError } from "@/lib/services/base-service";
@@ -82,8 +83,30 @@ export async function POST(request: NextRequest) {
 
     const { query } = parseResult.data;
 
-    // 3. Extract filters using AI
-    const aiService = new AIService();
+    // 3. Get API key from tenant config and extract filters
+    const supabaseForKey = await createClient();
+    const { data: keyData } = await supabaseForKey
+      .from("api_configs")
+      .select("encrypted_key")
+      .eq("tenant_id", tenantId)
+      .eq("service_name", "openai")
+      .single();
+
+    if (!keyData) {
+      return NextResponse.json<APIErrorResponse>(
+        {
+          error: {
+            code: "API_KEY_ERROR",
+            message:
+              "API key do OpenAI não configurada. Configure em Configurações > Integrações.",
+          },
+        },
+        { status: 401 }
+      );
+    }
+
+    const apiKey = decryptApiKey(keyData.encrypted_key);
+    const aiService = new AIService(apiKey);
     let aiResult: AISearchResult;
 
     try {

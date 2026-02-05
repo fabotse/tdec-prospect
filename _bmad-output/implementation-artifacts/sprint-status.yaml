@@ -1,4 +1,4 @@
-# generated: 2026-01-29
+# generated: 2026-02-05
 # project: tdec-prospect
 # project_key: NOKEY
 # tracking_system: file-system
@@ -33,7 +33,7 @@
 # - SM typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
-generated: 2026-01-29
+generated: 2026-02-05
 project: tdec-prospect
 project_key: NOKEY
 tracking_system: file-system
@@ -64,6 +64,7 @@ branches:
   epic/6-ai-content-generation: "Epic 6 - AI Content Generation (DONE)"
   epic/6.5-icebreaker-premium: "Epic 6.5 - Icebreaker Premium (DONE)"
   epic/8-visual-refresh: "Epic 8 - Visual Refresh B&W Theme (IN-PROGRESS)"
+  epic/9-ai-content-quality: "Epic 9 - AI Content Quality & Personalization (BACKLOG)"
 
 development_status:
   # Epic 1: Foundation & Authentication
@@ -87,7 +88,7 @@ development_status:
   epic-2-retrospective: done
 
   # Epic 3: Lead Discovery
-  epic-3: in-progress
+  epic-3: done
   3-1-leads-page-data-model: done
   3-2-apollo-api-integration-service: done
   3-2-1-people-enrichment-integration: done  # Added: Enrich leads with complete data (email, phone, full last_name)
@@ -174,7 +175,7 @@ development_status:
   # Icebreakers personalizados baseados em posts reais do LinkedIn do lead
   # Dependências: Epic 6 (AI infrastructure), Apollo (lead data), OpenAI (generation)
   # Pesquisa: technical-lead-enrichment-icebreakers-research-2026-02-03.md
-  epic-6-5: in-progress
+  epic-6-5: done
   6-5-1-apify-integration-configuration: done  # Adicionar Apify às integrações (card config, teste conexão)
   6-5-2-apify-linkedin-posts-service: done  # Serviço para buscar posts do LinkedIn via Apify actor (code review complete)
   6-5-3-icebreaker-prompt-configuration: done  # Prompt específico e configurável para geração de icebreaker (code review complete)
@@ -195,9 +196,29 @@ development_status:
   8-3-charts-grayscale-conversion: done  # Code review 2026-02-05: 3 MEDIUM fixes (docs deviation, regression test). 4 new tests
   8-4-ui-tripled-components-integration: done  # Code review 2026-02-05: 2 HIGH, 4 MEDIUM fixes (onComplete ref, rgb hardcoded, dead import, dead code, desvios documentados). 54 testes passando.
   8-5-visual-qa-contrast-review: done  # Code review 2026-02-05: 7 findings (1H, 3M, 3L). Fixes: hex/ratio docs corrigidos, scan expandido para src/app/, checklist atualizado. 18/18 testes passando.
-  epic-8-retrospective: optional
+  epic-8-retrospective: done  # Completed 2026-02-05 - 5/5 stories, 76 new tests, 24 hardcoded colors fixed, cleanup sprint approved
 
-  # Epic 7: Campaign Deployment (MOVIDO PARA DEPOIS DA EPIC 8)
+  # Cleanup Sprint (ANTES DA EPIC 9 — Aprovado na retro Epic 8)
+  # Objetivo: Resolver débito técnico acumulado desde Epic 5/6
+  # Referência: epic-8-retro-2026-02-05.md → Action Items 4-7
+  cleanup-sprint: in-progress
+  cleanup-1-fix-failing-tests-and-typescript-errors: done  # Code review 2026-02-05: 2 fixes applied (timer leak deterministic flush, redundant mockClear). 47/47 tests passing
+  cleanup-2-eslint-rule-and-mock-factories: done  # Code review 2026-02-05: 1 fix applied (console.warn removido — log de sucesso desnecessário). 97/97 tests passing
+
+  # Epic 9: AI Content Quality & Personalization (APÓS CLEANUP SPRINT)
+  # Evolução dos prompts de AI e personalização de Ice Breakers
+  # Dependências: Infraestrutura AI existente (Epic 6, 6.5)
+  # Documento: _bmad-output/planning-artifacts/epic-9-ai-content-quality-personalization.md
+  epic-9: backlog
+  9-1-categorias-de-ice-breaker: backlog
+  9-2-exemplos-de-referencia-para-ice-breakers-no-knowledge-base: backlog
+  9-3-refatoracao-dos-prompts-de-ice-breaker: backlog  # Depende de 9.1 + 9.2
+  9-4-variavel-ice-breaker-na-geracao-de-campanha-ai: backlog
+  9-5-estrutura-clara-nos-prompts-de-geracao-de-email-de-campanha: backlog  # Depende de 9.4
+  9-6-revisao-de-qualidade-geral-dos-prompts-ai: backlog  # Depende de 9.1-9.5
+  epic-9-retrospective: optional
+
+  # Epic 7: Campaign Deployment (MOVIDO PARA DEPOIS DA EPIC 9)
   epic-7: backlog
   7-1-snov-io-integration-service: backlog
   7-2-instantly-integration-service: backlog

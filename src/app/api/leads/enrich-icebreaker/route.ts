@@ -372,7 +372,7 @@ async function processLeadIcebreaker(
       maxTokens: renderedPrompt.metadata.maxTokens,
       model: (renderedPrompt.modelPreference as AIModel) ?? undefined,
     });
-    icebreaker = result.text.trim();
+    icebreaker = result.text.trim().replace(/^[""]|[""]$/g, "");
   } catch (error) {
     console.error(`[processLeadIcebreaker] AI error for lead ${lead.id}:`, error);
     return {

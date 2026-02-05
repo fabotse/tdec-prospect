@@ -50,10 +50,21 @@ vi.mock("@/hooks/use-tone-of-voice", () => ({
 // Mock useBuilderStore
 const mockLoadBlocks = vi.fn();
 const mockSetProductId = vi.fn();
+const mockSetTemplateName = vi.fn();
 vi.mock("@/stores/use-builder-store", () => ({
   useBuilderStore: () => ({
     loadBlocks: mockLoadBlocks,
     setProductId: mockSetProductId,
+    setTemplateName: mockSetTemplateName,
+  }),
+}));
+
+// Mock useCampaignTemplates (used by TemplateSelector in AICampaignWizard)
+vi.mock("@/hooks/use-campaign-templates", () => ({
+  useCampaignTemplates: () => ({
+    data: [],
+    isLoading: false,
+    error: null,
   }),
 }));
 
@@ -86,6 +97,28 @@ describe("AI Campaign Structure Generation Flow", () => {
     vi.restoreAllMocks();
   });
 
+  /**
+   * Helper: Navigate from CreateCampaignDialog AI mode through template-selection to form step
+   * Story 6.13 changed AICampaignWizard default step to "template-selection"
+   */
+  async function navigateToAIForm(user: ReturnType<typeof userEvent.setup>) {
+    // Click AI creation option
+    await user.click(screen.getByTestId("create-with-ai-button"));
+
+    // Wait for template-selection step
+    await waitFor(() => {
+      expect(screen.getByTestId("template-custom-button")).toBeInTheDocument();
+    });
+
+    // Click custom campaign to go to form
+    await user.click(screen.getByTestId("template-custom-button"));
+
+    // Wait for form to render
+    await waitFor(() => {
+      expect(screen.getByTestId("wizard-campaign-name")).toBeInTheDocument();
+    });
+  }
+
   describe("AC #1: Campaign Creation Options", () => {
     it("shows two creation options when dialog opens", () => {
       const Wrapper = createWrapper();
@@ -101,7 +134,7 @@ describe("AI Campaign Structure Generation Flow", () => {
       expect(screen.getByText("Criar com IA")).toBeInTheDocument();
     });
 
-    it("transitions to AI wizard when AI option is selected", async () => {
+    it("transitions to AI wizard template selection when AI option is selected", async () => {
       const user = userEvent.setup();
       const Wrapper = createWrapper();
 
@@ -115,7 +148,7 @@ describe("AI Campaign Structure Generation Flow", () => {
       await user.click(aiCard);
 
       await waitFor(() => {
-        expect(screen.getByTestId("wizard-campaign-name")).toBeInTheDocument();
+        expect(screen.getByTestId("template-selector")).toBeInTheDocument();
       });
     });
 
@@ -149,20 +182,17 @@ describe("AI Campaign Structure Generation Flow", () => {
         </Wrapper>
       );
 
-      // Open AI wizard
-      await user.click(screen.getByTestId("create-with-ai-button"));
+      await navigateToAIForm(user);
 
-      await waitFor(() => {
-        // Verify all form fields are present
-        expect(screen.getByTestId("wizard-campaign-name")).toBeInTheDocument();
-        expect(screen.getByTestId("wizard-product-select")).toBeInTheDocument();
-        expect(screen.getByTestId("wizard-objective-select")).toBeInTheDocument();
-        expect(screen.getByTestId("wizard-tone-select")).toBeInTheDocument();
-        expect(screen.getByTestId("wizard-urgency-select")).toBeInTheDocument();
-        expect(screen.getByTestId("wizard-description")).toBeInTheDocument();
-        expect(screen.getByTestId("generate-campaign-submit")).toBeInTheDocument();
-        expect(screen.getByTestId("back-to-selection")).toBeInTheDocument();
-      });
+      // Verify all form fields are present
+      expect(screen.getByTestId("wizard-campaign-name")).toBeInTheDocument();
+      expect(screen.getByTestId("wizard-product-select")).toBeInTheDocument();
+      expect(screen.getByTestId("wizard-objective-select")).toBeInTheDocument();
+      expect(screen.getByTestId("wizard-tone-select")).toBeInTheDocument();
+      expect(screen.getByTestId("wizard-urgency-select")).toBeInTheDocument();
+      expect(screen.getByTestId("wizard-description")).toBeInTheDocument();
+      expect(screen.getByTestId("generate-campaign-submit")).toBeInTheDocument();
+      expect(screen.getByTestId("back-to-templates")).toBeInTheDocument();
     });
 
     it("allows typing campaign name", async () => {
@@ -175,11 +205,7 @@ describe("AI Campaign Structure Generation Flow", () => {
         </Wrapper>
       );
 
-      await user.click(screen.getByTestId("create-with-ai-button"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("wizard-campaign-name")).toBeInTheDocument();
-      });
+      await navigateToAIForm(user);
 
       const nameInput = screen.getByTestId("wizard-campaign-name");
       await user.type(nameInput, "Test Campaign Name");
@@ -223,12 +249,7 @@ describe("AI Campaign Structure Generation Flow", () => {
         </Wrapper>
       );
 
-      // Open AI wizard
-      await user.click(screen.getByTestId("create-with-ai-button"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("wizard-campaign-name")).toBeInTheDocument();
-      });
+      await navigateToAIForm(user);
 
       // Fill campaign name (required field)
       await user.type(screen.getByTestId("wizard-campaign-name"), "Test Campaign");
@@ -268,12 +289,7 @@ describe("AI Campaign Structure Generation Flow", () => {
         </Wrapper>
       );
 
-      // Open AI wizard
-      await user.click(screen.getByTestId("create-with-ai-button"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("wizard-campaign-name")).toBeInTheDocument();
-      });
+      await navigateToAIForm(user);
 
       // Fill form
       await user.type(screen.getByTestId("wizard-campaign-name"), "Error Test");
@@ -292,7 +308,7 @@ describe("AI Campaign Structure Generation Flow", () => {
   });
 
   describe("Navigation", () => {
-    it("allows going back from wizard to selection", async () => {
+    it("allows going back from AI wizard to selection", async () => {
       const user = userEvent.setup();
       const Wrapper = createWrapper();
 
@@ -302,15 +318,15 @@ describe("AI Campaign Structure Generation Flow", () => {
         </Wrapper>
       );
 
-      // Open AI wizard
+      // Open AI wizard (shows template-selection)
       await user.click(screen.getByTestId("create-with-ai-button"));
 
       await waitFor(() => {
-        expect(screen.getByTestId("back-to-selection")).toBeInTheDocument();
+        expect(screen.getByTestId("template-selector-back")).toBeInTheDocument();
       });
 
-      // Click back
-      await user.click(screen.getByTestId("back-to-selection"));
+      // Click back from template-selection → returns to CreateCampaignDialog selection
+      await user.click(screen.getByTestId("template-selector-back"));
 
       // Should return to selection view
       await waitFor(() => {

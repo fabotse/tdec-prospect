@@ -13,7 +13,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { LeadStatusDropdown } from "@/components/leads/LeadStatusDropdown";
-import type { Lead } from "@/types/lead";
+import { createMockLead } from "../../../helpers/mock-data";
 
 // Mock sonner toast
 vi.mock("sonner", () => ({
@@ -40,38 +40,6 @@ function createWrapper() {
     return (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
-  };
-}
-
-// Helper to create mock lead
-// Note: _isImported flag determines if lead is from DB (true) or Apollo-only (false/undefined)
-function createMockLead(overrides: Partial<Lead> = {}): Lead {
-  return {
-    id: "123e4567-e89b-12d3-a456-426614174000",
-    tenantId: "tenant-1",
-    apolloId: "apollo-123",
-    firstName: "João",
-    lastName: "Silva",
-    email: "joao@example.com",
-    phone: null,
-    companyName: "Empresa ABC",
-    companySize: "51-200",
-    industry: "Technology",
-    location: "São Paulo, BR",
-    title: "CEO",
-    linkedinUrl: null,
-    photoUrl: null,
-    hasEmail: true,
-    hasDirectPhone: "No",
-    status: "novo",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    _isImported: true, // Default to imported for most tests
-    // Story 6.5.4: Icebreaker fields
-    icebreaker: null,
-    icebreakerGeneratedAt: null,
-    linkedinPostsCache: null,
-    ...overrides,
   };
 }
 

@@ -122,10 +122,21 @@ vi.mock("@/hooks/use-campaigns", () => ({
 // Mock useBuilderStore
 const mockLoadBlocks = vi.fn();
 const mockSetProductId = vi.fn();
+const mockSetTemplateName = vi.fn();
 vi.mock("@/stores/use-builder-store", () => ({
   useBuilderStore: () => ({
     loadBlocks: mockLoadBlocks,
     setProductId: mockSetProductId,
+    setTemplateName: mockSetTemplateName,
+  }),
+}));
+
+// Mock useCampaignTemplates (used by TemplateSelector)
+vi.mock("@/hooks/use-campaign-templates", () => ({
+  useCampaignTemplates: () => ({
+    data: [],
+    isLoading: false,
+    error: null,
   }),
 }));
 
@@ -169,8 +180,20 @@ describe("AI Full Campaign Generation Integration", () => {
     mockContentError = null;
   });
 
+  /**
+   * Helper: Navigate from template-selection (initial step) to form step
+   * Story 6.13 changed default step to "template-selection"
+   */
+  async function navigateToForm(user: ReturnType<typeof userEvent.setup>) {
+    const customButton = screen.getByTestId("template-custom-button");
+    await user.click(customButton);
+    await waitFor(() => {
+      expect(screen.getByTestId("wizard-campaign-name")).toBeInTheDocument();
+    });
+  }
+
   describe("Wizard Flow (AC #1, #2, #7)", () => {
-    it("shows form initially", () => {
+    it("shows template selection initially", () => {
       render(
         <AICampaignWizard
           open={true}
@@ -179,6 +202,24 @@ describe("AI Full Campaign Generation Integration", () => {
         />,
         { wrapper: createWrapper() }
       );
+
+      expect(screen.getByTestId("template-selector")).toBeInTheDocument();
+      expect(screen.getByTestId("template-custom-button")).toBeInTheDocument();
+    });
+
+    it("shows form after navigating from template selection", async () => {
+      const user = userEvent.setup();
+
+      render(
+        <AICampaignWizard
+          open={true}
+          onOpenChange={mockOnOpenChange}
+          onBack={mockOnBack}
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      await navigateToForm(user);
 
       expect(screen.getByTestId("wizard-campaign-name")).toBeInTheDocument();
       expect(screen.getByTestId("generate-campaign-submit")).toBeInTheDocument();
@@ -197,6 +238,8 @@ describe("AI Full Campaign Generation Integration", () => {
         />,
         { wrapper: createWrapper() }
       );
+
+      await navigateToForm(user);
 
       // Fill form and submit
       await user.type(screen.getByTestId("wizard-campaign-name"), "Test Campaign");
@@ -233,6 +276,8 @@ describe("AI Full Campaign Generation Integration", () => {
         { wrapper: createWrapper() }
       );
 
+      await navigateToForm(user);
+
       await user.type(screen.getByTestId("wizard-campaign-name"), "Test Campaign");
       await user.click(screen.getByTestId("generate-campaign-submit"));
 
@@ -264,6 +309,8 @@ describe("AI Full Campaign Generation Integration", () => {
         />,
         { wrapper: createWrapper() }
       );
+
+      await navigateToForm(user);
 
       // Fill form and submit to get to strategy summary
       await user.type(screen.getByTestId("wizard-campaign-name"), "Test Campaign");
@@ -302,6 +349,8 @@ describe("AI Full Campaign Generation Integration", () => {
         { wrapper: createWrapper() }
       );
 
+      await navigateToForm(user);
+
       // Fill form and submit
       await user.type(screen.getByTestId("wizard-campaign-name"), "Test Campaign");
       await user.click(screen.getByTestId("generate-campaign-submit"));
@@ -339,6 +388,8 @@ describe("AI Full Campaign Generation Integration", () => {
         />,
         { wrapper: createWrapper() }
       );
+
+      await navigateToForm(user);
 
       // Fill form and submit
       await user.type(screen.getByTestId("wizard-campaign-name"), "Test Campaign");
@@ -382,6 +433,8 @@ describe("AI Full Campaign Generation Integration", () => {
         />,
         { wrapper: createWrapper() }
       );
+
+      await navigateToForm(user);
 
       // Fill form and submit
       await user.type(screen.getByTestId("wizard-campaign-name"), "Single Email Campaign");

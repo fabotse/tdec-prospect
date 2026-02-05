@@ -14,7 +14,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LeadDetailPanel } from "@/components/leads/LeadDetailPanel";
-import type { Lead } from "@/types/lead";
+import { createMockLead } from "../../../helpers/mock-data";
 
 // Mock sonner toast
 vi.mock("sonner", () => ({
@@ -59,40 +59,6 @@ vi.mock("@/hooks/use-icebreaker-enrichment", () => ({
     mutation: { isPending: false },
   })),
 }));
-
-// ==============================================
-// HELPER: Create mock lead
-// ==============================================
-
-function createMockLead(overrides: Partial<Lead> = {}): Lead {
-  return {
-    id: "lead-123",
-    tenantId: "tenant-1",
-    apolloId: "apollo-12345",
-    firstName: "Joao",
-    lastName: "Silva",
-    email: "joao@example.com",
-    phone: "+55 11 99999-9999",
-    companyName: "Empresa ABC",
-    companySize: "51-200",
-    industry: "Technology",
-    location: "Sao Paulo, BR",
-    title: "CEO",
-    linkedinUrl: "https://linkedin.com/in/joaosilva",
-    photoUrl: null,
-    hasEmail: true,
-    hasDirectPhone: "Yes",
-    status: "novo",
-    createdAt: "2026-01-15T10:00:00Z",
-    updatedAt: "2026-01-15T10:00:00Z",
-    _isImported: true,
-    // Story 6.5.4: Icebreaker fields
-    icebreaker: null,
-    icebreakerGeneratedAt: null,
-    linkedinPostsCache: null,
-    ...overrides,
-  };
-}
 
 // ==============================================
 // HELPER: Render with providers
@@ -163,7 +129,7 @@ describe("LeadDetailPanel", () => {
         <LeadDetailPanel lead={lead} isOpen={true} onClose={onClose} />
       );
 
-      expect(screen.getByText("Joao Silva")).toBeInTheDocument();
+      expect(screen.getByText("João Silva")).toBeInTheDocument();
     });
 
     it("displays company name", () => {
@@ -186,7 +152,7 @@ describe("LeadDetailPanel", () => {
       );
 
       // Title appears in header and in InfoRow, so use getAllByText
-      const titleElements = screen.getAllByText("CEO");
+      const titleElements = screen.getAllByText("Diretor de Tecnologia");
       expect(titleElements.length).toBeGreaterThanOrEqual(1);
     });
 
@@ -198,7 +164,7 @@ describe("LeadDetailPanel", () => {
         <LeadDetailPanel lead={lead} isOpen={true} onClose={onClose} />
       );
 
-      expect(screen.getByText("joao@example.com")).toBeInTheDocument();
+      expect(screen.getByText("joao@empresa.com")).toBeInTheDocument();
       // Should have copy button
       const copyButtons = screen.getAllByText("Copiar");
       expect(copyButtons.length).toBeGreaterThan(0);
@@ -212,7 +178,7 @@ describe("LeadDetailPanel", () => {
         <LeadDetailPanel lead={lead} isOpen={true} onClose={onClose} />
       );
 
-      expect(screen.getByText("+55 11 99999-9999")).toBeInTheDocument();
+      expect(screen.getByText("+55 11 99999-1111")).toBeInTheDocument();
     });
 
     it("displays status badge", () => {
@@ -436,7 +402,7 @@ describe("LeadDetailPanel", () => {
       // Click the first one (email)
       await user.click(copyButtons[0]);
 
-      expect(mockCopyToClipboard).toHaveBeenCalledWith("joao@example.com");
+      expect(mockCopyToClipboard).toHaveBeenCalledWith("joao@empresa.com");
     });
 
     it("copies phone to clipboard when clicking copy button", async () => {
@@ -453,7 +419,7 @@ describe("LeadDetailPanel", () => {
       // Click the second one (phone)
       await user.click(copyButtons[1]);
 
-      expect(mockCopyToClipboard).toHaveBeenCalledWith("+55 11 99999-9999");
+      expect(mockCopyToClipboard).toHaveBeenCalledWith("+55 11 99999-1111");
     });
   });
 

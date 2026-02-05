@@ -4,7 +4,9 @@
  */
 
 import type { Lead, LeadStatus } from "@/types/lead";
-import type { CampaignRow, CampaignRowWithCount } from "@/types/campaign";
+import type { CampaignRow, CampaignRowWithCount, CampaignWithCount } from "@/types/campaign";
+import type { CampaignTemplate } from "@/types/campaign-template";
+import type { SegmentWithCount } from "@/types/segment";
 import type { FilterValues } from "@/stores/use-filter-store";
 import type { Product } from "@/types/product";
 
@@ -90,6 +92,79 @@ export function createMockCampaignRowWithCount(
   return {
     ...createMockCampaignRow(),
     lead_count: 0,
+    product_name: null,
+    ...overrides,
+  };
+}
+
+/**
+ * Creates a complete CampaignWithCount mock (camelCase frontend model)
+ */
+export function createMockCampaignWithCount(
+  overrides: Partial<CampaignWithCount> = {}
+): CampaignWithCount {
+  return {
+    id: "campaign-1",
+    tenantId: "tenant-1",
+    name: "Test Campaign",
+    status: "draft",
+    productId: null,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+    leadCount: 0,
+    productName: null,
+    ...overrides,
+  };
+}
+
+// ==============================================
+// CAMPAIGN TEMPLATE MOCKS
+// ==============================================
+
+/**
+ * Creates a complete CampaignTemplate mock
+ */
+export function createMockCampaignTemplate(
+  overrides: Partial<CampaignTemplate> = {}
+): CampaignTemplate {
+  return {
+    id: "template-1",
+    name: "Test Template",
+    nameKey: "test-template",
+    description: "Test template description",
+    structureJson: {
+      emails: [{ position: 1, context: "Initial outreach", emailMode: "initial" }],
+      delays: [],
+    },
+    useCase: "outreach",
+    emailCount: 1,
+    totalDays: 1,
+    isActive: true,
+    displayOrder: 0,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+// ==============================================
+// SEGMENT MOCKS
+// ==============================================
+
+/**
+ * Creates a complete SegmentWithCount mock
+ */
+export function createMockSegmentWithCount(
+  overrides: Partial<SegmentWithCount> = {}
+): SegmentWithCount {
+  return {
+    id: "segment-1",
+    tenantId: "tenant-1",
+    name: "Test Segment",
+    description: null,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+    leadCount: 0,
     ...overrides,
   };
 }
@@ -130,6 +205,7 @@ export function createMockProduct(overrides: Partial<Product> = {}): Product {
     features: "Feature 1, Feature 2",
     differentials: "Differential 1",
     targetAudience: "Target audience description",
+    campaignCount: 0,
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
     ...overrides,

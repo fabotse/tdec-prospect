@@ -11,6 +11,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
+import { createClient } from "@/lib/supabase/server";
+import { decryptApiKey } from "@/lib/crypto/encryption";
 import { AIService, AI_ERROR_MESSAGES } from "@/lib/ai";
 import type { APISuccessResponse, APIErrorResponse } from "@/types/api";
 import type { TranscriptionResponse } from "@/types/ai-search";
@@ -31,6 +33,28 @@ const ALLOWED_AUDIO_TYPES = [
 ];
 
 // ==============================================
+// HELPER: Get OpenAI API Key from DB
+// ==============================================
+
+async function getOpenAIApiKey(tenantId: string): Promise<string> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("api_configs")
+    .select("encrypted_key")
+    .eq("tenant_id", tenantId)
+    .eq("service_name", "openai")
+    .single();
+
+  if (error || !data) {
+    throw new Error(
+      "API key do OpenAI não configurada. Configure em Configurações > Integrações."
+    );
+  }
+
+  return decryptApiKey(data.encrypted_key);
+}
+
+// ==============================================
 // POST /api/ai/transcribe
 // ==============================================
 
@@ -43,6 +67,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json<APIErrorResponse>(
         { error: { code: "UNAUTHORIZED", message: "Não autenticado" } },
         { status: 401 }
+      );
+    }
+
+    const tenantId = profile.tenant_id;
+    if (!tenantId) {
+      return NextResponse.json<APIErrorResponse>(
+        { error: { code: "FORBIDDEN", message: "Tenant não encontrado" } },
+        { status: 403 }
       );
     }
 
@@ -94,8 +126,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 5. Transcribe audio
-    const aiService = new AIService();
+    // 5. Get API key from tenant config and transcribe
+    const apiKey = await getOpenAIApiKey(tenantId);
+    const aiService = new AIService(apiKey);
     const transcribedText = await aiService.transcribeAudio(audioFile);
 
     // 6. Return transcription

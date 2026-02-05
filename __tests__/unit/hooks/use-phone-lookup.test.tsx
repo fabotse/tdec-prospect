@@ -26,7 +26,7 @@ import {
   batchPhoneLookup,
 } from "@/hooks/use-phone-lookup";
 import * as sonner from "sonner";
-import type { Lead } from "@/types/lead";
+import { createMockLead } from "../../helpers/mock-data";
 
 // Mock sonner toast
 vi.mock("sonner", () => ({
@@ -53,37 +53,6 @@ function createWrapper() {
     return (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
-  };
-}
-
-// Mock lead factory
-function createMockLead(overrides: Partial<Lead> = {}): Lead {
-  return {
-    id: "lead-1",
-    tenantId: "tenant-1",
-    apolloId: null,
-    firstName: "John",
-    lastName: "Doe",
-    email: "john@example.com",
-    phone: null,
-    companyName: "Test Corp",
-    companySize: "50-100",
-    industry: "Technology",
-    location: "São Paulo",
-    title: "Developer",
-    linkedinUrl: null,
-    photoUrl: null,
-    status: "novo",
-    hasEmail: true,
-    hasDirectPhone: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    _isImported: true,
-    // Story 6.5.4: Icebreaker fields
-    icebreaker: null,
-    icebreakerGeneratedAt: null,
-    linkedinPostsCache: null,
-    ...overrides,
   };
 }
 

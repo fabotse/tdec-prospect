@@ -101,10 +101,21 @@ vi.mock("@/hooks/use-campaigns", () => ({
 // Mock useBuilderStore
 const mockLoadBlocks = vi.fn();
 const mockSetProductId = vi.fn();
+const mockSetTemplateName = vi.fn();
 vi.mock("@/stores/use-builder-store", () => ({
   useBuilderStore: () => ({
     loadBlocks: mockLoadBlocks,
     setProductId: mockSetProductId,
+    setTemplateName: mockSetTemplateName,
+  }),
+}));
+
+// Mock useCampaignTemplates (used by TemplateSelector)
+vi.mock("@/hooks/use-campaign-templates", () => ({
+  useCampaignTemplates: () => ({
+    data: [],
+    isLoading: false,
+    error: null,
   }),
 }));
 
@@ -132,8 +143,20 @@ describe("AICampaignWizard", () => {
     vi.clearAllMocks();
   });
 
-  describe("Form Rendering (AC #2)", () => {
-    it("renders wizard dialog when open", () => {
+  /**
+   * Helper: Navigate from template-selection (initial step) to form step
+   * Story 6.13 changed default step to "template-selection"
+   */
+  async function navigateToForm(user: ReturnType<typeof userEvent.setup>) {
+    const customButton = screen.getByTestId("template-custom-button");
+    await user.click(customButton);
+    await waitFor(() => {
+      expect(screen.getByTestId("wizard-campaign-name")).toBeInTheDocument();
+    });
+  }
+
+  describe("Template Selection (AC 6.13 #1)", () => {
+    it("renders template selection when open", () => {
       render(
         <AICampaignWizard
           open={true}
@@ -145,11 +168,16 @@ describe("AICampaignWizard", () => {
 
       expect(screen.getByText("Criar com IA")).toBeInTheDocument();
       expect(
-        screen.getByText("Preencha os parametros e deixe a IA criar a estrutura da campanha.")
+        screen.getByText("Selecione um template pronto ou crie uma campanha personalizada")
       ).toBeInTheDocument();
+      expect(screen.getByTestId("template-selector")).toBeInTheDocument();
     });
+  });
 
-    it("renders all form fields", () => {
+  describe("Form Rendering (AC #2)", () => {
+    it("renders all form fields", async () => {
+      const user = userEvent.setup();
+
       render(
         <AICampaignWizard
           open={true}
@@ -158,6 +186,8 @@ describe("AICampaignWizard", () => {
         />,
         { wrapper: createWrapper() }
       );
+
+      await navigateToForm(user);
 
       // Campaign name
       expect(screen.getByTestId("wizard-campaign-name")).toBeInTheDocument();
@@ -178,20 +208,7 @@ describe("AICampaignWizard", () => {
       expect(screen.getByTestId("wizard-description")).toBeInTheDocument();
     });
 
-    it("renders back button", () => {
-      render(
-        <AICampaignWizard
-          open={true}
-          onOpenChange={mockOnOpenChange}
-          onBack={mockOnBack}
-        />,
-        { wrapper: createWrapper() }
-      );
-
-      expect(screen.getByTestId("back-to-selection")).toBeInTheDocument();
-    });
-
-    it("calls onBack when back button is clicked", async () => {
+    it("renders back-to-templates button in form step", async () => {
       const user = userEvent.setup();
 
       render(
@@ -203,10 +220,31 @@ describe("AICampaignWizard", () => {
         { wrapper: createWrapper() }
       );
 
-      const backButton = screen.getByTestId("back-to-selection");
+      await navigateToForm(user);
+
+      expect(screen.getByTestId("back-to-templates")).toBeInTheDocument();
+    });
+
+    it("navigates back to template selection when back-to-templates is clicked", async () => {
+      const user = userEvent.setup();
+
+      render(
+        <AICampaignWizard
+          open={true}
+          onOpenChange={mockOnOpenChange}
+          onBack={mockOnBack}
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      await navigateToForm(user);
+
+      const backButton = screen.getByTestId("back-to-templates");
       await user.click(backButton);
 
-      expect(mockOnBack).toHaveBeenCalled();
+      await waitFor(() => {
+        expect(screen.getByTestId("template-selector")).toBeInTheDocument();
+      });
     });
   });
 
@@ -281,6 +319,8 @@ describe("AICampaignWizard", () => {
         { wrapper: createWrapper() }
       );
 
+      await navigateToForm(user);
+
       // Try to submit without name
       const submitButton = screen.getByTestId("generate-campaign-submit");
       await user.click(submitButton);
@@ -314,6 +354,8 @@ describe("AICampaignWizard", () => {
         />,
         { wrapper: createWrapper() }
       );
+
+      await navigateToForm(user);
 
       // Fill form
       const nameInput = screen.getByTestId("wizard-campaign-name");
@@ -357,6 +399,8 @@ describe("AICampaignWizard", () => {
         />,
         { wrapper: createWrapper() }
       );
+
+      await navigateToForm(user);
 
       // Fill form
       const nameInput = screen.getByTestId("wizard-campaign-name");
@@ -405,6 +449,8 @@ describe("AICampaignWizard", () => {
         />,
         { wrapper: createWrapper() }
       );
+
+      await navigateToForm(user);
 
       const cancelButton = screen.getByRole("button", { name: "Cancelar" });
       await user.click(cancelButton);

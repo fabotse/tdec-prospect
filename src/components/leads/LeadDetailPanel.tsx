@@ -383,12 +383,21 @@ function PhoneSection({ lead }: { lead: Lead }) {
 function IcebreakerSection({ lead }: { lead: Lead }) {
   const { generateForLead, isGenerating } = useIcebreakerEnrichment();
   const [error, setError] = useState<string | null>(null);
+  const [localIcebreaker, setLocalIcebreaker] = useState<string | null>(null);
+  const [localTimestamp, setLocalTimestamp] = useState<string | null>(null);
 
-  // Reset error when lead changes
+  // Reset local state when lead changes
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional reset on lead change
     setError(null);
+     
+    setLocalIcebreaker(null);
+     
+    setLocalTimestamp(null);
   }, [lead.id]);
+
+  // Use local state for immediate display, fallback to lead prop
+  const displayIcebreaker = localIcebreaker ?? lead.icebreaker;
 
   // Handle generate/regenerate icebreaker
   const handleGenerate = async (regenerate: boolean = false) => {
@@ -401,7 +410,13 @@ function IcebreakerSection({ lead }: { lead: Lead }) {
     }
 
     try {
-      await generateForLead(lead.id, regenerate);
+      const data = await generateForLead(lead.id, regenerate);
+      // Update local state immediately with the API response
+      const result = data.results[0];
+      if (result?.success && result.icebreaker) {
+        setLocalIcebreaker(result.icebreaker);
+        setLocalTimestamp(new Date().toISOString());
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erro ao gerar icebreaker";
       setError(message);
@@ -419,7 +434,7 @@ function IcebreakerSection({ lead }: { lead: Lead }) {
     }
   };
 
-  const timestamp = formatTimestamp(lead.icebreakerGeneratedAt);
+  const timestamp = formatTimestamp(localTimestamp ?? lead.icebreakerGeneratedAt);
 
   return (
     <section className="space-y-2">
@@ -429,7 +444,7 @@ function IcebreakerSection({ lead }: { lead: Lead }) {
           Icebreaker
         </h3>
         {/* AC #3: Regenerar button for existing icebreakers */}
-        {lead.icebreaker && !isGenerating && (
+        {displayIcebreaker && !isGenerating && (
           <Button
             variant="ghost"
             size="sm"
@@ -450,10 +465,10 @@ function IcebreakerSection({ lead }: { lead: Lead }) {
             <Loader2 className="h-4 w-4 animate-spin" />
             <span className="text-sm">Gerando icebreaker...</span>
           </div>
-        ) : lead.icebreaker ? (
+        ) : displayIcebreaker ? (
           /* AC #3: Display full icebreaker text */
           <div className="space-y-2">
-            <p className="text-sm whitespace-pre-wrap">{lead.icebreaker}</p>
+            <p className="text-sm whitespace-pre-wrap">{displayIcebreaker}</p>
             {/* AC #6: Generation timestamp */}
             {timestamp && (
               <p className="text-xs text-muted-foreground">

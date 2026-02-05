@@ -56,8 +56,6 @@ vi.mock("@/lib/supabase/client", () => ({
 describe("LoginPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPush.mockClear();
-    mockRefresh.mockClear();
     mockSignInWithPassword.mockResolvedValue({ error: null });
   });
 
@@ -211,6 +209,12 @@ describe("LoginPage", () => {
 
       // Button should show loading text
       expect(screen.getByRole("button", { name: /entrando/i })).toBeInTheDocument();
+
+      // Wait for mock's setTimeout(100ms) to resolve and state to settle,
+      // preventing timer leaks into subsequent tests
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /entrar/i })).toBeInTheDocument();
+      });
     });
 
     it("should disable submit button during submission", async () => {
@@ -230,6 +234,12 @@ describe("LoginPage", () => {
 
       const loadingButton = screen.getByRole("button", { name: /entrando/i });
       expect(loadingButton).toBeDisabled();
+
+      // Wait for mock's setTimeout(100ms) to resolve and state to settle,
+      // preventing timer leaks into subsequent tests
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /entrar/i })).toBeInTheDocument();
+      });
     });
   });
 
@@ -316,8 +326,6 @@ describe("LoginPage", () => {
     });
 
     it("should not redirect on error", async () => {
-      // Ensure clean mock state before this test
-      mockPush.mockReset();
       mockSignInWithPassword.mockResolvedValue({
         error: { message: "Invalid login credentials" },
       });

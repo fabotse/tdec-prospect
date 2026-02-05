@@ -15,7 +15,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PhoneLookupProgress } from "@/components/leads/PhoneLookupProgress";
-import type { Lead } from "@/types/lead";
+import { createMockLead } from "../../../helpers/mock-data";
 
 // Mock batchPhoneLookup
 vi.mock("@/hooks/use-phone-lookup", () => ({
@@ -46,37 +46,6 @@ function createWrapper() {
     return (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
-  };
-}
-
-// Mock lead factory
-function createMockLead(overrides: Partial<Lead> = {}): Lead {
-  return {
-    id: `lead-${Math.random().toString(36).slice(2)}`,
-    tenantId: "tenant-1",
-    apolloId: null,
-    firstName: "John",
-    lastName: "Doe",
-    email: "john@example.com",
-    phone: null,
-    companyName: "Test Corp",
-    companySize: "50-100",
-    industry: "Technology",
-    location: "São Paulo",
-    title: "Developer",
-    linkedinUrl: null,
-    photoUrl: null,
-    status: "novo",
-    hasEmail: true,
-    hasDirectPhone: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    _isImported: true,
-    // Story 6.5.4: Icebreaker fields
-    icebreaker: null,
-    icebreakerGeneratedAt: null,
-    linkedinPostsCache: null,
-    ...overrides,
   };
 }
 
