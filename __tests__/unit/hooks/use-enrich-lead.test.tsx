@@ -181,7 +181,8 @@ describe("useEnrichLead", () => {
         wrapper: createWrapper(),
       });
 
-      let enrichedData;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let enrichedData: any;
       await act(async () => {
         enrichedData = await result.current.enrichAsync({ apolloId: "apollo-123" });
       });

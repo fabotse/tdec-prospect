@@ -19,6 +19,7 @@
 import { Sparkles, RefreshCw, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { NativeMagnetic } from "@/components/ui/native-magnetic";
 import type { GenerationPhase } from "@/hooks/use-ai-generate";
 
 // ==============================================
@@ -95,31 +96,33 @@ export function AIGenerateButton({
   };
 
   return (
-    <Button
-      type="button"
-      variant={isError ? "destructive" : "outline"}
-      size="sm"
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-      disabled={disabled || isLoading}
-      className={cn(
-        "gap-2 transition-all duration-200",
-        isLoading && "cursor-wait",
-        className
-      )}
-      aria-label={
-        isError
-          ? "Tentar gerar novamente"
-          : hasContent
-            ? "Regenerar texto com IA"
-            : "Gerar texto com IA"
-      }
-      aria-busy={isLoading}
-    >
-      {getIcon()}
-      {getButtonText()}
-    </Button>
+    <NativeMagnetic strength={0.4} as="div">
+      <Button
+        type="button"
+        variant={isError ? "destructive" : "outline"}
+        size="sm"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
+        disabled={disabled || isLoading}
+        className={cn(
+          "gap-2 transition-all duration-200",
+          isLoading && "cursor-wait",
+          className
+        )}
+        aria-label={
+          isError
+            ? "Tentar gerar novamente"
+            : hasContent
+              ? "Regenerar texto com IA"
+              : "Gerar texto com IA"
+        }
+        aria-busy={isLoading}
+      >
+        {getIcon()}
+        {getButtonText()}
+      </Button>
+    </NativeMagnetic>
   );
 }

@@ -17,7 +17,19 @@ import { SignalHireService } from "@/lib/services/signalhire";
 import { ERROR_MESSAGES } from "@/lib/services/base-service";
 
 // Mock data for database operations
-const mockLookupRow = {
+const mockLookupRow: {
+  id: string;
+  tenant_id: string;
+  lead_id: string | null;
+  identifier: string;
+  request_id: string;
+  status: string;
+  phone: string | null;
+  raw_response: unknown;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+} = {
   id: "lookup-uuid-123",
   tenant_id: "tenant-123",
   lead_id: null,

@@ -44,8 +44,12 @@ export interface KnowledgeBaseContext {
  * Used for prompt variable interpolation
  * AC: #1 - Includes all KB sections
  * AC 6.5 #3 - Includes product context when selected
+ *
+ * Index signature allows extending with additional string properties
+ * and compatibility with Record<string, string>
  */
 export interface AIContextVariables {
+  [key: string]: string;
   // Company context (AC: #2)
   company_context: string;
   products_services: string;

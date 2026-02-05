@@ -1,18 +1,21 @@
 /**
  * CampaignPreviewPanel Component
  * Story 5.8: Campaign Preview
+ * Story 6.5.7: Premium Icebreaker Integration
  *
- * AC #1: Abrir preview da campanha
- * AC #5: Fechar preview e retornar a edicao
- * AC #6: Estado vazio do preview
+ * AC 5.8 #1: Abrir preview da campanha
+ * AC 5.8 #5: Fechar preview e retornar a edicao
+ * AC 5.8 #6: Estado vazio do preview
+ * AC 6.5.7 #3: Premium icebreaker indicator in preview
+ * AC 6.5.7 #6: Icebreaker source display with LinkedIn posts
  *
  * Sheet lateral para visualizar preview da campanha antes de exportar.
  */
 
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
-import { Eye, Users, Mail } from "lucide-react";
+import { useState, useCallback, useEffect, useMemo } from "react";
+import { Eye, Users, Mail, Clock } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -25,6 +28,7 @@ import { useBuilderStore, BuilderBlock } from "@/stores/use-builder-store";
 import { PreviewEmailStep } from "./PreviewEmailStep";
 import { PreviewDelayStep } from "./PreviewDelayStep";
 import { PreviewNavigation } from "./PreviewNavigation";
+import { InteractiveTimeline, type TimelineItem } from "@/components/ui/interactive-timeline";
 import { EmailBlockData } from "@/types/email-block";
 import { DelayBlockData } from "@/types/delay-block";
 
@@ -64,6 +68,30 @@ export function CampaignPreviewPanel({
   // Filter only email blocks for navigation
   const emailBlocks = blocks.filter((b) => b.type === "email");
   const totalEmails = emailBlocks.length;
+
+  // Story 8.4: AC #6 - Build timeline items from builder blocks
+  const timelineItems = useMemo((): TimelineItem[] => {
+    let emailNum = 0;
+    return blocks.map((block) => {
+      if (block.type === "email") {
+        emailNum++;
+        const data = block.data as unknown as EmailBlockData;
+        return {
+          id: block.id,
+          title: `Email ${emailNum}`,
+          description: data.subject || "Sem assunto",
+          icon: <Mail className="h-3 w-3" />,
+        };
+      }
+      const data = block.data as unknown as DelayBlockData;
+      return {
+        id: block.id,
+        title: "Intervalo",
+        description: `${data.delayValue} ${data.delayUnit === "days" ? "dias" : "horas"}`,
+        icon: <Clock className="h-3 w-3" />,
+      };
+    });
+  }, [blocks]);
 
   // Reset index when panel opens
   useEffect(() => {
@@ -145,6 +173,15 @@ export function CampaignPreviewPanel({
             {/* Preview content */}
             <ScrollArea className="flex-1">
               <div className="px-6 py-4 pb-6 space-y-4">
+                {/* Story 8.4: AC #6 - Interactive timeline overview */}
+                {timelineItems.length > 0 && (
+                  <div className="mb-6 pb-4 border-b border-border">
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3">
+                      Sequência da Campanha
+                    </p>
+                    <InteractiveTimeline items={timelineItems} />
+                  </div>
+                )}
                 {blocks.map((block, index) => {
                   const stepNumber = getStepNumber(blocks, index);
                   const isCurrentEmail =
@@ -160,6 +197,9 @@ export function CampaignPreviewPanel({
                         subject={data.subject ?? ""}
                         body={data.body ?? ""}
                         isHighlighted={isCurrentEmail}
+                        // Story 6.5.7: Pass icebreaker props for premium badge
+                        hasPremiumIcebreaker={data.icebreakerSource === "premium"}
+                        icebreakerPosts={data.icebreakerPosts}
                       />
                     );
                   }

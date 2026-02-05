@@ -7,6 +7,7 @@
  * Story 6.8: Text Regeneration
  * Story 6.10: Use of Successful Examples
  * Story 6.11: Follow-Up Email Mode
+ * Story 6.5.7: Premium Icebreaker Integration
  *
  * AC 5.3: #1 - Arrastar Email Block para Canvas
  * AC 5.3: #2 - Visual do Email Block (Estilo Attio)
@@ -34,6 +35,10 @@
  * AC 6.11: #1 - Mode Selector Visibility
  * AC 6.11: #2 - Mode Persistence
  * AC 6.11: #5 - First Email Restriction
+ *
+ * AC 6.5.7 #1: Automatic premium icebreaker injection
+ * AC 6.5.7 #2: Fallback to standard icebreaker generation
+ * AC 6.5.7 #3: Premium icebreaker indicator in preview
  */
 
 "use client";
@@ -60,12 +65,13 @@ import {
 } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { useBuilderStore, type BuilderBlock, getPreviousEmailBlock } from "@/stores/use-builder-store";
-import type { EmailBlockData, EmailMode } from "@/types/email-block";
+import type { EmailBlockData, EmailMode, IcebreakerSourceType } from "@/types/email-block";
 import { useAIGenerate } from "@/hooks/use-ai-generate";
 import { useKnowledgeBaseContext } from "@/hooks/use-knowledge-base-context";
 import { useDebouncedCallback } from "@/hooks/use-debounce";
 import { AIGenerateButton } from "./AIGenerateButton";
 import { ExamplesHint } from "./ExamplesHint";
+import { PremiumIcebreakerBadge } from "./PremiumIcebreakerBadge";
 
 interface EmailBlockProps {
   block: BuilderBlock;
@@ -87,14 +93,28 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
   const isSelected = selectedBlockId === block.id;
   // Safely extract email block data from the generic block data
   const rawData = block.data as Record<string, unknown>;
-  const blockData: EmailBlockData = {
+  // Base block data (always present)
+  const baseBlockData = {
     subject: typeof rawData.subject === "string" ? rawData.subject : "",
     body: typeof rawData.body === "string" ? rawData.body : "",
     // Story 6.11 AC #2: Email mode defaults to "initial" for backward compatibility
     emailMode: (rawData.emailMode === "initial" || rawData.emailMode === "follow-up")
-      ? rawData.emailMode
-      : "initial",
+      ? rawData.emailMode as EmailMode
+      : "initial" as const,
   };
+
+  // Story 6.5.7: Only include icebreaker fields if they exist in stored data
+  const icebreakerFields = rawData.icebreakerSource !== undefined ? {
+    icebreakerSource: (rawData.icebreakerSource === "premium" || rawData.icebreakerSource === "standard" || rawData.icebreakerSource === "none")
+      ? rawData.icebreakerSource as IcebreakerSourceType
+      : undefined,
+    icebreakerPosts: Array.isArray(rawData.icebreakerPosts)
+      ? rawData.icebreakerPosts as EmailBlockData["icebreakerPosts"]
+      : null,
+  } : {};
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- blockData is reconstructed from rawData on every render by design
+  const blockData: EmailBlockData = { ...baseBlockData, ...icebreakerFields };
 
   // Story 6.12 AC #4: Strategic context from AI campaign structure generation
   const strategicContext = typeof rawData.strategicContext === "string" ? rawData.strategicContext : null;
@@ -143,7 +163,16 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
   // Story 6.6 AC #3: Added "icebreaker" phase for 3-phase generation
   const [generatingField, setGeneratingField] = useState<"icebreaker" | "subject" | "body" | null>(null);
 
+  // Story 6.5.7 AC #3: Track icebreaker source for premium badge display
+  const [usedIcebreakerSource, setUsedIcebreakerSource] = useState<IcebreakerSourceType>("none");
+
+  // Story 6.5.7 AC #1: Check if lead has premium icebreaker
+  const hasPremiumIcebreaker = useMemo(() => {
+    return Boolean(previewLead?.icebreaker?.trim());
+  }, [previewLead?.icebreaker]);
+
   // Sync local state when block.data changes externally (undo/redo, server sync)
+   
   useEffect(() => {
     setSubject(blockData.subject);
     setBody(blockData.body);
@@ -161,6 +190,7 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
       }
     }
   }, [aiPhase, streamingText, generatingField]);
+   
 
   // Story 6.7 AC #3: Debounced store updates
   const [debouncedUpdateSubject, flushSubject] = useDebouncedCallback(
@@ -223,6 +253,7 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
    * Story 6.11 AC #3, #4: For follow-up emails, uses previous email context instead of icebreaker
    * AC 6.3 #1: Uses KB context variables
    */
+   
   const handleGenerate = useCallback(async () => {
     // Clear any previous error state (AC 6.2 #2)
     resetAI();
@@ -270,8 +301,15 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
           });
 
           setBody(generatedBody);
+          // Story 6.5.7: Follow-up emails don't use icebreakers
           updateBlock(block.id, {
-            data: { ...blockData, subject: generatedSubject, body: generatedBody },
+            data: {
+              ...blockData,
+              subject: generatedSubject,
+              body: generatedBody,
+              icebreakerSource: "none",
+              icebreakerPosts: null,
+            },
           });
 
           setGeneratingField(null);
@@ -284,18 +322,30 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
         );
       }
 
-      // Story 6.6 AC #3: Generate icebreaker FIRST (for initial emails)
-      setGeneratingField("icebreaker");
-      generatedIcebreaker = await generate({
-        promptKey: "icebreaker_generation",
-        variables: mergedVariables,
-        stream: true,
-        productId,
-      });
+      // Story 6.5.7 AC #1: Use premium icebreaker if available
+      // AC #2: Fall back to standard icebreaker generation if not
+      if (hasPremiumIcebreaker && previewLead?.icebreaker) {
+        // Use premium icebreaker - skip generation
+        generatedIcebreaker = previewLead.icebreaker;
+        setUsedIcebreakerSource("premium");
+        // Brief visual feedback that premium icebreaker is being used
+        setGeneratingField("icebreaker");
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      } else {
+        // Story 6.6 AC #3: Generate icebreaker FIRST (for initial emails)
+        setGeneratingField("icebreaker");
+        setUsedIcebreakerSource("standard");
+        generatedIcebreaker = await generate({
+          promptKey: "icebreaker_generation",
+          variables: mergedVariables,
+          stream: true,
+          productId,
+        });
 
-      // Small delay before generating subject for better UX
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      resetAI();
+        // Small delay before generating subject for better UX
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        resetAI();
+      }
 
       // Generate subject using KB context (AC 6.3 #1), product context (Story 6.5), and real lead data (Story 6.6)
       setGeneratingField("subject");
@@ -326,9 +376,16 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
 
       // Update body in store after complete generation
       // Use generatedSubject directly to avoid stale closure (Code Review Fix M3)
+      // Story 6.5.7: Store icebreakerSource and icebreakerPosts for preview badge
       setBody(generatedBody);
       updateBlock(block.id, {
-        data: { ...blockData, subject: generatedSubject, body: generatedBody },
+        data: {
+          ...blockData,
+          subject: generatedSubject,
+          body: generatedBody,
+          icebreakerSource: hasPremiumIcebreaker ? "premium" : "standard",
+          icebreakerPosts: previewLead?.linkedinPostsCache?.posts || null,
+        },
       });
 
       setGeneratingField(null);
@@ -336,7 +393,7 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
       // Error is handled by the hook (AC 6.2 #2)
       setGeneratingField(null);
     }
-  }, [generate, resetAI, block.id, block.position, updateBlock, mergedVariables, productId, blockData, canBeFollowUp, blocks]);
+  }, [generate, resetAI, block.id, block.position, updateBlock, mergedVariables, productId, blockData, canBeFollowUp, blocks, hasPremiumIcebreaker, previewLead?.icebreaker, previewLead?.linkedinPostsCache?.posts]);
 
   return (
     <motion.div
@@ -548,18 +605,29 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
             </p>
           )}
 
-          {/* Streaming status indicator (AC 6.2 #3, AC 6.6 #7) */}
+          {/* Streaming status indicator (AC 6.2 #3, AC 6.6 #7, AC 6.5.7 #1) */}
           {/* CR-L2 FIX: Added phase-specific data-testid for better testability */}
           {isGenerating && (
             <p
               data-testid={`ai-generating-status${generatingField ? `-${generatingField}` : ""}`}
               className="text-xs text-muted-foreground animate-pulse"
             >
-              {generatingField === "icebreaker" &&
-                `Gerando quebra-gelo para ${previewLead?.firstName || "lead"}...`}
+              {/* Story 6.5.7: Show different message when using premium icebreaker */}
+              {generatingField === "icebreaker" && hasPremiumIcebreaker
+                ? `Usando icebreaker premium de ${previewLead?.firstName || "lead"}...`
+                : generatingField === "icebreaker" &&
+                  `Gerando quebra-gelo para ${previewLead?.firstName || "lead"}...`}
               {generatingField === "subject" && "Gerando assunto..."}
               {generatingField === "body" && "Gerando conteudo..."}
             </p>
+          )}
+
+          {/* Story 6.5.7 AC #3: Premium icebreaker badge when used */}
+          {/* Check both local state (during session) and stored data (on reload) */}
+          {!isGenerating && hasContent && (usedIcebreakerSource === "premium" || blockData.icebreakerSource === "premium") && (
+            <PremiumIcebreakerBadge
+              posts={blockData.icebreakerPosts || previewLead?.linkedinPostsCache?.posts || null}
+            />
           )}
         </div>
       </div>

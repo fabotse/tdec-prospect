@@ -6,7 +6,20 @@
  */
 
 import { render, screen } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+// Story 8.4: Mock framer-motion for GlassCard wrapper
+vi.mock("framer-motion", () => ({
+  motion: {
+    div: ({ children, className, "data-testid": testId, ...props }: Record<string, unknown>) => (
+      <div className={className as string} data-testid={testId as string}>
+        {children as React.ReactNode}
+      </div>
+    ),
+  },
+  useReducedMotion: () => false,
+}));
+
 import { UsageCard } from "@/components/settings/UsageCard";
 import type { UsageStatistics } from "@/types/api-usage";
 

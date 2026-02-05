@@ -11,6 +11,7 @@
 
 import { Zap } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { GlassCard } from "@/components/ui/glass-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { UsageStatistics } from "@/types/api-usage";
 
@@ -140,10 +141,7 @@ export function UsageCard({
   }
 
   return (
-    <Card
-      className="bg-background-secondary border-border"
-      data-testid={`usage-card-${serviceName}`}
-    >
+    <GlassCard data-testid={`usage-card-${serviceName}`}>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <div className="flex items-center gap-3">
           <Zap className="h-5 w-5 text-primary" />
@@ -181,6 +179,6 @@ export function UsageCard({
           Último uso: {formatLastUsage(statistics.lastUsage)}
         </p>
       </CardContent>
-    </Card>
+    </GlassCard>
   );
 }

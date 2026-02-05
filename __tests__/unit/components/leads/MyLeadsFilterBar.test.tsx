@@ -49,7 +49,7 @@ function ControlledFilterBar({
   onFiltersChangeSpy,
   initialFilters = {},
 }: {
-  onFiltersChangeSpy: ReturnType<typeof vi.fn>;
+  onFiltersChangeSpy: (filters: Partial<MyLeadsFilters>) => void;
   initialFilters?: MyLeadsFilters;
 }) {
   const [filters, setFilters] = useState<MyLeadsFilters>(initialFilters);

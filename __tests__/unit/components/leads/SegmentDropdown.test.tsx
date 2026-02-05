@@ -66,11 +66,16 @@ const mockSelectedLeads: Lead[] = [
     location: null,
     title: "CEO",
     linkedinUrl: null,
+    photoUrl: null,
     status: "novo",
     hasEmail: true,
     hasDirectPhone: null,
     createdAt: "2026-01-30T10:00:00Z",
     updatedAt: "2026-01-30T10:00:00Z",
+    // Story 6.5.4: Icebreaker fields
+    icebreaker: null,
+    icebreakerGeneratedAt: null,
+    linkedinPostsCache: null,
   },
   {
     id: "lead-2",
@@ -86,11 +91,16 @@ const mockSelectedLeads: Lead[] = [
     location: null,
     title: "CTO",
     linkedinUrl: null,
+    photoUrl: null,
     status: "novo",
     hasEmail: false,
     hasDirectPhone: null,
     createdAt: "2026-01-30T10:00:00Z",
     updatedAt: "2026-01-30T10:00:00Z",
+    // Story 6.5.4: Icebreaker fields
+    icebreaker: null,
+    icebreakerGeneratedAt: null,
+    linkedinPostsCache: null,
   },
   {
     id: "lead-3",
@@ -106,11 +116,16 @@ const mockSelectedLeads: Lead[] = [
     location: null,
     title: "VP Sales",
     linkedinUrl: null,
+    photoUrl: null,
     status: "novo",
     hasEmail: false,
     hasDirectPhone: null,
     createdAt: "2026-01-30T10:00:00Z",
     updatedAt: "2026-01-30T10:00:00Z",
+    // Story 6.5.4: Icebreaker fields
+    icebreaker: null,
+    icebreakerGeneratedAt: null,
+    linkedinPostsCache: null,
   },
 ];
 
@@ -476,11 +491,16 @@ describe("SegmentDropdown", () => {
           location: null,
           title: "Manager",
           linkedinUrl: null,
+          photoUrl: null,
           status: "novo",
           hasEmail: false,
           hasDirectPhone: null,
           createdAt: "2026-01-30T10:00:00Z",
           updatedAt: "2026-01-30T10:00:00Z",
+          // Story 6.5.4: Icebreaker fields
+          icebreaker: null,
+          icebreakerGeneratedAt: null,
+          linkedinPostsCache: null,
         },
       ];
 

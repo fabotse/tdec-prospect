@@ -22,11 +22,6 @@ function createWrapper() {
       queries: { retry: false, gcTime: 0 },
       mutations: { retry: false },
     },
-    logger: {
-      log: console.log,
-      warn: console.warn,
-      error: () => {}, // Suppress error logging in tests to avoid unhandled rejection warnings
-    },
   });
 
   return function Wrapper({ children }: { children: React.ReactNode }) {

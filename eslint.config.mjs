@@ -13,6 +13,14 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  // Custom rules to prevent debug code in production
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    rules: {
+      // Prevent console.log (allow warn/error for legitimate logging)
+      "no-console": ["error", { allow: ["warn", "error"] }],
+    },
+  },
 ]);
 
 export default eslintConfig;

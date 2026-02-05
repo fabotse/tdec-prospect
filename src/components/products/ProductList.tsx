@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ProductCard } from "./ProductCard";
+import { AnimatedList, AnimatedListItem } from "@/components/ui/animated-list";
 import { ProductDialog } from "./ProductDialog";
 import { DeleteProductDialog } from "./DeleteProductDialog";
 import { ProductsEmptyState } from "./ProductsEmptyState";
@@ -171,20 +172,21 @@ export function ProductList() {
               Nenhum produto encontrado para &quot;{searchTerm}&quot;
             </p>
           ) : (
-            <div className="space-y-3">
+            <AnimatedList className="space-y-3">
               {filteredProducts.map((product) => (
-                <ProductCard
-                  key={product.id}
-                  product={product}
-                  onEdit={() => openEditDialog(product)}
-                  onDelete={() => openDeleteDialog(product)}
-                  isDeleting={
-                    deleteProduct.isPending &&
-                    productToDelete?.id === product.id
-                  }
-                />
+                <AnimatedListItem key={product.id}>
+                  <ProductCard
+                    product={product}
+                    onEdit={() => openEditDialog(product)}
+                    onDelete={() => openDeleteDialog(product)}
+                    isDeleting={
+                      deleteProduct.isPending &&
+                      productToDelete?.id === product.id
+                    }
+                  />
+                </AnimatedListItem>
               ))}
-            </div>
+            </AnimatedList>
           )}
         </>
       )}

@@ -53,7 +53,8 @@ interface UseDebouncedCallbackOptions {
  * @param options - Configuration options
  * @returns Tuple of [debouncedCallback, flushFunction]
  */
-export function useDebouncedCallback<T extends (...args: unknown[]) => void>(
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function useDebouncedCallback<T extends (...args: any[]) => void>(
   callback: T,
   options: UseDebouncedCallbackOptions = {}
 ): [T, () => void] {

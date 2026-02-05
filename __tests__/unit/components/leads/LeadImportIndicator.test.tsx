@@ -37,12 +37,17 @@ function createMockLead(overrides: Partial<Lead> = {}): Lead {
     location: "São Paulo, BR",
     title: "CEO",
     linkedinUrl: null,
+    photoUrl: null,
     hasEmail: true,
     hasDirectPhone: "No",
     status: "novo",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     _isImported: false, // Default: not imported
+    // Story 6.5.4: Icebreaker fields
+    icebreaker: null,
+    icebreakerGeneratedAt: null,
+    linkedinPostsCache: null,
     ...overrides,
   };
 }

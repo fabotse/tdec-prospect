@@ -13,6 +13,32 @@
 
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Story 8.4: Mock framer-motion for NativeMagnetic wrapper
+vi.mock("framer-motion", () => ({
+  motion: {
+    div: ({ children, className, onClick, ...props }: Record<string, unknown>) => (
+      <div className={className as string} onClick={onClick as () => void}>
+        {children as React.ReactNode}
+      </div>
+    ),
+    button: ({ children, className, onClick, type, ...props }: Record<string, unknown>) => (
+      <button className={className as string} onClick={onClick as () => void} type={type as "button"}>
+        {children as React.ReactNode}
+      </button>
+    ),
+    a: ({ children, className, href, ...props }: Record<string, unknown>) => (
+      <a className={className as string} href={href as string}>
+        {children as React.ReactNode}
+      </a>
+    ),
+  },
+  useMotionValue: () => ({ set: vi.fn(), get: () => 0 }),
+  useSpring: (v: unknown) => v,
+  useTransform: () => 0,
+  useReducedMotion: () => false,
+}));
+
 import { AIGenerateButton } from "@/components/builder/AIGenerateButton";
 import type { GenerationPhase } from "@/hooks/use-ai-generate";
 

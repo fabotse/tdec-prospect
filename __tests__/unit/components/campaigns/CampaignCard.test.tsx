@@ -14,6 +14,19 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
+
+// Story 8.4: Mock framer-motion for GlassCard wrapper
+vi.mock("framer-motion", () => ({
+  motion: {
+    div: ({ children, className, "data-testid": testId, ...props }: Record<string, unknown>) => (
+      <div className={className as string} data-testid={testId as string}>
+        {children as React.ReactNode}
+      </div>
+    ),
+  },
+  useReducedMotion: () => false,
+}));
+
 import { CampaignCard } from "@/components/campaigns/CampaignCard";
 import type { CampaignWithCount } from "@/types/campaign";
 

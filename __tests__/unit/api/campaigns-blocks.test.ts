@@ -177,7 +177,7 @@ describe("GET /api/campaigns/[campaignId]/blocks (AC: #2, #7)", () => {
     const body = await response.json();
 
     const emailBlock = body.data.find(
-      (b: { type: string }) => b.type === "email" && b.position === 0
+      (b: { type: string; position: number }) => b.type === "email" && b.position === 0
     );
 
     expect(emailBlock).toMatchObject({
@@ -221,8 +221,8 @@ describe("GET /api/campaigns/[campaignId]/blocks (AC: #2, #7)", () => {
         id: "email-null",
         campaign_id: mockCampaignId,
         position: 0,
-        subject: null,
-        body: null,
+        subject: null as unknown as string,
+        body: null as unknown as string,
         created_at: "2026-02-02T10:00:00Z",
         updated_at: "2026-02-02T10:00:00Z",
       },

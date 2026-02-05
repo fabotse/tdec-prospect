@@ -10,6 +10,34 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+
+// Mock framer-motion
+vi.mock("framer-motion", () => ({
+  motion: {
+    div: ({ children, className, "data-testid": testId, onClick, ...props }: Record<string, unknown>) => (
+      <div className={className as string} data-testid={testId as string} onClick={onClick as () => void}>
+        {children as React.ReactNode}
+      </div>
+    ),
+    button: ({ children, className, onClick, type, ...props }: Record<string, unknown>) => (
+      <button className={className as string} onClick={onClick as () => void} type={type as "button"}>
+        {children as React.ReactNode}
+      </button>
+    ),
+    a: ({ children, className, href, ...props }: Record<string, unknown>) => (
+      <a className={className as string} href={href as string}>
+        {children as React.ReactNode}
+      </a>
+    ),
+  },
+  AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useMotionValue: () => ({ set: vi.fn(), get: () => 0 }),
+  useSpring: (v: unknown) => v,
+  useTransform: () => 0,
+  useReducedMotion: () => false,
+  useInView: () => true,
+}));
+
 import { AICampaignWizard } from "@/components/campaigns/AICampaignWizard";
 
 // Mock next/navigation

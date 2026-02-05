@@ -11,6 +11,7 @@
 import { Check, Loader2, X, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { AIUnlockAnimation } from "@/components/ui/ai-unlock-animation";
 import { cn } from "@/lib/utils";
 
 // ==============================================
@@ -68,6 +69,15 @@ export function GenerationProgress({
 
   return (
     <div className="flex flex-col gap-6 py-6" data-testid="generation-progress">
+      {/* Story 8.4: AC #5 - Premium AI unlock animation during generation */}
+      {!hasError && completedEmails.length === 0 && currentStep === 1 && (
+        <AIUnlockAnimation
+          autoPlay
+          duration={2800}
+          className="mb-2"
+        />
+      )}
+
       {/* Header with progress bar */}
       <div className="space-y-3">
         <div className="flex items-center justify-between text-sm">

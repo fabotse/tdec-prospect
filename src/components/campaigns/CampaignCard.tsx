@@ -12,7 +12,8 @@
 
 "use client";
 
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { CardContent, CardHeader } from "@/components/ui/card";
+import { GlassCard } from "@/components/ui/glass-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -69,10 +70,9 @@ export function CampaignCard({ campaign, onClick, onDelete }: CampaignCardProps)
   };
 
   return (
-    <Card
+    <GlassCard
       className={cn(
-        "cursor-pointer transition-colors hover:bg-accent/50",
-        onClick && "hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        onClick && "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       )}
       onClick={onClick}
       onKeyDown={handleKeyDown}
@@ -136,6 +136,6 @@ export function CampaignCard({ campaign, onClick, onDelete }: CampaignCardProps)
           </div>
         </div>
       </CardContent>
-    </Card>
+    </GlassCard>
   );
 }

@@ -15,7 +15,6 @@ export function Header({ sidebarWidth = 240 }: HeaderProps) {
   const { user, isLoading } = useUser();
 
   async function handleLogout() {
-    console.log("[Header] Starting logout...");
     const supabase = createClient();
 
     // 1. Sign out from Supabase (clears server-side cookies)
@@ -28,7 +27,6 @@ export function Header({ sidebarWidth = 240 }: HeaderProps) {
     resetAuthState();
 
     // 3. Use window.location for full page reload to ensure middleware sees cleared cookies
-    console.log("[Header] Redirecting to login...");
     window.location.href = "/login";
   }
 

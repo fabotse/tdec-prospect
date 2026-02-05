@@ -24,7 +24,6 @@ export function AdminGuard({ children, fallback }: AdminGuardProps) {
   // Redirect to login if not authenticated
   useEffect(() => {
     if (!isLoading && !user) {
-      console.log("[AdminGuard] No user - redirecting to login");
       router.push("/login");
     }
   }, [isLoading, user, router]);

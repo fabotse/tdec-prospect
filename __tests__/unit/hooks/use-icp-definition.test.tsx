@@ -11,6 +11,7 @@ vi.mock("@/actions/knowledge-base", () => ({
 
 import { getICPDefinition, saveICPDefinition } from "@/actions/knowledge-base";
 import { useICPDefinition } from "@/hooks/use-icp-definition";
+import type { ICPDefinition } from "@/types/knowledge-base";
 
 // Create a wrapper with QueryClientProvider
 const createWrapper = () => {
@@ -91,8 +92,8 @@ describe("useICPDefinition", () => {
     });
 
     it("should return ICP data when it exists", async () => {
-      const mockICP = {
-        company_sizes: ["11-50", "51-200"] as const,
+      const mockICP: ICPDefinition = {
+        company_sizes: ["11-50", "51-200"],
         industries: ["Tecnologia", "SaaS"],
         job_titles: ["CEO", "CTO"],
         geographic_focus: ["São Paulo", "Brasil"],
@@ -171,8 +172,8 @@ describe("useICPDefinition", () => {
         expect(result.current.isLoading).toBe(false);
       });
 
-      const icpData = {
-        company_sizes: ["11-50", "51-200"] as const,
+      const icpData: ICPDefinition = {
+        company_sizes: ["11-50", "51-200"],
         industries: ["Tecnologia"],
         job_titles: ["CEO"],
         geographic_focus: ["São Paulo"],

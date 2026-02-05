@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { MoreHorizontal, X, RefreshCw, Loader2, Download, Phone, Sparkles } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import { NativeMagnetic } from "@/components/ui/native-magnetic";
 import { useRouter } from "next/navigation";
 import { SegmentDropdown } from "./SegmentDropdown";
 import { LeadStatusBadge } from "./LeadStatusBadge";
@@ -326,12 +327,15 @@ export function LeadSelectionBar({
                 )}
 
                 {/* Story 5.7: AC #6 - Create campaign with selected leads */}
-                <Button
-                  onClick={handleCreateCampaign}
-                  data-testid="create-campaign-button"
-                >
-                  Criar Campanha
-                </Button>
+                {/* Story 8.4: AC #2 - NativeMagnetic CTA */}
+                <NativeMagnetic strength={0.4} as="div">
+                  <Button
+                    onClick={handleCreateCampaign}
+                    data-testid="create-campaign-button"
+                  >
+                    Criar Campanha
+                  </Button>
+                </NativeMagnetic>
 
                 {/* Story 4.1: AC #2 - Add to segment button */}
                 <SegmentDropdown selectedLeads={selectedLeads} />

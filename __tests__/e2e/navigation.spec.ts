@@ -113,7 +113,12 @@ test.describe("Application Shell - Navigation (Authenticated)", () => {
       expect(box?.width).toBeGreaterThanOrEqual(238);
 
       await toggleButton.click({ force: true });
-      await page.waitForTimeout(300);
+
+      // Wait for animation to complete by checking sidebar width
+      await expect.poll(async () => {
+        const b = await sidebar.boundingBox();
+        return b?.width ?? 0;
+      }, { timeout: 2000 }).toBeLessThanOrEqual(66);
 
       box = await sidebar.boundingBox();
       expect(box?.width).toBeGreaterThanOrEqual(62);
@@ -134,7 +139,11 @@ test.describe("Application Shell - Navigation (Authenticated)", () => {
         if (button) (button as HTMLButtonElement).click();
       });
 
-      await page.waitForTimeout(350);
+      // Wait for collapse animation
+      await expect.poll(async () => {
+        const b = await sidebar.boundingBox();
+        return b?.width ?? 999;
+      }, { timeout: 2000 }).toBeLessThanOrEqual(66);
 
       let box = await sidebar.boundingBox();
       expect(box?.width).toBeLessThanOrEqual(66);
@@ -144,7 +153,11 @@ test.describe("Application Shell - Navigation (Authenticated)", () => {
         if (button) (button as HTMLButtonElement).click();
       });
 
-      await page.waitForTimeout(350);
+      // Wait for expand animation
+      await expect.poll(async () => {
+        const b = await sidebar.boundingBox();
+        return b?.width ?? 0;
+      }, { timeout: 2000 }).toBeGreaterThanOrEqual(238);
 
       box = await sidebar.boundingBox();
       expect(box?.width).toBeGreaterThanOrEqual(238);
@@ -161,7 +174,12 @@ test.describe("Application Shell - Navigation (Authenticated)", () => {
       const toggleButton = page.locator("aside button");
 
       await toggleButton.click({ force: true });
-      await page.waitForTimeout(300);
+
+      // Wait for collapse animation
+      await expect.poll(async () => {
+        const b = await sidebar.boundingBox();
+        return b?.width ?? 999;
+      }, { timeout: 2000 }).toBeLessThanOrEqual(66);
 
       let box = await sidebar.boundingBox();
       expect(box?.width).toBeLessThanOrEqual(66);
@@ -173,7 +191,12 @@ test.describe("Application Shell - Navigation (Authenticated)", () => {
 
       await page.reload();
       await page.waitForLoadState("networkidle");
-      await page.waitForTimeout(300);
+
+      // Wait for sidebar to render in collapsed state
+      await expect.poll(async () => {
+        const b = await sidebar.boundingBox();
+        return b?.width ?? 999;
+      }, { timeout: 2000 }).toBeLessThanOrEqual(66);
 
       box = await sidebar.boundingBox();
       expect(box?.width).toBeLessThanOrEqual(66);

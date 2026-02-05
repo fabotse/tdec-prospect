@@ -153,6 +153,7 @@ describe("useSavedFilters", () => {
           titles: [],
           keywords: "",
           contactEmailStatuses: [],
+          leadStatuses: [],
         },
       };
 
@@ -204,6 +205,7 @@ describe("useSavedFilters", () => {
             titles: [],
             keywords: "",
             contactEmailStatuses: [],
+            leadStatuses: [],
           },
         })
       ).rejects.toThrow("Já existe um filtro com esse nome");
@@ -231,6 +233,7 @@ describe("useSavedFilters", () => {
             titles: [],
             keywords: "",
             contactEmailStatuses: [],
+            leadStatuses: [],
           },
         })
       ).rejects.toThrow("Nome do filtro é obrigatório");

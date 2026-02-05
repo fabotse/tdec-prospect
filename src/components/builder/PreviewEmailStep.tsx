@@ -1,32 +1,45 @@
 /**
  * PreviewEmailStep Component
  * Story 5.8: Campaign Preview
+ * Story 6.5.7: Premium Icebreaker Integration
  *
- * AC #2: Visualizar sequencia de emails
+ * AC 5.8 #2: Visualizar sequencia de emails
+ * AC 6.5.7 #3: Premium icebreaker indicator in preview
+ * AC 6.5.7 #6: Icebreaker source display with LinkedIn posts
  *
  * Exibe um email no preview com numero do step, subject e body.
+ * Shows premium icebreaker badge when applicable.
  */
 
 "use client";
 
 import { Mail } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PremiumIcebreakerBadge } from "./PremiumIcebreakerBadge";
+import type { LinkedInPostSummary } from "@/types/email-block";
 
 interface PreviewEmailStepProps {
   stepNumber: number;
   subject: string;
   body: string;
   isHighlighted?: boolean;
+  /** Story 6.5.7: Whether premium icebreaker was used */
+  hasPremiumIcebreaker?: boolean;
+  /** Story 6.5.7: LinkedIn posts that inspired the icebreaker */
+  icebreakerPosts?: LinkedInPostSummary[] | null;
 }
 
 /**
  * Preview Email Step - Card com visualizacao do email
+ * Story 6.5.7: Shows premium icebreaker badge when applicable
  */
 export function PreviewEmailStep({
   stepNumber,
   subject,
   body,
   isHighlighted = false,
+  hasPremiumIcebreaker = false,
+  icebreakerPosts = null,
 }: PreviewEmailStepProps) {
   const hasContent = subject || body;
 
@@ -50,6 +63,10 @@ export function PreviewEmailStep({
           <span className="text-sm font-medium text-muted-foreground">
             Email {stepNumber}
           </span>
+          {/* Story 6.5.7 AC #3: Premium icebreaker badge */}
+          {hasPremiumIcebreaker && hasContent && (
+            <PremiumIcebreakerBadge posts={icebreakerPosts} />
+          )}
         </div>
       </div>
 

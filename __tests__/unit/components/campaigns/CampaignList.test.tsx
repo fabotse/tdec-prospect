@@ -7,6 +7,33 @@
 
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
+
+// Mock framer-motion to avoid animation issues in tests
+vi.mock("framer-motion", () => ({
+  motion: {
+    div: ({ children, className, "data-testid": testId, onClick, ...props }: Record<string, unknown>) => (
+      <div className={className as string} data-testid={testId as string} onClick={onClick as () => void}>
+        {children as React.ReactNode}
+      </div>
+    ),
+    button: ({ children, className, onClick, type, ...props }: Record<string, unknown>) => (
+      <button className={className as string} onClick={onClick as () => void} type={type as "button"}>
+        {children as React.ReactNode}
+      </button>
+    ),
+    a: ({ children, className, href, ...props }: Record<string, unknown>) => (
+      <a className={className as string} href={href as string}>
+        {children as React.ReactNode}
+      </a>
+    ),
+  },
+  AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useMotionValue: () => ({ set: vi.fn(), get: () => 0 }),
+  useSpring: (v: unknown) => v,
+  useTransform: () => 0,
+  useReducedMotion: () => false,
+}));
+
 import { CampaignList } from "@/components/campaigns/CampaignList";
 import type { CampaignWithCount } from "@/types/campaign";
 

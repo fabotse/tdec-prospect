@@ -167,7 +167,7 @@ This document provides the complete epic and story breakdown for tdec-prospect, 
 | FR19 | Epic 5 | Preview da campanha |
 | FR20 | Epic 6 | Geração de texto IA |
 | FR21 | Epic 6 | Base de conhecimento |
-| FR22 | Epic 6 | Quebra-gelos personalizados |
+| FR22 | Epic 6 + 6.5 | Quebra-gelos personalizados (básico: 6, premium com LinkedIn: 6.5) |
 | FR23 | Epic 6 | Edição manual |
 | FR24 | Epic 6 | Regenerar texto |
 | FR25 | Epic 6 | Tom de voz |
@@ -275,7 +275,7 @@ Usuários podem construir visualmente sequências de campanha usando drag-and-dr
 ### Epic 6: AI Content Generation
 Usuários obtêm textos personalizados que soam autênticos, usando a base de conhecimento, tom de voz e contexto de produto específico configurados. Inclui também geração automatizada de estrutura de campanha.
 
-**FRs cobertos:** FR20, FR21, FR22, FR23, FR24, FR25, FR26 + NEW (AI Campaign Generation, Product Context)
+**FRs cobertos:** FR20, FR21, FR22 (básico), FR23, FR24, FR25, FR26 + NEW (AI Campaign Generation, Product Context)
 
 **Entregáveis:**
 - AITextGenerator integrado ao builder
@@ -289,6 +289,40 @@ Usuários obtêm textos personalizados que soam autênticos, usando a base de co
 - Uso de exemplos de sucesso
 - Geração automática de estrutura de campanha com IA
 - Templates de campanha pré-configurados baseados em pesquisa
+
+---
+
+### Epic 6.5: Icebreaker Premium
+Usuários podem gerar icebreakers altamente personalizados baseados nos posts reais do LinkedIn do lead, criando conexões genuínas que aumentam drasticamente as taxas de resposta.
+
+**FRs cobertos:** FR22 (versão premium/enhanced)
+
+**Entregáveis:**
+- Integração Apify na página de configurações
+- Serviço de extração de posts do LinkedIn
+- Prompt específico e configurável para icebreaker
+- API de enriquecimento de leads com icebreaker
+- Coluna icebreaker na tabela de leads
+- UI para geração on-demand de icebreakers
+- Integração com geração de emails existente
+
+---
+
+### Epic 8: Visual Refresh - Clean B&W Theme
+Transformação visual do sistema de um tema dark com tons azulados para um tema clean preto e branco neutro, inspirado no UI TripleD.
+
+**FRs cobertos:** FR46 (Interface visual clean - enhanced)
+
+**Contexto:** Mudança puramente visual, sem impacto funcional. Objetivo é modernizar a aparência com estilo minimalista B&W e componentes animados premium.
+
+**Entregáveis:**
+- Paleta de cores B&W para dark mode (remover saturação azul)
+- Paleta de cores B&W para light mode
+- Charts em grayscale
+- Componentes UI TripleD (Native Magnetic, Glass Cards, Animated Lists, etc.)
+- QA visual de todas as telas
+
+**Referência:** ui.tripled.work
 
 ---
 
@@ -1595,6 +1629,346 @@ So that I can quickly start with proven structures based on common scenarios.
 
 ---
 
+## Epic 6.5: Icebreaker Premium
+
+Usuários podem gerar icebreakers altamente personalizados baseados nos posts reais do LinkedIn do lead, criando conexões genuínas que aumentam drasticamente as taxas de resposta.
+
+**FRs cobertos:** FR22 (Quebra-gelos personalizados) - Enhanced Version
+
+**Contexto:** Esta Epic expande significativamente a capacidade de personalização de icebreakers (Story 6.6) usando dados reais de posts do LinkedIn. Enquanto a versão básica usa apenas dados do lead (cargo, empresa), esta versão Premium analisa o conteúdo que a pessoa realmente publica, gerando icebreakers que demonstram interesse genuíno.
+
+**Entregáveis:**
+- Integração Apify na página de configurações
+- Serviço de extração de posts do LinkedIn
+- Prompt específico e configurável para icebreaker
+- API de enriquecimento de leads com icebreaker
+- Coluna icebreaker na tabela de leads
+- UI para geração on-demand de icebreakers
+
+**Dependências:**
+- Epic 6 completa (infraestrutura de AI, prompts, knowledge base)
+- Apollo já integrado (dados básicos do lead)
+- OpenAI já integrado (geração de texto)
+
+**Pesquisa de Referência:** [technical-lead-enrichment-icebreakers-research-2026-02-03.md](research/technical-lead-enrichment-icebreakers-research-2026-02-03.md)
+
+---
+
+### Story 6.5.1: Apify Integration Configuration
+
+As an admin,
+I want to configure the Apify API key in settings,
+So that the system can fetch LinkedIn posts for icebreaker generation.
+
+**Acceptance Criteria:**
+
+**Given** I am authenticated as Admin
+**When** I navigate to Configurações > Integrações
+**Then** I see a new card for "Apify" alongside Apollo, SignalHire, Snov.io, Instantly
+**And** the card has a field for API token input
+**And** the API token is masked by default with option to reveal
+**And** there is a "Salvar" button
+
+**Given** I save an Apify API token
+**When** the save completes
+**Then** the token is encrypted using existing encryption service (AES-256-GCM)
+**And** the token is stored in api_configs table with service_name='apify'
+**And** only the last 4 characters are shown for verification
+**And** I see success notification "Apify configurado com sucesso"
+
+**Given** I click "Testar Conexão" for Apify
+**When** the test runs
+**Then** the system makes a test request to Apify API (actor info endpoint)
+**And** I see loading state during the test
+**And** success shows "✓ Conexão estabelecida com sucesso"
+**And** failure shows clear error message in Portuguese
+
+**Technical Notes:**
+- Add "apify" to SERVICE_NAMES in src/types/integration.ts
+- Reuse existing IntegrationCard component
+- Test endpoint: GET actor info for actor ID "Wpp1BZ6yGWjySadk3"
+- Uses existing encryption infrastructure from Story 2.2
+
+---
+
+### Story 6.5.2: Apify LinkedIn Posts Service
+
+As a developer,
+I want a service layer for Apify LinkedIn Post scraping,
+So that we can reliably fetch recent posts from a lead's LinkedIn profile.
+
+**Acceptance Criteria:**
+
+**Given** the Apify API token is configured
+**When** the ApifyLinkedInService is called with a LinkedIn URL
+**Then** it uses the tenant's encrypted API token
+**And** requests are made through API routes (never from frontend)
+**And** the service calls actor "Wpp1BZ6yGWjySadk3" with parameters:
+  - urls: [linkedinUrl]
+  - limitPerSource: 3 (configurable, default 3)
+  - deepScrape: true
+  - rawData: false
+**And** the service waits for actor completion and fetches results
+**And** errors are caught and translated to Portuguese
+**And** timeout is set to 60 seconds (actor runs can take longer)
+
+**Given** the actor returns posts
+**When** results are parsed
+**Then** each post contains: text, publishedAt, likesCount, commentsCount, postUrl
+**And** results are typed with LinkedInPost interface
+**And** empty results return an empty array (not an error)
+
+**Given** the LinkedIn URL is invalid or has no posts
+**When** the service is called
+**Then** appropriate error message is returned: "Perfil não encontrado" or "Nenhum post público encontrado"
+
+**Technical Notes:**
+- Create src/lib/services/apify-linkedin.ts
+- Create src/types/apify.ts with interfaces
+- Use ApifyClient from 'apify-client' package
+- Actor ID: "Wpp1BZ6yGWjySadk3" (supreme_coder/linkedin-post)
+- Follows ExternalService base class pattern from architecture
+
+---
+
+### Story 6.5.3: Icebreaker Prompt Configuration
+
+As an admin,
+I want a dedicated prompt for icebreaker generation that I can customize,
+So that generated icebreakers match my desired style and approach.
+
+**Acceptance Criteria:**
+
+**Given** the system needs to generate an icebreaker
+**When** the PromptManager is called
+**Then** it retrieves the prompt from ai_prompts table with key 'icebreaker_premium_generation'
+**And** falls back to global prompt if no tenant-specific exists
+**And** falls back to code default if no DB prompt exists
+
+**Given** the default prompt is seeded
+**When** the migration runs
+**Then** the prompt includes instructions for:
+  - Analyzing LinkedIn posts content
+  - Identifying themes of interest, opinions, achievements
+  - Creating short icebreakers (1-2 sentences, max 50 words)
+  - Referencing specific content from posts
+  - Avoiding generic phrases like "Vi que você..."
+  - Maintaining professional but casual tone
+  - Connecting lead's interests with sender's value proposition (if product context available)
+
+**Given** variables are passed to the prompt
+**When** the prompt is rendered
+**Then** it supports variables:
+  - {{firstName}}, {{lastName}}, {{title}}, {{companyName}}, {{industry}}
+  - {{linkedinPosts}} - formatted posts content
+  - {{productName}}, {{productDescription}} (optional, from campaign context)
+  - {{companyContext}} - from knowledge base
+
+**Technical Notes:**
+- Add new prompt to src/lib/ai/prompts/defaults.ts
+- Add migration to seed 'icebreaker_premium_generation' prompt
+- Prompt editable via Supabase Studio initially (future: admin UI)
+- See research document for full prompt example
+
+---
+
+### Story 6.5.4: Lead Icebreaker Database Schema
+
+As a developer,
+I want to store icebreakers and related data for leads,
+So that generated icebreakers can be reused and displayed.
+
+**Acceptance Criteria:**
+
+**Given** the database needs to store icebreakers
+**When** the migration runs
+**Then** the leads table is altered to add:
+  - icebreaker TEXT (nullable) - the generated icebreaker text
+  - icebreaker_generated_at TIMESTAMPTZ (nullable) - when it was generated
+  - linkedin_posts_cache JSONB (nullable) - cached posts data for reference/debugging
+
+**Given** an icebreaker is generated for a lead
+**When** the result is saved
+**Then** all three fields are updated
+**And** existing RLS policies continue to work (tenant isolation)
+
+**Given** a lead already has an icebreaker
+**When** a new icebreaker is generated
+**Then** the previous icebreaker is overwritten
+**And** icebreaker_generated_at is updated to current timestamp
+
+**Technical Notes:**
+- Migration: ALTER TABLE leads ADD COLUMN icebreaker TEXT, etc.
+- Update Lead type in src/types/lead.ts
+- linkedin_posts_cache stores raw API response for debugging/future use
+
+---
+
+### Story 6.5.5: Icebreaker Enrichment API
+
+As a developer,
+I want an API endpoint to enrich leads with premium icebreakers,
+So that the frontend can trigger icebreaker generation.
+
+**Acceptance Criteria:**
+
+**Given** I call POST /api/leads/enrich-icebreaker
+**When** the request includes { leadIds: string[] }
+**Then** for each lead:
+  1. Fetch lead data from database (including linkedin_url)
+  2. If linkedin_url is missing, skip with error "Lead sem LinkedIn URL"
+  3. Call ApifyLinkedInService to get 3 recent posts
+  4. Call OpenAI with icebreaker_premium_generation prompt
+  5. Save icebreaker, posts cache, and timestamp to lead record
+**And** response includes: { success: boolean, results: Array<{ leadId, icebreaker?, error? }> }
+**And** each lead is processed independently (one failure doesn't stop others)
+
+**Given** the endpoint is called for multiple leads
+**When** processing
+**Then** leads are processed in parallel (max 5 concurrent to avoid rate limits)
+**And** progress can be tracked via response streaming (optional enhancement)
+
+**Given** a lead has no public LinkedIn posts
+**When** the API is called
+**Then** the lead's icebreaker field remains null
+**And** result shows: { leadId, error: "Nenhum post encontrado" }
+
+**Given** a lead already has an icebreaker
+**When** the API is called with regenerate: true
+**Then** a new icebreaker is generated and replaces the old one
+**And** without regenerate flag, existing icebreakers are skipped
+
+**Technical Notes:**
+- Create src/app/api/leads/enrich-icebreaker/route.ts
+- Endpoint requires authentication
+- RLS ensures tenant isolation
+- Uses existing AI provider infrastructure (Story 6.1)
+- Cost estimate: ~$0.005 per lead (Apify + OpenAI)
+
+---
+
+### Story 6.5.6: Icebreaker UI - Lead Table Integration
+
+As a user,
+I want to see and generate icebreakers from the lead table,
+So that I can easily enrich my leads with personalized openers.
+
+**Acceptance Criteria:**
+
+**Given** I am on "Meus Leads" page
+**When** I view the leads table
+**Then** I see a new column "Icebreaker" (collapsible/hideable)
+**And** leads with icebreakers show the text (truncated with tooltip for full text)
+**And** leads without icebreakers show "—" or empty state
+**And** the column header has tooltip: "Gerado automaticamente a partir dos posts do LinkedIn"
+
+**Given** I have leads selected (checkboxes)
+**When** I click "Gerar Icebreaker" in the selection bar
+**Then** I see a confirmation: "Gerar icebreaker para X leads? Custo estimado: ~$Y"
+**And** clicking "Gerar" starts the enrichment process
+**And** I see progress: "Gerando icebreakers... X de Y"
+**And** leads are updated in real-time as each completes
+**And** completion shows summary: "Z icebreakers gerados, W erros"
+
+**Given** I click on a lead row to open detail panel
+**When** the panel opens
+**Then** I see an "Icebreaker" section
+**And** if icebreaker exists: I see the full text with "Regenerar" button
+**And** if no icebreaker: I see "Gerar Icebreaker" button
+**And** clicking either button triggers generation for that single lead
+
+**Given** generation is in progress for a lead
+**When** I view the lead
+**Then** I see loading spinner in the icebreaker column/section
+**And** the button is disabled during generation
+
+**Given** a lead has no LinkedIn URL
+**When** I try to generate icebreaker
+**Then** I see error: "Este lead não possui LinkedIn cadastrado"
+**And** suggestion: "Atualize os dados do lead para incluir o LinkedIn"
+
+**Technical Notes:**
+- Update LeadTable component to include icebreaker column
+- Update LeadDetailPanel to show icebreaker section
+- Create useIcebreakerEnrichment hook for API calls
+- Integrate with existing selection state in Zustand store
+- Column should be after "Status" and before any action columns
+
+---
+
+### Story 6.5.7: Icebreaker Integration with Email Generation
+
+As a user,
+I want the email generation to automatically use the lead's icebreaker when available,
+So that personalized emails include the premium opener without extra steps.
+
+**Context:** Esta story conecta o Icebreaker Premium com a geração de emails existente (Stories 6.2-6.6). Quando um lead tem icebreaker gerado, ele é automaticamente usado na geração de emails.
+
+**Acceptance Criteria:**
+
+**Given** I am generating email content for a campaign
+**When** the campaign has leads with icebreakers
+**Then** the email generation prompt receives the icebreaker as additional context
+**And** the AI incorporates the icebreaker naturally into the email opening
+**And** the email feels cohesive (icebreaker flows into main content)
+
+**Given** a lead does not have an icebreaker generated
+**When** email is generated
+**Then** the system falls back to standard icebreaker generation (Story 6.6)
+**And** uses lead data (company, title, industry) for personalization
+
+**Given** the user wants to preview email for a specific lead
+**When** the preview loads
+**Then** the icebreaker (if available) is shown in the email
+**And** there's indication: "✨ Icebreaker Premium" badge near the opener
+**And** user can click to see which LinkedIn post inspired it
+
+**Given** a campaign uses {icebreaker} tag in email template
+**When** the tag is replaced
+**Then** it uses the lead's premium icebreaker if available
+**And** falls back to AI-generated basic icebreaker if not
+
+**Technical Notes:**
+- Update email generation prompts to accept icebreaker context
+- Update email preview to show icebreaker source
+- Add icebreaker field to lead context passed to AI
+- Maintain backward compatibility with leads without icebreakers
+
+---
+
+### Story 6.5.8: Apify Cost Tracking (Future Enhancement)
+
+As an admin,
+I want to track Apify API usage and costs,
+So that I can monitor enrichment spending.
+
+**Context:** Esta story é um enhancement futuro para controle de custos. Pode ser implementada após o MVP do Icebreaker Premium estar funcionando.
+
+**Acceptance Criteria:**
+
+**Given** the system uses Apify for icebreaker generation
+**When** each call is made
+**Then** the usage is logged to a tracking table
+**And** the log includes: tenant_id, lead_id, posts_fetched, estimated_cost, timestamp
+
+**Given** I am on the admin settings
+**When** I view "Uso da API"
+**Then** I see Apify usage statistics:
+  - Total calls this month
+  - Estimated cost
+  - Average posts per lead
+**And** I can set usage alerts (optional)
+
+**Priority:** P2 (Nice to have for MVP)
+
+**Technical Notes:**
+- Create api_usage_logs table
+- Track per-tenant usage
+- Apify cost: ~$1 per 1000 posts
+- Future: usage limits per tenant
+
+---
+
 ## Epic 7: Campaign Deployment
 
 Usuários podem exportar campanhas com um clique para ferramentas de execução, com feedback claro de sucesso ou erro.
@@ -1786,4 +2160,152 @@ So that I know when things succeed or fail.
 **And** toasts stack from bottom-right
 **And** I can manually dismiss toasts
 **And** toasts are accessible (role="alert")
+
+---
+
+## Epic 8: Visual Refresh - Clean B&W Theme
+
+Transformação visual do sistema de um tema dark com tons azulados para um tema clean preto e branco neutro, inspirado no UI TripleD (ui.tripled.work).
+
+**Objetivo:** Apenas visual, zero impacto funcional.
+
+### Story 8.1: Dark Theme B&W Conversion
+
+Como usuário,
+Quero que o tema dark use cores preto e branco neutras,
+Para ter uma experiência visual mais clean e moderna.
+
+**Acceptance Criteria:**
+
+**Given** o arquivo globals.css existe
+**When** as variáveis CSS do `:root` são atualizadas
+**Then** todas as cores de background usam `hsl(0 0% XX%)` (sem saturação)
+**And** todas as cores de foreground usam tons neutros
+**And** bordas usam cinzas neutros sem saturação azul
+**And** primary color muda de indigo para branco
+**And** glow effects usam branco sutil
+
+**Given** o tema é atualizado
+**When** visualizo qualquer página do sistema
+**Then** os componentes herdam as novas cores automaticamente
+**And** não há cores azuladas visíveis (exceto status colors)
+
+**Given** cores de status (success, warning, destructive)
+**When** são exibidas na interface
+**Then** mantêm suas cores originais (verde, amarelo, vermelho)
+
+**Arquivos Afetados:**
+- src/app/globals.css
+
+---
+
+### Story 8.2: Light Theme B&W Conversion
+
+Como usuário,
+Quero que o tema light também use cores neutras,
+Para manter consistência visual entre os temas.
+
+**Acceptance Criteria:**
+
+**Given** o bloco `.light` em globals.css
+**When** as variáveis são atualizadas
+**Then** backgrounds usam brancos/cinzas claros neutros
+**And** foregrounds usam pretos/cinzas escuros neutros
+**And** primary color mantém consistência com dark theme
+**And** glow effects usam preto/cinza sutil
+
+**Arquivos Afetados:**
+- src/app/globals.css
+
+---
+
+### Story 8.3: Charts Grayscale Conversion
+
+Como usuário,
+Quero que os gráficos usem escala de cinzas,
+Para manter consistência com o tema B&W.
+
+**Acceptance Criteria:**
+
+**Given** variáveis de charts em globals.css
+**When** são atualizadas
+**Then** chart-1 a chart-5 usam escala de cinzas
+**And** gráficos permanecem distinguíveis entre si
+**And** legendas são legíveis
+
+**Paleta Proposta:**
+- chart-1: hsl(0 0% 98%) - Branco
+- chart-2: hsl(0 0% 80%) - Cinza claro
+- chart-3: hsl(0 0% 60%) - Cinza médio
+- chart-4: hsl(0 0% 40%) - Cinza escuro
+- chart-5: hsl(0 0% 25%) - Cinza muito escuro
+
+---
+
+### Story 8.4: UI TripleD Components Integration
+
+Como usuário,
+Quero componentes animados premium do UI TripleD,
+Para ter uma experiência visual sofisticada com micro-interações modernas.
+
+**Acceptance Criteria:**
+
+**Given** o CLI do UI TripleD está disponível
+**When** componentes são adicionados via `npx shadcn@latest add @uitripled/[component]`
+**Then** funcionam com o tema B&W existente
+**And** animações rodam suavemente com framer-motion
+
+**Given** o componente Native Magnetic é instalado
+**When** aplicado aos botões primários (CTAs)
+**Then** o cursor é "atraído" pelo botão (efeito magnético)
+**And** a interação é fluida e responsiva
+
+**Given** componentes são adicionados
+**When** visualizados na interface
+**Then** respeitam as CSS variables do tema B&W
+**And** não introduzem cores hardcoded
+
+**Componentes a Incluir:**
+- Native Magnetic - Botões primários (CTAs)
+- Glass Wallet Card - Cards de métricas/stats
+- Animated List - Listas de leads/campanhas
+- AI Unlock Animation - Geração de conteúdo IA
+- Interactive Timeline - Timeline de campanha
+
+**Dependências:**
+- framer-motion (já instalado v12.29.2)
+- Stories 8.1-8.3 completas
+
+---
+
+### Story 8.5: Visual QA & Contrast Review
+
+Como usuário,
+Quero que o contraste seja adequado em todas as telas,
+Para garantir legibilidade e acessibilidade.
+
+**Acceptance Criteria:**
+
+**Given** o novo tema é aplicado
+**When** navego por todas as páginas principais
+**Then** texto é legível em todos os contextos
+**And** contraste atende WCAG 2.1 AA (4.5:1 para texto normal)
+
+**Given** elementos interativos (botões, inputs)
+**When** são exibidos
+**Then** são claramente distinguíveis do background
+**And** estados de hover/focus são visíveis
+
+**Given** tabelas e cards
+**When** são exibidos
+**Then** bordas são visíveis mas sutis
+**And** hierarquia visual é clara
+
+**Páginas para Revisar:**
+- Login
+- Dashboard/Home
+- Leads (busca e meus leads)
+- Campanhas (lista e builder)
+- Configurações (todas as abas)
+- Modais e sidepanels
 

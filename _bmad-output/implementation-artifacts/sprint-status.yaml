@@ -193,7 +193,7 @@ development_status:
   8-1-dark-theme-bw-conversion: done  # Code review 2026-02-04: 1 HIGH fix (chart colors), 3 action items created
   8-2-light-theme-bw-conversion: done  # Code review 2026-02-04: 5 fixes applied (WCAG contrast, ring visibility, hue consistency, glow opacity)
   8-3-charts-grayscale-conversion: done  # Code review 2026-02-05: 3 MEDIUM fixes (docs deviation, regression test). 4 new tests
-  8-4-ui-tripled-components-integration: backlog  # Native Magnetic, Glass Cards, Animated Lists, etc.
+  8-4-ui-tripled-components-integration: done  # Code review 2026-02-05: 2 HIGH, 4 MEDIUM fixes (onComplete ref, rgb hardcoded, dead import, dead code, desvios documentados). 54 testes passando.
   8-5-visual-qa-contrast-review: backlog  # QA de todas as telas para garantir contraste WCAG AA
   epic-8-retrospective: optional
 

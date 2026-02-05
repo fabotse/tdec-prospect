@@ -67,6 +67,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
   }
 
   // Fetch leads via junction table with lead details
+  // Story 6.5.7: Include icebreaker fields for premium icebreaker integration
   const { data, error } = await supabase
     .from("campaign_leads")
     .select(
@@ -80,7 +81,10 @@ export async function GET(_request: Request, { params }: RouteParams) {
         email,
         company_name,
         title,
-        photo_url
+        photo_url,
+        icebreaker,
+        icebreaker_generated_at,
+        linkedin_posts_cache
       )
     `
     )

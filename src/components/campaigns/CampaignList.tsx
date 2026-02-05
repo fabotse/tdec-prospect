@@ -11,6 +11,7 @@
 "use client";
 
 import { CampaignCard } from "./CampaignCard";
+import { AnimatedList, AnimatedListItem } from "@/components/ui/animated-list";
 import type { CampaignWithCount } from "@/types/campaign";
 
 interface CampaignListProps {
@@ -21,15 +22,16 @@ interface CampaignListProps {
 
 export function CampaignList({ campaigns, onCampaignClick, onDelete }: CampaignListProps) {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <AnimatedList className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {campaigns.map((campaign) => (
-        <CampaignCard
-          key={campaign.id}
-          campaign={campaign}
-          onClick={() => onCampaignClick?.(campaign)}
-          onDelete={onDelete}
-        />
+        <AnimatedListItem key={campaign.id}>
+          <CampaignCard
+            campaign={campaign}
+            onClick={() => onCampaignClick?.(campaign)}
+            onDelete={onDelete}
+          />
+        </AnimatedListItem>
       ))}
-    </div>
+    </AnimatedList>
   );
 }

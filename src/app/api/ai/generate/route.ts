@@ -19,7 +19,7 @@ import { createClient } from "@/lib/supabase/server";
 import { decryptApiKey } from "@/lib/crypto/encryption";
 import { createAIProvider, promptManager, AIProviderError } from "@/lib/ai";
 import { aiGenerateRequestSchema } from "@/types/ai-provider";
-import type { AIGenerateResponse } from "@/types/ai-provider";
+import type { AIGenerateResponse, AIModel, AIGenerationOptions } from "@/types/ai-provider";
 import type { APIErrorResponse } from "@/types/api";
 import type { ProductRow } from "@/types/product";
 import { transformProductRow } from "@/types/product";
@@ -203,12 +203,13 @@ export async function POST(request: NextRequest) {
     const provider = createAIProvider("openai", apiKey);
 
     // Merge prompt metadata with request options
-    const generationOptions = {
-      ...options,
+    const generationOptions: AIGenerationOptions = {
+      stream: options?.stream,
+      timeoutMs: options?.timeoutMs,
       temperature:
         options?.temperature ?? renderedPrompt.metadata.temperature,
       maxTokens: options?.maxTokens ?? renderedPrompt.metadata.maxTokens,
-      model: options?.model ?? renderedPrompt.modelPreference ?? undefined,
+      model: (options?.model ?? renderedPrompt.modelPreference) as AIModel | undefined,
     };
 
     // 6. Check if streaming is requested

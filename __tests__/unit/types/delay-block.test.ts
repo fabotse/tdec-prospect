@@ -7,7 +7,7 @@
  * AC: #5 - Sugestao de Intervalos (DELAY_PRESETS)
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   transformDelayBlockRow,
   delayBlockDataSchema,
@@ -112,7 +112,7 @@ describe("Delay Block Types", () => {
 
   describe("DELAY_PRESETS (AC: #5)", () => {
     it("contains recommended options for 2 and 3 days", () => {
-      const recommendedPresets = DELAY_PRESETS.filter((p) => p.recommended);
+      const recommendedPresets = DELAY_PRESETS.filter((p) => "recommended" in p && p.recommended);
       expect(recommendedPresets).toHaveLength(2);
 
       const recommendedValues = recommendedPresets.map((p) => p.value);

@@ -20,8 +20,22 @@ import type { Lead } from "@/types/lead";
 import type { APIErrorResponse } from "@/types/api";
 
 /**
+ * Cached LinkedIn posts structure (Story 6.5.7)
+ */
+interface LinkedInPostsCacheResponse {
+  posts: Array<{
+    text: string;
+    publishedAt: string;
+    postUrl?: string;
+  }>;
+  fetchedAt: string;
+  profileUrl: string;
+}
+
+/**
  * Lead data returned from campaign leads API
  * Uses snake_case as it comes directly from Supabase join
+ * Story 6.5.7: Added icebreaker fields for premium icebreaker integration
  */
 interface CampaignLeadResponse {
   id: string;
@@ -34,23 +48,49 @@ interface CampaignLeadResponse {
     company_name: string | null;
     title: string | null;
     photo_url: string | null;
+    /** Story 6.5.7: Premium icebreaker text */
+    icebreaker: string | null;
+    /** Story 6.5.7: Timestamp when icebreaker was generated */
+    icebreaker_generated_at: string | null;
+    /** Story 6.5.7: Cached LinkedIn posts for source display */
+    linkedin_posts_cache: LinkedInPostsCacheResponse | null;
   };
 }
 
 /**
+ * Simplified LinkedIn posts cache for campaign leads
+ * Story 6.5.7: Used for icebreaker source display in preview
+ * Note: Uses simplified post structure (subset of full LinkedInPost)
+ */
+export interface CampaignLeadLinkedInPostsCache {
+  posts: Array<{
+    text: string;
+    publishedAt: string;
+    postUrl?: string;
+  }>;
+  fetchedAt: string;
+  profileUrl: string;
+}
+
+/**
  * Campaign lead with transformed lead data (camelCase)
+ * Story 6.5.7: Added icebreaker fields for premium icebreaker integration
  */
 export interface CampaignLeadWithLead {
   id: string;
   addedAt: string;
   lead: Pick<
     Lead,
-    "id" | "firstName" | "lastName" | "email" | "companyName" | "title" | "photoUrl"
-  >;
+    "id" | "firstName" | "lastName" | "email" | "companyName" | "title" | "photoUrl" | "icebreaker" | "icebreakerGeneratedAt"
+  > & {
+    /** Story 6.5.7: Simplified LinkedIn posts cache for tooltip display */
+    linkedinPostsCache: CampaignLeadLinkedInPostsCache | null;
+  };
 }
 
 /**
  * Transform API response to CampaignLeadWithLead
+ * Story 6.5.7: Added icebreaker field transformation
  */
 function transformCampaignLead(
   response: CampaignLeadResponse
@@ -66,6 +106,10 @@ function transformCampaignLead(
       companyName: response.lead.company_name,
       title: response.lead.title,
       photoUrl: response.lead.photo_url,
+      // Story 6.5.7: Premium icebreaker fields
+      icebreaker: response.lead.icebreaker,
+      icebreakerGeneratedAt: response.lead.icebreaker_generated_at,
+      linkedinPostsCache: response.lead.linkedin_posts_cache,
     },
   };
 }

@@ -25,26 +25,31 @@ import { BuilderCanvas } from "@/components/builder/BuilderCanvas";
 // Mock framer-motion for EmailBlock, DelayBlock, and SequenceConnector
 vi.mock("framer-motion", () => ({
   motion: {
-    div: ({
-      children,
-      className,
-      onClick,
-      "data-testid": testId,
-    }: {
-      children: React.ReactNode;
-      className?: string;
-      onClick?: (e: React.MouseEvent) => void;
-      "data-testid"?: string;
-    }) => (
-      <div className={className} onClick={onClick} data-testid={testId}>
-        {children}
+    div: ({ children, className, "data-testid": testId, onClick, ...props }: Record<string, unknown>) => (
+      <div className={className as string} data-testid={testId as string} onClick={onClick as () => void}>
+        {children as React.ReactNode}
       </div>
+    ),
+    button: ({ children, className, onClick, type, ...props }: Record<string, unknown>) => (
+      <button className={className as string} onClick={onClick as () => void} type={type as "button"}>
+        {children as React.ReactNode}
+      </button>
+    ),
+    a: ({ children, className, href, ...props }: Record<string, unknown>) => (
+      <a className={className as string} href={href as string}>
+        {children as React.ReactNode}
+      </a>
     ),
     path: ({ d, stroke, strokeWidth, ...props }: Record<string, unknown>) => (
       <path d={d as string} stroke={stroke as string} strokeWidth={strokeWidth as number} {...props} />
     ),
   },
+  AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useMotionValue: () => ({ set: vi.fn(), get: () => 0 }),
+  useSpring: (v: unknown) => v,
+  useTransform: () => 0,
   useReducedMotion: () => false,
+  useInView: () => true,
 }));
 
 // Mock store functions

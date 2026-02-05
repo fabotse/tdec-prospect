@@ -1,11 +1,18 @@
 /**
  * Email Block Types
  * Story 5.3: Email Block Component
+ * Story 6.5.7: Premium Icebreaker Integration
  *
  * Types for email blocks in campaign sequences.
  */
 
 import { z } from "zod";
+
+/**
+ * Source of icebreaker used in email generation
+ * Story 6.5.7: Tracks whether premium or standard icebreaker was used
+ */
+export type IcebreakerSourceType = "premium" | "standard" | "none";
 
 // ==============================================
 // EMAIL BLOCK INTERFACES
@@ -62,15 +69,36 @@ export function transformEmailBlockRow(row: EmailBlockRow): EmailBlock {
 }
 
 /**
+ * LinkedIn post structure for icebreaker source display
+ * Story 6.5.7: Used for tooltip in preview and badge components
+ * Consolidated interface - use this instead of local definitions
+ */
+export interface LinkedInPostSummary {
+  text: string;
+  publishedAt: string;
+  postUrl?: string;
+}
+
+/**
+ * @deprecated Use LinkedInPostSummary instead
+ */
+export type IcebreakerPostSummary = LinkedInPostSummary;
+
+/**
  * Data structure for email block in BuilderBlock.data
  * Used in useBuilderStore
  * Story 6.11: Added emailMode for follow-up support
+ * Story 6.5.7: Added icebreakerSource for premium icebreaker tracking
  */
 export interface EmailBlockData {
   subject: string;
   body: string;
   /** Email mode: initial or follow-up (Story 6.11 AC #2) */
   emailMode?: EmailMode;
+  /** Story 6.5.7: Source of icebreaker used in generation */
+  icebreakerSource?: IcebreakerSourceType;
+  /** Story 6.5.7: Cached LinkedIn posts for tooltip display */
+  icebreakerPosts?: LinkedInPostSummary[] | null;
 }
 
 /**

@@ -41,7 +41,7 @@
  */
 
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EmailBlock } from "@/components/builder/EmailBlock";
 import type { BuilderBlock } from "@/stores/use-builder-store";
 import type { GenerationPhase } from "@/hooks/use-ai-generate";
@@ -49,22 +49,28 @@ import type { GenerationPhase } from "@/hooks/use-ai-generate";
 // Mock framer-motion
 vi.mock("framer-motion", () => ({
   motion: {
-    div: ({
-      children,
-      className,
-      onClick,
-      "data-testid": testId,
-    }: {
-      children: React.ReactNode;
-      className?: string;
-      onClick?: (e: React.MouseEvent) => void;
-      "data-testid"?: string;
-    }) => (
-      <div className={className} onClick={onClick} data-testid={testId}>
-        {children}
+    div: ({ children, className, "data-testid": testId, onClick, ...props }: Record<string, unknown>) => (
+      <div className={className as string} data-testid={testId as string} onClick={onClick as () => void}>
+        {children as React.ReactNode}
       </div>
     ),
+    button: ({ children, className, onClick, type, ...props }: Record<string, unknown>) => (
+      <button className={className as string} onClick={onClick as () => void} type={type as "button"}>
+        {children as React.ReactNode}
+      </button>
+    ),
+    a: ({ children, className, href, ...props }: Record<string, unknown>) => (
+      <a className={className as string} href={href as string}>
+        {children as React.ReactNode}
+      </a>
+    ),
   },
+  AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useMotionValue: () => ({ set: vi.fn(), get: () => 0 }),
+  useSpring: (v: unknown) => v,
+  useTransform: () => 0,
+  useReducedMotion: () => false,
+  useInView: () => true,
 }));
 
 // Mock store functions
@@ -80,6 +86,14 @@ let mockPreviewLead: {
   companyName: string | null;
   title: string | null;
   email: string | null;
+  // Story 6.5.7: Premium icebreaker fields
+  icebreaker?: string | null;
+  icebreakerGeneratedAt?: string | null;
+  linkedinPostsCache?: {
+    posts: Array<{ text: string; publishedAt: string; postUrl?: string }>;
+    fetchedAt: string;
+    profileUrl: string;
+  } | null;
 } | null = null;
 // Story 6.11: Mock blocks array for getPreviousEmailBlock
 let mockBlocks: Array<{
@@ -141,7 +155,7 @@ vi.mock("@/hooks/use-ai-generate", () => ({
 }));
 
 // Mock KB context state (Story 6.3)
-let mockKBVariables = {
+const mockKBVariables = {
   company_context: "KB Test Company",
   products_services: "Product A",
   competitive_advantages: "Fast support",
@@ -1756,6 +1770,145 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
         },
         { timeout: 3000 }
       );
+    });
+  });
+
+  // ==============================================
+  // Story 6.5.7: Premium Icebreaker Badge
+  // ==============================================
+
+  describe("Premium Icebreaker Badge (Story 6.5.7 AC #3)", () => {
+    it("shows PremiumIcebreakerBadge when lead has premium icebreaker and content is generated", async () => {
+      // Setup lead with premium icebreaker
+      mockPreviewLead = {
+        id: "lead-premium",
+        firstName: "Ana",
+        lastName: "Costa",
+        companyName: "Premium Corp",
+        title: "CEO",
+        email: "ana@premium.com",
+        icebreaker: "Vi seu post sobre inovação no setor de tecnologia.",
+        icebreakerGeneratedAt: "2026-02-04T10:00:00Z",
+        linkedinPostsCache: {
+          posts: [
+            {
+              text: "Compartilhando insights sobre inovação...",
+              publishedAt: "2026-02-01T08:00:00Z",
+              postUrl: "https://linkedin.com/feed/update/123",
+            },
+          ],
+          fetchedAt: "2026-02-04T09:55:00Z",
+          profileUrl: "https://linkedin.com/in/anacosta",
+        },
+      };
+
+      // Block with generated content and premium icebreaker source
+      const blockWithPremiumIcebreaker: BuilderBlock = {
+        id: "test-premium-badge",
+        type: "email",
+        position: 0,
+        data: {
+          subject: "Assunto gerado",
+          body: "Corpo do email gerado",
+          emailMode: "initial",
+          icebreakerSource: "premium",
+          icebreakerPosts: mockPreviewLead.linkedinPostsCache?.posts || null,
+        },
+      };
+
+      render(<EmailBlock block={blockWithPremiumIcebreaker} stepNumber={1} />);
+
+      // Badge should be visible
+      expect(screen.getByTestId("premium-icebreaker-badge")).toBeInTheDocument();
+      expect(screen.getByText("Icebreaker Premium")).toBeInTheDocument();
+    });
+
+    it("does NOT show badge when icebreakerSource is standard", () => {
+      const blockWithStandardIcebreaker: BuilderBlock = {
+        id: "test-standard-badge",
+        type: "email",
+        position: 0,
+        data: {
+          subject: "Assunto",
+          body: "Corpo",
+          emailMode: "initial",
+          icebreakerSource: "standard",
+        },
+      };
+
+      render(<EmailBlock block={blockWithStandardIcebreaker} stepNumber={1} />);
+
+      // Badge should NOT be visible
+      expect(screen.queryByTestId("premium-icebreaker-badge")).not.toBeInTheDocument();
+    });
+
+    it("does NOT show badge when content is empty", () => {
+      mockPreviewLead = {
+        id: "lead-premium",
+        firstName: "Ana",
+        lastName: "Costa",
+        companyName: "Premium Corp",
+        title: "CEO",
+        email: "ana@premium.com",
+        icebreaker: "Vi seu post...",
+        icebreakerGeneratedAt: "2026-02-04T10:00:00Z",
+        linkedinPostsCache: null,
+      };
+
+      // Block without content
+      const blockWithoutContent: BuilderBlock = {
+        id: "test-no-content",
+        type: "email",
+        position: 0,
+        data: { subject: "", body: "", emailMode: "initial" },
+      };
+
+      render(<EmailBlock block={blockWithoutContent} stepNumber={1} />);
+
+      // Badge should NOT be visible (no content yet)
+      expect(screen.queryByTestId("premium-icebreaker-badge")).not.toBeInTheDocument();
+    });
+
+    it("skips icebreaker_generation when lead has premium icebreaker", async () => {
+      mockPreviewLead = {
+        id: "lead-premium-gen",
+        firstName: "Bruno",
+        lastName: "Santos",
+        companyName: "Tech SA",
+        title: "CTO",
+        email: "bruno@tech.com",
+        icebreaker: "Adorei seu artigo sobre arquitetura de sistemas.",
+        icebreakerGeneratedAt: "2026-02-04T10:00:00Z",
+        linkedinPostsCache: {
+          posts: [{ text: "Artigo sobre arquitetura...", publishedAt: "2026-02-01T08:00:00Z" }],
+          fetchedAt: "2026-02-04T09:55:00Z",
+          profileUrl: "https://linkedin.com/in/brunosantos",
+        },
+      };
+
+      mockGenerate.mockResolvedValue("Generated text");
+
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      fireEvent.click(screen.getByText("Gerar com IA"));
+
+      // Wait for generation to complete
+      await waitFor(
+        () => {
+          // Verify email_body_generation was called (generation completed)
+          const bodyCall = mockGenerate.mock.calls.find(
+            (call) => call[0]?.promptKey === "email_body_generation"
+          );
+          expect(bodyCall).toBeDefined();
+        },
+        { timeout: 5000 }
+      );
+
+      // Key assertion: icebreaker_generation should NOT be called when premium exists
+      const icebreakerCalls = mockGenerate.mock.calls.filter(
+        (call) => call[0]?.promptKey === "icebreaker_generation"
+      );
+      expect(icebreakerCalls).toHaveLength(0);
     });
   });
 

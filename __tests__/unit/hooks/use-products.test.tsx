@@ -140,6 +140,9 @@ describe("useProducts Hook", () => {
         await result.current.mutateAsync({
           name: "Test Product",
           description: "Test Description",
+          features: null,
+          differentials: null,
+          targetAudience: null,
         });
       });
 
@@ -151,6 +154,9 @@ describe("useProducts Hook", () => {
           body: JSON.stringify({
             name: "Test Product",
             description: "Test Description",
+            features: null,
+            differentials: null,
+            targetAudience: null,
           }),
         })
       );
@@ -171,6 +177,9 @@ describe("useProducts Hook", () => {
         result.current.mutateAsync({
           name: "Test",
           description: "Desc",
+          features: null,
+          differentials: null,
+          targetAudience: null,
         })
       ).rejects.toThrow("Erro ao criar produto");
     });

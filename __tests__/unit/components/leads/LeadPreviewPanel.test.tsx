@@ -51,12 +51,17 @@ function createMockLead(overrides: Partial<Lead> = {}): Lead {
     location: "Rio de Janeiro, BR",
     title: "CTO",
     linkedinUrl: "https://linkedin.com/in/mariasantos",
+    photoUrl: null,
     hasEmail: true,
     hasDirectPhone: "Yes",
     status: "novo",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     _isImported: false, // Not imported (Apollo lead)
+    // Story 6.5.4: Icebreaker fields
+    icebreaker: null,
+    icebreakerGeneratedAt: null,
+    linkedinPostsCache: null,
     ...overrides,
   };
 }

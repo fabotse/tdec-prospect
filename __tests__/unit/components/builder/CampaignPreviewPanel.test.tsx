@@ -9,6 +9,34 @@
 
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Mock framer-motion
+vi.mock("framer-motion", () => ({
+  motion: {
+    div: ({ children, className, "data-testid": testId, onClick, ...props }: Record<string, unknown>) => (
+      <div className={className as string} data-testid={testId as string} onClick={onClick as () => void}>
+        {children as React.ReactNode}
+      </div>
+    ),
+    button: ({ children, className, onClick, type, ...props }: Record<string, unknown>) => (
+      <button className={className as string} onClick={onClick as () => void} type={type as "button"}>
+        {children as React.ReactNode}
+      </button>
+    ),
+    a: ({ children, className, href, ...props }: Record<string, unknown>) => (
+      <a className={className as string} href={href as string}>
+        {children as React.ReactNode}
+      </a>
+    ),
+  },
+  AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useMotionValue: () => ({ set: vi.fn(), get: () => 0 }),
+  useSpring: (v: unknown) => v,
+  useTransform: () => 0,
+  useReducedMotion: () => false,
+  useInView: () => true,
+}));
+
 import { CampaignPreviewPanel } from "@/components/builder/CampaignPreviewPanel";
 import { useBuilderStore } from "@/stores/use-builder-store";
 import type { BuilderBlock } from "@/stores/use-builder-store";
@@ -120,8 +148,9 @@ describe("CampaignPreviewPanel", () => {
       );
 
       render(<CampaignPreviewPanel {...defaultProps} />);
-      expect(screen.getByText("Primeiro Assunto")).toBeInTheDocument();
-      expect(screen.getByText("Segundo Assunto")).toBeInTheDocument();
+      // InteractiveTimeline may also render subjects, so use getAllByText
+      expect(screen.getAllByText("Primeiro Assunto").length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText("Segundo Assunto").length).toBeGreaterThanOrEqual(1);
     });
 
     it("displays delay blocks", () => {

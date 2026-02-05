@@ -732,14 +732,14 @@ describe("knowledge-base-context service", () => {
         };
         const mockProduct = {
           id: "prod-1",
-          tenant_id: "tenant-1",
+          tenantId: "tenant-1",
           name: "Analytics Pro",
           description: "Plataforma de analytics",
           features: "Dashboards",
           differentials: "IA integrada",
           targetAudience: "CTOs",
-          created_at: "2026-01-01",
-          updated_at: "2026-01-01",
+          createdAt: "2026-01-01",
+          updatedAt: "2026-01-01",
         };
 
         const result = buildAIVariables(context, mockProduct);

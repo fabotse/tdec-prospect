@@ -70,6 +70,7 @@ export type PromptKey =
   | "email_subject_generation"
   | "email_body_generation"
   | "icebreaker_generation"
+  | "icebreaker_premium_generation"
   | "tone_application"
   | "follow_up_email_generation"
   | "follow_up_subject_generation"
@@ -83,6 +84,7 @@ export const PROMPT_KEYS: PromptKey[] = [
   "email_subject_generation",
   "email_body_generation",
   "icebreaker_generation",
+  "icebreaker_premium_generation",
   "tone_application",
   "follow_up_email_generation",
   "follow_up_subject_generation",
@@ -171,6 +173,7 @@ export const promptKeySchema = z.enum([
   "email_subject_generation",
   "email_body_generation",
   "icebreaker_generation",
+  "icebreaker_premium_generation",
   "tone_application",
   "follow_up_email_generation",
   "follow_up_subject_generation",

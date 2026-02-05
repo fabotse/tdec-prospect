@@ -86,6 +86,7 @@ describe("Campaign Types", () => {
         tenant_id: "tenant-456",
         name: "Test Campaign",
         status: "draft",
+        product_id: null,
         created_at: "2026-02-01T10:00:00Z",
         updated_at: "2026-02-01T12:00:00Z",
       };
@@ -97,6 +98,7 @@ describe("Campaign Types", () => {
         tenantId: "tenant-456",
         name: "Test Campaign",
         status: "draft",
+        productId: null,
         createdAt: "2026-02-01T10:00:00Z",
         updatedAt: "2026-02-01T12:00:00Z",
       });
@@ -110,6 +112,7 @@ describe("Campaign Types", () => {
         tenant_id: "tenant-456",
         name: "Test Campaign",
         status: "active",
+        product_id: null,
         created_at: "2026-02-01T10:00:00Z",
         updated_at: "2026-02-01T12:00:00Z",
         lead_count: 42,
@@ -127,6 +130,7 @@ describe("Campaign Types", () => {
         tenant_id: "tenant-456",
         name: "Test Campaign",
         status: "draft",
+        product_id: null,
         created_at: "2026-02-01T10:00:00Z",
         updated_at: "2026-02-01T12:00:00Z",
         lead_count: 0,
@@ -143,6 +147,7 @@ describe("Campaign Types", () => {
         tenant_id: "tenant-456",
         name: "Test Campaign",
         status: "draft" as const,
+        product_id: null,
         created_at: "2026-02-01T10:00:00Z",
         updated_at: "2026-02-01T12:00:00Z",
         lead_count: "15" as unknown as number, // DB might return string
@@ -159,6 +164,7 @@ describe("Campaign Types", () => {
         tenant_id: "tenant-456",
         name: "Test Campaign",
         status: "draft" as const,
+        product_id: null,
         created_at: "2026-02-01T10:00:00Z",
         updated_at: "2026-02-01T12:00:00Z",
         lead_count: NaN as unknown as number,

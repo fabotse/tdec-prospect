@@ -1,9 +1,11 @@
 /**
  * LeadPreviewSelector Component
  * Story 6.6: Personalized Icebreakers
+ * Story 6.5.7: Premium Icebreaker Integration
  *
- * AC: #1 - Lead Preview Selector in Builder
- * AC: #6 - No Leads Associated State
+ * AC 6.6: #1 - Lead Preview Selector in Builder
+ * AC 6.6: #6 - No Leads Associated State
+ * AC 6.5.7: #1 - Pass premium icebreaker to email generation
  *
  * Dropdown to select a lead for AI generation preview.
  */
@@ -36,6 +38,7 @@ export function LeadPreviewSelector({ campaignId }: LeadPreviewSelectorProps) {
   const { leads, isLoading } = useCampaignLeads(campaignId);
 
   // AC #1: Auto-select first lead on initial load
+  // Story 6.5.7: Include icebreaker fields for premium icebreaker integration
   useEffect(() => {
     if (leads?.length && !previewLeadId) {
       const firstLead = leads[0].lead;
@@ -46,11 +49,15 @@ export function LeadPreviewSelector({ campaignId }: LeadPreviewSelectorProps) {
         companyName: firstLead.companyName,
         title: firstLead.title,
         email: firstLead.email,
+        icebreaker: firstLead.icebreaker,
+        icebreakerGeneratedAt: firstLead.icebreakerGeneratedAt,
+        linkedinPostsCache: firstLead.linkedinPostsCache,
       });
     }
   }, [leads, previewLeadId, setPreviewLead]);
 
   // CR-M2 FIX: Validate previewLead still exists when leads change
+  // Story 6.5.7: Include icebreaker fields for premium icebreaker integration
   useEffect(() => {
     if (!leads?.length || !previewLeadId) return;
 
@@ -65,10 +72,14 @@ export function LeadPreviewSelector({ campaignId }: LeadPreviewSelectorProps) {
         companyName: firstLead.companyName,
         title: firstLead.title,
         email: firstLead.email,
+        icebreaker: firstLead.icebreaker,
+        icebreakerGeneratedAt: firstLead.icebreakerGeneratedAt,
+        linkedinPostsCache: firstLead.linkedinPostsCache,
       });
     }
   }, [leads, previewLeadId, setPreviewLead]);
 
+  // Story 6.5.7: Include icebreaker fields for premium icebreaker integration
   const handleChange = (leadId: string) => {
     const selected = leads?.find((l) => l.lead.id === leadId);
     if (selected) {
@@ -79,6 +90,9 @@ export function LeadPreviewSelector({ campaignId }: LeadPreviewSelectorProps) {
         companyName: selected.lead.companyName,
         title: selected.lead.title,
         email: selected.lead.email,
+        icebreaker: selected.lead.icebreaker,
+        icebreakerGeneratedAt: selected.lead.icebreakerGeneratedAt,
+        linkedinPostsCache: selected.lead.linkedinPostsCache,
       };
       setPreviewLead(previewLead);
     }

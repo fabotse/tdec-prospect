@@ -65,12 +65,17 @@ function createMockLead(overrides: Partial<Lead> = {}): Lead {
     location: "São Paulo",
     title: "Developer",
     linkedinUrl: null,
+    photoUrl: null,
     status: "novo",
     hasEmail: true,
     hasDirectPhone: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     _isImported: true,
+    // Story 6.5.4: Icebreaker fields
+    icebreaker: null,
+    icebreakerGeneratedAt: null,
+    linkedinPostsCache: null,
     ...overrides,
   };
 }

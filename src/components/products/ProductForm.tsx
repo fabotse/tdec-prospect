@@ -39,7 +39,7 @@ export function ProductForm({
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<CreateProductInput>({
+  } = useForm({
     resolver: zodResolver(createProductSchema),
     defaultValues: {
       name: product?.name ?? "",
@@ -51,7 +51,7 @@ export function ProductForm({
   });
 
   const handleFormSubmit = handleSubmit(async (data) => {
-    await onSubmit(data);
+    await onSubmit(data as CreateProductInput);
   });
 
   return (

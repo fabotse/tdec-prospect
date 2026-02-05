@@ -37,6 +37,7 @@ export interface BuilderBlock {
 /**
  * Preview lead data for AI generation
  * Story 6.6: AC #1, #2 - Real lead data for personalized generation
+ * Story 6.5.7: AC #1 - Premium icebreaker integration
  */
 export interface PreviewLead {
   id: string;
@@ -45,6 +46,20 @@ export interface PreviewLead {
   companyName: string | null;
   title: string | null;
   email: string | null;
+  /** Story 6.5.7: Premium icebreaker from LinkedIn posts */
+  icebreaker: string | null;
+  /** Story 6.5.7: Timestamp when premium icebreaker was generated */
+  icebreakerGeneratedAt: string | null;
+  /** Story 6.5.7: Cached LinkedIn posts for source display */
+  linkedinPostsCache: {
+    posts: Array<{
+      text: string;
+      publishedAt: string;
+      postUrl?: string;
+    }>;
+    fetchedAt: string;
+    profileUrl: string;
+  } | null;
 }
 
 interface BuilderState {
