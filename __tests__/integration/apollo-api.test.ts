@@ -270,14 +270,22 @@ describe("Apollo API Route Integration", () => {
 
       await POST(request);
 
-      // Verify Apollo API was called with correct query params
+      // Verify Apollo API was called with correct URL query params (literal [] notation)
       expect(fetchMock).toHaveBeenCalled();
-      const calledUrl = fetchMock.mock.calls[0][0];
-      expect(calledUrl).toContain("api_search");
-      expect(calledUrl).toContain("person_titles%5B%5D=CEO");
-      expect(calledUrl).toContain("person_titles%5B%5D=CTO");
+      const calledUrl = fetchMock.mock.calls[0][0] as string;
+      expect(calledUrl).toContain("api_search?");
+      expect(calledUrl).toContain("person_titles[]=CEO");
+      expect(calledUrl).toContain("person_titles[]=CTO");
+      expect(calledUrl).toContain("include_similar_titles=true");
+      expect(calledUrl).toContain("person_locations[]=S%C3%A3o%20Paulo%2C%20Brazil");
+      expect(calledUrl).toContain("organization_num_employees_ranges[]=11%2C50");
+      expect(calledUrl).toContain("organization_num_employees_ranges[]=51%2C200");
+      expect(calledUrl).toContain("q_keywords=marketing");
       expect(calledUrl).toContain("page=2");
       expect(calledUrl).toContain("per_page=50");
+      // Must NOT have %5B%5D encoding for brackets
+      expect(calledUrl).not.toContain("%5B");
+      expect(calledUrl).not.toContain("%5D");
     });
   });
 

@@ -43,10 +43,10 @@ export interface ApolloAPIFilters {
   q_organization_domains?: string[];
   person_titles?: string[];
   person_locations?: string[];
-  organization_locations?: string[];
   organization_num_employees_ranges?: string[];
   q_keywords?: string;
   contact_email_status?: string[]; // Story 3.5.1: e.g., ["verified", "likely to engage"]
+  include_similar_titles?: boolean;
   page?: number;
   per_page?: number;
 }
@@ -152,10 +152,10 @@ export function transformFiltersToApollo(
   }
   if (filters.titles?.length) {
     apolloFilters.person_titles = filters.titles;
+    apolloFilters.include_similar_titles = true;
   }
   if (filters.locations?.length) {
     apolloFilters.person_locations = filters.locations;
-    apolloFilters.organization_locations = filters.locations;
   }
   if (filters.companySizes?.length) {
     // Transform "11-50" to "11,50" format for Apollo API

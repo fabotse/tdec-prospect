@@ -76,6 +76,7 @@ describe("Apollo Types", () => {
       const result = transformFiltersToApollo(filters);
 
       expect(result.person_titles).toEqual(["CEO", "CTO"]);
+      expect(result.include_similar_titles).toBe(true);
       expect(result.q_keywords).toBe("software");
       expect(result.page).toBe(1);
       expect(result.per_page).toBe(25);
@@ -91,7 +92,7 @@ describe("Apollo Types", () => {
       expect(result.organization_num_employees_ranges).toEqual(["11,50", "51,200"]);
     });
 
-    it("maps locations to both person and organization locations", () => {
+    it("maps locations to person_locations only", () => {
       const filters: ApolloSearchFilters = {
         locations: ["Sao Paulo, Brazil"],
       };
@@ -99,7 +100,6 @@ describe("Apollo Types", () => {
       const result = transformFiltersToApollo(filters);
 
       expect(result.person_locations).toEqual(["Sao Paulo, Brazil"]);
-      expect(result.organization_locations).toEqual(["Sao Paulo, Brazil"]);
     });
 
     // Story 3.5.1: contactEmailStatuses transformation
@@ -160,6 +160,7 @@ describe("Apollo Types", () => {
       const result = transformFiltersToApollo(filters);
 
       expect(result.person_titles).toEqual(["CEO"]);
+      expect(result.include_similar_titles).toBe(true);
       expect(result.person_locations).toEqual(["Sao Paulo, Brazil"]);
       expect(result.contact_email_status).toEqual(["verified"]);
       expect(result.page).toBe(1);

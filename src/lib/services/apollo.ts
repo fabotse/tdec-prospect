@@ -244,14 +244,16 @@ export class ApolloService extends ExternalService {
   async searchPeople(filters: ApolloSearchFilters): Promise<ApolloSearchResult> {
     const apiKey = await this.getApiKey();
     const queryString = this.buildQueryString(filters);
+    const url = `${APOLLO_API_BASE}${APOLLO_SEARCH_ENDPOINT}?${queryString}`;
 
     const response = await this.request<ApolloSearchResponse>(
-      `${APOLLO_API_BASE}${APOLLO_SEARCH_ENDPOINT}?${queryString}`,
+      url,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Cache-Control": "no-cache",
+          accept: "application/json",
           "x-api-key": apiKey,
         },
       }
@@ -289,45 +291,45 @@ export class ApolloService extends ExternalService {
   }
 
   /**
-   * Build query string for Apollo API
-   * Apollo uses array notation: param[]=value1&param[]=value2
+   * Build query string for Apollo API with literal [] notation
+   * Apollo requires literal [] in URL (NOT %5B%5D encoded)
+   * Uses encodeURIComponent for values (%20 for spaces, %2C for commas)
    * Story 3.5.1: Added contact_email_status[] parameter
    */
   private buildQueryString(filters: ApolloSearchFilters): string {
-    const params = new URLSearchParams();
+    const parts: string[] = [];
+
+    const addParam = (key: string, value: string) => {
+      parts.push(`${key}=${encodeURIComponent(value)}`);
+    };
+
+    const addArrayParam = (key: string, values: string[]) => {
+      values.forEach((v) => parts.push(`${key}[]=${encodeURIComponent(v)}`));
+    };
 
     // Pagination
-    params.append("page", String(filters.page ?? 1));
-    params.append("per_page", String(filters.perPage ?? 25));
+    addParam("page", String(filters.page ?? 1));
+    addParam("per_page", String(filters.perPage ?? 25));
 
-    // Array parameters use [] notation
     if (filters.titles?.length) {
-      filters.titles.forEach((title) =>
-        params.append("person_titles[]", title)
-      );
+      addArrayParam("person_titles", filters.titles);
+      addParam("include_similar_titles", "true");
     }
 
     if (filters.locations?.length) {
-      filters.locations.forEach((loc) => {
-        params.append("person_locations[]", loc);
-        params.append("organization_locations[]", loc);
-      });
+      addArrayParam("person_locations", filters.locations);
     }
 
     if (filters.companySizes?.length) {
       // Transform "11-50" to "11,50" format
-      filters.companySizes.forEach((size) =>
-        params.append(
-          "organization_num_employees_ranges[]",
-          size.replace("-", ",")
-        )
+      addArrayParam(
+        "organization_num_employees_ranges",
+        filters.companySizes.map((size) => size.replace("-", ","))
       );
     }
 
     if (filters.domains?.length) {
-      filters.domains.forEach((domain) =>
-        params.append("q_organization_domains_list[]", domain)
-      );
+      addArrayParam("q_organization_domains_list", filters.domains);
     }
 
     // Keywords: combine user keywords with industries (Apollo doesn't have direct industry filter)
@@ -339,17 +341,15 @@ export class ApolloService extends ExternalService {
       keywordParts.push(...filters.industries);
     }
     if (keywordParts.length > 0) {
-      params.append("q_keywords", keywordParts.join(" "));
+      addParam("q_keywords", keywordParts.join(" "));
     }
 
     // Story 3.5.1: AC #4 - Email status filter
     if (filters.contactEmailStatuses?.length) {
-      filters.contactEmailStatuses.forEach((status) =>
-        params.append("contact_email_status[]", status)
-      );
+      addArrayParam("contact_email_status", filters.contactEmailStatuses);
     }
 
-    return params.toString();
+    return parts.join("&");
   }
 
   // ==============================================
