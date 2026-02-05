@@ -152,12 +152,12 @@
   --sidebar-border: hsl(0 0% 17%);            /* #2B2B2B */
   --sidebar-ring: hsl(0 0% 50%);              /* #808080 */
 
-  /* Charts - Neutral grays for B&W theme, status colors preserved */
-  --chart-1: hsl(0 0% 70%);               /* Light gray */
-  --chart-2: hsl(0 0% 50%);               /* Medium gray */
-  --chart-3: hsl(142 71% 45%);            /* Success green (status) */
-  --chart-4: hsl(38 92% 50%);             /* Warning yellow (status) */
-  --chart-5: hsl(0 84% 60%);              /* Destructive red (status) */
+  /* Charts - Full grayscale palette (light→dark for contrast against dark bg) */
+  --chart-1: hsl(0 0% 95%);               /* Near-white */
+  --chart-2: hsl(0 0% 75%);               /* Light gray */
+  --chart-3: hsl(0 0% 55%);               /* Medium gray */
+  --chart-4: hsl(0 0% 35%);               /* Dark gray */
+  --chart-5: hsl(0 0% 20%);               /* Near-black */
 
   /* Glow Effects - Subtle White */
   --glow-primary: 0 0 20px hsla(0, 0%, 100%, 0.15);
@@ -252,12 +252,12 @@
   --sidebar-border: hsl(0 0% 88%);            /* #E0E0E0 - Cinza claro */
   --sidebar-ring: hsl(0 0% 25%);              /* #404040 - Cinza escuro (consistente com --ring) */
 
-  /* Charts - B&W Neutral (chart-1/2), Status colors (chart-3/4/5) */
-  --chart-1: hsl(0 0% 20%);                   /* Cinza escuro */
-  --chart-2: hsl(0 0% 40%);                   /* Cinza médio */
-  --chart-3: hsl(142 71% 40%);                /* Success green (status) */
-  --chart-4: hsl(38 92% 45%);                 /* Warning yellow (status) */
-  --chart-5: hsl(0 84% 55%);                  /* Destructive red (status) */
+  /* Charts - Full grayscale palette (dark→light for contrast against light bg) */
+  --chart-1: hsl(0 0% 15%);                   /* Near-black */
+  --chart-2: hsl(0 0% 30%);                   /* Dark gray */
+  --chart-3: hsl(0 0% 50%);                   /* Medium gray */
+  --chart-4: hsl(0 0% 70%);                   /* Light gray */
+  --chart-5: hsl(0 0% 85%);                   /* Near-white */
 
   /* Glow Effects - Preto sutil (não indigo/violet) */
   --glow-primary: 0 0 20px hsla(0, 0%, 0%, 0.12);  /* Preto sutil (visibilidade melhorada) */
