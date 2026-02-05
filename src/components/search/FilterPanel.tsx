@@ -205,13 +205,35 @@ export function FilterPanel({ onSearch, isLoading }: FilterPanelProps) {
   const [localTitle, setLocalTitle] = useState(filters.titles.join(", "));
   const [localKeywords, setLocalKeywords] = useState(filters.keywords);
 
-  // Sync local state when store filters are cleared externally
+  // Sync local state when store filters change externally (clear, AI extract).
+  // Skip sync when the change came from our own debounce to avoid removing
+  // trailing spaces while the user is still typing.
   useEffect(() => {
-    setLocalLocation(filters.locations.join(", "));
+    const localParsed = localLocation
+      .split(",")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const storeMatch =
+      localParsed.length === filters.locations.length &&
+      localParsed.every((v, i) => v === filters.locations[i]);
+    if (!storeMatch) {
+      setLocalLocation(filters.locations.join(", "));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.locations]);
 
   useEffect(() => {
-    setLocalTitle(filters.titles.join(", "));
+    const localParsed = localTitle
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const storeMatch =
+      localParsed.length === filters.titles.length &&
+      localParsed.every((v, i) => v === filters.titles[i]);
+    if (!storeMatch) {
+      setLocalTitle(filters.titles.join(", "));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.titles]);
 
   useEffect(() => {
