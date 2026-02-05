@@ -24,7 +24,8 @@ import { createAIProvider, promptManager } from "@/lib/ai";
 import { logApifySuccess, logApifyFailure } from "@/lib/services/usage-logger";
 import type { LeadRow, LinkedInPostsCache } from "@/types/lead";
 import type { FetchLinkedInPostsResult, LinkedInPost } from "@/types/apify";
-import type { PromptKey } from "@/types/ai-prompt";
+import type { PromptKey, IcebreakerCategory } from "@/types/ai-prompt";
+import { ICEBREAKER_CATEGORY_INSTRUCTIONS } from "@/types/ai-prompt";
 import type { AIModel } from "@/types/ai-provider";
 import type { CompanyProfile, ToneOfVoice, KnowledgeBaseSection } from "@/types/knowledge-base";
 
@@ -43,7 +44,6 @@ interface IcebreakerKBContext {
 
 const BATCH_SIZE = 5; // AC #4: Max concurrent requests
 const MAX_LEADS_PER_REQUEST = 50;
-const PROMPT_KEY: PromptKey = "icebreaker_premium_generation";
 
 // ==============================================
 // ERROR MESSAGES (Portuguese) - AC #7
@@ -72,15 +72,18 @@ const ERROR_MESSAGES = {
 // ==============================================
 
 // AC #1: Zod validation schema
+// Story 9.1: Added category field (optional, defaults to "empresa")
 const enrichIcebreakerSchema = z.object({
   leadIds: z
     .array(z.string().uuid("ID de lead invalido"))
     .min(1, "Pelo menos um lead e necessario")
     .max(MAX_LEADS_PER_REQUEST, `Maximo de ${MAX_LEADS_PER_REQUEST} leads por requisicao`),
   regenerate: z.boolean().optional().default(false),
+  category: z.enum(["lead", "empresa", "cargo", "post"] as const).optional().default("empresa"),
 });
 
 // AC #3: Response structure
+// Story 9.1: Added categoryFallback and originalCategory for Post→Lead fallback
 interface EnrichIcebreakerResult {
   leadId: string;
   success: boolean;
@@ -88,6 +91,10 @@ interface EnrichIcebreakerResult {
   error?: string;
   /** True if existing icebreaker was returned without regeneration */
   skipped?: boolean;
+  /** Story 9.1: True if category was changed due to fallback (e.g., post→lead) */
+  categoryFallback?: boolean;
+  /** Story 9.1: Original category before fallback */
+  originalCategory?: string;
 }
 
 interface EnrichIcebreakerResponse {
@@ -237,20 +244,60 @@ function buildIcebreakerVariables(
 }
 
 // ==============================================
+// HELPER: Build Standard Icebreaker Variables (Story 9.1)
+// ==============================================
+
+/**
+ * Build variables for `icebreaker_generation` prompt (snake_case).
+ * Used for Lead, Empresa, Cargo categories.
+ * Story 9.1: AC #2 - Category-specific instructions injected via {{category_instructions}}.
+ */
+function buildStandardIcebreakerVariables(
+  lead: LeadRow,
+  kbContext: IcebreakerKBContext,
+  category: IcebreakerCategory
+): Record<string, string> {
+  return {
+    lead_name: `${lead.first_name} ${lead.last_name || ""}`.trim(),
+    lead_title: lead.title || "",
+    lead_company: lead.company_name || "",
+    lead_industry: lead.industry || "",
+    lead_location: "",
+    company_context: compileCompanyContext(kbContext.company),
+    competitive_advantages: kbContext.company?.competitive_advantages || "",
+    tone_description: compileToneDescription(kbContext.tone),
+    tone_style: kbContext.tone?.preset || DEFAULT_TONE_STYLE,
+    writing_guidelines: kbContext.tone?.custom_description || "",
+    product_name: "",
+    product_description: "",
+    product_differentials: "",
+    product_target_audience: "",
+    products_services: "",
+    successful_examples: "",
+    category_instructions: ICEBREAKER_CATEGORY_INSTRUCTIONS[category],
+  };
+}
+
+// ==============================================
 // HELPER: Process Single Lead
 // ==============================================
 
+/**
+ * Story 9.1: Processes a lead for icebreaker generation based on category.
+ * - Lead/Empresa/Cargo: Uses `icebreaker_generation` with category_instructions (no Apify).
+ * - Post/LinkedIn: Uses `icebreaker_premium_generation` with Apify posts.
+ *   Falls back to Lead category if posts unavailable.
+ */
 async function processLeadIcebreaker(
   lead: LeadRow,
   apifyService: ApifyService,
-  apifyKey: string,
+  apifyKey: string | null,
   openaiKey: string,
   tenantId: string,
   regenerate: boolean,
-  kbContext: IcebreakerKBContext
+  kbContext: IcebreakerKBContext,
+  category: IcebreakerCategory
 ): Promise<EnrichIcebreakerResult> {
-  const supabase = await createClient();
-
   // AC #6: Check if lead already has icebreaker
   if (lead.icebreaker && !regenerate) {
     return {
@@ -261,109 +308,37 @@ async function processLeadIcebreaker(
     };
   }
 
-  // AC #2: Validate lead has linkedin_url
-  if (!lead.linkedin_url) {
-    return {
-      leadId: lead.id,
-      success: false,
-      error: ERROR_MESSAGES.NO_LINKEDIN_URL,
-    };
+  // Story 9.1: Route based on category
+  if (category === "post") {
+    return processPostCategory(lead, apifyService, apifyKey, openaiKey, tenantId, kbContext);
   }
 
-  // AC #2: Call ApifyService.fetchLinkedInPosts()
-  // Story 6.5.8: Track timing for usage logging
-  const apifyStartTime = Date.now();
-  let postsResult: FetchLinkedInPostsResult;
-  try {
-    postsResult = await apifyService.fetchLinkedInPosts(
-      apifyKey,
-      lead.linkedin_url,
-      3 // Fetch 3 posts as per Dev Notes
-    );
-  } catch (error) {
-    const durationMs = Date.now() - apifyStartTime;
-    console.error(`[processLeadIcebreaker] Apify error for lead ${lead.id}:`, error);
-    // Story 6.5.8: Log failed Apify call (non-blocking)
-    logApifyFailure({
-      tenantId,
-      leadId: lead.id,
-      errorMessage: error instanceof Error ? error.message : ERROR_MESSAGES.APIFY_ERROR,
-      durationMs,
-      metadata: { linkedinProfileUrl: lead.linkedin_url, postLimit: 3 },
-    }).catch(() => {}); // Fire and forget
-    return {
-      leadId: lead.id,
-      success: false,
-      error: ERROR_MESSAGES.APIFY_ERROR,
-    };
-  }
+  // Lead/Empresa/Cargo: Standard generation (no Apify needed)
+  return processStandardCategory(lead, openaiKey, tenantId, kbContext, category);
+}
 
-  const apifyDurationMs = Date.now() - apifyStartTime;
+/**
+ * Story 9.1: Standard category processing (Lead, Empresa, Cargo).
+ * Uses `icebreaker_generation` prompt with category_instructions variable.
+ */
+async function processStandardCategory(
+  lead: LeadRow,
+  openaiKey: string,
+  tenantId: string,
+  kbContext: IcebreakerKBContext,
+  category: IcebreakerCategory
+): Promise<EnrichIcebreakerResult> {
+  const supabase = await createClient();
 
-  // Check Apify result
-  if (!postsResult.success) {
-    // Story 6.5.8: Log failed Apify call (non-blocking)
-    logApifyFailure({
-      tenantId,
-      leadId: lead.id,
-      errorMessage: postsResult.error || ERROR_MESSAGES.APIFY_ERROR,
-      durationMs: apifyDurationMs,
-      metadata: { linkedinProfileUrl: lead.linkedin_url, postLimit: 3 },
-    }).catch(() => {}); // Fire and forget
-    return {
-      leadId: lead.id,
-      success: false,
-      error: postsResult.error || ERROR_MESSAGES.APIFY_ERROR,
-    };
-  }
+  const variables = buildStandardIcebreakerVariables(lead, kbContext, category);
 
-  // AC #5: Handle empty posts
-  if (postsResult.posts.length === 0) {
-    // Story 6.5.8: Log with zero posts (partial success)
-    logApifySuccess({
-      tenantId,
-      leadId: lead.id,
-      postsFetched: 0,
-      durationMs: apifyDurationMs,
-      metadata: { linkedinProfileUrl: lead.linkedin_url, postLimit: 3, noPosts: true },
-    }).catch(() => {}); // Fire and forget
-    return {
-      leadId: lead.id,
-      success: false,
-      error: ERROR_MESSAGES.NO_POSTS_FOUND,
-    };
-  }
-
-  // Story 6.5.8: Log successful Apify call (non-blocking)
-  logApifySuccess({
-    tenantId,
-    leadId: lead.id,
-    postsFetched: postsResult.posts.length,
-    durationMs: apifyDurationMs,
-    metadata: {
-      linkedinProfileUrl: lead.linkedin_url,
-      postLimit: 3,
-      deepScrape: true,
-    },
-  }).catch(() => {}); // Fire and forget
-
-  // AC #2: Build variables for prompt (with KB context)
-  const variables = buildIcebreakerVariables(lead, postsResult.posts, kbContext);
-
-  // AC #2: Get rendered prompt
-  const renderedPrompt = await promptManager.renderPrompt(PROMPT_KEY, variables, {
-    tenantId,
-  });
+  const promptKey: PromptKey = "icebreaker_generation";
+  const renderedPrompt = await promptManager.renderPrompt(promptKey, variables, { tenantId });
 
   if (!renderedPrompt) {
-    return {
-      leadId: lead.id,
-      success: false,
-      error: ERROR_MESSAGES.PROMPT_NOT_FOUND,
-    };
+    return { leadId: lead.id, success: false, error: ERROR_MESSAGES.PROMPT_NOT_FOUND };
   }
 
-  // AC #2: Call AI to generate icebreaker
   let icebreaker: string;
   try {
     const provider = createAIProvider("openai", openaiKey);
@@ -374,15 +349,127 @@ async function processLeadIcebreaker(
     });
     icebreaker = result.text.trim().replace(/^[""]|[""]$/g, "");
   } catch (error) {
-    console.error(`[processLeadIcebreaker] AI error for lead ${lead.id}:`, error);
-    return {
-      leadId: lead.id,
-      success: false,
-      error: ERROR_MESSAGES.AI_ERROR,
-    };
+    console.error(`[processStandardCategory] AI error for lead ${lead.id}:`, error);
+    return { leadId: lead.id, success: false, error: ERROR_MESSAGES.AI_ERROR };
   }
 
-  // AC #2: Save results to lead record
+  const { error: updateError } = await supabase
+    .from("leads")
+    .update({
+      icebreaker,
+      icebreaker_generated_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", lead.id);
+
+  if (updateError) {
+    console.error(`[processStandardCategory] Update error for lead ${lead.id}:`, updateError);
+    return { leadId: lead.id, success: false, error: ERROR_MESSAGES.DB_UPDATE_ERROR };
+  }
+
+  return { leadId: lead.id, success: true, icebreaker };
+}
+
+/**
+ * Story 9.1 AC #3: Post/LinkedIn category processing.
+ * Uses `icebreaker_premium_generation` prompt with Apify LinkedIn posts.
+ * Falls back to Lead category if linkedin_url missing or no posts found.
+ */
+async function processPostCategory(
+  lead: LeadRow,
+  apifyService: ApifyService,
+  apifyKey: string | null,
+  openaiKey: string,
+  tenantId: string,
+  kbContext: IcebreakerKBContext
+): Promise<EnrichIcebreakerResult> {
+  const supabase = await createClient();
+
+  // Story 9.1 AC #3: Check if lead has linkedin_url; fallback to Lead if not
+  if (!lead.linkedin_url || !apifyKey) {
+    const fallbackResult = await processStandardCategory(lead, openaiKey, tenantId, kbContext, "lead");
+    return { ...fallbackResult, categoryFallback: true, originalCategory: "post" };
+  }
+
+  // Fetch LinkedIn posts via Apify
+  const apifyStartTime = Date.now();
+  let postsResult: FetchLinkedInPostsResult;
+  try {
+    postsResult = await apifyService.fetchLinkedInPosts(apifyKey, lead.linkedin_url, 3);
+  } catch (error) {
+    const durationMs = Date.now() - apifyStartTime;
+    console.error(`[processPostCategory] Apify error for lead ${lead.id}:`, error);
+    logApifyFailure({
+      tenantId,
+      leadId: lead.id,
+      errorMessage: error instanceof Error ? error.message : ERROR_MESSAGES.APIFY_ERROR,
+      durationMs,
+      metadata: { linkedinProfileUrl: lead.linkedin_url, postLimit: 3 },
+    }).catch(() => {});
+    // Story 9.1 AC #3: Apify error → fallback to Lead
+    const fallbackResult = await processStandardCategory(lead, openaiKey, tenantId, kbContext, "lead");
+    return { ...fallbackResult, categoryFallback: true, originalCategory: "post" };
+  }
+
+  const apifyDurationMs = Date.now() - apifyStartTime;
+
+  if (!postsResult.success || postsResult.posts.length === 0) {
+    // Log Apify result
+    if (!postsResult.success) {
+      logApifyFailure({
+        tenantId,
+        leadId: lead.id,
+        errorMessage: postsResult.error || ERROR_MESSAGES.APIFY_ERROR,
+        durationMs: apifyDurationMs,
+        metadata: { linkedinProfileUrl: lead.linkedin_url, postLimit: 3 },
+      }).catch(() => {});
+    } else {
+      logApifySuccess({
+        tenantId,
+        leadId: lead.id,
+        postsFetched: 0,
+        durationMs: apifyDurationMs,
+        metadata: { linkedinProfileUrl: lead.linkedin_url, postLimit: 3, noPosts: true },
+      }).catch(() => {});
+    }
+    // Story 9.1 AC #3: No posts → fallback to Lead
+    const fallbackResult = await processStandardCategory(lead, openaiKey, tenantId, kbContext, "lead");
+    return { ...fallbackResult, categoryFallback: true, originalCategory: "post" };
+  }
+
+  // Log successful Apify call
+  logApifySuccess({
+    tenantId,
+    leadId: lead.id,
+    postsFetched: postsResult.posts.length,
+    durationMs: apifyDurationMs,
+    metadata: { linkedinProfileUrl: lead.linkedin_url, postLimit: 3, deepScrape: true },
+  }).catch(() => {});
+
+  // Build premium variables (camelCase) and use icebreaker_premium_generation
+  const variables = buildIcebreakerVariables(lead, postsResult.posts, kbContext);
+  const promptKey: PromptKey = "icebreaker_premium_generation";
+  const renderedPrompt = await promptManager.renderPrompt(promptKey, variables, { tenantId });
+
+  if (!renderedPrompt) {
+    return { leadId: lead.id, success: false, error: ERROR_MESSAGES.PROMPT_NOT_FOUND };
+  }
+
+  let icebreaker: string;
+  try {
+    const provider = createAIProvider("openai", openaiKey);
+    const result = await provider.generateText(renderedPrompt.content, {
+      temperature: renderedPrompt.metadata.temperature,
+      maxTokens: renderedPrompt.metadata.maxTokens,
+      model: (renderedPrompt.modelPreference as AIModel) ?? undefined,
+    });
+    icebreaker = result.text.trim().replace(/^[""]|[""]$/g, "");
+  } catch (error) {
+    console.error(`[processPostCategory] AI error for lead ${lead.id}:`, error);
+    return { leadId: lead.id, success: false, error: ERROR_MESSAGES.AI_ERROR };
+  }
+
+  // Save results with posts cache
   const linkedinPostsCache: LinkedInPostsCache = {
     posts: postsResult.posts,
     fetchedAt: postsResult.fetchedAt,
@@ -400,19 +487,11 @@ async function processLeadIcebreaker(
     .eq("id", lead.id);
 
   if (updateError) {
-    console.error(`[processLeadIcebreaker] Update error for lead ${lead.id}:`, updateError);
-    return {
-      leadId: lead.id,
-      success: false,
-      error: ERROR_MESSAGES.DB_UPDATE_ERROR,
-    };
+    console.error(`[processPostCategory] Update error for lead ${lead.id}:`, updateError);
+    return { leadId: lead.id, success: false, error: ERROR_MESSAGES.DB_UPDATE_ERROR };
   }
 
-  return {
-    leadId: lead.id,
-    success: true,
-    icebreaker,
-  };
+  return { leadId: lead.id, success: true, icebreaker };
 }
 
 // ==============================================
@@ -422,11 +501,12 @@ async function processLeadIcebreaker(
 async function processLeadsInBatches(
   leads: LeadRow[],
   apifyService: ApifyService,
-  apifyKey: string,
+  apifyKey: string | null,
   openaiKey: string,
   tenantId: string,
   regenerate: boolean,
-  kbContext: IcebreakerKBContext
+  kbContext: IcebreakerKBContext,
+  category: IcebreakerCategory
 ): Promise<EnrichIcebreakerResult[]> {
   const results: EnrichIcebreakerResult[] = [];
 
@@ -434,7 +514,7 @@ async function processLeadsInBatches(
     const batch = leads.slice(i, i + BATCH_SIZE);
     const batchResults = await Promise.allSettled(
       batch.map((lead) =>
-        processLeadIcebreaker(lead, apifyService, apifyKey, openaiKey, tenantId, regenerate, kbContext)
+        processLeadIcebreaker(lead, apifyService, apifyKey, openaiKey, tenantId, regenerate, kbContext, category)
       )
     );
 
@@ -502,26 +582,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { leadIds, regenerate } = validation.data;
+  const { leadIds, regenerate, category } = validation.data;
 
-  // Get API keys
-  const [apifyKey, openaiKey] = await Promise.all([
-    getApiKey(tenantId, "apify"),
-    getApiKey(tenantId, "openai"),
-  ]);
-
-  if (!apifyKey) {
-    return NextResponse.json(
-      { error: { code: "API_KEY_ERROR", message: ERROR_MESSAGES.APIFY_NOT_CONFIGURED } },
-      { status: 400 }
-    );
-  }
-
+  // Story 9.1: Get API keys (Apify only required for "post" category)
+  const openaiKey = await getApiKey(tenantId, "openai");
   if (!openaiKey) {
     return NextResponse.json(
       { error: { code: "API_KEY_ERROR", message: ERROR_MESSAGES.OPENAI_NOT_CONFIGURED } },
       { status: 400 }
     );
+  }
+
+  let apifyKey: string | null = null;
+  if (category === "post") {
+    apifyKey = await getApiKey(tenantId, "apify");
+    // Note: Apify key missing doesn't block — processPostCategory will fallback to Lead
   }
 
   // AC #1: Fetch leads with tenant isolation
@@ -559,7 +634,8 @@ export async function POST(request: NextRequest) {
     openaiKey,
     tenantId,
     regenerate,
-    kbContext
+    kbContext,
+    category
   );
 
   // AC #3: Build response with summary

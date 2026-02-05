@@ -181,6 +181,87 @@ export const promptKeySchema = z.enum([
 ]);
 
 // ==============================================
+// ICEBREAKER CATEGORIES (Story 9.1)
+// ==============================================
+
+/**
+ * Icebreaker generation category
+ * Story 9.1: AC #1 - Category selection for icebreaker focus
+ */
+export type IcebreakerCategory = "lead" | "empresa" | "cargo" | "post";
+
+/**
+ * Category options with labels in Portuguese for UI
+ * Story 9.1: AC #1 - Category selection dropdown
+ */
+export const ICEBREAKER_CATEGORIES: {
+  value: IcebreakerCategory;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "lead",
+    label: "Lead",
+    description: "Foco na pessoa: trajetória, conquistas, opiniões",
+  },
+  {
+    value: "empresa",
+    label: "Empresa",
+    description: "Foco na empresa: crescimento, mercado, oportunidade de negócio",
+  },
+  {
+    value: "cargo",
+    label: "Cargo",
+    description: "Foco no cargo: desafios típicos do role, decisões que toma",
+  },
+  {
+    value: "post",
+    label: "Post/LinkedIn",
+    description: "Foco em conteúdo publicado no LinkedIn",
+  },
+];
+
+/**
+ * Default category when none is selected
+ * Story 9.1: AC #1 - Default is "Empresa"
+ */
+export const DEFAULT_ICEBREAKER_CATEGORY: IcebreakerCategory = "empresa";
+
+/**
+ * Category-specific prompt instructions
+ * Story 9.1: AC #2 - Instructions adapted per category
+ * Backend fills {{category_instructions}} with these before interpolation.
+ */
+export const ICEBREAKER_CATEGORY_INSTRUCTIONS: Record<IcebreakerCategory, string> = {
+  lead: `FOCO: PESSOA (Lead)
+- Priorize a trajetória profissional, posição atual e contexto no mercado da pessoa
+- Mencione conquistas, movimentações de carreira ou posição de destaque
+- Conecte a experiência do lead com a proposta de valor
+- Exemplos de abordagem: "Com sua experiência em [área]...", "Sua trajetória em [setor] mostra que..."
+- NÃO foque em posts do LinkedIn — foque no perfil e dados profissionais`,
+
+  empresa: `FOCO: EMPRESA (Negócio)
+- Priorize o crescimento, mercado e oportunidades de negócio da empresa
+- Mencione expansão, investimentos, momento de mercado ou posição competitiva
+- Conecte a situação da empresa com a oportunidade que seu produto/serviço oferece
+- Exemplos de abordagem: "A {{lead_company}} tem se destacado em...", "O crescimento da {{lead_company}} no mercado de {{lead_industry}}..."
+- Foco é 100% na empresa, não na pessoa`,
+
+  cargo: `FOCO: CARGO (Role)
+- Priorize os desafios típicos do cargo/função do lead
+- Mencione decisões que esse tipo de profissional toma, dores comuns do role
+- Conecte as responsabilidades do cargo com problemas que seu produto resolve
+- Exemplos de abordagem: "Como {{lead_title}}, você provavelmente lida com...", "Profissionais na posição de {{lead_title}} frequentemente enfrentam..."
+- Foco é no cargo e suas responsabilidades, não na empresa ou pessoa especificamente`,
+
+  post: `FOCO: POST/LINKEDIN (Conteúdo Publicado)
+- Este modo normalmente redireciona para o prompt premium com posts reais
+- Se chegou aqui como fallback, gere com foco na pessoa (Lead) como alternativa
+- Priorize a trajetória profissional e contexto no mercado da pessoa
+- Mencione conquistas ou posição de destaque do lead`,
+};
+
+// ==============================================
 // HELPER FUNCTIONS
 // ==============================================
 

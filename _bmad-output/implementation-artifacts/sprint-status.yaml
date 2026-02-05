@@ -41,8 +41,8 @@ story_location: _bmad-output/implementation-artifacts
 
 # GIT BRANCH TRACKING
 # ===================
-current_branch: epic/8-visual-refresh
-base_branch: epic/6.5-icebreaker-premium
+current_branch: epic/9-ai-content-quality
+base_branch: epic/8-visual-refresh
 
 branch_strategy:
   # Branch naming convention:
@@ -64,7 +64,7 @@ branches:
   epic/6-ai-content-generation: "Epic 6 - AI Content Generation (DONE)"
   epic/6.5-icebreaker-premium: "Epic 6.5 - Icebreaker Premium (DONE)"
   epic/8-visual-refresh: "Epic 8 - Visual Refresh B&W Theme (IN-PROGRESS)"
-  epic/9-ai-content-quality: "Epic 9 - AI Content Quality & Personalization (BACKLOG)"
+  epic/9-ai-content-quality: "Epic 9 - AI Content Quality & Personalization (IN-PROGRESS)"
 
 development_status:
   # Epic 1: Foundation & Authentication
@@ -201,7 +201,7 @@ development_status:
   # Cleanup Sprint (ANTES DA EPIC 9 — Aprovado na retro Epic 8)
   # Objetivo: Resolver débito técnico acumulado desde Epic 5/6
   # Referência: epic-8-retro-2026-02-05.md → Action Items 4-7
-  cleanup-sprint: in-progress
+  cleanup-sprint: done
   cleanup-1-fix-failing-tests-and-typescript-errors: done  # Code review 2026-02-05: 2 fixes applied (timer leak deterministic flush, redundant mockClear). 47/47 tests passing
   cleanup-2-eslint-rule-and-mock-factories: done  # Code review 2026-02-05: 1 fix applied (console.warn removido — log de sucesso desnecessário). 97/97 tests passing
 
@@ -209,8 +209,8 @@ development_status:
   # Evolução dos prompts de AI e personalização de Ice Breakers
   # Dependências: Infraestrutura AI existente (Epic 6, 6.5)
   # Documento: _bmad-output/planning-artifacts/epic-9-ai-content-quality-personalization.md
-  epic-9: backlog
-  9-1-categorias-de-ice-breaker: backlog
+  epic-9: in-progress
+  9-1-categorias-de-ice-breaker: done  # Code review 2026-02-05: 2 HIGH, 2 MEDIUM fixes (category descriptions in dropdown, reset on lead change, dead re-export, API test). 38/38 tests passing
   9-2-exemplos-de-referencia-para-ice-breakers-no-knowledge-base: backlog
   9-3-refatoracao-dos-prompts-de-ice-breaker: backlog  # Depende de 9.1 + 9.2
   9-4-variavel-ice-breaker-na-geracao-de-campanha-ai: backlog

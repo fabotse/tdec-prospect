@@ -478,7 +478,8 @@ describe("LeadDetailPanel", () => {
       expect(screen.getByText("Regenerar")).toBeInTheDocument();
     });
 
-    it("AC#5: shows message when lead has no LinkedIn URL", () => {
+    it("AC#5: allows icebreaker generation without LinkedIn for non-post categories", () => {
+      // Story 9.1: LinkedIn is only required for "post" category
       const lead = createMockLead({
         icebreaker: null,
         linkedinUrl: null,
@@ -489,22 +490,9 @@ describe("LeadDetailPanel", () => {
         <LeadDetailPanel lead={lead} isOpen={true} onClose={onClose} />
       );
 
-      expect(screen.getByText("Lead sem LinkedIn cadastrado")).toBeInTheDocument();
-    });
-
-    it("AC#5: disables 'Gerar Icebreaker' button when no LinkedIn URL", () => {
-      const lead = createMockLead({
-        icebreaker: null,
-        linkedinUrl: null,
-      });
-      const onClose = vi.fn();
-
-      renderWithProviders(
-        <LeadDetailPanel lead={lead} isOpen={true} onClose={onClose} />
-      );
-
+      // Default category is "empresa" — button should be enabled even without LinkedIn
       const generateButton = screen.getByText("Gerar Icebreaker");
-      expect(generateButton.closest("button")).toBeDisabled();
+      expect(generateButton.closest("button")).not.toBeDisabled();
     });
 
     it("AC#6: displays generation timestamp when icebreaker exists", () => {
@@ -521,6 +509,40 @@ describe("LeadDetailPanel", () => {
       // Should show timestamp in format "Gerado em DD/MM/YYYY HH:MM"
       expect(screen.getByText(/Gerado em 04\/02\/2026 10:30/)).toBeInTheDocument();
     });
+
+    it("AC#5: calls API when generating without LinkedIn for default category", async () => {
+      // Story 9.1: LinkedIn is only required for "post" category
+      // Default category "empresa" should work without LinkedIn
+      const user = userEvent.setup();
+      mockGenerateForLead.mockResolvedValueOnce({
+        results: [{ leadId: "lead-123", success: true, icebreaker: "Test" }],
+        summary: { total: 1, generated: 1, skipped: 0, failed: 0 },
+      });
+
+      const lead = createMockLead({
+        icebreaker: null,
+        linkedinUrl: null,
+      });
+      const onClose = vi.fn();
+
+      renderWithProviders(
+        <LeadDetailPanel lead={lead} isOpen={true} onClose={onClose} />
+      );
+
+      const generateButton = screen.getByText("Gerar Icebreaker");
+      await user.click(generateButton);
+
+      // Default category is "empresa" — should call API without LinkedIn error
+      expect(mockGenerateForLead).toHaveBeenCalledWith(
+        lead.id,
+        false,
+        "empresa"
+      );
+    });
+
+    // Note: The "post" category + no LinkedIn error path ("Este lead não possui LinkedIn cadastrado")
+    // cannot be unit-tested because Radix Select dropdown interaction is not supported in jsdom.
+    // The server-side fallback (Post→Lead) is tested in leads-enrich-icebreaker.test.ts.
 
     it("AC#6: does not display timestamp when no icebreaker", () => {
       const lead = createMockLead({

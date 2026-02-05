@@ -12,6 +12,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import type { IcebreakerCategory } from "@/types/ai-prompt";
 
 // ==============================================
 // TYPES
@@ -25,6 +26,10 @@ export interface IcebreakerResult {
   success: boolean;
   icebreaker?: string;
   error?: string;
+  /** Story 9.1: True if category was changed due to fallback (e.g., post→lead) */
+  categoryFallback?: boolean;
+  /** Story 9.1: Original category before fallback */
+  originalCategory?: string;
 }
 
 /**
@@ -83,15 +88,17 @@ export function estimateIcebreakerCost(leadCount: number): string {
 /**
  * Generate icebreakers for a batch of leads
  * Calls /api/leads/enrich-icebreaker endpoint
+ * Story 9.1: Added category parameter
  */
 async function generateIcebreakers(
   leadIds: string[],
-  regenerate: boolean = false
+  regenerate: boolean = false,
+  category?: IcebreakerCategory
 ): Promise<EnrichIcebreakerResponse> {
   const response = await fetch("/api/leads/enrich-icebreaker", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ leadIds, regenerate }),
+    body: JSON.stringify({ leadIds, regenerate, ...(category && { category }) }),
   });
 
   if (!response.ok) {
@@ -117,12 +124,22 @@ export function useIcebreakerEnrichment(options?: UseIcebreakerEnrichmentOptions
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: ({ leadIds, regenerate }: { leadIds: string[]; regenerate?: boolean }) =>
-      generateIcebreakers(leadIds, regenerate),
+    mutationFn: ({ leadIds, regenerate, category }: { leadIds: string[]; regenerate?: boolean; category?: IcebreakerCategory }) =>
+      generateIcebreakers(leadIds, regenerate, category),
     onSuccess: (data) => {
       // Invalidate lead queries to refresh data
       queryClient.invalidateQueries({ queryKey: ["leads"] });
       queryClient.invalidateQueries({ queryKey: ["my-leads"] });
+
+      // Story 9.1 AC #3: Show fallback toast for category changes
+      const fallbackResults = data.results.filter((r) => r.categoryFallback);
+      if (fallbackResults.length > 0) {
+        toast.info(
+          fallbackResults.length === 1
+            ? "Lead sem posts — Ice Breaker gerado com foco no perfil"
+            : `${fallbackResults.length} leads sem posts — Ice Breakers gerados com foco no perfil`
+        );
+      }
 
       // Show summary toast
       const { summary } = data;
@@ -145,25 +162,29 @@ export function useIcebreakerEnrichment(options?: UseIcebreakerEnrichmentOptions
   /**
    * Generate icebreaker for a single lead
    * AC: #3 - Single lead generation from detail panel
+   * Story 9.1: Added optional category parameter
    *
    * @param leadId - UUID of the lead
    * @param regenerate - If true, regenerate even if icebreaker exists
+   * @param category - Icebreaker focus category (defaults to "empresa" on server)
    */
-  const generateForLead = async (leadId: string, regenerate: boolean = false) => {
-    return mutation.mutateAsync({ leadIds: [leadId], regenerate });
+  const generateForLead = async (leadId: string, regenerate: boolean = false, category?: IcebreakerCategory) => {
+    return mutation.mutateAsync({ leadIds: [leadId], regenerate, category });
   };
 
   /**
    * Generate icebreakers for multiple leads with progress tracking
    * AC: #2 - Bulk generation with progress updates
+   * Story 9.1: Added optional category parameter
    *
    * Processes leads one by one to provide real-time progress.
    * Uses direct API call instead of mutation to avoid double toasts.
    *
    * @param leadIds - Array of lead UUIDs
    * @param regenerate - If true, regenerate even if icebreaker exists
+   * @param category - Icebreaker focus category (defaults to "empresa" on server)
    */
-  const generateForLeads = async (leadIds: string[], regenerate: boolean = false) => {
+  const generateForLeads = async (leadIds: string[], regenerate: boolean = false, category?: IcebreakerCategory) => {
     const allResults: IcebreakerResult[] = [];
     const summary: IcebreakerSummary = {
       total: leadIds.length,
@@ -178,7 +199,13 @@ export function useIcebreakerEnrichment(options?: UseIcebreakerEnrichmentOptions
       options?.onProgress?.(i + 1, leadIds.length);
 
       try {
-        const result = await generateIcebreakers([leadIds[i]], regenerate);
+        const result = await generateIcebreakers([leadIds[i]], regenerate, category);
+
+        // Story 9.1 AC #3: Show fallback toast per lead
+        const fallbackResults = result.results.filter((r) => r.categoryFallback);
+        if (fallbackResults.length > 0) {
+          toast.info("Lead sem posts — Ice Breaker gerado com foco no perfil");
+        }
 
         allResults.push(...result.results);
         summary.generated += result.summary.generated;

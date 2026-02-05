@@ -29,6 +29,9 @@ import { useBulkUpdateStatus } from "@/hooks/use-lead-status";
 import { useImportLeads, type LeadDataForImport } from "@/hooks/use-import-leads";
 import { useEnrichPersistedLead } from "@/hooks/use-enrich-persisted-lead";
 import { useIcebreakerEnrichment, estimateIcebreakerCost } from "@/hooks/use-icebreaker-enrichment";
+import { IcebreakerCategorySelect } from "./IcebreakerCategorySelect";
+import { DEFAULT_ICEBREAKER_CATEGORY } from "@/types/ai-prompt";
+import type { IcebreakerCategory } from "@/types/ai-prompt";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
@@ -105,7 +108,9 @@ export function LeadSelectionBar({
   const [showBatchLookup, setShowBatchLookup] = useState(false);
 
   // Story 6.5.6: AC #2 - Icebreaker generation state
+  // Story 9.1: Category selection for bulk generation
   const [showIcebreakerConfirm, setShowIcebreakerConfirm] = useState(false);
+  const [icebreakerCategory, setIcebreakerCategory] = useState<IcebreakerCategory>(DEFAULT_ICEBREAKER_CATEGORY);
   const [icebreakerProgress, setIcebreakerProgress] = useState<{
     current: number;
     total: number;
@@ -220,14 +225,15 @@ export function LeadSelectionBar({
   };
 
   // Story 6.5.6: AC #2 - Handle icebreaker generation
+  // Story 9.1: Pass selected category
   const handleGenerateIcebreakers = useCallback(async () => {
     const leadIds = [...selectedIds];
     setShowIcebreakerConfirm(false);
     setIcebreakerProgress({ current: 0, total: leadIds.length, isRunning: true });
     onIcebreakerGenerationStart?.(leadIds);
 
-    await icebreakerEnrichment.generateForLeads(leadIds);
-  }, [selectedIds, icebreakerEnrichment, onIcebreakerGenerationStart]);
+    await icebreakerEnrichment.generateForLeads(leadIds, false, icebreakerCategory);
+  }, [selectedIds, icebreakerEnrichment, onIcebreakerGenerationStart, icebreakerCategory]);
 
   return (
     <>
@@ -407,6 +413,7 @@ export function LeadSelectionBar({
       />
 
       {/* Story 6.5.6: AC #2 - Icebreaker generation confirmation dialog */}
+      {/* Story 9.1: Added category select in confirmation dialog */}
       <AlertDialog open={showIcebreakerConfirm} onOpenChange={setShowIcebreakerConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -416,6 +423,13 @@ export function LeadSelectionBar({
               {" "}Custo estimado: {estimateIcebreakerCost(selectedIds.length)}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {/* Story 9.1: Category selection before generating */}
+          <div className="py-2">
+            <IcebreakerCategorySelect
+              value={icebreakerCategory}
+              onValueChange={setIcebreakerCategory}
+            />
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={handleGenerateIcebreakers}>

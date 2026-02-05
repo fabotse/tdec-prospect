@@ -64,6 +64,9 @@ import {
 } from "@/hooks/use-phone-lookup";
 import { useEnrichPersistedLead } from "@/hooks/use-enrich-persisted-lead";
 import { useIcebreakerEnrichment } from "@/hooks/use-icebreaker-enrichment";
+import { IcebreakerCategorySelect } from "./IcebreakerCategorySelect";
+import { DEFAULT_ICEBREAKER_CATEGORY } from "@/types/ai-prompt";
+import type { IcebreakerCategory } from "@/types/ai-prompt";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 import type { Lead } from "@/types/lead";
 import { transformLeadRow } from "@/types/lead";
@@ -385,32 +388,39 @@ function IcebreakerSection({ lead }: { lead: Lead }) {
   const [error, setError] = useState<string | null>(null);
   const [localIcebreaker, setLocalIcebreaker] = useState<string | null>(null);
   const [localTimestamp, setLocalTimestamp] = useState<string | null>(null);
+  // Story 9.1: Category state with "Empresa" default
+  const [category, setCategory] = useState<IcebreakerCategory>(DEFAULT_ICEBREAKER_CATEGORY);
 
   // Reset local state when lead changes
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional reset on lead change
     setError(null);
-     
+
     setLocalIcebreaker(null);
-     
+
     setLocalTimestamp(null);
+    // Story 9.1: Reset category to default when switching leads
+    setCategory(DEFAULT_ICEBREAKER_CATEGORY);
   }, [lead.id]);
 
   // Use local state for immediate display, fallback to lead prop
   const displayIcebreaker = localIcebreaker ?? lead.icebreaker;
 
+  // Story 9.1: Check if lead has LinkedIn posts for Post/LinkedIn warning
+  const hasLinkedInPosts = !!lead.linkedinPostsCache;
+
   // Handle generate/regenerate icebreaker
   const handleGenerate = async (regenerate: boolean = false) => {
     setError(null);
 
-    // AC #5: Check for LinkedIn URL
-    if (!lead.linkedinUrl) {
+    // Story 9.1: For non-post categories, LinkedIn URL is not required
+    if (category === "post" && !lead.linkedinUrl) {
       setError("Este lead não possui LinkedIn cadastrado");
       return;
     }
 
     try {
-      const data = await generateForLead(lead.id, regenerate);
+      const data = await generateForLead(lead.id, regenerate, category);
       // Update local state immediately with the API response
       const result = data.results[0];
       if (result?.success && result.icebreaker) {
@@ -467,7 +477,7 @@ function IcebreakerSection({ lead }: { lead: Lead }) {
           </div>
         ) : displayIcebreaker ? (
           /* AC #3: Display full icebreaker text */
-          <div className="space-y-2">
+          <div className="space-y-3">
             <p className="text-sm whitespace-pre-wrap">{displayIcebreaker}</p>
             {/* AC #6: Generation timestamp */}
             {timestamp && (
@@ -475,27 +485,35 @@ function IcebreakerSection({ lead }: { lead: Lead }) {
                 Gerado em {timestamp}
               </p>
             )}
+            {/* Story 9.1: Category select for regeneration */}
+            <IcebreakerCategorySelect
+              value={category}
+              onValueChange={setCategory}
+              showPostWarning={category === "post" && !hasLinkedInPosts}
+              disabled={isGenerating}
+            />
           </div>
         ) : (
           /* AC #3: Generate button for leads without icebreaker */
           <div className="space-y-3">
+            {/* Story 9.1: Category select before generate button */}
+            <IcebreakerCategorySelect
+              value={category}
+              onValueChange={setCategory}
+              showPostWarning={category === "post" && !hasLinkedInPosts}
+              disabled={isGenerating}
+            />
+
             <Button
               variant="outline"
               size="sm"
               onClick={() => handleGenerate(false)}
-              disabled={isGenerating || !lead.linkedinUrl}
+              disabled={isGenerating}
               className="w-full"
             >
               <Sparkles className="h-4 w-4 mr-2" />
               Gerar Icebreaker
             </Button>
-
-            {/* AC #5: No LinkedIn URL message */}
-            {!lead.linkedinUrl && (
-              <p className="text-xs text-muted-foreground text-center">
-                Lead sem LinkedIn cadastrado
-              </p>
-            )}
           </div>
         )}
 

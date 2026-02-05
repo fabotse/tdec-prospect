@@ -458,4 +458,139 @@ describe("useIcebreakerEnrichment", () => {
       expect(toast.success).toHaveBeenCalledWith("2 icebreakers gerados com sucesso");
     });
   });
+
+  // ==============================================
+  // STORY 9.1: CATEGORY SUPPORT TESTS
+  // ==============================================
+
+  describe("Story 9.1: Category support", () => {
+    it("passes category in API call for generateForLead", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockSuccessResponse,
+      });
+
+      const { result } = renderHook(() => useIcebreakerEnrichment(), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        await result.current.generateForLead("lead-1", false, "cargo");
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith("/api/leads/enrich-icebreaker", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadIds: ["lead-1"], regenerate: false, category: "cargo" }),
+      });
+    });
+
+    it("does not include category in body when undefined (uses server default)", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockSuccessResponse,
+      });
+
+      const { result } = renderHook(() => useIcebreakerEnrichment(), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        await result.current.generateForLead("lead-1");
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith("/api/leads/enrich-icebreaker", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadIds: ["lead-1"], regenerate: false }),
+      });
+    });
+
+    it("passes category in bulk generateForLeads API calls", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => mockSuccessResponse,
+      });
+
+      const { result } = renderHook(() => useIcebreakerEnrichment(), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        await result.current.generateForLeads(["lead-1", "lead-2"], false, "lead");
+      });
+
+      // Both calls should include category
+      for (const call of mockFetch.mock.calls) {
+        const body = JSON.parse(call[1].body);
+        expect(body.category).toBe("lead");
+      }
+    });
+
+    it("shows fallback toast when categoryFallback is true (single lead)", async () => {
+      const fallbackResponse = {
+        success: true,
+        results: [
+          {
+            leadId: "lead-1",
+            success: true,
+            icebreaker: "Fallback icebreaker",
+            categoryFallback: true,
+            originalCategory: "post",
+          },
+        ],
+        summary: { total: 1, generated: 1, skipped: 0, failed: 0 },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => fallbackResponse,
+      });
+
+      const { result } = renderHook(() => useIcebreakerEnrichment(), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        await result.current.generateForLead("lead-1", false, "post");
+      });
+
+      expect(toast.info).toHaveBeenCalledWith(
+        "Lead sem posts — Ice Breaker gerado com foco no perfil"
+      );
+    });
+
+    it("shows fallback toast for bulk leads with categoryFallback", async () => {
+      const fallbackResponse = {
+        success: true,
+        results: [
+          {
+            leadId: "lead-1",
+            success: true,
+            icebreaker: "Fallback icebreaker",
+            categoryFallback: true,
+            originalCategory: "post",
+          },
+        ],
+        summary: { total: 1, generated: 1, skipped: 0, failed: 0 },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => fallbackResponse,
+      });
+
+      const { result } = renderHook(() => useIcebreakerEnrichment(), {
+        wrapper: createWrapper(),
+      });
+
+      await act(async () => {
+        await result.current.generateForLeads(["lead-1"], false, "post");
+      });
+
+      expect(toast.info).toHaveBeenCalledWith(
+        "Lead sem posts — Ice Breaker gerado com foco no perfil"
+      );
+    });
+  });
 });

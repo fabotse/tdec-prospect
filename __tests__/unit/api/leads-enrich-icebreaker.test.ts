@@ -331,13 +331,14 @@ describe("POST /api/leads/enrich-icebreaker", () => {
       const leadWithoutLinkedIn = { ...mockLead, linkedin_url: null };
       setupBasicMocks({ leads: [leadWithoutLinkedIn] });
 
-      const request = createRequest({ leadIds: [leadId] });
+      const request = createRequest({ leadIds: [leadId], category: "post" });
       const response = await POST(request);
       const data = await response.json();
 
       expect(response.status).toBe(200);
-      expect(data.results[0].success).toBe(false);
-      expect(data.results[0].error).toBe("Lead sem LinkedIn URL");
+      // Story 9.1: post category falls back to lead when no linkedin_url
+      expect(data.results[0].success).toBe(true);
+      expect(data.results[0].categoryFallback).toBe(true);
     });
   });
 
@@ -354,13 +355,14 @@ describe("POST /api/leads/enrich-icebreaker", () => {
         fetchedAt: new Date().toISOString(),
       });
 
-      const request = createRequest({ leadIds: [leadId] });
+      const request = createRequest({ leadIds: [leadId], category: "post" });
       const response = await POST(request);
       const data = await response.json();
 
       expect(response.status).toBe(200);
-      expect(data.results[0].success).toBe(false);
-      expect(data.results[0].error).toBe("Nenhum post encontrado");
+      // Story 9.1: post category falls back to lead when no posts found
+      expect(data.results[0].success).toBe(true);
+      expect(data.results[0].categoryFallback).toBe(true);
     });
   });
 
@@ -381,7 +383,7 @@ describe("POST /api/leads/enrich-icebreaker", () => {
     });
 
     it("calls ApifyService with correct parameters", async () => {
-      const request = createRequest({ leadIds: [leadId] });
+      const request = createRequest({ leadIds: [leadId], category: "post" });
       await POST(request);
 
       expect(mockFetchLinkedInPosts).toHaveBeenCalledWith(
@@ -392,7 +394,7 @@ describe("POST /api/leads/enrich-icebreaker", () => {
     });
 
     it("calls PromptManager with correct variables", async () => {
-      const request = createRequest({ leadIds: [leadId] });
+      const request = createRequest({ leadIds: [leadId], category: "post" });
       await POST(request);
 
       expect(mockRenderPrompt).toHaveBeenCalledWith(
@@ -439,7 +441,7 @@ describe("POST /api/leads/enrich-icebreaker", () => {
       };
       setupBasicMocks({ leads: [leadWithIcebreaker] });
 
-      const request = createRequest({ leadIds: [leadId], regenerate: true });
+      const request = createRequest({ leadIds: [leadId], regenerate: true, category: "post" });
       const response = await POST(request);
       const data = await response.json();
 
@@ -473,7 +475,7 @@ describe("POST /api/leads/enrich-icebreaker", () => {
       const leadWithoutUrl = { ...mockLead, id: leadId2, linkedin_url: null };
       setupBasicMocks({ leads: [mockLead, leadWithoutUrl] });
 
-      const request = createRequest({ leadIds: [leadId, leadId2] });
+      const request = createRequest({ leadIds: [leadId, leadId2], category: "post" });
       const response = await POST(request);
       const data = await response.json();
 
@@ -484,8 +486,9 @@ describe("POST /api/leads/enrich-icebreaker", () => {
       const failResult = data.results.find((r: { leadId: string }) => r.leadId === leadId2);
 
       expect(successResult.success).toBe(true);
-      expect(failResult.success).toBe(false);
-      expect(failResult.error).toBe("Lead sem LinkedIn URL");
+      // Story 9.1: post fallback to lead when no linkedin_url
+      expect(failResult.success).toBe(true);
+      expect(failResult.categoryFallback).toBe(true);
     });
   });
 
@@ -532,16 +535,51 @@ describe("POST /api/leads/enrich-icebreaker", () => {
       expect(data.error.message).toBe("Nao autenticado");
     });
 
-    it("returns Portuguese message for missing Apify API key", async () => {
+    it("falls back gracefully when Apify key missing for post category", async () => {
+      // Story 9.1: Missing Apify key triggers fallback to Lead, not an error
+      // Override api_configs to return OpenAI key but NOT Apify key
       mockFrom.mockImplementation((table: string) => {
         if (table === "api_configs") {
           return {
             select: vi.fn().mockReturnValue({
               eq: vi.fn().mockReturnValue({
+                eq: vi.fn().mockImplementation((_field: string, value: string) => {
+                  if (value === "openai") {
+                    return {
+                      single: vi.fn().mockResolvedValue({
+                        data: { encrypted_key: "encrypted-key" },
+                        error: null,
+                      }),
+                    };
+                  }
+                  return {
+                    single: vi.fn().mockResolvedValue({ data: null, error: new Error("Not found") }),
+                  };
+                }),
+              }),
+            }),
+          };
+        }
+        if (table === "leads") {
+          return {
+            select: vi.fn().mockReturnValue({
+              in: vi.fn().mockReturnValue({
+                eq: vi.fn().mockResolvedValue({ data: [mockLead], error: null }),
+              }),
+            }),
+            update: vi.fn().mockReturnValue({
+              eq: vi.fn().mockResolvedValue({ error: null }),
+            }),
+          };
+        }
+        if (table === "knowledge_base") {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
                 eq: vi.fn().mockReturnValue({
                   single: vi.fn().mockResolvedValue({
-                    data: null,
-                    error: new Error("Not found"),
+                    data: { content: { company_name: "TestCorp", preset: "casual" } },
+                    error: null,
                   }),
                 }),
               }),
@@ -551,11 +589,13 @@ describe("POST /api/leads/enrich-icebreaker", () => {
         return {};
       });
 
-      const request = createRequest({ leadIds: [leadId] });
+      const request = createRequest({ leadIds: [leadId], category: "post" });
       const response = await POST(request);
       const data = await response.json();
 
-      expect(data.error.message).toContain("API key do Apify nao configurada");
+      expect(response.status).toBe(200);
+      expect(data.results[0].success).toBe(true);
+      expect(data.results[0].categoryFallback).toBe(true);
     });
   });
 
@@ -680,6 +720,181 @@ describe("POST /api/leads/enrich-icebreaker", () => {
       expect(data.summary.skipped).toBe(1);
       expect(data.summary.generated).toBe(0);
       expect(data.results[0].skipped).toBe(true);
+    });
+  });
+
+  // ==============================================
+  // Story 9.1: Category Support Tests
+  // ==============================================
+
+  describe("Story 9.1: Category Support", () => {
+    it("accepts valid category 'empresa'", async () => {
+      const request = createRequest({ leadIds: [leadId], category: "empresa" });
+      const response = await POST(request);
+
+      expect(response.status).toBe(200);
+    });
+
+    it("accepts valid category 'lead'", async () => {
+      const request = createRequest({ leadIds: [leadId], category: "lead" });
+      const response = await POST(request);
+
+      expect(response.status).toBe(200);
+    });
+
+    it("accepts valid category 'cargo'", async () => {
+      const request = createRequest({ leadIds: [leadId], category: "cargo" });
+      const response = await POST(request);
+
+      expect(response.status).toBe(200);
+    });
+
+    it("accepts valid category 'post'", async () => {
+      const request = createRequest({ leadIds: [leadId], category: "post" });
+      const response = await POST(request);
+
+      expect(response.status).toBe(200);
+    });
+
+    it("rejects invalid category", async () => {
+      const request = createRequest({ leadIds: [leadId], category: "invalid" });
+      const response = await POST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("defaults to 'empresa' when no category provided", async () => {
+      const request = createRequest({ leadIds: [leadId] });
+      const response = await POST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      // Default category empresa uses standard prompt with category_instructions
+      expect(data.results[0].success).toBe(true);
+    });
+
+    it("uses icebreaker_generation prompt for 'empresa' category", async () => {
+      const request = createRequest({ leadIds: [leadId], category: "empresa" });
+      await POST(request);
+
+      expect(mockRenderPrompt).toHaveBeenCalledWith(
+        "icebreaker_generation",
+        expect.objectContaining({
+          category_instructions: expect.stringContaining("EMPRESA"),
+        }),
+        { tenantId }
+      );
+    });
+
+    it("uses icebreaker_generation prompt for 'lead' category", async () => {
+      const request = createRequest({ leadIds: [leadId], category: "lead" });
+      await POST(request);
+
+      expect(mockRenderPrompt).toHaveBeenCalledWith(
+        "icebreaker_generation",
+        expect.objectContaining({
+          category_instructions: expect.stringContaining("PESSOA"),
+        }),
+        { tenantId }
+      );
+    });
+
+    it("uses icebreaker_generation prompt for 'cargo' category", async () => {
+      const request = createRequest({ leadIds: [leadId], category: "cargo" });
+      await POST(request);
+
+      expect(mockRenderPrompt).toHaveBeenCalledWith(
+        "icebreaker_generation",
+        expect.objectContaining({
+          category_instructions: expect.stringContaining("CARGO"),
+        }),
+        { tenantId }
+      );
+    });
+
+    it("uses icebreaker_premium_generation prompt for 'post' category", async () => {
+      const request = createRequest({ leadIds: [leadId], category: "post" });
+      await POST(request);
+
+      expect(mockRenderPrompt).toHaveBeenCalledWith(
+        "icebreaker_premium_generation",
+        expect.objectContaining({
+          firstName: mockLead.first_name,
+        }),
+        { tenantId }
+      );
+    });
+
+    it("does not call Apify for non-post categories", async () => {
+      const request = createRequest({ leadIds: [leadId], category: "empresa" });
+      await POST(request);
+
+      expect(mockFetchLinkedInPosts).not.toHaveBeenCalled();
+    });
+
+    it("calls Apify for 'post' category", async () => {
+      const request = createRequest({ leadIds: [leadId], category: "post" });
+      await POST(request);
+
+      expect(mockFetchLinkedInPosts).toHaveBeenCalled();
+    });
+
+    it("falls back to 'lead' when 'post' category and lead has no linkedin_url", async () => {
+      const leadWithoutLinkedIn = { ...mockLead, linkedin_url: null } as typeof mockLead;
+      setupBasicMocks({ leads: [leadWithoutLinkedIn] });
+
+      const request = createRequest({ leadIds: [leadId], category: "post" });
+      const response = await POST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.results[0].success).toBe(true);
+      expect(data.results[0].categoryFallback).toBe(true);
+      expect(data.results[0].originalCategory).toBe("post");
+      // Should use standard prompt (fallback to lead)
+      expect(mockRenderPrompt).toHaveBeenCalledWith(
+        "icebreaker_generation",
+        expect.objectContaining({
+          category_instructions: expect.stringContaining("PESSOA"),
+        }),
+        { tenantId }
+      );
+    });
+
+    it("falls back to 'lead' when 'post' category and no posts found", async () => {
+      mockFetchLinkedInPosts.mockResolvedValue({
+        success: true,
+        posts: [],
+        profileUrl: mockLead.linkedin_url,
+        fetchedAt: new Date().toISOString(),
+      });
+
+      const request = createRequest({ leadIds: [leadId], category: "post" });
+      const response = await POST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.results[0].success).toBe(true);
+      expect(data.results[0].categoryFallback).toBe(true);
+      expect(data.results[0].originalCategory).toBe("post");
+    });
+
+    it("passes lead data as snake_case variables for standard categories", async () => {
+      const request = createRequest({ leadIds: [leadId], category: "empresa" });
+      await POST(request);
+
+      expect(mockRenderPrompt).toHaveBeenCalledWith(
+        "icebreaker_generation",
+        expect.objectContaining({
+          lead_name: expect.stringContaining(mockLead.first_name),
+          lead_title: mockLead.title,
+          lead_company: mockLead.company_name,
+          lead_industry: mockLead.industry,
+        }),
+        { tenantId }
+      );
     });
   });
 });

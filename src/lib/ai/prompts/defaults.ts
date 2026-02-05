@@ -315,7 +315,7 @@ Responda APENAS com o quebra-gelo, sem explicações.`,
     },
   },
 
-  // Icebreaker generation (Updated for Story 6.6 - Product context, KB context, quality rules, Story 6.9 - Tone guides)
+  // Icebreaker generation (Updated for Story 6.6 - Product context, KB context, quality rules, Story 6.9 - Tone guides, Story 9.1 - Category support)
   icebreaker_generation: {
     template: `Você é um especialista em personalização de emails de prospecção B2B.
 
@@ -348,6 +348,9 @@ TOM DE VOZ:
 {{tone_description}}
 Estilo atual: {{tone_style}}
 Diretrizes adicionais: {{writing_guidelines}}
+
+FOCO DA CATEGORIA:
+{{category_instructions}}
 
 GUIA DE TOM - ADAPTE O QUEBRA-GELO AO ESTILO "{{tone_style}}":
 
@@ -392,6 +395,7 @@ REGRAS OBRIGATÓRIAS:
 7. Demonstre que pesquisou sobre a empresa
 8. Não faça perguntas - afirme algo relevante
 9. {{#if successful_examples}}PRIORIDADE MÁXIMA: Imite o estilo dos exemplos fornecidos{{else}}Use as abordagens eficazes listadas abaixo{{/if}}
+10. SIGA O FOCO DA CATEGORIA indicado acima — ele define o ângulo principal do quebra-gelo
 
 TIPOS DE QUEBRA-GELO EFICAZES:
 - "Vi que a {{lead_company}} está [ação/conquista]. Nosso [Produto] tem ajudado empresas nessa fase..."
