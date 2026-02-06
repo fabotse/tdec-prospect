@@ -44,8 +44,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Mail, GripVertical, Trash2 } from "lucide-react";
+import { Mail, GripVertical, Trash2, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
@@ -72,6 +73,14 @@ import { useDebouncedCallback } from "@/hooks/use-debounce";
 import { AIGenerateButton } from "./AIGenerateButton";
 import { ExamplesHint } from "./ExamplesHint";
 import { PremiumIcebreakerBadge } from "./PremiumIcebreakerBadge";
+import { sanitizeGeneratedSubject, sanitizeGeneratedBody } from "@/lib/ai/sanitize-ai-output";
+
+/**
+ * Story 9.4 AC #3: Detect {{ice_breaker}} variable in email body text
+ */
+export function hasIceBreakerVariable(text: string): boolean {
+  return /\{\{ice_breaker\}\}/.test(text);
+}
 
 interface EmailBlockProps {
   block: BuilderBlock;
@@ -282,7 +291,8 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
             stream: true,
             productId,
           });
-          setSubject(generatedSubject);
+          const cleanSubject = sanitizeGeneratedSubject(generatedSubject);
+          setSubject(cleanSubject);
 
           await new Promise((resolve) => setTimeout(resolve, 300));
           resetAI();
@@ -300,13 +310,14 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
             productId,
           });
 
-          setBody(generatedBody);
+          const cleanBody = sanitizeGeneratedBody(generatedBody);
+          setBody(cleanBody);
           // Story 6.5.7: Follow-up emails don't use icebreakers
           updateBlock(block.id, {
             data: {
               ...blockData,
-              subject: generatedSubject,
-              body: generatedBody,
+              subject: cleanSubject,
+              body: cleanBody,
               icebreakerSource: "none",
               icebreakerPosts: null,
             },
@@ -359,7 +370,8 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
       // Update local state immediately for UI feedback (streaming already shows progress)
       // CR-M1 FIX: Removed intermediate store update to avoid stale closure issue
       // Store will be updated after body generation completes with both subject and body
-      setSubject(generatedSubject);
+      const cleanSubject = sanitizeGeneratedSubject(generatedSubject);
+      setSubject(cleanSubject);
 
       // Small delay before generating body for better UX
       await new Promise((resolve) => setTimeout(resolve, 300));
@@ -377,23 +389,31 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
       // Update body in store after complete generation
       // Use generatedSubject directly to avoid stale closure (Code Review Fix M3)
       // Story 6.5.7: Store icebreakerSource and icebreakerPosts for preview badge
-      setBody(generatedBody);
+      const cleanBody = sanitizeGeneratedBody(generatedBody);
+      setBody(cleanBody);
       updateBlock(block.id, {
         data: {
           ...blockData,
-          subject: generatedSubject,
-          body: generatedBody,
+          subject: cleanSubject,
+          body: cleanBody,
           icebreakerSource: hasPremiumIcebreaker ? "premium" : "standard",
           icebreakerPosts: previewLead?.linkedinPostsCache?.posts || null,
         },
       });
+
+      // Story 9.4 AC #2: Inform user that icebreaker was generated with specific lead
+      if (previewLead && generatedIcebreaker) {
+        toast.info(
+          `Ice Breaker gerado com base no lead ${previewLead.firstName}. Pode variar para outros leads.`
+        );
+      }
 
       setGeneratingField(null);
     } catch {
       // Error is handled by the hook (AC 6.2 #2)
       setGeneratingField(null);
     }
-  }, [generate, resetAI, block.id, block.position, updateBlock, mergedVariables, productId, blockData, canBeFollowUp, blocks, hasPremiumIcebreaker, previewLead?.icebreaker, previewLead?.linkedinPostsCache?.posts]);
+  }, [generate, resetAI, block.id, block.position, updateBlock, mergedVariables, productId, blockData, canBeFollowUp, blocks, hasPremiumIcebreaker, previewLead]);
 
   return (
     <motion.div
@@ -551,6 +571,16 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
           >
             Conteudo
           </Label>
+          {/* Story 9.4 AC #3: Badge when body contains {{ice_breaker}} variable */}
+          {hasIceBreakerVariable(body) && (
+            <div
+              data-testid="icebreaker-variable-badge"
+              className="flex items-center gap-1.5 px-2 py-1 rounded bg-muted text-xs text-muted-foreground border"
+            >
+              <Sparkles className="h-3 w-3" />
+              <span>Contém variável {"{{ice_breaker}}"} — será personalizado por lead</span>
+            </div>
+          )}
           {/* Story 6.7 AC #4: Auto-expanding textarea */}
           <AutoResizeTextarea
             id={`body-${block.id}`}

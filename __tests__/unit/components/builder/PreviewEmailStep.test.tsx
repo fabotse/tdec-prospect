@@ -113,4 +113,58 @@ describe("PreviewEmailStep", () => {
       expect(bodyElement).toHaveClass("whitespace-pre-wrap");
     });
   });
+
+  // ==============================================
+  // Story 9.4: Ice Breaker Variable Placeholder
+  // ==============================================
+
+  describe("Ice Breaker Variable Placeholder (Story 9.4 AC #4)", () => {
+    it("replaces {{ice_breaker}} with styled placeholder text", () => {
+      const bodyWithVariable = "Olá João! {{ice_breaker}} Gostaria de apresentar nosso produto.";
+
+      render(
+        <PreviewEmailStep stepNumber={1} subject="Assunto" body={bodyWithVariable} />
+      );
+
+      // Should show placeholder text instead of {{ice_breaker}}
+      expect(screen.getByTestId("icebreaker-placeholder")).toBeInTheDocument();
+      expect(
+        screen.getByText("[Ice Breaker personalizado será gerado para cada lead]")
+      ).toBeInTheDocument();
+
+      // Should NOT show the raw variable
+      expect(screen.queryByText("{{ice_breaker}}")).not.toBeInTheDocument();
+    });
+
+    it("renders placeholder with italic styling", () => {
+      const bodyWithVariable = "Texto {{ice_breaker}} mais texto";
+
+      render(
+        <PreviewEmailStep stepNumber={1} subject="Assunto" body={bodyWithVariable} />
+      );
+
+      const placeholder = screen.getByTestId("icebreaker-placeholder");
+      expect(placeholder).toHaveClass("italic");
+    });
+
+    it("renders normal body when no {{ice_breaker}} variable present", () => {
+      render(<PreviewEmailStep {...defaultProps} />);
+
+      // Should render body normally
+      expect(screen.getByText("Test body content")).toBeInTheDocument();
+      expect(screen.queryByTestId("icebreaker-placeholder")).not.toBeInTheDocument();
+    });
+
+    it("preserves surrounding text around {{ice_breaker}} placeholder", () => {
+      const bodyWithVariable = "Olá! {{ice_breaker}} Vamos conversar?";
+
+      render(
+        <PreviewEmailStep stepNumber={1} subject="Assunto" body={bodyWithVariable} />
+      );
+
+      // Surrounding text should still be present
+      expect(screen.getByText(/Olá!/)).toBeInTheDocument();
+      expect(screen.getByText(/Vamos conversar\?/)).toBeInTheDocument();
+    });
+  });
 });

@@ -196,8 +196,15 @@ GUIA DE TOM - SIGA RIGOROSAMENTE O ESTILO "{{tone_style}}":
 OBJETIVO DO EMAIL:
 {{email_objective}}
 
-QUEBRA-GELO (se disponível):
+{{#if icebreaker}}
+QUEBRA-GELO PERSONALIZADO (USE COMO ABERTURA):
 {{icebreaker}}
+{{else}}
+VARIÁVEL DE PERSONALIZAÇÃO:
+Inclua a variável EXATA "{{ice_breaker}}" (com chaves duplas) no local do quebra-gelo.
+Esta variável será substituída por um Ice Breaker personalizado para cada lead.
+Trate-a como texto fixo — NÃO modifique, NÃO expanda, NÃO explique.
+{{/if}}
 
 {{#if successful_examples}}
 EXEMPLOS DE EMAILS QUE FUNCIONARAM (APRENDA COM ELES):
@@ -215,8 +222,9 @@ EXEMPLOS DE EMAILS QUE FUNCIONARAM (APRENDA COM ELES):
 
 REGRAS:
 1. Máximo 150 palavras
-2. Se houver quebra-gelo, use-o APENAS como abertura (máximo 2 frases) - NÃO expanda o tema do quebra-gelo
-3. IMEDIATAMENTE após o quebra-gelo, faça transição para o PRODUTO - o foco do email é o produto, não o tema do quebra-gelo
+2. Se houver quebra-gelo personalizado, use-o APENAS como abertura (máximo 2 frases) - NÃO expanda o tema do quebra-gelo
+   Se houver variável {{ice_breaker}}, inclua-a EXATAMENTE como está, sem modificações
+3. IMEDIATAMENTE após o quebra-gelo (ou variável {{ice_breaker}}), faça transição para o PRODUTO - o foco do email é o produto, não o tema do quebra-gelo
 4. {{#if product_name}}O FOCO PRINCIPAL do email deve ser o produto "{{product_name}}" - dedique 70% do email a ele{{else}}Apresente valor claramente{{/if}}
 5. Use parágrafos curtos (2-3 frases)
 6. Inclua uma CTA clara mas não agressiva
@@ -228,7 +236,7 @@ REGRAS:
 
 FORMATO OBRIGATÓRIO:
 - Saudação personalizada (conforme tom)
-- Quebra-gelo (se fornecido): máximo 2 frases, apenas para conexão inicial
+- Quebra-gelo (se personalizado): máximo 2 frases | OU variável {{ice_breaker}} literal
 - Transição rápida: 1 frase conectando ao produto
 - Proposta de valor: 2-3 frases focadas 100% no PRODUTO e seus benefícios
 - CTA

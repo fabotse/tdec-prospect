@@ -12,6 +12,7 @@
 import { useState, useCallback, useRef } from "react";
 import type { BuilderBlock } from "@/stores/use-builder-store";
 import type { CampaignObjective } from "@/components/campaigns/AICampaignWizard";
+import { sanitizeGeneratedSubject, sanitizeGeneratedBody } from "@/lib/ai/sanitize-ai-output";
 
 // ==============================================
 // TYPES
@@ -298,12 +299,13 @@ export function useAIFullCampaignGeneration(): UseAIFullCampaignGenerationReturn
 
           try {
             // Generate subject
-            const subject = await generateEmailContent(
+            const rawSubject = await generateEmailContent(
               subjectKey,
               baseVariables,
               productId,
               abortControllerRef.current!.signal
             );
+            const subject = sanitizeGeneratedSubject(rawSubject);
 
             // Check cancellation between subject and body
             if (cancelledRef.current) {
@@ -312,12 +314,13 @@ export function useAIFullCampaignGeneration(): UseAIFullCampaignGenerationReturn
             }
 
             // Generate body
-            const body = await generateEmailContent(
+            const rawBody = await generateEmailContent(
               bodyKey,
               { ...baseVariables, subject },
               productId,
               abortControllerRef.current!.signal
             );
+            const body = sanitizeGeneratedBody(rawBody);
 
             clearTimeout(timeoutId);
 

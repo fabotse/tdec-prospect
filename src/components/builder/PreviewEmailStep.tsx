@@ -84,13 +84,26 @@ export function PreviewEmailStep({
             </p>
           </div>
 
-          {/* Body */}
+          {/* Body - Story 9.4 AC #4: Replace {{ice_breaker}} with styled placeholder */}
           <div>
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               Corpo
             </span>
-            <div className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">
-              {body || <span className="italic">Sem conteudo</span>}
+            <div data-testid="preview-email-body" className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">
+              {body ? (
+                body.includes("{{ice_breaker}}") ? (
+                  body.split("{{ice_breaker}}").map((part, i, arr) => (
+                    <span key={i}>
+                      {part}
+                      {i < arr.length - 1 && (
+                        <span className="italic text-muted-foreground/70" data-testid="icebreaker-placeholder">
+                          [Ice Breaker personalizado será gerado para cada lead]
+                        </span>
+                      )}
+                    </span>
+                  ))
+                ) : body
+              ) : <span className="italic">Sem conteudo</span>}
             </div>
           </div>
         </>

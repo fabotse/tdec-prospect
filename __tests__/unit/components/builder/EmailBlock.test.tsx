@@ -38,13 +38,27 @@
  * AC 6.11: #1 - Mode Selector Visibility
  * AC 6.11: #2 - Mode Persistence
  * AC 6.11: #5 - First Email Restriction
+ *
+ * Story 9.4: Variável {{ice_breaker}} na Geração de Campanha AI
+ * AC 9.4 #2: Toast when IB generated with specific lead
+ * AC 9.4 #3: Badge when body contains {{ice_breaker}}
  */
 
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { EmailBlock } from "@/components/builder/EmailBlock";
+import { EmailBlock, hasIceBreakerVariable } from "@/components/builder/EmailBlock";
 import type { BuilderBlock } from "@/stores/use-builder-store";
 import type { GenerationPhase } from "@/hooks/use-ai-generate";
+
+// Mock sonner (Story 9.4 AC #2: Toast for icebreaker with specific lead)
+const mockToastInfo = vi.fn();
+vi.mock("sonner", () => ({
+  toast: {
+    info: (...args: unknown[]) => mockToastInfo(...args),
+    success: vi.fn(),
+    error: vi.fn(),
+  },
+}));
 
 // Mock framer-motion
 vi.mock("framer-motion", () => ({
@@ -1937,6 +1951,113 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
       fireEvent.click(screen.getByTestId("delete-block-button"));
 
       expect(mockSelectBlock).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==============================================
+  // Story 9.4: Ice Breaker Variable
+  // ==============================================
+
+  describe("hasIceBreakerVariable utility (Story 9.4 AC #3)", () => {
+    it("returns true when text contains {{ice_breaker}}", () => {
+      expect(hasIceBreakerVariable("Olá! {{ice_breaker}} Gostaria de apresentar...")).toBe(true);
+    });
+
+    it("returns false when text does not contain {{ice_breaker}}", () => {
+      expect(hasIceBreakerVariable("Olá! Gostaria de apresentar nosso produto.")).toBe(false);
+    });
+
+    it("returns false for empty string", () => {
+      expect(hasIceBreakerVariable("")).toBe(false);
+    });
+
+    it("returns false for similar but not exact patterns", () => {
+      expect(hasIceBreakerVariable("{{icebreaker}}")).toBe(false);
+      expect(hasIceBreakerVariable("{ice_breaker}")).toBe(false);
+      expect(hasIceBreakerVariable("ice_breaker")).toBe(false);
+    });
+  });
+
+  describe("Ice Breaker Variable Badge (Story 9.4 AC #3)", () => {
+    it("shows badge when body contains {{ice_breaker}}", () => {
+      const blockWithVariable: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: "", body: "Olá! {{ice_breaker}} Gostaria de apresentar..." },
+      };
+
+      render(<EmailBlock block={blockWithVariable} stepNumber={1} />);
+
+      expect(screen.getByTestId("icebreaker-variable-badge")).toBeInTheDocument();
+      expect(screen.getByText(/Contém variável/)).toBeInTheDocument();
+      expect(screen.getByText(/será personalizado por lead/)).toBeInTheDocument();
+    });
+
+    it("does NOT show badge when body does not contain {{ice_breaker}}", () => {
+      const blockWithoutVariable: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: "Subject", body: "Normal email body without variable" },
+      };
+
+      render(<EmailBlock block={blockWithoutVariable} stepNumber={1} />);
+
+      expect(screen.queryByTestId("icebreaker-variable-badge")).not.toBeInTheDocument();
+    });
+
+    it("does NOT show badge when body is empty", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      expect(screen.queryByTestId("icebreaker-variable-badge")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Toast on IB generated with specific lead (Story 9.4 AC #2)", () => {
+    it("shows toast.info after generation when previewLead is set", async () => {
+      mockPreviewLead = {
+        id: "lead-toast",
+        firstName: "Maria",
+        lastName: "Silva",
+        companyName: "Corp SA",
+        title: "CEO",
+        email: "maria@corp.com",
+      };
+      mockGenerate.mockResolvedValue("Generated icebreaker text");
+
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      fireEvent.click(screen.getByText("Gerar com IA"));
+
+      await waitFor(
+        () => {
+          expect(mockToastInfo).toHaveBeenCalledWith(
+            expect.stringContaining("Maria")
+          );
+        },
+        { timeout: 5000 }
+      );
+    });
+
+    it("does NOT show toast when no previewLead is set", async () => {
+      mockPreviewLead = null;
+      mockGenerate.mockResolvedValue("Generated text");
+
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      fireEvent.click(screen.getByText("Gerar com IA"));
+
+      await waitFor(
+        () => {
+          expect(mockGenerate).toHaveBeenCalled();
+          // Wait for all generations to finish
+          const bodyCall = mockGenerate.mock.calls.find(
+            (call) => call[0]?.promptKey === "email_body_generation"
+          );
+          expect(bodyCall).toBeDefined();
+        },
+        { timeout: 5000 }
+      );
+
+      // Toast should NOT have been called
+      expect(mockToastInfo).not.toHaveBeenCalled();
     });
   });
 });
