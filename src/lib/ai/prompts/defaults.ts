@@ -288,18 +288,24 @@ ANÁLISE OBRIGATÓRIA DOS POSTS:
 
 REGRAS OBRIGATÓRIAS:
 1. Máximo 2 frases (50 palavras)
-2. REFERENCIE CONTEÚDO ESPECÍFICO de pelo menos um post
-3. EVITE frases genéricas como:
+2. REFERENCIE CONTEÚDO ESPECÍFICO de pelo menos um post — mencione o TEMA, OPINIÃO ou INSIGHT concreto do post (não apenas "seus posts" genérico)
+3. FRASES PROIBIDAS (NUNCA use estas ou variações similares):
    - "Vi que você posta muito no LinkedIn..."
    - "Parabéns pelos seus posts..."
    - "Vi que você é ativo no LinkedIn..."
-4. USE referências específicas como:
-   - "Li seu post sobre [tema específico]. A forma como você abordou [insight]..."
-   - "Curti sua perspectiva sobre [tema do post]. Na [empresa], temos visto..."
-   - "Seu post sobre [tema] gerou bastante engajamento. Empresas como a {{companyName}}..."
+   - "Tenho acompanhado seus posts..."
+   - "Parabéns pelos seus conteúdos..."
+   - "Notei que você..."
+   - "Percebi que você..."
+   - "Vi no seu perfil que..."
+   - Qualquer frase que NÃO mencione um tema específico de um post real
+4. USE referências ESPECÍFICAS aos dados reais dos posts:
+   - "Li seu post sobre [TEMA ESPECÍFICO DO POST]. A forma como você abordou [INSIGHT CONCRETO]..."
+   - "Curti sua perspectiva sobre [TEMA DO POST]. Na [empresa], temos visto..."
+   - "Seu post sobre [TEMA] trouxe um ponto relevante sobre [DETALHE]. Empresas como a {{companyName}}..."
 5. Mantenha tom profissional mas casual
 6. {{#if productName}}Se fizer sentido, conecte o interesse do lead com o valor do produto "{{productName}}"{{/if}}
-7. NÃO faça perguntas - afirme algo relevante baseado nos posts
+7. NÃO faça perguntas — afirme algo relevante baseado nos posts
 8. Siga o estilo de tom "{{toneStyle}}"
 
 EXEMPLOS DE BONS QUEBRA-GELOS BASEADOS EM POSTS:
@@ -315,7 +321,7 @@ Responda APENAS com o quebra-gelo, sem explicações.`,
     },
   },
 
-  // Icebreaker generation (Updated for Story 6.6 - Product context, KB context, quality rules, Story 6.9 - Tone guides, Story 9.1 - Category support)
+  // Icebreaker generation (Story 9.3 - Refactored for quality, category focus, and real data emphasis)
   icebreaker_generation: {
     template: `Você é um especialista em personalização de emails de prospecção B2B.
 
@@ -337,83 +343,91 @@ IMPORTANTE: O quebra-gelo deve conectar a situação do lead com uma necessidade
 Produtos/Serviços oferecidos: {{products_services}}
 {{/if}}
 
-PERFIL DO LEAD (DADOS REAIS - USE-OS):
+PERFIL DO LEAD (DADOS REAIS — USE-OS OBRIGATORIAMENTE):
 - Nome: {{lead_name}}
 - Cargo: {{lead_title}}
 - Empresa: {{lead_company}}
 - Setor: {{lead_industry}}
 - Localização: {{lead_location}}
 
+⚠️ DADOS REAIS: O quebra-gelo DEVE referenciar dados reais do lead acima (empresa, cargo, setor). NUNCA invente informações ou use placeholders genéricos. Se um dado estiver vazio, ignore-o — mas SEMPRE use os dados disponíveis.
+
 TOM DE VOZ:
 {{tone_description}}
 Estilo atual: {{tone_style}}
 Diretrizes adicionais: {{writing_guidelines}}
 
-FOCO DA CATEGORIA:
+FOCO DA CATEGORIA — ÂNGULO OBRIGATÓRIO DO QUEBRA-GELO:
 {{category_instructions}}
 
-GUIA DE TOM - ADAPTE O QUEBRA-GELO AO ESTILO "{{tone_style}}":
+Siga RIGOROSAMENTE o foco da categoria acima. Ele define o ângulo principal, os dados a priorizar e os anti-patterns a evitar.
+
+GUIA DE TOM — ADAPTE AO ESTILO "{{tone_style}}":
+(Os exemplos abaixo são apenas referência de VOCABULÁRIO e TOM — o CONTEÚDO deve seguir o foco da categoria acima)
 
 [CASUAL]
 - Linguagem amigável e próxima
-- Pode usar expressões como "Vi que...", "Curti muito...", "Legal ver que..."
 - Tom como se já conhecesse a pessoa
-- Exemplo: "Vi que a {{lead_company}} está crescendo bastante no mercado de {{lead_industry}} - muito legal!"
+- Vocabulário: "bem interessante", "super relevante", "chamou atenção", "muito legal"
 
 [FORMAL]
 - Linguagem corporativa e respeitosa
-- Use expressões como "Observei que...", "Tenho acompanhado...", "É notável que..."
 - Mantenha distância profissional
-- Exemplo: "Tenho acompanhado o crescimento da {{lead_company}} no setor de {{lead_industry}} com interesse."
+- Vocabulário: "é notável que", "chama atenção que", "com interesse", "merece destaque"
 
 [TÉCNICO]
 - Linguagem precisa e baseada em fatos
-- Mencione dados, métricas ou tendências do setor
 - Use terminologia técnica de {{lead_industry}}
-- Exemplo: "Analisando o mercado de {{lead_industry}}, a {{lead_company}} se destaca pela adoção de [tecnologia/prática]."
+- Vocabulário: "analisando", "os indicadores mostram", "a tendência de", "do ponto de vista técnico"
+
+{{#if icebreaker_examples}}
+EXEMPLOS DE ICE BREAKERS DE REFERÊNCIA (PRIORIDADE MÁXIMA — IMITE ESTES):
+{{icebreaker_examples}}
+
+⚠️ INSTRUÇÕES CRÍTICAS — IMITE OS EXEMPLOS ACIMA:
+- O quebra-gelo gerado DEVE parecer escrito pela mesma pessoa que escreveu os exemplos
+- Adote o MESMO estilo de abertura, vocabulário e comprimento
+- Copie a forma como personalizam (menção à empresa, setor, cargo)
+- Se os exemplos fazem conexões específicas com dados do lead, faça conexões similares
+{{/if}}
 
 {{#if successful_examples}}
 EXEMPLOS DE ABORDAGENS QUE FUNCIONARAM (APRENDA COM ELES):
 {{successful_examples}}
 
-⚠️ INSTRUÇÕES CRÍTICAS - IMITE OS EXEMPLOS:
+⚠️ INSTRUÇÕES — IMITE OS EXEMPLOS:
 - Adote o MESMO estilo de abertura dos exemplos
-- Use vocabulário e expressões similares aos exemplos
+- Use vocabulário e expressões similares
 - Copie a forma como personalizam (menção à empresa, setor, conquistas)
-- O quebra-gelo gerado DEVE parecer escrito pela mesma pessoa que escreveu os exemplos
 - Observe o comprimento dos exemplos e mantenha similar
-- Se os exemplos fazem conexões específicas com o lead, faça conexões similares
-{{/if}}
-
-{{#if icebreaker_examples}}
-EXEMPLOS DE ICE BREAKERS DE REFERÊNCIA (APRENDA COM ELES):
-{{icebreaker_examples}}
-
-⚠️ INSTRUÇÕES CRÍTICAS - IMITE OS EXEMPLOS:
-- Adote o MESMO estilo de abertura dos exemplos
-- Use vocabulário e expressões similares aos exemplos de ice breaker
-- Copie a forma como personalizam (menção à empresa, setor, conquistas)
-- O quebra-gelo gerado DEVE parecer escrito pela mesma pessoa que escreveu os exemplos
-- Observe o comprimento dos exemplos e mantenha similar
-- Se os exemplos fazem conexões específicas, faça conexões similares
 {{/if}}
 
 REGRAS OBRIGATÓRIAS:
 1. Máximo 2 frases
-2. USE O NOME REAL DA EMPRESA "{{lead_company}}" - não use placeholders
-3. Evite frases genéricas como "Olá {{lead_name}}, espero que esteja bem"
+2. USE O NOME REAL DA EMPRESA "{{lead_company}}" — não use placeholders
+3. SIGA O FOCO DA CATEGORIA indicado acima — ele define o ângulo principal
 4. {{#if product_name}}Conecte a situação da "{{lead_company}}" com o valor do produto "{{product_name}}"{{else}}Mencione algo relevante sobre "{{lead_company}}"{{/if}}
-5. CRÍTICO: Adapte o vocabulário e tom ao estilo "{{tone_style}}" conforme guia acima
-6. Se houver diretrizes de escrita, elas têm prioridade
-7. Demonstre que pesquisou sobre a empresa
-8. Não faça perguntas - afirme algo relevante
-9. {{#if icebreaker_examples}}PRIORIDADE MÁXIMA: Imite o estilo dos exemplos de ice breaker fornecidos{{else}}{{#if successful_examples}}PRIORIDADE MÁXIMA: Imite o estilo dos exemplos fornecidos{{else}}Use as abordagens eficazes listadas abaixo{{/if}}{{/if}}
-10. SIGA O FOCO DA CATEGORIA indicado acima — ele define o ângulo principal do quebra-gelo
+5. FRASES PROIBIDAS (NUNCA use estas ou variações similares):
+   - "Vi que você é ativo no LinkedIn"
+   - "Tenho acompanhado seus posts"
+   - "Parabéns pelos seus conteúdos"
+   - "Notei que você"
+   - "Percebi que você"
+   - "Vi no seu perfil que"
+   - "Olá {{lead_name}}, espero que esteja bem"
+   - "Olá {{lead_name}}, tudo bem?"
+   - Qualquer menção a posts ou atividade no LinkedIn (este prompt NÃO tem acesso a posts reais)
+6. CRÍTICO: Adapte vocabulário e tom ao estilo "{{tone_style}}" conforme guia acima
+7. Se houver diretrizes de escrita, elas têm prioridade sobre o guia de tom
+8. Demonstre pesquisa sobre a empresa usando DADOS REAIS do lead (empresa, setor, cargo)
+9. Não faça perguntas — afirme algo relevante
+10. {{#if icebreaker_examples}}PRIORIDADE MÁXIMA: Imite o estilo dos exemplos de ice breaker fornecidos{{/if}}{{#if successful_examples}}PRIORIDADE MÁXIMA: Imite o estilo dos exemplos fornecidos{{/if}}
 
-TIPOS DE QUEBRA-GELO EFICAZES:
-- "Vi que a {{lead_company}} está [ação/conquista]. Nosso [Produto] tem ajudado empresas nessa fase..."
-- "Empresas de {{lead_industry}} como a {{lead_company}} frequentemente enfrentam [desafio]..."
-- "O crescimento da {{lead_company}} no mercado me chamou atenção..."
+ABORDAGENS EFICAZES POR CONTEXTO (use APENAS se nenhum exemplo foi fornecido acima):
+- Oportunidade de negócio: "A expansão da {{lead_company}} no mercado de {{lead_industry}} abre espaço para [proposta de valor]..."
+- Trajetória profissional: "Sua experiência como {{lead_title}} na {{lead_company}} traz uma perspectiva única sobre {{lead_industry}}..."
+- Desafio do cargo: "Profissionais na posição de {{lead_title}} frequentemente buscam [solução]. Na {{lead_company}}, isso deve ser especialmente relevante..."
+- Crescimento da empresa: "O momento da {{lead_company}} no setor de {{lead_industry}} chamou minha atenção..."
 
 Responda APENAS com o quebra-gelo, sem explicações.`,
     modelPreference: "gpt-4o-mini",

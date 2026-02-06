@@ -212,7 +212,7 @@ development_status:
   epic-9: in-progress
   9-1-categorias-de-ice-breaker: done  # Code review 2026-02-05: 2 HIGH, 2 MEDIUM fixes (category descriptions in dropdown, reset on lead change, dead re-export, API test). 38/38 tests passing
   9-2-exemplos-de-referencia-para-ice-breakers-no-knowledge-base: done  # Code review 2026-02-06: 1 CRITICAL, 2 HIGH, 2 MEDIUM fixes (server action tests, component CRUD tests, type dedup, edge case tests, File List). 173 files, 3046 tests passing.
-  9-3-refatoracao-dos-prompts-de-ice-breaker: backlog  # Depende de 9.1 + 9.2
+  9-3-refatoracao-dos-prompts-de-ice-breaker: done  # Code review 2026-02-06: 1 CRITICAL, 3 MEDIUM, 3 LOW fixes (nested {{#if}} rendering bug, rendering tests, sequential blocks, Lead fallback). 174 files, 3065 tests passing
   9-4-variavel-ice-breaker-na-geracao-de-campanha-ai: backlog
   9-5-estrutura-clara-nos-prompts-de-geracao-de-email-de-campanha: backlog  # Depende de 9.4
   9-6-revisao-de-qualidade-geral-dos-prompts-ai: backlog  # Depende de 9.1-9.5

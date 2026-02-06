@@ -347,7 +347,7 @@ function buildStandardIcebreakerVariables(
     product_differentials: "",
     product_target_audience: "",
     products_services: "",
-    successful_examples: "",
+    successful_examples: "", // Intentionally empty — IB uses icebreaker_examples; email examples reserved for future use
     category_instructions: ICEBREAKER_CATEGORY_INSTRUCTIONS[category],
     icebreaker_examples: formatIcebreakerExamples(kbContext.icebreakerExamples, category),
   };

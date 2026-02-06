@@ -237,22 +237,50 @@ export const ICEBREAKER_CATEGORY_INSTRUCTIONS: Record<IcebreakerCategory, string
 - Priorize a trajetória profissional, posição atual e contexto no mercado da pessoa
 - Mencione conquistas, movimentações de carreira ou posição de destaque
 - Conecte a experiência do lead com a proposta de valor
-- Exemplos de abordagem: "Com sua experiência em [área]...", "Sua trajetória em [setor] mostra que..."
-- NÃO foque em posts do LinkedIn — foque no perfil e dados profissionais`,
+- USE dados reais: nome completo ({{lead_name}}), cargo ({{lead_title}}), empresa ({{lead_company}}), setor ({{lead_industry}})
+- Exemplos de abordagem:
+  * "Com mais de X anos em {{lead_industry}}, sua experiência como {{lead_title}} na {{lead_company}} é notável..."
+  * "A combinação de {{lead_title}} em uma empresa como a {{lead_company}} traz uma perspectiva única sobre {{lead_industry}}..."
+  * "Sua posição como {{lead_title}} na {{lead_company}} coloca você no centro das decisões de {{lead_industry}}..."
+- ANTI-PATTERNS (NÃO faça):
+  * NÃO mencione posts ou atividade no LinkedIn
+  * NÃO use "Vi que você..." sem referência a dados reais
+  * NÃO foque na empresa — foque na PESSOA e sua trajetória`,
 
   empresa: `FOCO: EMPRESA (Negócio)
-- Priorize o crescimento, mercado e oportunidades de negócio da empresa
-- Mencione expansão, investimentos, momento de mercado ou posição competitiva
+- Priorize oportunidade de negócio, crescimento, mercado e desafios do setor da empresa
+- Mencione expansão, investimentos, momento de mercado, posição competitiva ou tamanho da empresa
 - Conecte a situação da empresa com a oportunidade que seu produto/serviço oferece
-- Exemplos de abordagem: "A {{lead_company}} tem se destacado em...", "O crescimento da {{lead_company}} no mercado de {{lead_industry}}..."
-- Foco é 100% na empresa, não na pessoa`,
+- USE dados reais: empresa ({{lead_company}}), setor ({{lead_industry}})
+- Exemplos de abordagem:
+  * "A {{lead_company}} tem se posicionado de forma interessante no mercado de {{lead_industry}}..."
+  * "Empresas de {{lead_industry}} como a {{lead_company}} estão em um momento estratégico para [proposta de valor]..."
+  * "O setor de {{lead_industry}} está em transformação, e a {{lead_company}} parece estar bem posicionada..."
+- ANTI-PATTERNS (NÃO faça):
+  * NÃO mencione conquistas pessoais, perfil ou posts do lead
+  * NÃO use o cargo do lead como foco — foco é 100% na EMPRESA
+  * NÃO invente dados sobre a empresa que não estão disponíveis`,
 
-  cargo: `FOCO: CARGO (Role)
+  cargo: `FOCO: CARGO (Role) — COMECE PELO CARGO, NÃO PELA EMPRESA
+- A PRIMEIRA PALAVRA do quebra-gelo deve referenciar o CARGO ({{lead_title}}), NÃO a empresa
 - Priorize os desafios típicos do cargo/função do lead
 - Mencione decisões que esse tipo de profissional toma, dores comuns do role
 - Conecte as responsabilidades do cargo com problemas que seu produto resolve
-- Exemplos de abordagem: "Como {{lead_title}}, você provavelmente lida com...", "Profissionais na posição de {{lead_title}} frequentemente enfrentam..."
-- Foco é no cargo e suas responsabilidades, não na empresa ou pessoa especificamente`,
+- USE dados reais: cargo ({{lead_title}}), empresa ({{lead_company}}), setor ({{lead_industry}})
+- Adapte o nível do desafio ao tipo de cargo:
+  * C-Level (CEO, CTO, CFO): decisões estratégicas, crescimento, competitividade, inovação
+  * Diretor/Head: escala, eficiência operacional, resultados de equipe, processos
+  * Gerente: produtividade do time, métricas, ferramentas, otimização do dia-a-dia
+  * Analista/Especialista: eficiência pessoal, ferramentas, automação, aprendizado
+- Exemplos de abordagem (NOTE: todos começam pelo CARGO, não pela empresa):
+  * "Como {{lead_title}}, você provavelmente lida com o desafio de [dor típica do cargo] — é algo que nosso [produto] resolve diretamente."
+  * "O dia-a-dia de um {{lead_title}} em {{lead_industry}} envolve decisões sobre [área]. Na {{lead_company}}, isso deve ser especialmente relevante."
+  * "Sabemos que {{lead_title}} precisa equilibrar [desafio A] e [desafio B] — especialmente em empresas de {{lead_industry}} como a {{lead_company}}."
+- ANTI-PATTERNS (NÃO faça):
+  * NÃO comece falando da empresa (crescimento, expansão, mercado) — isso é categoria EMPRESA
+  * NÃO foque na pessoa (trajetória, conquistas) — isso é categoria LEAD
+  * NÃO mencione posts ou atividade no LinkedIn
+  * NÃO generalize — use o cargo específico do lead ({{lead_title}}), não "profissionais"`,
 
   post: `FOCO: POST/LINKEDIN (Conteúdo Publicado)
 - Este modo normalmente redireciona para o prompt premium com posts reais
