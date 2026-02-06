@@ -111,8 +111,8 @@ function MultiSelect({
   };
 
   return (
-    <div className="space-y-1" ref={containerRef}>
-      <Label id={labelId} className="mb-2 block">
+    <div className="flex flex-col gap-2" ref={containerRef}>
+      <Label id={labelId} className="block">
         {label}
       </Label>
       <div className="relative">
@@ -377,8 +377,8 @@ export function FilterPanel({ onSearch, isLoading }: FilterPanelProps) {
               />
 
               {/* Company Size Select */}
-              <div className="space-y-1">
-                <Label className="mb-2 block">Tamanho da Empresa</Label>
+              <div className="flex flex-col gap-2">
+                <Label className="block">Tamanho da Empresa</Label>
                 <Select
                   value={filters.companySizes[0] || ""}
                   onValueChange={(value) =>
@@ -399,8 +399,8 @@ export function FilterPanel({ onSearch, isLoading }: FilterPanelProps) {
               </div>
 
               {/* Location Input */}
-              <div className="space-y-1">
-                <Label className="mb-2 block" htmlFor="location-input">
+              <div className="flex flex-col gap-2">
+                <Label className="block" htmlFor="location-input">
                   Localização
                 </Label>
                 <Input
@@ -413,8 +413,8 @@ export function FilterPanel({ onSearch, isLoading }: FilterPanelProps) {
               </div>
 
               {/* Title Input */}
-              <div className="space-y-1">
-                <Label className="mb-2 block" htmlFor="title-input">
+              <div className="flex flex-col gap-2">
+                <Label className="block" htmlFor="title-input">
                   Cargo/Título
                 </Label>
                 <Input
@@ -427,8 +427,8 @@ export function FilterPanel({ onSearch, isLoading }: FilterPanelProps) {
               </div>
 
               {/* Keywords Input */}
-              <div className="space-y-1">
-                <Label className="mb-2 block" htmlFor="keywords-input">
+              <div className="flex flex-col gap-2">
+                <Label className="block" htmlFor="keywords-input">
                   Palavras-chave
                 </Label>
                 <Input

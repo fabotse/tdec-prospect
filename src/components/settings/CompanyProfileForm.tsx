@@ -32,19 +32,19 @@ import {
 function CompanyProfileSkeleton() {
   return (
     <div className="space-y-6 animate-pulse">
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         <div className="h-4 w-24 bg-foreground/10 rounded" />
         <div className="h-10 w-full bg-foreground/10 rounded" />
       </div>
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         <div className="h-4 w-32 bg-foreground/10 rounded" />
         <div className="h-24 w-full bg-foreground/10 rounded" />
       </div>
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         <div className="h-4 w-40 bg-foreground/10 rounded" />
         <div className="h-24 w-full bg-foreground/10 rounded" />
       </div>
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         <div className="h-4 w-36 bg-foreground/10 rounded" />
         <div className="h-24 w-full bg-foreground/10 rounded" />
       </div>
@@ -109,8 +109,8 @@ export function CompanyProfileForm() {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-      <div className="space-y-2">
-        <Label htmlFor="company_name" className="mb-2 block">
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="company_name" className="block">
           Nome da empresa
         </Label>
         <Input
@@ -128,8 +128,8 @@ export function CompanyProfileForm() {
         )}
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="business_description" className="mb-2 block">
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="business_description" className="block">
           Descrição do negócio
         </Label>
         <Textarea
@@ -150,8 +150,8 @@ export function CompanyProfileForm() {
         )}
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="products_services" className="mb-2 block">
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="products_services" className="block">
           Produtos/serviços oferecidos
         </Label>
         <Textarea
@@ -172,8 +172,8 @@ export function CompanyProfileForm() {
         )}
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="competitive_advantages" className="mb-2 block">
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="competitive_advantages" className="block">
           Diferenciais competitivos
         </Label>
         <Textarea

@@ -33,19 +33,19 @@ import {
 function ToneOfVoiceSkeleton() {
   return (
     <div className="space-y-6 animate-pulse">
-      <div className="space-y-3">
+      <div className="flex flex-col gap-2">
         <div className="h-4 w-24 bg-foreground/10 rounded" />
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           <div className="h-6 w-32 bg-foreground/10 rounded" />
           <div className="h-6 w-28 bg-foreground/10 rounded" />
           <div className="h-6 w-36 bg-foreground/10 rounded" />
         </div>
       </div>
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         <div className="h-4 w-40 bg-foreground/10 rounded" />
         <div className="h-24 w-full bg-foreground/10 rounded" />
       </div>
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         <div className="h-4 w-48 bg-foreground/10 rounded" />
         <div className="h-32 w-full bg-foreground/10 rounded" />
       </div>
@@ -109,8 +109,8 @@ export function ToneOfVoiceForm() {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-      <div className="space-y-3">
-        <Label className="mb-2 block">Tom de comunicação</Label>
+      <div className="flex flex-col gap-2">
+        <Label className="block">Tom de comunicação</Label>
         <Controller
           name="preset"
           control={control}
@@ -140,8 +140,8 @@ export function ToneOfVoiceForm() {
         )}
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="custom_description" className="mb-2 block">
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="custom_description" className="block">
           Descrição personalizada do tom
         </Label>
         <Textarea
@@ -162,8 +162,8 @@ export function ToneOfVoiceForm() {
         )}
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="writing_guidelines" className="mb-2 block">
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="writing_guidelines" className="block">
           Diretrizes de escrita
         </Label>
         <Textarea

@@ -57,6 +57,7 @@ export function InviteUserDialog() {
     },
   });
 
+  // eslint-disable-next-line react-hooks/incompatible-library
   const selectedRole = watch("role");
 
   const onSubmit = async (data: InviteUserInput) => {
@@ -94,8 +95,8 @@ export function InviteUserDialog() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="space-y-1">
-              <Label htmlFor="email" className="mb-2 block">Email</Label>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="email" className="block">Email</Label>
               <Input
                 id="email"
                 type="email"
@@ -108,8 +109,8 @@ export function InviteUserDialog() {
                 </p>
               )}
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="role" className="mb-2 block">Função</Label>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="role" className="block">Função</Label>
               <Select
                 value={selectedRole}
                 onValueChange={(value) =>

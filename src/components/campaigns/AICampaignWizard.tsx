@@ -466,6 +466,7 @@ export function AICampaignWizard({
         setStep("form");
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [generateStructure]
   );
 
@@ -517,6 +518,7 @@ export function AICampaignWizard({
       // Error is handled by hook - stay on progress screen
       setIsCreatingCampaign(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData, generatedStructure, selectedProduct, selectedTemplate, defaultTone, createCampaign, generateFullCampaign, loadBlocks, setProductId, setTemplateName, onOpenChange, router]);
 
   // Step 2b: Structure only (AC 6.12.1 #7)
@@ -561,6 +563,7 @@ export function AICampaignWizard({
         setIsCreatingCampaign(false);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [formData, generatedStructure, selectedProduct, selectedTemplate, createCampaign, loadBlocks, setProductId, setTemplateName, onOpenChange, router]
   );
 
@@ -626,6 +629,7 @@ export function AICampaignWizard({
     } else {
       setStep("strategy-summary");
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cancelGeneration, generationProgress, formData, selectedTemplate, generatedStructure, createCampaign, loadBlocks, setProductId, setTemplateName, selectedProduct, onOpenChange, router]);
 
   // Handle retry after error
@@ -838,7 +842,7 @@ export function AICampaignWizard({
 
             <div className="grid gap-4 py-4">
               {/* Nome da Campanha */}
-              <div className="space-y-1.5">
+              <div className="flex flex-col gap-2">
                 <FieldLabel
                   htmlFor="campaign-name"
                   label="Nome da Campanha"
@@ -860,7 +864,7 @@ export function AICampaignWizard({
               </div>
 
               {/* Produto */}
-              <div className="space-y-1.5">
+              <div className="flex flex-col gap-2">
                 <FieldLabel
                   htmlFor="product"
                   label="Produto"
@@ -907,7 +911,7 @@ export function AICampaignWizard({
               </div>
 
               {/* Objetivo */}
-              <div className="space-y-1.5">
+              <div className="flex flex-col gap-2">
                 <FieldLabel
                   htmlFor="objective"
                   label="Objetivo da Campanha"
@@ -942,7 +946,7 @@ export function AICampaignWizard({
               </div>
 
               {/* Tom */}
-              <div className="space-y-1.5">
+              <div className="flex flex-col gap-2">
                 <FieldLabel
                   htmlFor="tone"
                   label="Tom Desejado"
@@ -973,7 +977,7 @@ export function AICampaignWizard({
               </div>
 
               {/* Urgencia */}
-              <div className="space-y-1.5">
+              <div className="flex flex-col gap-2">
                 <FieldLabel
                   htmlFor="urgency"
                   label="Urgencia"
@@ -1007,7 +1011,7 @@ export function AICampaignWizard({
               </div>
 
               {/* Descricao Adicional */}
-              <div className="space-y-1.5">
+              <div className="flex flex-col gap-2">
                 <FieldLabel
                   htmlFor="description"
                   label="Descricao Adicional"

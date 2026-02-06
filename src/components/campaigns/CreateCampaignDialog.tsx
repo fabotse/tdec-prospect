@@ -207,8 +207,8 @@ export function CreateCampaignDialog({
             </div>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="space-y-1">
-              <Label htmlFor="campaign-name" className="mb-2 block">Nome da Campanha</Label>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="campaign-name" className="block">Nome da Campanha</Label>
               <Input
                 id="campaign-name"
                 placeholder="Ex: Prospecao Q1 2026"

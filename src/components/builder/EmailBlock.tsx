@@ -509,10 +509,10 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
       {/* Block Content */}
       <div className="p-4 space-y-4">
         {/* Subject Field with Character Count (Story 6.7 AC #5) */}
-        <div className="space-y-1">
+        <div className="flex flex-col gap-2">
           <Label
             htmlFor={`subject-${block.id}`}
-            className="mb-2 block text-muted-foreground"
+            className="block text-muted-foreground"
           >
             Assunto
           </Label>
@@ -544,10 +544,10 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
         </div>
 
         {/* Body Field */}
-        <div className="space-y-1">
+        <div className="flex flex-col gap-2">
           <Label
             htmlFor={`body-${block.id}`}
-            className="mb-2 block text-muted-foreground"
+            className="block text-muted-foreground"
           >
             Conteudo
           </Label>

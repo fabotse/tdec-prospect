@@ -36,7 +36,7 @@ import {
 function ICPFormSkeleton() {
   return (
     <div className="space-y-6 animate-pulse">
-      <div className="space-y-3">
+      <div className="flex flex-col gap-2">
         <div className="h-4 w-40 bg-foreground/10 rounded" />
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {[...Array(6)].map((_, i) => (
@@ -45,16 +45,16 @@ function ICPFormSkeleton() {
         </div>
       </div>
       {[...Array(3)].map((_, i) => (
-        <div key={i} className="space-y-2">
+        <div key={i} className="flex flex-col gap-2">
           <div className="h-4 w-32 bg-foreground/10 rounded" />
           <div className="h-10 w-full bg-foreground/10 rounded" />
         </div>
       ))}
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         <div className="h-4 w-40 bg-foreground/10 rounded" />
         <div className="h-24 w-full bg-foreground/10 rounded" />
       </div>
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         <div className="h-4 w-40 bg-foreground/10 rounded" />
         <div className="h-32 w-full bg-foreground/10 rounded" />
       </div>
@@ -90,9 +90,9 @@ function TagInputField({
   disabled?: boolean;
 }) {
   return (
-    <div className="space-y-2">
-      <Label className="mb-2 block">{label}</Label>
-      <p className="text-body-small text-foreground-muted mb-2">{description}</p>
+    <div className="flex flex-col gap-2">
+      <Label className="block">{label}</Label>
+      <p className="text-body-small text-foreground-muted">{description}</p>
       <div className="flex gap-2">
         <Input
           value={inputValue}
@@ -166,6 +166,7 @@ export function ICPDefinitionForm() {
   const [locationInput, setLocationInput] = useState("");
 
   // Watch arrays for real-time display
+  // eslint-disable-next-line react-hooks/incompatible-library
   const companySizes = watch("company_sizes");
   const industries = watch("industries");
   const jobTitles = watch("job_titles");
@@ -251,7 +252,7 @@ export function ICPDefinitionForm() {
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
       {/* Company Sizes - Checkbox Group */}
-      <div className="space-y-3">
+      <div className="flex flex-col gap-2">
         <Label className="text-body font-medium">Tamanho da Empresa</Label>
         <p className="text-body-small text-foreground-muted">
           Selecione os tamanhos de empresa que você atende
@@ -348,11 +349,11 @@ export function ICPDefinitionForm() {
       />
 
       {/* Pain Points - Textarea */}
-      <div className="space-y-2">
-        <Label htmlFor="pain_points" className="mb-2 block">
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="pain_points" className="block">
           Dores que Resolvemos
         </Label>
-        <p className="text-body-small text-foreground-muted mb-2">
+        <p className="text-body-small text-foreground-muted">
           Descreva as principais dores/problemas que sua solução resolve
         </p>
         <Textarea
@@ -369,11 +370,11 @@ export function ICPDefinitionForm() {
       </div>
 
       {/* Common Objections - Textarea */}
-      <div className="space-y-2">
-        <Label htmlFor="common_objections" className="mb-2 block">
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="common_objections" className="block">
           Objeções Comuns
         </Label>
-        <p className="text-body-small text-foreground-muted mb-2">
+        <p className="text-body-small text-foreground-muted">
           Liste objeções comuns e como respondê-las
         </p>
         <Textarea
