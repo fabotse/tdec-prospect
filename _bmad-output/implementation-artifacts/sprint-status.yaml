@@ -209,14 +209,14 @@ development_status:
   # Evolução dos prompts de AI e personalização de Ice Breakers
   # Dependências: Infraestrutura AI existente (Epic 6, 6.5)
   # Documento: _bmad-output/planning-artifacts/epic-9-ai-content-quality-personalization.md
-  epic-9: in-progress
+  epic-9: done
   9-1-categorias-de-ice-breaker: done  # Code review 2026-02-05: 2 HIGH, 2 MEDIUM fixes (category descriptions in dropdown, reset on lead change, dead re-export, API test). 38/38 tests passing
   9-2-exemplos-de-referencia-para-ice-breakers-no-knowledge-base: done  # Code review 2026-02-06: 1 CRITICAL, 2 HIGH, 2 MEDIUM fixes (server action tests, component CRUD tests, type dedup, edge case tests, File List). 173 files, 3046 tests passing.
   9-3-refatoracao-dos-prompts-de-ice-breaker: done  # Code review 2026-02-06: 1 CRITICAL, 3 MEDIUM, 3 LOW fixes (nested {{#if}} rendering bug, rendering tests, sequential blocks, Lead fallback). 174 files, 3065 tests passing
   9-4-variavel-ice-breaker-na-geracao-de-campanha-ai: done  # Code review 2026-02-06: 4 MEDIUM fixes (File List docs, scope creep docs, test count). 177 files, 3107 tests passing
   9-5-estrutura-clara-nos-prompts-de-geracao-de-email-de-campanha: done  # Code review 2026-02-06: 4 MEDIUM fixes (TÉCNICO tone in follow-up, test quality improvements). 51 prompt tests passing
   9-6-revisao-de-qualidade-geral-dos-prompts-ai: done  # Code review 2026-02-06: 2 MEDIUM fixes (stale camelCase comment, stale mock content). 179 files, 3188 tests passing. 53 cross-prompt tests.
-  epic-9-retrospective: optional
+  epic-9-retrospective: done  # Completed 2026-02-06 — 6/6 stories, 211 new tests, 33 code review fixes, 0 blockers. Key insight: story continuity mechanism needed.
 
   # Epic 7: Campaign Deployment & Export (REESTRUTURADO 2026-02-06)
   # Export de campanhas personalizadas com sistema de variáveis de personalização
