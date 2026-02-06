@@ -20,6 +20,8 @@ import { sanitizeGeneratedSubject, sanitizeGeneratedBody } from "@/lib/ai/saniti
 
 /**
  * Parameters for full campaign generation
+ * Story 7.1: AI always generates with personalization variables ({{first_name}}, etc.)
+ * Preview resolution is handled by PreviewEmailStep via resolveEmailVariables()
  */
 export interface FullGenerationParams {
   /** Generated structure blocks */
@@ -278,6 +280,9 @@ export function useAIFullCampaignGeneration(): UseAIFullCampaignGenerationReturn
           const { subjectKey, bodyKey } = getPromptKeys(objective, i, emailMode);
 
           // Build variables for generation
+          // Story 7.1: Lead variables are never passed to Wizard generation
+          // → prompts' {{#if lead_name}} triggers MODO TEMPLATE (personalization variables)
+          // Preview resolution is handled by PreviewEmailStep via resolveEmailVariables()
           const baseVariables: Record<string, string> = {
             tone_style: tone,
             email_objective: context,

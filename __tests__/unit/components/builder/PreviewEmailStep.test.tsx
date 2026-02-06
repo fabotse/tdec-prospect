@@ -1,8 +1,11 @@
 /**
  * PreviewEmailStep Tests
  * Story 5.8: Campaign Preview
+ * Story 7.1: Generic variable placeholders and lead resolution
  *
  * AC #2: Visualizar sequencia de emails
+ * AC 7.1 #3: Variables resolved with lead data
+ * AC 7.1 #4: resolveEmailVariables used for resolution
  */
 
 import { render, screen } from "@testing-library/react";
@@ -115,56 +118,208 @@ describe("PreviewEmailStep", () => {
   });
 
   // ==============================================
-  // Story 9.4: Ice Breaker Variable Placeholder
+  // Story 7.1: Generic Variable Placeholders
   // ==============================================
 
-  describe("Ice Breaker Variable Placeholder (Story 9.4 AC #4)", () => {
-    it("replaces {{ice_breaker}} with styled placeholder text", () => {
+  describe("Variable Placeholders - No PreviewLead (Story 7.1 AC #3)", () => {
+    it("replaces {{ice_breaker}} with styled placeholder", () => {
       const bodyWithVariable = "Olá João! {{ice_breaker}} Gostaria de apresentar nosso produto.";
 
       render(
         <PreviewEmailStep stepNumber={1} subject="Assunto" body={bodyWithVariable} />
       );
 
-      // Should show placeholder text instead of {{ice_breaker}}
-      expect(screen.getByTestId("icebreaker-placeholder")).toBeInTheDocument();
+      expect(screen.getByTestId("variable-placeholder-ice_breaker")).toBeInTheDocument();
       expect(
         screen.getByText("[Ice Breaker personalizado será gerado para cada lead]")
       ).toBeInTheDocument();
-
-      // Should NOT show the raw variable
       expect(screen.queryByText("{{ice_breaker}}")).not.toBeInTheDocument();
     });
 
-    it("renders placeholder with italic styling", () => {
-      const bodyWithVariable = "Texto {{ice_breaker}} mais texto";
+    it("replaces {{first_name}} with styled placeholder", () => {
+      const body = "Olá {{first_name}}, tudo bem?";
 
       render(
-        <PreviewEmailStep stepNumber={1} subject="Assunto" body={bodyWithVariable} />
+        <PreviewEmailStep stepNumber={1} subject="Assunto" body={body} />
       );
 
-      const placeholder = screen.getByTestId("icebreaker-placeholder");
+      expect(screen.getByTestId("variable-placeholder-first_name")).toBeInTheDocument();
+      expect(
+        screen.getByText("[Nome personalizado para cada lead]")
+      ).toBeInTheDocument();
+    });
+
+    it("replaces {{company_name}} with styled placeholder", () => {
+      const body = "A {{company_name}} está crescendo.";
+
+      render(
+        <PreviewEmailStep stepNumber={1} subject="Assunto" body={body} />
+      );
+
+      expect(screen.getByTestId("variable-placeholder-company_name")).toBeInTheDocument();
+      expect(
+        screen.getByText("[Empresa personalizada para cada lead]")
+      ).toBeInTheDocument();
+    });
+
+    it("replaces {{title}} with styled placeholder", () => {
+      const body = "Como {{title}}, você deve saber...";
+
+      render(
+        <PreviewEmailStep stepNumber={1} subject="Assunto" body={body} />
+      );
+
+      expect(screen.getByTestId("variable-placeholder-title")).toBeInTheDocument();
+      expect(
+        screen.getByText("[Cargo personalizado para cada lead]")
+      ).toBeInTheDocument();
+    });
+
+    it("renders multiple variables as placeholders in same text", () => {
+      const body = "Olá {{first_name}}! {{ice_breaker}} Na {{company_name}}...";
+
+      render(
+        <PreviewEmailStep stepNumber={1} subject="Assunto" body={body} />
+      );
+
+      expect(screen.getByTestId("variable-placeholder-first_name")).toBeInTheDocument();
+      expect(screen.getByTestId("variable-placeholder-ice_breaker")).toBeInTheDocument();
+      expect(screen.getByTestId("variable-placeholder-company_name")).toBeInTheDocument();
+    });
+
+    it("renders variable placeholders with italic styling", () => {
+      const body = "Texto {{ice_breaker}} mais texto";
+
+      render(
+        <PreviewEmailStep stepNumber={1} subject="Assunto" body={body} />
+      );
+
+      const placeholder = screen.getByTestId("variable-placeholder-ice_breaker");
       expect(placeholder).toHaveClass("italic");
     });
 
-    it("renders normal body when no {{ice_breaker}} variable present", () => {
+    it("renders normal body when no variables present", () => {
       render(<PreviewEmailStep {...defaultProps} />);
-
-      // Should render body normally
       expect(screen.getByText("Test body content")).toBeInTheDocument();
-      expect(screen.queryByTestId("icebreaker-placeholder")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("variable-placeholder-ice_breaker")).not.toBeInTheDocument();
     });
 
-    it("preserves surrounding text around {{ice_breaker}} placeholder", () => {
-      const bodyWithVariable = "Olá! {{ice_breaker}} Vamos conversar?";
+    it("preserves surrounding text around variable placeholders", () => {
+      const body = "Olá! {{ice_breaker}} Vamos conversar?";
 
       render(
-        <PreviewEmailStep stepNumber={1} subject="Assunto" body={bodyWithVariable} />
+        <PreviewEmailStep stepNumber={1} subject="Assunto" body={body} />
       );
 
-      // Surrounding text should still be present
       expect(screen.getByText(/Olá!/)).toBeInTheDocument();
       expect(screen.getByText(/Vamos conversar\?/)).toBeInTheDocument();
+    });
+
+    it("renders variable placeholders in subject too", () => {
+      render(
+        <PreviewEmailStep
+          stepNumber={1}
+          subject="Olá {{first_name}}, sobre {{company_name}}"
+          body="corpo"
+        />
+      );
+
+      const placeholders = screen.getAllByTestId(/variable-placeholder/);
+      expect(placeholders.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("keeps unknown variables as-is (not in registry)", () => {
+      const body = "Texto {{unknown_var}} aqui";
+
+      render(
+        <PreviewEmailStep stepNumber={1} subject="Assunto" body={body} />
+      );
+
+      expect(screen.getByText(/\{\{unknown_var\}\}/)).toBeInTheDocument();
+    });
+  });
+
+  // ==============================================
+  // Story 7.1: PreviewLead Resolution
+  // ==============================================
+
+  describe("PreviewLead Resolution (Story 7.1 AC #3, #4)", () => {
+    const mockLead = {
+      firstName: "Maria",
+      companyName: "Tech Corp",
+      title: "CTO",
+      icebreaker: "Vi seu post sobre IA generativa.",
+    };
+
+    it("resolves variables when previewLead is provided", () => {
+      render(
+        <PreviewEmailStep
+          stepNumber={1}
+          subject="Olá {{first_name}}"
+          body="Prezada {{first_name}}, como {{title}} da {{company_name}}... {{ice_breaker}}"
+          previewLead={mockLead}
+        />
+      );
+
+      // Maria appears in both subject and body
+      const mariaMatches = screen.getAllByText(/Maria/);
+      expect(mariaMatches.length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText(/Tech Corp/)).toBeInTheDocument();
+      expect(screen.getByText(/CTO/)).toBeInTheDocument();
+      expect(screen.getByText(/Vi seu post sobre IA generativa/)).toBeInTheDocument();
+      // Should NOT show placeholders when lead data resolves all variables
+      expect(screen.queryByTestId("variable-placeholder-first_name")).not.toBeInTheDocument();
+    });
+
+    it("shows placeholders for unresolved variables even with previewLead", () => {
+      const partialLead = {
+        firstName: "Carlos",
+        companyName: null,
+        title: null,
+        icebreaker: null,
+      };
+
+      render(
+        <PreviewEmailStep
+          stepNumber={1}
+          subject="Assunto"
+          body="Olá {{first_name}}, na {{company_name}}... {{ice_breaker}}"
+          previewLead={partialLead}
+        />
+      );
+
+      // first_name resolved
+      expect(screen.getByText(/Carlos/)).toBeInTheDocument();
+      // company_name and ice_breaker not resolved → show placeholders
+      expect(screen.getByTestId("variable-placeholder-company_name")).toBeInTheDocument();
+      expect(screen.getByTestId("variable-placeholder-ice_breaker")).toBeInTheDocument();
+    });
+
+    it("shows all placeholders when previewLead is null", () => {
+      render(
+        <PreviewEmailStep
+          stepNumber={1}
+          subject="Assunto"
+          body="{{first_name}} da {{company_name}}"
+          previewLead={null}
+        />
+      );
+
+      expect(screen.getByTestId("variable-placeholder-first_name")).toBeInTheDocument();
+      expect(screen.getByTestId("variable-placeholder-company_name")).toBeInTheDocument();
+    });
+
+    it("renders body without variables unchanged even with previewLead", () => {
+      render(
+        <PreviewEmailStep
+          stepNumber={1}
+          subject="Assunto normal"
+          body="Corpo sem variáveis"
+          previewLead={mockLead}
+        />
+      );
+
+      expect(screen.getByText("Corpo sem variáveis")).toBeInTheDocument();
     });
   });
 });

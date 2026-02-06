@@ -267,6 +267,49 @@ describe("useAIFullCampaignGeneration", () => {
     });
   });
 
+  describe("Template Mode - Personalization Variables (Story 7.1)", () => {
+    it("never passes lead variables (always template mode)", async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { text: "Generated" } }),
+      });
+
+      global.fetch = mockFetch;
+
+      const { result } = renderHook(() => useAIFullCampaignGeneration());
+
+      await act(async () => {
+        await result.current.generate(defaultParams);
+      });
+
+      // Should NOT have lead variables — prompts trigger MODO TEMPLATE
+      const firstCallBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(firstCallBody.variables.lead_name).toBeUndefined();
+      expect(firstCallBody.variables.lead_company).toBeUndefined();
+      expect(firstCallBody.variables.lead_title).toBeUndefined();
+      expect(firstCallBody.variables.icebreaker).toBeUndefined();
+    });
+
+    it("always passes tone_style and email_objective", async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { text: "Generated" } }),
+      });
+
+      global.fetch = mockFetch;
+
+      const { result } = renderHook(() => useAIFullCampaignGeneration());
+
+      await act(async () => {
+        await result.current.generate(defaultParams);
+      });
+
+      const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(callBody.variables.tone_style).toBe("formal");
+      expect(callBody.variables.email_objective).toBeDefined();
+    });
+  });
+
   describe("Error Handling (AC #6)", () => {
     it("returns partial results on API error", async () => {
       const mockFetch = vi.fn()

@@ -63,6 +63,16 @@ PERFIL DO LEAD:
 - Empresa: {{lead_company}}
 - Setor: {{lead_industry}}
 
+{{#if lead_name}}
+PERSONALIZAÇÃO: Use os dados reais do lead acima no assunto.
+{{else}}
+MODO TEMPLATE — VARIÁVEIS DE PERSONALIZAÇÃO:
+Nenhum lead específico selecionado. Use variáveis de personalização no assunto:
+- No lugar do nome: use EXATAMENTE "{{first_name}}" (com chaves duplas)
+- No lugar da empresa: use EXATAMENTE "{{company_name}}" (com chaves duplas)
+Exemplo: "{{first_name}}, uma ideia para {{company_name}}"
+{{/if}}
+
 ICP (Perfil de Cliente Ideal):
 {{icp_summary}}
 
@@ -154,6 +164,19 @@ PERFIL DO LEAD:
 - Empresa: {{lead_company}}
 - Setor: {{lead_industry}}
 - Localização: {{lead_location}}
+
+{{#if lead_name}}
+PERSONALIZAÇÃO: Use os dados reais do lead acima nos locais apropriados do email.
+{{else}}
+MODO TEMPLATE — VARIÁVEIS DE PERSONALIZAÇÃO:
+Nenhum lead específico selecionado. Use variáveis de personalização no email gerado:
+- No lugar do nome do lead: use EXATAMENTE "{{first_name}}" (com chaves duplas)
+- No lugar da empresa do lead: use EXATAMENTE "{{company_name}}" (com chaves duplas)
+- No lugar do cargo do lead: use EXATAMENTE "{{title}}" (com chaves duplas)
+Estas variáveis serão substituídas pelos dados reais de cada lead no envio.
+Trate-as como texto fixo — NÃO modifique, NÃO expanda, NÃO remova as chaves.
+Exemplo de saudação: "Olá {{first_name}}" em vez de "Olá João"
+{{/if}}
 
 ICP (Perfil de Cliente Ideal):
 {{icp_summary}}
@@ -505,6 +528,17 @@ PERFIL DO LEAD:
 - Empresa: {{lead_company}}
 - Setor: {{lead_industry}}
 
+{{#if lead_name}}
+PERSONALIZAÇÃO: Use os dados reais do lead acima no follow-up.
+{{else}}
+MODO TEMPLATE — VARIÁVEIS DE PERSONALIZAÇÃO:
+Nenhum lead específico selecionado. Use variáveis de personalização no follow-up:
+- No lugar do nome: use EXATAMENTE "{{first_name}}" (com chaves duplas)
+- No lugar da empresa: use EXATAMENTE "{{company_name}}" (com chaves duplas)
+- No lugar do cargo: use EXATAMENTE "{{title}}" (com chaves duplas)
+Trate-as como texto fixo — NÃO modifique, NÃO remova as chaves.
+{{/if}}
+
 TOM DE VOZ:
 {{tone_description}}
 Estilo: {{tone_style}}
@@ -645,6 +679,16 @@ PERFIL DO LEAD:
 - Cargo: {{lead_title}}
 - Empresa: {{lead_company}}
 - Setor: {{lead_industry}}
+
+{{#if lead_name}}
+PERSONALIZAÇÃO: Use os dados reais do lead acima no assunto.
+{{else}}
+MODO TEMPLATE — VARIÁVEIS DE PERSONALIZAÇÃO:
+Nenhum lead específico selecionado. Use variáveis de personalização no assunto:
+- No lugar do nome: use EXATAMENTE "{{first_name}}" (com chaves duplas)
+- No lugar da empresa: use EXATAMENTE "{{company_name}}" (com chaves duplas)
+Exemplo: "{{first_name}}, viu meu email?"
+{{/if}}
 
 TOM DE VOZ:
 {{tone_description}}

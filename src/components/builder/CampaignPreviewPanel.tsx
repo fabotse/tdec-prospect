@@ -63,6 +63,7 @@ export function CampaignPreviewPanel({
   leadCount = 0,
 }: CampaignPreviewPanelProps) {
   const blocks = useBuilderStore((state) => state.blocks);
+  const previewLead = useBuilderStore((state) => state.previewLead);
   const [currentEmailIndex, setCurrentEmailIndex] = useState(0);
 
   // Filter only email blocks for navigation
@@ -200,6 +201,8 @@ export function CampaignPreviewPanel({
                         // Story 6.5.7: Pass icebreaker props for premium badge
                         hasPremiumIcebreaker={data.icebreakerSource === "premium"}
                         icebreakerPosts={data.icebreakerPosts}
+                        // Story 7.1: Pass previewLead for variable resolution
+                        previewLead={previewLead}
                       />
                     );
                   }
