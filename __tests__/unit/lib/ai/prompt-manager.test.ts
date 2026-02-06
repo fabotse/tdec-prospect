@@ -48,13 +48,10 @@ vi.mock("@/lib/supabase/server", () => {
 // Updated for Story 6.5.3: Icebreaker premium generation
 vi.mock("@/lib/ai/prompts/defaults", () => ({
   CODE_DEFAULT_PROMPTS: {
-    // Story 6.5.3: Icebreaker premium generation (LinkedIn posts-based)
-    // NOTE: Uses camelCase variables (different from other prompts that use snake_case)
-    // Full template includes: firstName, lastName, title, companyName, industry,
-    // linkedinPosts, companyContext, toneStyle, toneDescription, productName, productDescription
+    // Story 6.5.3, updated Story 9.6: Icebreaker premium generation (unified snake_case)
     icebreaker_premium_generation: {
       template:
-        "Icebreaker premium for {{firstName}} {{lastName}} ({{title}}) at {{companyName}} in {{industry}}. Context: {{companyContext}}. Posts: {{linkedinPosts}}. Tom: {{toneStyle}} - {{toneDescription}}.{{#if productName}} Product: {{productName}} - {{productDescription}}{{/if}}",
+        "Icebreaker premium for {{lead_name}} ({{lead_title}}) at {{lead_company}} in {{lead_industry}}. Context: {{company_context}}. Posts: {{linkedin_posts}}. Tom: {{tone_style}} - {{tone_description}}.{{#if product_name}} Product: {{product_name}} - {{product_description}}{{/if}}",
       modelPreference: "gpt-4o-mini",
       metadata: { temperature: 0.8, maxTokens: 200 },
     },
@@ -915,7 +912,7 @@ describe("PromptManager", () => {
         expect(result.source).toBe("default");
         expect(result.prompt).not.toBeNull();
         expect(result.prompt?.promptTemplate).toContain("Icebreaker premium for");
-        expect(result.prompt?.promptTemplate).toContain("{{linkedinPosts}}");
+        expect(result.prompt?.promptTemplate).toContain("{{linkedin_posts}}");
       });
 
       it("returns correct metadata for icebreaker_premium_generation", async () => {
@@ -932,8 +929,8 @@ describe("PromptManager", () => {
       });
     });
 
-    describe("linkedinPosts variable interpolation (Task 4.2, AC #3)", () => {
-      it("interpolates {{linkedinPosts}} variable with formatted posts", async () => {
+    describe("linkedin_posts variable interpolation (Task 4.2, AC #3)", () => {
+      it("interpolates {{linkedin_posts}} variable with formatted posts", async () => {
         const formattedPosts = `POST 1 (12 Jan 2026, 42 curtidas):
 "Texto sobre liderança e gestão de equipes..."
 
@@ -943,11 +940,10 @@ POST 2 (5 Jan 2026, 18 curtidas):
         const result = await promptManager.renderPrompt(
           "icebreaker_premium_generation",
           {
-            firstName: "João",
-            lastName: "Silva",
-            companyName: "TechCorp",
-            linkedinPosts: formattedPosts,
-            toneStyle: "casual",
+            lead_name: "João Silva",
+            lead_company: "TechCorp",
+            linkedin_posts: formattedPosts,
+            tone_style: "casual",
           },
           { tenantId: "tenant-456" }
         );
@@ -962,15 +958,14 @@ POST 2 (5 Jan 2026, 18 curtidas):
         const result = await promptManager.renderPrompt(
           "icebreaker_premium_generation",
           {
-            firstName: "Maria",
-            lastName: "Santos",
-            title: "CTO",
-            companyName: "StartupXYZ",
-            industry: "Technology",
-            companyContext: "Software company",
-            linkedinPosts: "Post content here",
-            toneStyle: "formal",
-            toneDescription: "Professional tone",
+            lead_name: "Maria Santos",
+            lead_title: "CTO",
+            lead_company: "StartupXYZ",
+            lead_industry: "Technology",
+            company_context: "Software company",
+            linkedin_posts: "Post content here",
+            tone_style: "formal",
+            tone_description: "Professional tone",
           },
           { tenantId: "tenant-456" }
         );
@@ -981,18 +976,17 @@ POST 2 (5 Jan 2026, 18 curtidas):
       });
     });
 
-    describe("conditional productName blocks (Task 4.3, AC #3)", () => {
-      it("includes product context when productName is provided", async () => {
+    describe("conditional product_name blocks (Task 4.3, AC #3)", () => {
+      it("includes product context when product_name is provided", async () => {
         const result = await promptManager.renderPrompt(
           "icebreaker_premium_generation",
           {
-            firstName: "Carlos",
-            lastName: "Oliveira",
-            companyName: "BigCorp",
-            linkedinPosts: "Recent posts",
-            toneStyle: "technical",
-            productName: "Analytics Pro",
-            productDescription: "Data analytics platform",
+            lead_name: "Carlos Oliveira",
+            lead_company: "BigCorp",
+            linkedin_posts: "Recent posts",
+            tone_style: "technical",
+            product_name: "Analytics Pro",
+            product_description: "Data analytics platform",
           },
           { tenantId: "tenant-456" }
         );
@@ -1000,15 +994,14 @@ POST 2 (5 Jan 2026, 18 curtidas):
         expect(result?.content).toContain("Product: Analytics Pro - Data analytics platform");
       });
 
-      it("excludes product context when productName is missing", async () => {
+      it("excludes product context when product_name is missing", async () => {
         const result = await promptManager.renderPrompt(
           "icebreaker_premium_generation",
           {
-            firstName: "Ana",
-            lastName: "Costa",
-            companyName: "MidCorp",
-            linkedinPosts: "Post data",
-            toneStyle: "casual",
+            lead_name: "Ana Costa",
+            lead_company: "MidCorp",
+            linkedin_posts: "Post data",
+            tone_style: "casual",
           },
           { tenantId: "tenant-456" }
         );
@@ -1018,17 +1011,16 @@ POST 2 (5 Jan 2026, 18 curtidas):
         expect(result?.content).not.toContain("{{/if}}");
       });
 
-      it("excludes product context when productName is empty string", async () => {
+      it("excludes product context when product_name is empty string", async () => {
         const result = await promptManager.renderPrompt(
           "icebreaker_premium_generation",
           {
-            firstName: "Pedro",
-            lastName: "Mendes",
-            companyName: "SmallCo",
-            linkedinPosts: "LinkedIn content",
-            toneStyle: "formal",
-            productName: "",
-            productDescription: "Should not appear",
+            lead_name: "Pedro Mendes",
+            lead_company: "SmallCo",
+            linkedin_posts: "LinkedIn content",
+            tone_style: "formal",
+            product_name: "",
+            product_description: "Should not appear",
           },
           { tenantId: "tenant-456" }
         );
@@ -1043,17 +1035,16 @@ POST 2 (5 Jan 2026, 18 curtidas):
         const result = await promptManager.renderPrompt(
           "icebreaker_premium_generation",
           {
-            firstName: "Ricardo",
-            lastName: "Ferreira",
-            title: "VP Sales",
-            companyName: "InnovateTech",
-            industry: "SaaS",
-            companyContext: "AI solutions provider",
-            linkedinPosts: "Post about AI trends",
-            toneStyle: "technical",
-            toneDescription: "Data-driven approach",
-            productName: "AI Suite",
-            productDescription: "ML automation tools",
+            lead_name: "Ricardo Ferreira",
+            lead_title: "VP Sales",
+            lead_company: "InnovateTech",
+            lead_industry: "SaaS",
+            company_context: "AI solutions provider",
+            linkedin_posts: "Post about AI trends",
+            tone_style: "technical",
+            tone_description: "Data-driven approach",
+            product_name: "AI Suite",
+            product_description: "ML automation tools",
           },
           { tenantId: "tenant-456" }
         );
@@ -1068,57 +1059,54 @@ POST 2 (5 Jan 2026, 18 curtidas):
       });
     });
 
-    describe("linkedinPosts edge cases (Code Review Fix M2)", () => {
-      it("preserves {{linkedinPosts}} placeholder when undefined", async () => {
+    describe("linkedin_posts edge cases (Code Review Fix M2)", () => {
+      it("preserves {{linkedin_posts}} placeholder when undefined", async () => {
         const result = await promptManager.renderPrompt(
           "icebreaker_premium_generation",
           {
-            firstName: "Ana",
-            lastName: "Lima",
-            companyName: "TechCo",
-            toneStyle: "casual",
+            lead_name: "Ana Lima",
+            lead_company: "TechCo",
+            tone_style: "casual",
           },
           { tenantId: "tenant-456" }
         );
 
-        // When linkedinPosts is not provided, the placeholder remains
-        expect(result?.content).toContain("{{linkedinPosts}}");
+        // When linkedin_posts is not provided, the placeholder remains
+        expect(result?.content).toContain("{{linkedin_posts}}");
       });
 
-      it("renders empty string when linkedinPosts is empty", async () => {
+      it("renders empty string when linkedin_posts is empty", async () => {
         const result = await promptManager.renderPrompt(
           "icebreaker_premium_generation",
           {
-            firstName: "Bruno",
-            lastName: "Santos",
-            companyName: "StartupXYZ",
-            linkedinPosts: "",
-            toneStyle: "formal",
+            lead_name: "Bruno Santos",
+            lead_company: "StartupXYZ",
+            linkedin_posts: "",
+            tone_style: "formal",
           },
           { tenantId: "tenant-456" }
         );
 
         // Empty string is interpolated as empty
         expect(result?.content).toContain("Posts: .");
-        expect(result?.content).not.toContain("{{linkedinPosts}}");
+        expect(result?.content).not.toContain("{{linkedin_posts}}");
       });
 
-      it("handles whitespace-only linkedinPosts", async () => {
+      it("handles whitespace-only linkedin_posts", async () => {
         const result = await promptManager.renderPrompt(
           "icebreaker_premium_generation",
           {
-            firstName: "Carla",
-            lastName: "Mendes",
-            companyName: "BigCorp",
-            linkedinPosts: "   \n  ",
-            toneStyle: "technical",
+            lead_name: "Carla Mendes",
+            lead_company: "BigCorp",
+            linkedin_posts: "   \n  ",
+            tone_style: "technical",
           },
           { tenantId: "tenant-456" }
         );
 
         // Whitespace is preserved in interpolation
         expect(result?.content).toContain("Posts:");
-        expect(result?.content).not.toContain("{{linkedinPosts}}");
+        expect(result?.content).not.toContain("{{linkedin_posts}}");
       });
     });
   });

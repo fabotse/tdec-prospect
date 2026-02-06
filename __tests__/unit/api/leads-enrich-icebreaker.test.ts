@@ -198,7 +198,7 @@ describe("POST /api/leads/enrich-icebreaker", () => {
     });
 
     mockRenderPrompt.mockResolvedValue({
-      content: "Generate icebreaker for {{firstName}}",
+      content: "Generate icebreaker for {{lead_name}}",
       modelPreference: "gpt-4o-mini",
       metadata: { temperature: 0.7, maxTokens: 200 },
       source: "default",
@@ -412,10 +412,9 @@ describe("POST /api/leads/enrich-icebreaker", () => {
       expect(mockRenderPrompt).toHaveBeenCalledWith(
         "icebreaker_premium_generation",
         expect.objectContaining({
-          firstName: mockLead.first_name,
-          lastName: mockLead.last_name,
-          title: mockLead.title,
-          companyName: mockLead.company_name,
+          lead_name: `${mockLead.first_name} ${mockLead.last_name}`,
+          lead_title: mockLead.title,
+          lead_company: mockLead.company_name,
         }),
         { tenantId }
       );
@@ -869,7 +868,7 @@ describe("POST /api/leads/enrich-icebreaker", () => {
       expect(mockRenderPrompt).toHaveBeenCalledWith(
         "icebreaker_premium_generation",
         expect.objectContaining({
-          firstName: mockLead.first_name,
+          lead_name: expect.stringContaining(mockLead.first_name),
         }),
         { tenantId }
       );

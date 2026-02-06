@@ -271,46 +271,63 @@ Responda APENAS com o corpo do email, sem explicações.`,
     },
   },
 
-  // Icebreaker premium generation (Story 6.5.3 - LinkedIn posts-based personalization)
-  // NOTE: This prompt uses camelCase variables (firstName, companyName, toneStyle)
-  // instead of snake_case (lead_name, lead_company, tone_style) used by other prompts.
-  // This is intentional as Story 6.5.5 (Premium Icebreaker API) will prepare
-  // variables directly from LinkedIn data with different mapping than KB context.
-  // See Dev Notes in 6-5-3-icebreaker-prompt-configuration.md for variable specs.
+  // Icebreaker premium generation (Story 6.5.3, updated Story 9.6 - unified snake_case variables)
   icebreaker_premium_generation: {
     template: `Você é um especialista em personalização de emails de prospecção B2B.
 
 Gere um quebra-gelo ALTAMENTE PERSONALIZADO baseado nos posts reais do LinkedIn do lead.
 
 CONTEXTO DA EMPRESA REMETENTE:
-{{companyContext}}
+{{company_context}}
 
-{{#if productName}}
+{{#if product_name}}
 PRODUTO EM FOCO (conecte o lead com este produto):
-- Nome: {{productName}}
-- Descrição: {{productDescription}}
+- Nome: {{product_name}}
+- Descrição: {{product_description}}
 
-IMPORTANTE: Se possível, conecte o interesse demonstrado nos posts com uma necessidade que o produto "{{productName}}" resolve.
+IMPORTANTE: Se possível, conecte o interesse demonstrado nos posts com uma necessidade que o produto "{{product_name}}" resolve.
 {{/if}}
 
 PERFIL DO LEAD:
-- Nome: {{firstName}} {{lastName}}
-- Cargo: {{title}}
-- Empresa: {{companyName}}
-- Setor: {{industry}}
+- Nome: {{lead_name}}
+- Cargo: {{lead_title}}
+- Empresa: {{lead_company}}
+- Setor: {{lead_industry}}
 
 TOM DE VOZ:
-{{toneDescription}}
-Estilo: {{toneStyle}}
+{{tone_description}}
+Estilo: {{tone_style}}
+
+GUIA DE TOM — SIGA O ESTILO "{{tone_style}}":
+
+[CASUAL]
+- Linguagem amigável e próxima
+- Tom como se já conhecesse a pessoa
+- Vocabulário: "bem interessante", "super relevante", "chamou atenção", "muito legal"
+
+[FORMAL]
+- Linguagem corporativa e respeitosa
+- Mantenha distância profissional
+- Vocabulário: "é notável que", "chama atenção que", "com interesse", "merece destaque"
+
+[TÉCNICO]
+- Linguagem precisa e baseada em fatos
+- Use terminologia técnica de {{lead_industry}}
+- Vocabulário: "analisando", "os indicadores mostram", "a tendência de", "do ponto de vista técnico"
 
 POSTS RECENTES DO LINKEDIN DO LEAD (DADOS REAIS - USE-OS):
-{{linkedinPosts}}
+{{linkedin_posts}}
 
 ANÁLISE OBRIGATÓRIA DOS POSTS:
 1. Identifique TEMAS DE INTERESSE que o lead demonstra nos posts
 2. Observe OPINIÕES ou POSICIONAMENTOS que ele expressa
 3. Note CONQUISTAS, PROJETOS ou RESULTADOS mencionados
 4. Preste atenção em TENDÊNCIAS ou TECNOLOGIAS que ele comenta
+
+EXEMPLOS DE BONS QUEBRA-GELOS BASEADOS EM POSTS:
+- "Li seu post sobre a importância de dados em tempo real para decisões de negócio. Na TDEC, ajudamos empresas a transformar dados brutos em insights acionáveis - algo que parece alinhar bem com sua visão."
+- "Curti sua análise sobre os desafios de escalar equipes de vendas. É exatamente o tipo de problema que nosso produto resolve com automação inteligente."
+- "Seu post sobre IA aplicada a vendas B2B me chamou atenção. A abordagem que você descreve é muito próxima do que implementamos aqui."
 
 REGRAS OBRIGATÓRIAS:
 1. Máximo 2 frases (50 palavras)
@@ -328,16 +345,11 @@ REGRAS OBRIGATÓRIAS:
 4. USE referências ESPECÍFICAS aos dados reais dos posts:
    - "Li seu post sobre [TEMA ESPECÍFICO DO POST]. A forma como você abordou [INSIGHT CONCRETO]..."
    - "Curti sua perspectiva sobre [TEMA DO POST]. Na [empresa], temos visto..."
-   - "Seu post sobre [TEMA] trouxe um ponto relevante sobre [DETALHE]. Empresas como a {{companyName}}..."
+   - "Seu post sobre [TEMA] trouxe um ponto relevante sobre [DETALHE]. Empresas como a {{lead_company}}..."
 5. Mantenha tom profissional mas casual
-6. {{#if productName}}Se fizer sentido, conecte o interesse do lead com o valor do produto "{{productName}}"{{/if}}
+6. {{#if product_name}}Se fizer sentido, conecte o interesse do lead com o valor do produto "{{product_name}}"{{/if}}
 7. NÃO faça perguntas — afirme algo relevante baseado nos posts
-8. Siga o estilo de tom "{{toneStyle}}"
-
-EXEMPLOS DE BONS QUEBRA-GELOS BASEADOS EM POSTS:
-- "Li seu post sobre a importância de dados em tempo real para decisões de negócio. Na TDEC, ajudamos empresas a transformar dados brutos em insights acionáveis - algo que parece alinhar bem com sua visão."
-- "Curti sua análise sobre os desafios de escalar equipes de vendas. É exatamente o tipo de problema que nosso produto resolve com automação inteligente."
-- "Seu post sobre IA aplicada a vendas B2B me chamou atenção. A abordagem que você descreve é muito próxima do que implementamos aqui."
+8. Siga o estilo de tom "{{tone_style}}"
 
 Responda APENAS com o quebra-gelo, sem explicações.`,
     modelPreference: "gpt-4o-mini",
@@ -497,6 +509,26 @@ TOM DE VOZ:
 {{tone_description}}
 Estilo: {{tone_style}}
 
+GUIA DE TOM — SIGA O ESTILO "{{tone_style}}":
+
+[CASUAL]
+- Linguagem amigável e próxima
+- Saudação: "Olá" ou "Oi" (nunca "Prezado")
+- Vocabulário: "bater um papo", "dá uma olhada", "rápido"
+- Fechamento: "Abs", "Abraço", "Valeu"
+
+[FORMAL]
+- Linguagem corporativa e respeitosa
+- Saudação: "Prezado(a)" ou "Caro(a)"
+- Evite gírias e expressões coloquiais
+- Fechamento: "Atenciosamente", "Cordialmente"
+
+[TÉCNICO]
+- Terminologia técnica do setor {{lead_industry}}
+- Preciso e objetivo, sem simplificações
+- Mencione métricas e resultados quando relevante
+- Fechamento: neutro e objetivo
+
 OBJETIVO DO FOLLOW-UP:
 {{email_objective}}
 
@@ -618,10 +650,22 @@ TOM DE VOZ:
 {{tone_description}}
 Estilo: {{tone_style}}
 
-{{#if successful_examples}}
-EXEMPLOS DE ASSUNTOS DE FOLLOW-UP QUE FUNCIONARAM:
-{{successful_examples}}
-{{/if}}
+GUIA DE TOM — SIGA O ESTILO "{{tone_style}}":
+
+[CASUAL]
+- Assuntos curtos e conversacionais
+- Use o primeiro nome: "{{lead_name}}, viu meu email?"
+- Vocabulário: "rápido", "bate-papo", "dá uma olhada"
+
+[FORMAL]
+- Assuntos profissionais e respeitosos
+- Use "RE:" para manter formalidade: "RE: Proposta para {{lead_company}}"
+- Evite gírias e abreviações
+
+[TÉCNICO]
+- Assuntos objetivos com terminologia do setor {{lead_industry}}
+- Foque em dados e resultados: "ROI para {{lead_company}}"
+- Seja preciso e direto
 
 ESTRATÉGIAS DE ASSUNTO PARA FOLLOW-UP:
 
@@ -643,6 +687,11 @@ Sem RE:, mais pessoal
 - "Rápida pergunta, {{lead_name}}"
 - "Bate-papo de 10 min?"
 Quando usar: Follow-ups finais ou tom mais casual
+
+{{#if successful_examples}}
+EXEMPLOS DE ASSUNTOS DE FOLLOW-UP QUE FUNCIONARAM:
+{{successful_examples}}
+{{/if}}
 
 REGRAS CRÍTICAS:
 1. Máximo 50 caracteres

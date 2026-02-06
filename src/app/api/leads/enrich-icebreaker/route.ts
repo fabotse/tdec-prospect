@@ -296,24 +296,23 @@ function buildIcebreakerVariables(
   kbContext: IcebreakerKBContext
 ): Record<string, string> {
   return {
-    // Lead context (camelCase as per prompt in 6.5.3)
-    firstName: lead.first_name,
-    lastName: lead.last_name || "",
-    title: lead.title || "",
-    companyName: lead.company_name || "",
-    industry: lead.industry || "",
+    // Lead context (snake_case — unified in Story 9.6)
+    lead_name: `${lead.first_name} ${lead.last_name || ""}`.trim(),
+    lead_title: lead.title || "",
+    lead_company: lead.company_name || "",
+    lead_industry: lead.industry || "",
 
     // LinkedIn posts (formatted for prompt)
-    linkedinPosts: formatLinkedInPostsForPrompt(posts),
+    linkedin_posts: formatLinkedInPostsForPrompt(posts),
 
     // Company context from KB (with graceful degradation)
-    companyContext: compileCompanyContext(kbContext.company),
-    toneDescription: compileToneDescription(kbContext.tone),
-    toneStyle: kbContext.tone?.preset || DEFAULT_TONE_STYLE,
+    company_context: compileCompanyContext(kbContext.company),
+    tone_description: compileToneDescription(kbContext.tone),
+    tone_style: kbContext.tone?.preset || DEFAULT_TONE_STYLE,
 
     // Product context (optional, empty by default)
-    productName: "",
-    productDescription: "",
+    product_name: "",
+    product_description: "",
   };
 }
 
@@ -521,7 +520,7 @@ async function processPostCategory(
     metadata: { linkedinProfileUrl: lead.linkedin_url, postLimit: 3, deepScrape: true },
   }).catch(() => {});
 
-  // Build premium variables (camelCase) and use icebreaker_premium_generation
+  // Build premium variables (snake_case) and use icebreaker_premium_generation
   const variables = buildIcebreakerVariables(lead, postsResult.posts, kbContext);
   const promptKey: PromptKey = "icebreaker_premium_generation";
   const renderedPrompt = await promptManager.renderPrompt(promptKey, variables, { tenantId });
