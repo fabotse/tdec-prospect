@@ -193,8 +193,8 @@ This document provides the complete epic and story breakdown for tdec-prospect, 
 | FR45 | Epic 2 | ICP |
 | FR46 | Epic 1 | Interface visual Attio |
 | FR47 | Epic 1 | Navegação principal |
-| FR48 | Epic 7 | Loading states |
-| FR49 | Epic 7 | Notificações |
+| FR48 | Cross-cutting | Loading states (implementado ao longo dos epics) |
+| FR49 | Cross-cutting | Notificações (implementado ao longo dos epics) |
 
 ## Epic List
 
@@ -326,17 +326,19 @@ Transformação visual do sistema de um tema dark com tons azulados para um tema
 
 ---
 
-### Epic 7: Campaign Deployment
-Usuários podem exportar campanhas com um clique para ferramentas de execução, com feedback claro de sucesso ou erro.
+### Epic 7: Campaign Deployment & Export
+Usuários podem exportar campanhas personalizadas para plataformas de cold email (Instantly, Snov.io) e via CSV/clipboard, com sistema completo de variáveis de personalização mapeadas para as tags de cada plataforma.
 
-**FRs cobertos:** FR29, FR30, FR31, FR32, FR33, FR48, FR49
+**FRs cobertos:** FR29, FR30, FR31, FR32, FR33
 
 **Entregáveis:**
-- Export para Snov.io via API
-- Export para Instantly via API
-- Cópia manual para clipboard (Ramper)
-- Mensagens de erro traduzidas
-- Fallback manual quando integração falha
+- Sistema de variáveis de personalização (`{{first_name}}`, `{{company_name}}`, `{{title}}`, `{{ice_breaker}}`) com motor de substituição
+- Mapeamento de variáveis internas → tags de cada plataforma
+- Export para Instantly via API (campanha + leads + sequência com tags)
+- Export para Snov.io via API (drip campaign + recipients)
+- Exportação CSV com variáveis ou resolvido por lead
+- Copy formatado para clipboard (import manual em qualquer ferramenta)
+- Validação pré-export e mensagens de erro em português com fallback manual
 - Loading states elegantes
 - Sistema de notificações toast
 
@@ -1969,197 +1971,307 @@ So that I can monitor enrichment spending.
 
 ---
 
-## Epic 7: Campaign Deployment
+## Epic 7: Campaign Deployment & Export
 
-Usuários podem exportar campanhas com um clique para ferramentas de execução, com feedback claro de sucesso ou erro.
+Usuários podem exportar campanhas personalizadas para plataformas de cold email (Instantly, Snov.io) e via CSV/clipboard, com sistema completo de variáveis de personalização mapeadas para as tags de cada plataforma.
 
-### Story 7.1: Snov.io Integration Service
+### Story 7.1: Sistema de Variáveis de Personalização para Exportação
 
-As a developer,
-I want a service layer for Snov.io API,
-So that campaign exports are executed reliably.
+**Como** sistema,
+**Quero** que os emails de campanha usem variáveis de personalização em vez de texto hardcoded,
+**Para** que as campanhas sejam exportáveis para qualquer plataforma com substituição dinâmica por lead.
 
-**Acceptance Criteria:**
+**Critérios de Aceite:**
 
-**Given** the Snov.io API key is configured
-**When** the SnovioService is called
-**Then** it uses the tenant's encrypted API key
-**And** requests are proxied through API routes
-**And** errors are caught and translated to Portuguese
-**And** timeout is set to 10 seconds with 1 retry on failure
-**And** the service follows ExternalService base class pattern
-**And** it supports creating drip campaigns with email sequences
+1. **Given** o sistema de variáveis é definido
+   **When** as variáveis suportadas são registradas
+   **Then** o registry inclui: `{{first_name}}`, `{{company_name}}`, `{{title}}`, `{{ice_breaker}}`
+   **And** cada variável tem um campo correspondente no modelo Lead
+   **And** existe um mapeamento variável → campo do lead
 
----
+2. **Given** o usuário gera uma campanha via AI (Wizard)
+   **When** nenhum lead está selecionado para preview
+   **Then** o email gerado contém variáveis (`{{first_name}}`, `{{ice_breaker}}`, etc.) em vez de dados reais
+   **And** o prompt de AI instrui a gerar com variáveis de personalização
 
-### Story 7.2: Instantly Integration Service
+3. **Given** o usuário gera um email individual (EmailBlock) com lead selecionado
+   **When** o conteúdo é gerado
+   **Then** as variáveis são substituídas pelos dados reais do lead para preview
+   **And** o template original com variáveis é preservado separadamente
 
-As a developer,
-I want a service layer for Instantly API,
-So that campaign exports are executed reliably.
+4. **Given** o motor de substituição `resolveEmailVariables(template, lead)` é implementado
+   **When** recebe um template com variáveis e um lead
+   **Then** substitui cada `{{variável}}` pelo valor correspondente do lead
+   **And** variáveis sem valor no lead são mantidas como estão (graceful degradation)
+   **And** o preview utiliza este motor para exibir conteúdo personalizado
 
-**Acceptance Criteria:**
+5. **Given** o registry de variáveis existe
+   **When** é consultado para mapeamento de plataforma
+   **Then** retorna o formato de tag correspondente para cada plataforma:
+   - Instantly: `{{first_name}}` → `{{first_name}}` (custom variable)
+   - Snov.io: `{{first_name}}` → `{{firstName}}` (campo Snov.io)
+   - CSV: `{{first_name}}` → coluna `first_name`
 
-**Given** the Instantly API key is configured
-**When** the InstantlyService is called
-**Then** it uses the tenant's encrypted API key
-**And** requests are proxied through API routes
-**And** errors are caught and translated to Portuguese
-**And** timeout is set to 10 seconds with 1 retry on failure
-**And** the service follows ExternalService base class pattern
-**And** it supports creating campaigns with leads and sequences
+**Arquivos Afetados:**
+- `src/lib/ai/prompts/defaults.ts` — atualizar prompts para gerar com variáveis
+- `src/lib/export/variable-registry.ts` — novo: registry de variáveis e mapeamento
+- `src/lib/export/resolve-variables.ts` — novo: motor de substituição
+- `src/types/export.ts` — novo: tipos de variáveis e mapeamento
+- `src/components/builder/PreviewEmailStep.tsx` — usar motor de substituição no preview
+- `src/hooks/use-ai-full-campaign-generation.ts` — gerar com variáveis
 
----
-
-### Story 7.3: Export Dialog UI
-
-As a user,
-I want to choose where to export my campaign,
-So that I can send it to my preferred execution tool.
-
-**Acceptance Criteria:**
-
-**Given** I have a campaign ready to export
-**When** I click "Exportar"
-**Then** a dialog opens with export options:
-  - Instantly (if configured)
-  - Snov.io (if configured)
-  - Copiar para Clipboard (always available)
-**And** each option shows connection status
-**And** unconfigured integrations show "Configurar" link
-**And** I can select one destination and proceed
+**Notas Técnicas:**
+- Expandir o padrão da Story 9.4 (`{{ice_breaker}}`) para todas as variáveis de personalização
+- O template engine existente (`PromptManager.interpolateTemplate`) é para prompts de AI, não para email output — são camadas separadas
+- Manter backward compatibility: emails já gerados sem variáveis continuam funcionando
 
 ---
 
-### Story 7.4: Export to Instantly
+### Story 7.2: Instantly Integration Service - Gestão de Campanhas
 
-As a user,
-I want to export my campaign to Instantly,
-So that I can start sending emails immediately.
+**Como** desenvolvedor,
+**Quero** expandir o `InstantlyService` com métodos de gestão de campanhas,
+**Para** que o sistema possa criar campanhas e enviar leads para o Instantly via API.
 
-**Acceptance Criteria:**
+**Critérios de Aceite:**
 
-**Given** I have selected Instantly as export destination
-**When** I click "Exportar para Instantly"
-**Then** I see a loading state with progress
-**And** the campaign data (leads, sequence, emails) is sent to Instantly API
-**And** export completes in <10 seconds
-**And** success shows "✓ Campanha exportada para Instantly"
-**And** I see option "Abrir no Instantly" with link
+1. **Given** a API key do Instantly está configurada
+   **When** o `InstantlyService` é chamado
+   **Then** utiliza a API key encriptada do tenant
+   **And** requests são proxied via API routes
+   **And** erros são capturados e traduzidos para português
+   **And** timeout de 10 segundos com 1 retry
 
-**Given** the export fails
-**When** Instantly API returns an error
-**Then** I see a clear error message in Portuguese
-**And** the message explains what went wrong
-**And** I see options: "Tentar Novamente" or "Exportar Manual"
+2. **Given** o service é chamado para criar campanha
+   **When** `createCampaign(name, sequences)` é invocado
+   **Then** cria uma campanha no Instantly via API v2
+   **And** configura a sequência de emails com delays
+   **And** mapeia variáveis internas para custom variables do Instantly
+   **And** retorna o `campaignId` criado
 
----
+3. **Given** o service é chamado para adicionar leads
+   **When** `addLeadsToCampaign(campaignId, leads)` é invocado
+   **Then** envia leads em batches (máx. 100 por request)
+   **And** cada lead inclui: email, first_name, company_name, custom variables (ice_breaker, etc.)
+   **And** retorna contagem de leads adicionados com sucesso
 
-### Story 7.5: Export to Snov.io
+4. **Given** o service é chamado para obter status
+   **When** `getCampaignStatus(campaignId)` é invocado
+   **Then** retorna status atual da campanha no Instantly
 
-As a user,
-I want to export my campaign to Snov.io,
-So that I can start sending emails immediately.
-
-**Acceptance Criteria:**
-
-**Given** I have selected Snov.io as export destination
-**When** I click "Exportar para Snov.io"
-**Then** I see a loading state with progress
-**And** the campaign data is sent to Snov.io API
-**And** export completes in <10 seconds
-**And** success shows "✓ Campanha exportada para Snov.io"
-**And** I see option "Abrir no Snov.io" with link
-
-**Given** the export fails
-**When** Snov.io API returns an error
-**Then** I see a clear error message in Portuguese
-**And** the message explains what went wrong
-**And** I see options: "Tentar Novamente" or "Exportar Manual"
+**Arquivos Afetados:**
+- `src/lib/services/instantly.ts` — expandir service existente
+- `src/app/api/instantly/campaign/route.ts` — novo: API route para criar campanha
+- `src/app/api/instantly/leads/route.ts` — novo: API route para push de leads
+- `src/types/instantly.ts` — novo: tipos da API Instantly
 
 ---
 
-### Story 7.6: Manual Export (Copy to Clipboard)
+### Story 7.3: Snov.io Integration Service - Gestão de Campanhas
 
-As a user,
-I want to copy my campaign for manual export,
-So that I can use it in Ramper or other tools.
+**Como** desenvolvedor,
+**Quero** um service layer para a API de drip campaigns do Snov.io,
+**Para** que o sistema possa criar campanhas e enviar recipients para o Snov.io.
 
-**Acceptance Criteria:**
+**Critérios de Aceite:**
 
-**Given** I have selected "Copiar para Clipboard"
-**When** I click the option
-**Then** the campaign is formatted for manual import
-**And** format includes: lead emails, email subjects, email bodies, delays
-**And** the formatted data is copied to clipboard
-**And** I see "✓ Copiado para clipboard"
-**And** I can paste into Ramper or spreadsheet
+1. **Given** a API key do Snov.io está configurada
+   **When** o `SnovioService` é chamado
+   **Then** utiliza a API key encriptada do tenant
+   **And** requests são proxied via API routes
+   **And** erros são capturados e traduzidos para português
+   **And** timeout de 10 segundos com 1 retry
+   **And** segue o padrão `ExternalService` base class
 
----
+2. **Given** o service é chamado para criar drip campaign
+   **When** `createDripCampaign(name, sequences)` é invocado
+   **Then** cria uma drip campaign no Snov.io
+   **And** configura emails com delays e variáveis mapeadas
+   **And** retorna o `campaignId` criado
 
-### Story 7.7: Error Messages & Fallback
+3. **Given** o service é chamado para adicionar recipients
+   **When** `addRecipients(campaignId, leads)` é invocado
+   **Then** envia leads com seus dados personalizados
+   **And** inclui campos customizados (ice_breaker, etc.)
+   **And** retorna contagem de recipients adicionados
 
-As a user,
-I want clear error messages when exports fail,
-So that I know what to do next.
-
-**Acceptance Criteria:**
-
-**Given** an export fails
-**When** the error is displayed
-**Then** the message is in Portuguese
-**And** it explains the specific issue:
-  - "Sua conta Instantly está sem créditos"
-  - "API key inválida. Verifique em Configurações"
-  - "Serviço temporariamente indisponível"
-**And** there is always a fallback option available
-**And** I can always use "Copiar para Clipboard" as last resort
-
-**Given** any API error
-**When** I see the error
-**Then** I also see "Exportar Manualmente" as alternative
-**And** the manual export always works regardless of API status
+**Arquivos Afetados:**
+- `src/lib/services/snovio.ts` — novo: service completo
+- `src/app/api/snovio/campaign/route.ts` — novo: API route
+- `src/app/api/snovio/recipients/route.ts` — novo: API route
+- `src/types/snovio.ts` — novo: tipos da API Snov.io
 
 ---
 
-### Story 7.8: Loading States System
+### Story 7.4: Export Dialog UI com Preview de Variáveis
 
-As a user,
-I want to see elegant loading states,
-So that I know the system is working.
+**Como** usuário,
+**Quero** um dialog de exportação que mostre as opções disponíveis e um preview do mapeamento de variáveis,
+**Para** que eu saiba exatamente como minha campanha será exportada.
 
-**Acceptance Criteria:**
+**Critérios de Aceite:**
 
-**Given** any async operation is in progress
-**When** the operation is running
-**Then** I see a contextual loading indicator
-**And** the loading message describes what's happening:
-  - "Exportando para Instantly..."
-  - "Gerando texto..."
-  - "Buscando leads..."
-**And** the loading animation is smooth (not jarring)
-**And** long operations show progress when possible
-**And** I can cancel operations that take too long
+1. **Given** tenho uma campanha pronta
+   **When** clico em "Exportar"
+   **Then** um dialog abre com as opções de exportação:
+   - Instantly (se configurado)
+   - Snov.io (se configurado)
+   - CSV (sempre disponível)
+   - Copiar para Clipboard (sempre disponível)
+   **And** cada opção mostra status de conexão (verde/vermelho)
+   **And** integrações não configuradas mostram link "Configurar"
+
+2. **Given** seleciono uma opção de exportação
+   **When** a opção é expandida
+   **Then** vejo um preview do mapeamento de variáveis:
+   - `{{first_name}}` → campo correspondente na plataforma
+   - `{{ice_breaker}}` → custom variable na plataforma
+   **And** vejo quantos leads serão exportados
+   **And** vejo aviso se algum lead tem dados incompletos
+
+3. **Given** seleciono leads para exportação
+   **When** confirmo a seleção
+   **Then** posso escolher entre "Todos os leads da campanha" ou "Selecionar leads"
+   **And** leads sem email são automaticamente excluídos com aviso
+
+**Arquivos Afetados:**
+- `src/components/builder/ExportDialog.tsx` — novo: dialog de exportação
+- `src/components/builder/ExportPreview.tsx` — novo: preview de mapeamento
+- `src/hooks/use-campaign-export.ts` — novo: hook de exportação
 
 ---
 
-### Story 7.9: Toast Notification System
+### Story 7.5: Export to Instantly - Fluxo Completo
 
-As a user,
-I want clear notifications for actions,
-So that I know when things succeed or fail.
+**Como** usuário,
+**Quero** exportar minha campanha para o Instantly com um clique,
+**Para** que eu possa iniciar o envio de emails imediatamente.
 
-**Acceptance Criteria:**
+**Critérios de Aceite:**
 
-**Given** any significant action completes
-**When** the result is ready
-**Then** a toast notification appears
-**And** success toasts are green with checkmark
-**And** error toasts are red with X icon
-**And** toasts auto-dismiss after 3-5 seconds
-**And** toasts stack from bottom-right
-**And** I can manually dismiss toasts
-**And** toasts are accessible (role="alert")
+1. **Given** selecionei Instantly como destino
+   **When** clico "Exportar para Instantly"
+   **Then** o fluxo executa em sequência:
+   1. Cria campanha no Instantly com nome e sequência de emails
+   2. Mapeia variáveis internas → tags do Instantly
+   3. Envia leads com custom variables (ice_breaker, dados do lead)
+   **And** vejo progress indicator com etapa atual
+   **And** cada etapa mostra feedback (criando campanha... enviando leads...)
+
+2. **Given** a exportação completa com sucesso
+   **When** todas as etapas finalizam
+   **Then** vejo "Campanha exportada para Instantly" com contagem de leads
+   **And** vejo link "Abrir no Instantly" para acessar a campanha criada
+
+3. **Given** a exportação falha
+   **When** qualquer etapa retorna erro
+   **Then** vejo mensagem de erro em português
+   **And** vejo opções: "Tentar Novamente" ou "Exportar CSV"
+   **And** o fallback manual (CSV/clipboard) está sempre disponível
+
+**Dependências:** Story 7.2 (Instantly Service) + Story 7.4 (Export Dialog UI)
+
+---
+
+### Story 7.6: Export to Snov.io - Fluxo Completo
+
+**Como** usuário,
+**Quero** exportar minha campanha para o Snov.io com um clique,
+**Para** que eu possa iniciar o envio de emails imediatamente.
+
+**Critérios de Aceite:**
+
+1. **Given** selecionei Snov.io como destino
+   **When** clico "Exportar para Snov.io"
+   **Then** o fluxo executa em sequência:
+   1. Cria drip campaign no Snov.io
+   2. Mapeia variáveis internas → campos do Snov.io
+   3. Adiciona recipients com dados personalizados
+   **And** vejo progress indicator com etapa atual
+
+2. **Given** a exportação completa com sucesso
+   **When** todas as etapas finalizam
+   **Then** vejo "Campanha exportada para Snov.io" com contagem de recipients
+   **And** vejo link "Abrir no Snov.io"
+
+3. **Given** a exportação falha
+   **When** qualquer etapa retorna erro
+   **Then** vejo mensagem de erro em português
+   **And** vejo opções: "Tentar Novamente" ou "Exportar CSV"
+
+**Dependências:** Story 7.3 (Snov.io Service) + Story 7.4 (Export Dialog UI)
+
+---
+
+### Story 7.7: Exportação Manual - CSV e Clipboard
+
+**Como** usuário,
+**Quero** exportar minha campanha via CSV ou clipboard,
+**Para** que eu possa importar manualmente em qualquer ferramenta (Ramper, planilha, etc.).
+
+**Critérios de Aceite:**
+
+1. **Given** seleciono "Exportar CSV"
+   **When** clico na opção
+   **Then** um CSV é gerado com:
+   - Uma linha por lead
+   - Colunas: email, first_name, company_name, title, ice_breaker, email_subject_1, email_body_1, delay_1, email_subject_2, email_body_2, ...
+   - Os emails contêm variáveis JÁ resolvidas por lead
+   **And** o arquivo é baixado automaticamente
+   **And** o nome do arquivo segue o padrão: `{campaign_name}-export-{date}.csv`
+
+2. **Given** seleciono "Exportar CSV com Variáveis"
+   **When** clico na opção
+   **Then** o CSV mantém as variáveis (`{{first_name}}`, `{{ice_breaker}}`, etc.) sem resolver
+   **And** leads são exportados em planilha separada ou colunas adicionais
+   **And** útil para importar diretamente no Instantly/Snov.io via CSV
+
+3. **Given** seleciono "Copiar para Clipboard"
+   **When** clico na opção
+   **Then** a campanha é formatada em texto estruturado
+   **And** inclui: sequência de emails com subjects, bodies e delays
+   **And** é copiada para o clipboard
+   **And** vejo "Copiado para clipboard"
+
+**Dependências:** Story 7.1 (Sistema de Variáveis) + Story 7.4 (Export Dialog UI)
+
+---
+
+### Story 7.8: Validação Pré-Export e Error Handling
+
+**Como** usuário,
+**Quero** que o sistema valide meus dados antes de exportar e me dê feedback claro quando algo der errado,
+**Para** que eu nunca exporte uma campanha incompleta e sempre tenha um caminho alternativo.
+
+**Critérios de Aceite:**
+
+1. **Given** inicio uma exportação
+   **When** os dados são validados
+   **Then** verifica:
+   - Todos os leads têm email válido
+   - Leads sem ice_breaker são sinalizados (aviso, não bloqueio)
+   - Campanha tem pelo menos 1 email completo (subject + body)
+   - Variáveis no template correspondem a campos existentes nos leads
+   **And** exibe resumo de validação antes de confirmar
+
+2. **Given** a validação encontra problemas críticos
+   **When** o resumo é exibido
+   **Then** problemas bloqueantes (sem email) impedem a exportação
+   **And** problemas não-bloqueantes (sem ice_breaker) exibem aviso mas permitem continuar
+   **And** para cada problema há uma ação sugerida ("Enriquecer leads", "Gerar ice breakers", etc.)
+
+3. **Given** qualquer exportação (API ou CSV) falha
+   **When** o erro é exibido
+   **Then** a mensagem está em português
+   **And** explica o problema específico:
+   - "Sua conta Instantly está sem créditos"
+   - "API key inválida. Verifique em Configurações"
+   - "Serviço temporariamente indisponível"
+   - "Limite de leads excedido"
+   **And** vejo "Tentar Novamente" e "Exportar Manualmente" como alternativas
+   **And** a exportação manual (CSV/clipboard) SEMPRE funciona independente de erros de API
+
+**Dependências:** Stories 7.5, 7.6, 7.7
 
 ---
 

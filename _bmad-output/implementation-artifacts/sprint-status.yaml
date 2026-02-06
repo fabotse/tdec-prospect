@@ -1,4 +1,4 @@
-# generated: 2026-02-05
+# generated: 2026-02-06
 # project: tdec-prospect
 # project_key: NOKEY
 # tracking_system: file-system
@@ -33,7 +33,7 @@
 # - SM typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
-generated: 2026-02-05
+generated: 2026-02-06
 project: tdec-prospect
 project_key: NOKEY
 tracking_system: file-system
@@ -190,7 +190,7 @@ development_status:
   # Transformação visual: tema azulado → preto e branco neutro
   # Referência: ui.tripled.work
   # Decisões aprovadas: Light mode incluído, glow mantido, charts grayscale, UI TripleD incluído
-  epic-8: in-progress
+  epic-8: done
   8-1-dark-theme-bw-conversion: done  # Code review 2026-02-04: 1 HIGH fix (chart colors), 3 action items created
   8-2-light-theme-bw-conversion: done  # Code review 2026-02-04: 5 fixes applied (WCAG contrast, ring visibility, hue consistency, glow opacity)
   8-3-charts-grayscale-conversion: done  # Code review 2026-02-05: 3 MEDIUM fixes (docs deviation, regression test). 4 new tests
@@ -214,19 +214,21 @@ development_status:
   9-2-exemplos-de-referencia-para-ice-breakers-no-knowledge-base: done  # Code review 2026-02-06: 1 CRITICAL, 2 HIGH, 2 MEDIUM fixes (server action tests, component CRUD tests, type dedup, edge case tests, File List). 173 files, 3046 tests passing.
   9-3-refatoracao-dos-prompts-de-ice-breaker: done  # Code review 2026-02-06: 1 CRITICAL, 3 MEDIUM, 3 LOW fixes (nested {{#if}} rendering bug, rendering tests, sequential blocks, Lead fallback). 174 files, 3065 tests passing
   9-4-variavel-ice-breaker-na-geracao-de-campanha-ai: done  # Code review 2026-02-06: 4 MEDIUM fixes (File List docs, scope creep docs, test count). 177 files, 3107 tests passing
-  9-5-estrutura-clara-nos-prompts-de-geracao-de-email-de-campanha: backlog  # Depende de 9.4
+  9-5-estrutura-clara-nos-prompts-de-geracao-de-email-de-campanha: done  # Code review 2026-02-06: 4 MEDIUM fixes (TÉCNICO tone in follow-up, test quality improvements). 51 prompt tests passing
   9-6-revisao-de-qualidade-geral-dos-prompts-ai: backlog  # Depende de 9.1-9.5
   epic-9-retrospective: optional
 
-  # Epic 7: Campaign Deployment (MOVIDO PARA DEPOIS DA EPIC 9)
+  # Epic 7: Campaign Deployment & Export (REESTRUTURADO 2026-02-06)
+  # Export de campanhas personalizadas com sistema de variáveis de personalização
+  # Pré-requisitos: Epic 9 (base do sistema {{ice_breaker}})
+  # Documento: _bmad-output/planning-artifacts/epic-7-campaign-deployment-export.md
   epic-7: backlog
-  7-1-snov-io-integration-service: backlog
-  7-2-instantly-integration-service: backlog
-  7-3-export-dialog-ui: backlog
-  7-4-export-to-instantly: backlog
-  7-5-export-to-snov-io: backlog
-  7-6-manual-export-copy-to-clipboard: backlog
-  7-7-error-messages-fallback: backlog
-  7-8-loading-states-system: backlog
-  7-9-toast-notification-system: backlog
+  7-1-sistema-de-variaveis-de-personalizacao-para-exportacao: backlog  # P0: Fundação — define variáveis, motor de substituição, mapeamento por plataforma
+  7-2-instantly-integration-service-gestao-de-campanhas: backlog  # P1: Expandir InstantlyService com createCampaign, addLeads, getStatus
+  7-3-snov-io-integration-service-gestao-de-campanhas: backlog  # P1: Service completo para Snov.io drip campaigns
+  7-4-export-dialog-ui-com-preview-de-variaveis: backlog  # P1: Dialog com opções, preview de mapeamento, status de conexão
+  7-5-export-to-instantly-fluxo-completo: backlog  # P2: End-to-end: campanha + leads + tags → Instantly
+  7-6-export-to-snov-io-fluxo-completo: backlog  # P2: End-to-end: drip campaign + recipients → Snov.io
+  7-7-exportacao-manual-csv-e-clipboard: backlog  # P1: CSV resolvido/com variáveis + clipboard formatado
+  7-8-validacao-pre-export-e-error-handling: backlog  # P2: Validação de dados, mensagens PT-BR, fallback manual
   epic-7-retrospective: optional

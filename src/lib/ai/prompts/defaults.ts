@@ -220,30 +220,48 @@ EXEMPLOS DE EMAILS QUE FUNCIONARAM (APRENDA COM ELES):
 - Observe a CTA dos exemplos e crie CTA similar em tom e estilo
 {{/if}}
 
-REGRAS:
-1. Máximo 150 palavras
-2. Se houver quebra-gelo personalizado, use-o APENAS como abertura (máximo 2 frases) - NÃO expanda o tema do quebra-gelo
-   Se houver variável {{ice_breaker}}, inclua-a EXATAMENTE como está, sem modificações
-3. IMEDIATAMENTE após o quebra-gelo (ou variável {{ice_breaker}}), faça transição para o PRODUTO - o foco do email é o produto, não o tema do quebra-gelo
-4. {{#if product_name}}O FOCO PRINCIPAL do email deve ser o produto "{{product_name}}" - dedique 70% do email a ele{{else}}Apresente valor claramente{{/if}}
-5. Use parágrafos curtos (2-3 frases)
-6. Inclua uma CTA clara mas não agressiva
-7. CRÍTICO: Siga o guia de tom "{{tone_style}}" - saudação, vocabulário e fechamento devem corresponder
-8. Se houver diretrizes de escrita (writing_guidelines), elas têm PRIORIDADE sobre o guia de tom
-9. Evite clichês de vendas
-10. Não mencione preços
-11. {{#if successful_examples}}PRIORIDADE MÁXIMA: Imite a estrutura e estilo dos exemplos fornecidos{{else}}Use melhores práticas de cold email{{/if}}
+REGRAS GERAIS:
+1. Máximo 150 palavras no email completo
+2. CRÍTICO: Siga o guia de tom "{{tone_style}}" — saudação, vocabulário e fechamento devem corresponder
+3. Se houver diretrizes de escrita (writing_guidelines), elas têm PRIORIDADE sobre o guia de tom
+4. {{#if successful_examples}}PRIORIDADE MÁXIMA: Imite a estrutura e estilo dos exemplos fornecidos{{else}}Use melhores práticas de cold email{{/if}}
 
-FORMATO OBRIGATÓRIO:
-- Saudação personalizada (conforme tom)
-- Quebra-gelo (se personalizado): máximo 2 frases | OU variável {{ice_breaker}} literal
-- Transição rápida: 1 frase conectando ao produto
-- Proposta de valor: 2-3 frases focadas 100% no PRODUTO e seus benefícios
-- CTA
-- Despedida (conforme tom)
+ESTRUTURA OBRIGATÓRIA DO EMAIL — SIGA ESTA SEQUÊNCIA DE BLOCOS:
+
+[SAUDAÇÃO]
+- Personalizada conforme tom de voz "{{tone_style}}"
+- Máximo 1 linha
+- CASUAL: "Olá {{lead_name}}" ou "Oi {{lead_name}}"
+- FORMAL: "Prezado(a) {{lead_name}}"
+- TÉCNICO: Saudação neutra e direta
+
+[QUEBRA-GELO]
+- Se houver quebra-gelo personalizado: use-o como abertura (máximo 2 frases) — NÃO expanda o tema
+- Se houver variável {{ice_breaker}} literal: inclua-a EXATAMENTE como está, sem modificações
+- NÃO misture o assunto do quebra-gelo com o conteúdo do produto
+
+[TRANSIÇÃO]
+- 1 frase conectando o quebra-gelo ao produto/proposta
+- Transição rápida — não "viaje" no assunto do quebra-gelo
+- Se o quebra-gelo menciona um post sobre IA, NÃO fique discutindo IA — passe direto ao produto
+
+[CONTEÚDO PRODUTO]
+- 2-3 frases focadas 100% no PRODUTO e seus benefícios
+- {{#if product_name}}Dedique 70% do email ao produto "{{product_name}}"{{else}}Apresente valor claramente{{/if}}
+- Parágrafos curtos (2-3 frases)
+- Evite clichês de vendas
+- Não mencione preços
+
+[CTA]
+- Call-to-action claro mas não agressivo
+- Sugira conversa rápida (10 min, bate-papo, ligação)
+
+[FECHAMENTO]
+- Conforme tom de voz "{{tone_style}}"
+- CASUAL: "Abraço", "Até mais", "Valeu"
+- FORMAL: "Atenciosamente", "Cordialmente"
+- TÉCNICO: Neutro e objetivo
 - Assinatura simples
-
-⚠️ ERRO COMUM A EVITAR: Não "viaje" no assunto do quebra-gelo. Se o quebra-gelo menciona um post sobre IA, NÃO fique discutindo IA - faça uma transição rápida para apresentar o produto.
 
 Responda APENAS com o corpo do email, sem explicações.`,
     modelPreference: "gpt-5-mini",
@@ -525,19 +543,52 @@ Vou parar de ocupar sua caixa de entrada - sei que timing é tudo.
 Se em algum momento fizer sentido explorar [benefício], é só responder este email.
 Sucesso aí na {{lead_company}}!"
 
-REGRAS CRÍTICAS:
+ÂNGULOS SUGERIDOS POR POSIÇÃO NA SEQUÊNCIA:
+- 2º email: Valor adicional — destaque um benefício diferente ou um dado novo
+- 3º email: Prova social — mencione cases, resultados de empresas similares
+- 4º email: Escassez suave — prazo, vagas limitadas, sem pressão excessiva
+- 5º email: Despedida — tom amigável, deixar porta aberta
+
+ANTI-REPETIÇÃO:
+- Leia o email anterior (acima) e NÃO repita informações já mencionadas
+- Cada follow-up DEVE trazer um ângulo diferente dos anteriores na sequência
+- Se o email anterior falou de features, fale de resultados. Se falou de resultados, fale de tendências do setor.
+- NÃO inclua Ice Breaker — já usado no primeiro email da sequência
+
+REGRAS GERAIS:
 1. Máximo 80 palavras (follow-ups são MUITO curtos)
 2. Escolha UMA estratégia baseada no contexto do email anterior
-3. NÃO repita informações do produto já apresentadas no email anterior
-4. CTA sempre oferecendo uma conversa rápida (10 min, bate-papo, ligação)
-5. Mantenha o tom de voz consistente
-6. NUNCA seja passivo-agressivo ("já enviei 3 emails...")
-7. Seja empático - a pessoa está ocupada, não te ignorando
-8. Feche com despedida curta (Abs, Abraço, Fico à disposição)
+3. Mantenha o tom de voz "{{tone_style}}" consistente
+4. NUNCA seja passivo-agressivo ("já enviei 3 emails...")
+5. Seja empático — a pessoa está ocupada, não te ignorando
+
+ESTRUTURA OBRIGATÓRIA DO FOLLOW-UP — SIGA ESTA SEQUÊNCIA DE BLOCOS:
+
+[SAUDAÇÃO]
+- Curta, conforme tom de voz "{{tone_style}}"
+- Máximo 1 linha
+- CASUAL: "Olá {{lead_name}}" ou "Oi {{lead_name}}"
+- FORMAL: "Prezado(a) {{lead_name}}"
+- TÉCNICO: Saudação neutra e direta
+
+[CONTEÚDO]
+- Referencie o email anterior mas traga ângulo NOVO
+- NÃO repita informações do produto já apresentadas
+- Use o ângulo sugerido para a posição na sequência
+
+[CTA]
+- Direto — ofereça conversa rápida (10 min, bate-papo, ligação)
+- Não seja agressivo
+
+[FECHAMENTO]
+- Despedida curta conforme tom
+- CASUAL: "Abs", "Abraço", "Valeu"
+- FORMAL: "Atenciosamente", "Cordialmente"
+- TÉCNICO: Neutro e objetivo
 
 FORMATO DO OUTPUT:
-- NÃO inclua "Assunto:" - o assunto é gerado separadamente
-- Comece DIRETAMENTE com a saudação (ex: "Olá {{lead_name}}, tudo bem?")
+- NÃO inclua "Assunto:" — o assunto é gerado separadamente
+- Comece DIRETAMENTE com a saudação
 - Gere APENAS o corpo do email, nada mais`,
     modelPreference: "gpt-5-mini",
     metadata: {
