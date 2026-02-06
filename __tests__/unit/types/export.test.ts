@@ -12,6 +12,9 @@ import {
   type PlatformMapping,
   type ResolveEmailInput,
   type ResolveEmailOutput,
+  type ExportStatus,
+  type RemoteExportPlatform,
+  type ExportRecord,
 } from "@/types/export";
 import { EXPORT_PLATFORMS } from "@/lib/export/variable-registry";
 
@@ -147,6 +150,91 @@ describe("export types", () => {
 
       expect(output.subject).toContain("João");
       expect(output.body).toContain("Vi seu post");
+    });
+  });
+
+  // ==============================================
+  // EXPORT TRACKING TYPES (Story 7.3.1: AC #4)
+  // ==============================================
+
+  describe("ExportStatus", () => {
+    const validStatuses: ExportStatus[] = [
+      "pending",
+      "success",
+      "partial_failure",
+      "failed",
+    ];
+
+    it("should support all 4 valid export status values", () => {
+      expect(validStatuses).toHaveLength(4);
+      expect(validStatuses).toContain("pending");
+      expect(validStatuses).toContain("success");
+      expect(validStatuses).toContain("partial_failure");
+      expect(validStatuses).toContain("failed");
+    });
+
+    it.each(validStatuses)("should accept '%s' as valid status", (status) => {
+      const s: ExportStatus = status;
+      expect(s).toBe(status);
+    });
+  });
+
+  describe("RemoteExportPlatform", () => {
+    it("should support instantly platform", () => {
+      const platform: RemoteExportPlatform = "instantly";
+      expect(platform).toBe("instantly");
+    });
+
+    it("should support snovio platform", () => {
+      const platform: RemoteExportPlatform = "snovio";
+      expect(platform).toBe("snovio");
+    });
+  });
+
+  describe("ExportRecord", () => {
+    it("should represent a fully exported campaign", () => {
+      const record: ExportRecord = {
+        campaignId: "c-1",
+        externalCampaignId: "ext-abc-123",
+        exportPlatform: "instantly",
+        exportedAt: "2026-02-06T10:00:00Z",
+        exportStatus: "success",
+      };
+
+      expect(record.campaignId).toBe("c-1");
+      expect(record.externalCampaignId).toBe("ext-abc-123");
+      expect(record.exportPlatform).toBe("instantly");
+      expect(record.exportedAt).toBe("2026-02-06T10:00:00Z");
+      expect(record.exportStatus).toBe("success");
+    });
+
+    it("should represent a non-exported campaign with null fields", () => {
+      const record: ExportRecord = {
+        campaignId: "c-2",
+        externalCampaignId: null,
+        exportPlatform: null,
+        exportedAt: null,
+        exportStatus: null,
+      };
+
+      expect(record.externalCampaignId).toBeNull();
+      expect(record.exportPlatform).toBeNull();
+      expect(record.exportedAt).toBeNull();
+      expect(record.exportStatus).toBeNull();
+    });
+
+    it("should represent a failed export", () => {
+      const record: ExportRecord = {
+        campaignId: "c-3",
+        externalCampaignId: null,
+        exportPlatform: "snovio",
+        exportedAt: "2026-02-06T10:00:00Z",
+        exportStatus: "failed",
+      };
+
+      expect(record.exportPlatform).toBe("snovio");
+      expect(record.exportStatus).toBe("failed");
+      expect(record.externalCampaignId).toBeNull();
     });
   });
 });

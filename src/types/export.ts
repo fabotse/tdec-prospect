@@ -85,3 +85,31 @@ export interface ResolveEmailOutput {
   /** Resolved email body */
   body: string;
 }
+
+// ==============================================
+// EXPORT TRACKING TYPES (Story 7.3.1: AC #4)
+// ==============================================
+
+/**
+ * Valid export status values for remote platform exports.
+ * Matches CHECK constraint in migration 00037.
+ */
+export type ExportStatus = "pending" | "success" | "partial_failure" | "failed";
+
+/**
+ * Valid remote export platforms (subset of ExportPlatform that persists to DB).
+ * csv/clipboard are local-only exports — no tracking needed.
+ */
+export type RemoteExportPlatform = "instantly" | "snovio";
+
+/**
+ * Export record extracted from campaign fields.
+ * Convenience type for export-related queries.
+ */
+export interface ExportRecord {
+  campaignId: string;
+  externalCampaignId: string | null;
+  exportPlatform: RemoteExportPlatform | null;
+  exportedAt: string | null;
+  exportStatus: ExportStatus | null;
+}

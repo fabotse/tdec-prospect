@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ExportStatus, RemoteExportPlatform } from "@/types/export";
 
 // ==============================================
 // STATUS TYPES
@@ -82,6 +83,10 @@ export interface Campaign {
   productId: string | null;
   createdAt: string;
   updatedAt: string;
+  externalCampaignId: string | null;
+  exportPlatform: RemoteExportPlatform | null;
+  exportedAt: string | null;
+  exportStatus: ExportStatus | null;
 }
 
 /**
@@ -103,6 +108,10 @@ export interface CampaignRow {
   product_id: string | null;
   created_at: string;
   updated_at: string;
+  external_campaign_id: string | null;
+  export_platform: RemoteExportPlatform | null;
+  exported_at: string | null;
+  export_status: ExportStatus | null;
 }
 
 /**
@@ -125,6 +134,10 @@ export function transformCampaignRow(row: CampaignRow): Campaign {
     productId: row.product_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    externalCampaignId: row.external_campaign_id ?? null,
+    exportPlatform: row.export_platform ?? null,
+    exportedAt: row.exported_at ?? null,
+    exportStatus: row.export_status ?? null,
   };
 }
 

@@ -89,6 +89,10 @@ describe("Campaign Types", () => {
         product_id: null,
         created_at: "2026-02-01T10:00:00Z",
         updated_at: "2026-02-01T12:00:00Z",
+        external_campaign_id: null,
+        export_platform: null,
+        exported_at: null,
+        export_status: null,
       };
 
       const result = transformCampaignRow(row);
@@ -101,7 +105,53 @@ describe("Campaign Types", () => {
         productId: null,
         createdAt: "2026-02-01T10:00:00Z",
         updatedAt: "2026-02-01T12:00:00Z",
+        externalCampaignId: null,
+        exportPlatform: null,
+        exportedAt: null,
+        exportStatus: null,
       });
+    });
+
+    it("transforms row with export fields populated", () => {
+      const row: CampaignRow = {
+        id: "campaign-123",
+        tenant_id: "tenant-456",
+        name: "Exported Campaign",
+        status: "active",
+        product_id: "prod-1",
+        created_at: "2026-02-01T10:00:00Z",
+        updated_at: "2026-02-01T12:00:00Z",
+        external_campaign_id: "ext-abc-123",
+        export_platform: "instantly",
+        exported_at: "2026-02-05T15:30:00Z",
+        export_status: "success",
+      };
+
+      const result = transformCampaignRow(row);
+
+      expect(result.externalCampaignId).toBe("ext-abc-123");
+      expect(result.exportPlatform).toBe("instantly");
+      expect(result.exportedAt).toBe("2026-02-05T15:30:00Z");
+      expect(result.exportStatus).toBe("success");
+    });
+
+    it("defaults undefined export fields to null", () => {
+      const row = {
+        id: "campaign-123",
+        tenant_id: "tenant-456",
+        name: "Old Campaign",
+        status: "draft" as const,
+        product_id: null,
+        created_at: "2026-02-01T10:00:00Z",
+        updated_at: "2026-02-01T12:00:00Z",
+      } as CampaignRow;
+
+      const result = transformCampaignRow(row);
+
+      expect(result.externalCampaignId).toBeNull();
+      expect(result.exportPlatform).toBeNull();
+      expect(result.exportedAt).toBeNull();
+      expect(result.exportStatus).toBeNull();
     });
   });
 
@@ -116,12 +166,41 @@ describe("Campaign Types", () => {
         created_at: "2026-02-01T10:00:00Z",
         updated_at: "2026-02-01T12:00:00Z",
         lead_count: 42,
+        external_campaign_id: null,
+        export_platform: null,
+        exported_at: null,
+        export_status: null,
       };
 
       const result = transformCampaignRowWithCount(row);
 
       expect(result.leadCount).toBe(42);
       expect(result.tenantId).toBe("tenant-456");
+    });
+
+    it("propagates export fields from transformCampaignRow", () => {
+      const row: CampaignRowWithCount = {
+        id: "campaign-123",
+        tenant_id: "tenant-456",
+        name: "Exported Campaign",
+        status: "active",
+        product_id: null,
+        created_at: "2026-02-01T10:00:00Z",
+        updated_at: "2026-02-01T12:00:00Z",
+        lead_count: 10,
+        external_campaign_id: "ext-789",
+        export_platform: "snovio",
+        exported_at: "2026-02-05T15:30:00Z",
+        export_status: "partial_failure",
+      };
+
+      const result = transformCampaignRowWithCount(row);
+
+      expect(result.externalCampaignId).toBe("ext-789");
+      expect(result.exportPlatform).toBe("snovio");
+      expect(result.exportedAt).toBe("2026-02-05T15:30:00Z");
+      expect(result.exportStatus).toBe("partial_failure");
+      expect(result.leadCount).toBe(10);
     });
 
     it("handles zero lead count", () => {
@@ -134,6 +213,10 @@ describe("Campaign Types", () => {
         created_at: "2026-02-01T10:00:00Z",
         updated_at: "2026-02-01T12:00:00Z",
         lead_count: 0,
+        external_campaign_id: null,
+        export_platform: null,
+        exported_at: null,
+        export_status: null,
       };
 
       const result = transformCampaignRowWithCount(row);

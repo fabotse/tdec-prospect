@@ -177,6 +177,56 @@ Export de campanhas personalizadas para plataformas de cold email (Instantly, Sn
 
 ---
 
+### Story 7.3.1: Persistência de Campanhas Exportadas no Banco
+
+**Como** sistema,
+**Quero** persistir o vínculo entre campanhas locais e campanhas remotas (Instantly/Snov.io),
+**Para** que seja possível rastrear deploys, evitar duplicatas, e habilitar re-sincronização futura.
+
+**Critérios de Aceite:**
+
+1. **Given** a tabela `campaigns` existe no banco
+   **When** a migration é executada
+   **Then** adiciona os campos:
+   - `external_campaign_id` (text, nullable) — ID da campanha na plataforma remota
+   - `export_platform` (text, nullable) — plataforma de export ('instantly' | 'snovio' | null)
+   - `exported_at` (timestamptz, nullable) — data/hora do último export
+   - `export_status` (text, nullable) — status do export ('pending' | 'success' | 'partial_failure' | 'failed')
+   **And** campos têm índice em `external_campaign_id` para lookup rápido
+   **And** RLS policies existentes continuam funcionando
+
+2. **Given** uma campanha é exportada com sucesso para uma plataforma
+   **When** o fluxo de export finaliza
+   **Then** os campos `external_campaign_id`, `export_platform`, `exported_at` e `export_status` são atualizados
+   **And** a campanha pode ser consultada por `external_campaign_id`
+
+3. **Given** uma campanha já foi exportada anteriormente
+   **When** o usuário tenta exportar novamente
+   **Then** o sistema detecta o export anterior via `external_campaign_id`
+   **And** oferece opção: "Atualizar campanha existente" ou "Criar nova campanha"
+   **And** previne duplicatas acidentais (idempotência)
+
+4. **Given** os tipos TypeScript são atualizados
+   **When** o tipo `Campaign` é usado no código
+   **Then** inclui os novos campos opcionais
+   **And** existe um tipo `ExportRecord` para facilitar queries de export
+
+**Arquivos Afetados:**
+- `supabase/migrations/000XX-add-campaign-export-tracking.sql` — nova migration
+- `src/types/campaign.ts` — atualizar tipo Campaign com campos de export
+- `src/types/export.ts` — adicionar tipo ExportRecord
+- `src/lib/services/campaign-export-repository.ts` — novo: CRUD para campos de export
+
+**Notas Técnicas:**
+- Referência: Lacuna Crítica #1 do documento de pesquisa (instantly-integration-ideas-2026-02-06.md)
+- Campos nullable para backward compatibility — campanhas existentes não são afetadas
+- `export_status` permite rastrear exports parciais (leads adicionados mas campanha não ativada)
+- Pré-requisito para Stories 7.5 e 7.6 gravarem o vínculo após export
+
+**Dependências:** Nenhuma (pode ser feita imediatamente após 7.3)
+
+---
+
 ### Story 7.4: Export Dialog UI com Preview de Variáveis
 
 **Como** usuário,
@@ -208,15 +258,32 @@ Export de campanhas personalizadas para plataformas de cold email (Instantly, Sn
    **Then** posso escolher entre "Todos os leads da campanha" ou "Selecionar leads"
    **And** leads sem email são automaticamente excluídos com aviso
 
+4. **Given** seleciono Instantly como destino de export
+   **When** a opção é expandida
+   **Then** vejo a lista de sending accounts configuradas no Instantly
+   **And** posso selecionar uma ou mais contas de envio para a campanha
+   **And** se nenhuma conta está configurada, vejo aviso: "Nenhuma conta de envio encontrada. Configure no Instantly primeiro."
+   **And** a listagem usa o endpoint `GET /api/v2/accounts` do Instantly
+
+5. **Given** seleciono uma plataforma com campanha já exportada anteriormente
+   **When** a opção é expandida
+   **Then** vejo indicador: "Campanha já exportada em {data}" com opção de re-exportar ou atualizar
+
 **Arquivos Afetados:**
 - `src/components/builder/ExportDialog.tsx` — novo: dialog de exportação
 - `src/components/builder/ExportPreview.tsx` — novo: preview de mapeamento
+- `src/components/builder/SendingAccountSelector.tsx` — novo: seletor de contas de envio
 - `src/hooks/use-campaign-export.ts` — novo: hook de exportação
+- `src/hooks/use-sending-accounts.ts` — novo: hook para listar contas de envio
+- `src/lib/services/instantly.ts` — expandir: método `listAccounts()`
+- `src/app/api/instantly/accounts/route.ts` — novo: API route para listar contas
 
 **Notas Técnicas:**
 - Dialog segue padrão shadcn/ui Dialog com Radix UI
 - Status de conexão reutiliza `testConnection()` existente
 - Preview de variáveis usa o registry da Story 7.1
+- Sending accounts: Instantly API `GET /api/v2/accounts?limit=100` retorna contas configuradas
+- Referência: Lacuna Crítica #2 do documento de pesquisa
 
 ---
 
@@ -242,13 +309,34 @@ Export de campanhas personalizadas para plataformas de cold email (Instantly, Sn
    **Then** vejo "Campanha exportada para Instantly" com contagem de leads
    **And** vejo link "Abrir no Instantly" para acessar a campanha criada
 
-3. **Given** a exportação falha
-   **When** qualquer etapa retorna erro
-   **Then** vejo mensagem de erro em português
-   **And** vejo opções: "Tentar Novamente" ou "Exportar CSV"
+3. **Given** a exportação falha em qualquer etapa
+   **When** o erro é detectado
+   **Then** o Deployment Service trata a falha com compensação:
+   - Se criação da campanha falha → nada a reverter, exibe erro
+   - Se adição de leads falha → campanha órfã é logada, usuário é informado
+   - Se ativação falha → campanha existe com leads mas inativa, opção "Ativar manualmente"
+   **And** vejo mensagem de erro em português com a etapa específica que falhou
+   **And** vejo opções: "Tentar Novamente" (retenta da etapa que falhou) ou "Exportar CSV"
    **And** o fallback manual (CSV/clipboard) está sempre disponível
 
-**Dependências:** Story 7.2 (Instantly Service) + Story 7.4 (Export Dialog UI)
+4. **Given** o fluxo de export é iniciado
+   **When** o Deployment Service executa
+   **Then** valida antes de começar:
+   - Pelo menos 1 lead com email válido
+   - Campanha tem pelo menos 1 email completo (subject + body)
+   - Sending account selecionada (AC da Story 7.4)
+   **And** se validação falha, exibe resumo de problemas e não inicia o export
+   **And** problemas não-bloqueantes (leads sem ice_breaker) exibem aviso mas permitem continuar
+
+5. **Given** o export completa com sucesso
+   **When** o Deployment Service finaliza
+   **Then** persiste o vínculo no banco via campos da Story 7.3.1:
+   - `external_campaign_id` = ID da campanha criada no Instantly
+   - `export_platform` = 'instantly'
+   - `exported_at` = timestamp atual
+   - `export_status` = 'success' (ou 'partial_failure' se nem todos os leads foram adicionados)
+
+**Dependências:** Story 7.2 (Instantly Service) + Story 7.3.1 (Persistência) + Story 7.4 (Export Dialog UI)
 
 ---
 
@@ -273,12 +361,32 @@ Export de campanhas personalizadas para plataformas de cold email (Instantly, Sn
    **Then** vejo "Campanha exportada para Snov.io" com contagem de recipients
    **And** vejo link "Abrir no Snov.io"
 
-3. **Given** a exportação falha
-   **When** qualquer etapa retorna erro
-   **Then** vejo mensagem de erro em português
-   **And** vejo opções: "Tentar Novamente" ou "Exportar CSV"
+3. **Given** a exportação falha em qualquer etapa
+   **When** o erro é detectado
+   **Then** o Deployment Service trata a falha com compensação:
+   - Se criação da list/campanha falha → nada a reverter, exibe erro
+   - Se adição de prospects falha → list/campanha órfã é logada, usuário é informado
+   **And** vejo mensagem de erro em português com a etapa específica que falhou
+   **And** vejo opções: "Tentar Novamente" (retenta da etapa que falhou) ou "Exportar CSV"
+   **And** o fallback manual (CSV/clipboard) está sempre disponível
 
-**Dependências:** Story 7.3 (Snov.io Service) + Story 7.4 (Export Dialog UI)
+4. **Given** o fluxo de export é iniciado
+   **When** o Deployment Service executa
+   **Then** valida antes de começar:
+   - Pelo menos 1 lead com email válido
+   - Campanha tem pelo menos 1 email completo (subject + body)
+   **And** se validação falha, exibe resumo de problemas e não inicia o export
+   **And** problemas não-bloqueantes (leads sem ice_breaker) exibem aviso mas permitem continuar
+
+5. **Given** o export completa com sucesso
+   **When** o Deployment Service finaliza
+   **Then** persiste o vínculo no banco via campos da Story 7.3.1:
+   - `external_campaign_id` = ID da list/campanha criada no Snov.io
+   - `export_platform` = 'snovio'
+   - `exported_at` = timestamp atual
+   - `export_status` = 'success' (ou 'partial_failure' se nem todos os prospects foram adicionados)
+
+**Dependências:** Story 7.3 (Snov.io Service) + Story 7.3.1 (Persistência) + Story 7.4 (Export Dialog UI)
 
 ---
 
@@ -361,13 +469,14 @@ Export de campanhas personalizadas para plataformas de cold email (Instantly, Sn
 | 7.1 Sistema de Variáveis | ⭐⭐⭐ Alta | ~6 | P0 | Epic 9 (base `{{ice_breaker}}`) |
 | 7.2 Instantly Service | ⭐⭐ Média | ~4 | P1 | 7.1 |
 | 7.3 Snov.io Service | ⭐⭐ Média | ~4 | P1 | 7.1 |
-| 7.4 Export Dialog UI | ⭐⭐ Média | ~3 | P1 | 7.1 |
-| 7.5 Export Instantly | ⭐⭐ Média | ~3 | P2 | 7.2 + 7.4 |
-| 7.6 Export Snov.io | ⭐⭐ Média | ~3 | P2 | 7.3 + 7.4 |
+| **7.3.1 Persistência de Export** | **⭐ Baixa** | **~4** | **P0** | **Nenhuma** |
+| 7.4 Export Dialog UI + Sending Accounts | ⭐⭐⭐ Alta | ~7 | P1 | 7.1 + 7.3.1 |
+| 7.5 Export Instantly (orquestrado + validação) | ⭐⭐⭐ Alta | ~4 | P1 | 7.2 + 7.3.1 + 7.4 |
+| 7.6 Export Snov.io (orquestrado + validação) | ⭐⭐⭐ Alta | ~4 | P1 | 7.3 + 7.3.1 + 7.4 |
 | 7.7 CSV + Clipboard | ⭐⭐ Média | ~4 | P1 | 7.1 + 7.4 |
-| 7.8 Validação + Errors | ⭐⭐ Média | ~3 | P2 | 7.5 + 7.6 + 7.7 |
+| 7.8 Validação Avançada + Edge Cases | ⭐⭐ Média | ~3 | P2 | 7.5 + 7.6 + 7.7 |
 
-**Total Epic:** 8 stories
+**Total Epic:** 9 stories (8 originais + 1 nova)
 
 ---
 
@@ -375,19 +484,31 @@ Export de campanhas personalizadas para plataformas de cold email (Instantly, Sn
 
 ```
 7.1 (Variáveis) ──┬──→ 7.2 (Instantly Service) ──┐
-                   │                                ├──→ 7.5 (Export Instantly) ──┐
-                   ├──→ 7.4 (Export Dialog UI) ────┤                              │
-                   │                                ├──→ 7.6 (Export Snov.io) ────┼──→ 7.8 (Validação + Errors)
-                   ├──→ 7.3 (Snov.io Service) ────┘                              │
-                   │                                                              │
-                   └──→ 7.7 (CSV + Clipboard) ──────────────────────────────────┘
+                   │                                │
+                   ├──→ 7.3 (Snov.io Service) ────┤
+                   │                                │
+                   └──→ 7.3.1 (Persistência) ──────┼──→ 7.4 (Export Dialog + Accounts) ──┐
+                                                    │                                     │
+                                                    ├────────────────────→ 7.5 (Export Instantly + Orquestração) ──┐
+                                                    │                                     │                        │
+                                                    ├────────────────────→ 7.6 (Export Snov.io + Orquestração) ───┤
+                                                    │                                     │                        │
+                                                    └────────────────────→ 7.7 (CSV + Clipboard) ────────────────┼──→ 7.8 (Validação Avançada)
 ```
 
-- **7.1** é a fundação — DEVE ser feita primeiro
-- **7.2, 7.3, 7.4** podem ser feitas em paralelo (após 7.1)
-- **7.7** (CSV) pode ser feita logo após 7.1 + 7.4 — entrega valor rápido
-- **7.5, 7.6** dependem dos services + UI
-- **7.8** é a última — consolida error handling
+- **7.1** é a fundação — DONE
+- **7.2, 7.3** são os services — DONE
+- **7.3.1** (Persistência) é a PRÓXIMA — pré-requisito para 7.4, 7.5, 7.6
+- **7.4** agora inclui sending accounts e depende de 7.3.1
+- **7.5, 7.6** agora incluem orquestração + validação básica + persistência do vínculo
+- **7.7** (CSV) pode ser feita em paralelo com 7.5/7.6
+- **7.8** é a última — validação avançada e edge cases
+
+### Mudanças vs. Plano Original (2026-02-06)
+- **NOVA**: Story 7.3.1 adicionada para persistência de export no banco
+- **EXPANDIDA**: Story 7.4 agora inclui listing/seleção de sending accounts do Instantly
+- **EXPANDIDAS**: Stories 7.5 e 7.6 agora incluem Deployment Service orquestrado com compensação + validação pré-deploy + persistência do vínculo
+- **Motivação**: Lacunas críticas identificadas pelo documento de pesquisa (instantly-integration-ideas-2026-02-06.md)
 
 ---
 
