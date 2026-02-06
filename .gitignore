@@ -1,19 +1,34 @@
 # Dependencies
 node_modules/
-.pnp/
-.pnp.js
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
 
 # Build outputs
 dist/
 build/
+/build
 out/
+/out/
 .next/
+/.next/
 .nuxt/
+
+# Testing
+coverage/
+/coverage
+.nyc_output/
 
 # Environment variables
 .env
 .env.local
 .env.*.local
+.env*
 
 # IDE
 .idea/
@@ -34,10 +49,10 @@ logs/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.pnpm-debug.log*
 
-# Test coverage
-coverage/
-.nyc_output/
+# Misc
+*.pem
 
 # Temporary files
 tmp/
@@ -45,14 +60,19 @@ temp/
 *.tmp
 nul
 
-# Python
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Python (if needed)
 __pycache__/
 *.py[cod]
 .Python
 venv/
 .venv/
 
-# Package locks (escolha um e descomente o outro se preferir)
-# package-lock.json
-# yarn.lock
-# pnpm-lock.yaml
+# Personal files
+my-tasks.md

@@ -1,0 +1,366 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ==========================================================================
+   DESIGN SYSTEM TOKENS - TDEC Prospect
+   Based on UX Specification
+   ========================================================================== */
+
+@theme inline {
+  /* Colors - mapped from CSS custom properties */
+  --color-background: var(--background);
+  --color-background-secondary: var(--background-secondary);
+  --color-background-tertiary: var(--background-tertiary);
+  --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+
+  /* Semantic colors */
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  /* Status colors */
+  --color-success: var(--success);
+  --color-success-muted: var(--success-muted);
+  --color-warning: var(--warning);
+  --color-warning-muted: var(--warning-muted);
+  --color-destructive: var(--destructive);
+  --color-destructive-muted: var(--destructive-muted);
+
+  /* UI elements */
+  --color-border: var(--border);
+  --color-border-hover: var(--border-hover);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  /* Sidebar */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Charts */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Typography */
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains-mono);
+
+  /* Border Radius - Story spec: 6px default, 8px cards, 12px modals */
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius-card);
+  --radius-lg: var(--radius-modal);
+  --radius-xl: calc(var(--radius-modal) + 4px);
+  --radius-2xl: calc(var(--radius-modal) + 8px);
+}
+
+/* ==========================================================================
+   DARK MODE (Default) - :root contains dark theme tokens
+   Story requirement: Dark mode MUST be the default
+   ========================================================================== */
+
+:root {
+  /* Border Radius System - UX Spec */
+  --radius: 6px;
+  --radius-card: 8px;
+  --radius-modal: 12px;
+
+  /* Spacing System - 4px base scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Dark Mode Colors (Default) - B&W Neutral Theme */
+  /* Background colors */
+  --background: hsl(0 0% 4%);                 /* #0A0A0A - Near-black main background */
+  --background-secondary: hsl(0 0% 7%);       /* #121212 - Cards, elevated surfaces */
+  --background-tertiary: hsl(0 0% 10%);       /* #1A1A1A - Hover states, sidepanels */
+
+  /* Foreground colors */
+  --foreground: hsl(0 0% 98%);                /* #FAFAFA - Primary text */
+  --foreground-muted: hsl(0 0% 62%);          /* #9E9E9E - Secondary text */
+
+  /* Border colors */
+  --border: hsl(0 0% 17%);                    /* #2B2B2B - Subtle borders */
+  --border-hover: hsl(0 0% 27%);              /* #454545 - Borders on hover */
+  --input: hsl(0 0% 17%);                     /* #2B2B2B - Input borders (same as border) */
+  --ring: hsl(0 0% 50%);                      /* #808080 - Focus ring (gray) */
+
+  /* Primary - White */
+  --primary: hsl(0 0% 98%);                   /* #FAFAFA - Primary actions, CTAs */
+  --primary-hover: hsl(0 0% 85%);             /* #D9D9D9 - Primary on hover */
+  --primary-foreground: hsl(0 0% 4%);         /* #0A0A0A - Text on primary (black for contrast) */
+
+  /* Secondary */
+  --secondary: hsl(0 0% 14%);                 /* #242424 - Secondary backgrounds */
+  --secondary-foreground: hsl(0 0% 98%);      /* #FAFAFA - Text on secondary */
+
+  /* Muted */
+  --muted: hsl(0 0% 14%);                     /* #242424 - Muted backgrounds (same as secondary) */
+  --muted-foreground: hsl(0 0% 55%);          /* #8C8C8C - Secondary/placeholder text */
+
+  /* Accent - Gray */
+  --accent: hsl(0 0% 20%);                    /* #333333 - Special highlights, AI */
+  --accent-foreground: hsl(0 0% 98%);         /* #FAFAFA - Text on accent */
+
+  /* Status Colors */
+  --success: hsl(142 71% 45%);                /* #22C55E - Confirmations */
+  --success-muted: hsl(142 64% 24%);          /* #166534 - Success badge bg */
+  --warning: hsl(38 92% 50%);                 /* #F59E0B - Alerts */
+  --warning-muted: hsl(32 81% 29%);           /* #92400E - Warning badge bg */
+  --destructive: hsl(0 84% 60%);              /* #EF4444 - Errors */
+  --destructive-muted: hsl(0 70% 35%);        /* #991B1B - Error badge bg */
+
+  /* Card & Popover */
+  --card: hsl(0 0% 7%);                       /* #121212 - Same as background-secondary */
+  --card-foreground: hsl(0 0% 98%);           /* #FAFAFA */
+  --popover: hsl(0 0% 7%);                    /* #121212 */
+  --popover-foreground: hsl(0 0% 98%);        /* #FAFAFA */
+
+  /* Sidebar */
+  --sidebar: hsl(0 0% 7%);                    /* #121212 */
+  --sidebar-foreground: hsl(0 0% 98%);        /* #FAFAFA */
+  --sidebar-primary: hsl(0 0% 98%);           /* #FAFAFA */
+  --sidebar-primary-foreground: hsl(0 0% 4%); /* #0A0A0A */
+  --sidebar-accent: hsl(0 0% 14%);            /* #242424 */
+  --sidebar-accent-foreground: hsl(0 0% 98%); /* #FAFAFA */
+  --sidebar-border: hsl(0 0% 17%);            /* #2B2B2B */
+  --sidebar-ring: hsl(0 0% 50%);              /* #808080 */
+
+  /* Charts - Full grayscale palette (light→dark for contrast against dark bg) */
+  --chart-1: hsl(0 0% 95%);               /* Near-white */
+  --chart-2: hsl(0 0% 75%);               /* Light gray */
+  --chart-3: hsl(0 0% 55%);               /* Medium gray */
+  --chart-4: hsl(0 0% 35%);               /* Dark gray */
+  --chart-5: hsl(0 0% 20%);               /* Near-black */
+
+  /* Glow Effects - Subtle White */
+  --glow-primary: 0 0 20px hsla(0, 0%, 100%, 0.15);
+  --glow-accent: 0 0 20px hsla(0, 0%, 100%, 0.1);
+
+  /* Typography - Font families set via next/font */
+  --font-inter: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-jetbrains-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* Typography Scale */
+  --text-display: 32px;
+  --text-h1: 24px;
+  --text-h2: 20px;
+  --text-h3: 16px;
+  --text-body: 14px;
+  --text-body-small: 13px;
+  --text-caption: 12px;
+  --text-mono: 13px;
+
+  /* Line Heights */
+  --leading-display: 1.2;
+  --leading-h1: 1.3;
+  --leading-h2: 1.4;
+  --leading-h3: 1.4;
+  --leading-body: 1.5;
+  --leading-caption: 1.4;
+
+  /* Font Weights */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+}
+
+/* ==========================================================================
+   LIGHT MODE - Applied via .light class on <html>
+   ========================================================================== */
+
+.light {
+  /* Background colors - B&W Neutral (0% saturation) */
+  --background: hsl(0 0% 100%);               /* #FFFFFF - Branco puro (manter) */
+  --background-secondary: hsl(0 0% 98%);      /* #FAFAFA - Near-white neutro */
+  --background-tertiary: hsl(0 0% 96%);       /* #F5F5F5 - Off-white neutro */
+
+  /* Foreground colors - B&W Neutral */
+  --foreground: hsl(0 0% 9%);                 /* #171717 - Near-black neutro */
+  --foreground-muted: hsl(0 0% 40%);          /* #666666 - Cinza médio (WCAG AA compliant) */
+
+  /* Border colors - B&W Neutral */
+  --border: hsl(0 0% 88%);                    /* #E0E0E0 - Cinza claro */
+  --border-hover: hsl(0 0% 80%);              /* #CCCCCC - Cinza médio */
+  --input: hsl(0 0% 88%);                     /* #E0E0E0 - Mesmo que border */
+  --ring: hsl(0 0% 25%);                      /* #404040 - Cinza escuro para focus ring (melhor visibilidade) */
+
+  /* Primary - Preto (inversão do dark theme branco) */
+  --primary: hsl(0 0% 9%);                    /* #171717 - Near-black */
+  --primary-hover: hsl(0 0% 20%);             /* #333333 - Cinza escuro hover */
+  --primary-foreground: hsl(0 0% 100%);       /* #FFFFFF - Branco para contraste */
+
+  /* Secondary - B&W Neutral */
+  --secondary: hsl(0 0% 96%);                 /* #F5F5F5 - Mesmo que background-tertiary */
+  --secondary-foreground: hsl(0 0% 9%);       /* #171717 - Near-black */
+
+  /* Muted - B&W Neutral */
+  --muted: hsl(0 0% 96%);                     /* #F5F5F5 - Mesmo que secondary */
+  --muted-foreground: hsl(0 0% 45%);          /* #737373 - Cinza médio */
+
+  /* Accent - Cinza muito claro (não violet) */
+  --accent: hsl(0 0% 92%);                    /* #EBEBEB - Cinza muito claro */
+  --accent-foreground: hsl(0 0% 9%);          /* #171717 - Near-black */
+
+  /* Status Colors - Mantidas (cores funcionais) */
+  --success: hsl(142 71% 45%);
+  --success-muted: hsl(142 50% 90%);          /* Verde claro para background claro */
+  --warning: hsl(38 92% 50%);
+  --warning-muted: hsl(32 80% 90%);           /* Amarelo claro para background claro (hue consistente com dark) */
+  --destructive: hsl(0 84% 60%);
+  --destructive-muted: hsl(0 70% 90%);        /* Vermelho claro para background claro */
+
+  /* Card & Popover - B&W Neutral */
+  --card: hsl(0 0% 100%);                     /* #FFFFFF - Branco puro (manter) */
+  --card-foreground: hsl(0 0% 9%);            /* #171717 - Near-black */
+  --popover: hsl(0 0% 100%);                  /* #FFFFFF */
+  --popover-foreground: hsl(0 0% 9%);         /* #171717 */
+
+  /* Sidebar - B&W Neutral */
+  --sidebar: hsl(0 0% 98%);                   /* #FAFAFA - Near-white */
+  --sidebar-foreground: hsl(0 0% 9%);         /* #171717 */
+  --sidebar-primary: hsl(0 0% 9%);            /* #171717 - Preto */
+  --sidebar-primary-foreground: hsl(0 0% 100%); /* #FFFFFF - Branco */
+  --sidebar-accent: hsl(0 0% 92%);            /* #EBEBEB - Cinza muito claro */
+  --sidebar-accent-foreground: hsl(0 0% 9%);  /* #171717 */
+  --sidebar-border: hsl(0 0% 88%);            /* #E0E0E0 - Cinza claro */
+  --sidebar-ring: hsl(0 0% 25%);              /* #404040 - Cinza escuro (consistente com --ring) */
+
+  /* Charts - Full grayscale palette (dark→light for contrast against light bg) */
+  --chart-1: hsl(0 0% 15%);                   /* Near-black */
+  --chart-2: hsl(0 0% 30%);                   /* Dark gray */
+  --chart-3: hsl(0 0% 50%);                   /* Medium gray */
+  --chart-4: hsl(0 0% 70%);                   /* Light gray */
+  --chart-5: hsl(0 0% 85%);                   /* Near-white */
+
+  /* Glow Effects - Preto sutil (não indigo/violet) */
+  --glow-primary: 0 0 20px hsla(0, 0%, 0%, 0.12);  /* Preto sutil (visibilidade melhorada) */
+  --glow-accent: 0 0 20px hsla(0, 0%, 0%, 0.1);    /* Preto muito sutil */
+}
+
+/* ==========================================================================
+   BASE STYLES
+   ========================================================================== */
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  /* Cursor pointer para todos os elementos clicáveis */
+  button,
+  [role="button"],
+  a,
+  select,
+  [type="checkbox"],
+  [type="radio"],
+  summary,
+  label[for] {
+    cursor: pointer;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-inter);
+  }
+
+  /* Theme transition for smooth switching */
+  html.theme-transition,
+  html.theme-transition *,
+  html.theme-transition *::before,
+  html.theme-transition *::after {
+    transition: background-color 200ms ease-in-out,
+                border-color 200ms ease-in-out,
+                color 200ms ease-in-out !important;
+  }
+}
+
+/* ==========================================================================
+   TYPOGRAPHY UTILITIES
+   ========================================================================== */
+
+@layer utilities {
+  .text-display {
+    font-size: var(--text-display);
+    line-height: var(--leading-display);
+    font-weight: var(--font-weight-semibold);
+  }
+
+  .text-h1 {
+    font-size: var(--text-h1);
+    line-height: var(--leading-h1);
+    font-weight: var(--font-weight-semibold);
+  }
+
+  .text-h2 {
+    font-size: var(--text-h2);
+    line-height: var(--leading-h2);
+    font-weight: var(--font-weight-semibold);
+  }
+
+  .text-h3 {
+    font-size: var(--text-h3);
+    line-height: var(--leading-h3);
+    font-weight: var(--font-weight-medium);
+  }
+
+  .text-body {
+    font-size: var(--text-body);
+    line-height: var(--leading-body);
+    font-weight: var(--font-weight-normal);
+  }
+
+  .text-body-small {
+    font-size: var(--text-body-small);
+    line-height: var(--leading-body);
+    font-weight: var(--font-weight-normal);
+  }
+
+  .text-caption {
+    font-size: var(--text-caption);
+    line-height: var(--leading-caption);
+    font-weight: var(--font-weight-normal);
+  }
+
+  .text-mono {
+    font-size: var(--text-mono);
+    line-height: var(--leading-body);
+    font-weight: var(--font-weight-normal);
+    font-family: var(--font-jetbrains-mono);
+  }
+
+  /* Glow utilities */
+  .glow-primary {
+    box-shadow: var(--glow-primary);
+  }
+
+  .glow-accent {
+    box-shadow: var(--glow-accent);
+  }
+}

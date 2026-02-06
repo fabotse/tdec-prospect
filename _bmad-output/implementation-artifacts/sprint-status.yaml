@@ -1,4 +1,4 @@
-# generated: 2026-01-29
+# generated: 2026-02-06
 # project: tdec-prospect
 # project_key: NOKEY
 # tracking_system: file-system
@@ -33,89 +33,202 @@
 # - SM typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
-generated: 2026-01-29
+generated: 2026-02-06
 project: tdec-prospect
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
 
+# GIT BRANCH TRACKING
+# ===================
+current_branch: epic/9-ai-content-quality
+base_branch: epic/8-visual-refresh
+
+branch_strategy:
+  # Branch naming convention:
+  # - epic/{epic-number}-{epic-name}     → Branch do epic (ex: epic/1-mvp-prospecting)
+  # - feature/{story-id}-{story-name}   → Branch da story (ex: feature/1.1-project-initialization)
+  #
+  # Workflow:
+  # 1. Epic branch criada a partir da main (ou epic anterior)
+  # 2. Feature branches criadas a partir do epic
+  # 3. Ao finalizar story → merge na branch do epic
+  # 4. Ao finalizar epic → PR para main
+
+branches:
+  main: "Branch de produção estável"
+  epic/1-mvp-prospecting: "Epic 1 - Foundation & Authentication (DONE)"
+  epic/2-administration-configuration: "Epic 2 - Administration & Configuration (DONE)"
+  epic/3-lead-discovery: "Epic 3 & 4 - Lead Discovery & Management (DONE)"
+  epic/5-campaign-builder: "Epic 5 - Campaign Builder (DONE)"
+  epic/6-ai-content-generation: "Epic 6 - AI Content Generation (DONE)"
+  epic/6.5-icebreaker-premium: "Epic 6.5 - Icebreaker Premium (DONE)"
+  epic/8-visual-refresh: "Epic 8 - Visual Refresh B&W Theme (IN-PROGRESS)"
+  epic/9-ai-content-quality: "Epic 9 - AI Content Quality & Personalization (IN-PROGRESS)"
+
 development_status:
   # Epic 1: Foundation & Authentication
-  epic-1: backlog
-  1-1-project-initialization-with-starter-template: backlog
-  1-2-design-system-theme-configuration: backlog
-  1-3-application-shell-with-navigation: backlog
-  1-4-supabase-authentication-setup: backlog
-  1-5-multi-tenant-database-structure-rls: backlog
-  epic-1-retrospective: optional
+  epic-1: done
+  1-1-project-initialization-with-starter-template: done
+  1-2-design-system-theme-configuration: done
+  1-3-application-shell-with-navigation: done
+  1-4-supabase-authentication-setup: done
+  1-5-multi-tenant-database-structure-rls: done
+  epic-1-retrospective: done
 
   # Epic 2: Administration & Configuration
-  epic-2: backlog
-  2-1-settings-page-structure-api-configuration-ui: backlog
-  2-2-api-keys-storage-encryption: backlog
-  2-3-integration-connection-testing: backlog
-  2-4-knowledge-base-editor-company-profile: backlog
-  2-5-knowledge-base-editor-tone-examples: backlog
-  2-6-knowledge-base-editor-icp-definition: backlog
-  2-7-team-management-invite-remove-users: backlog
-  epic-2-retrospective: optional
+  epic-2: done
+  2-1-settings-page-structure-api-configuration-ui: done
+  2-2-api-keys-storage-encryption: done
+  2-3-integration-connection-testing: done
+  2-4-knowledge-base-editor-company-profile: done
+  2-5-knowledge-base-editor-tone-examples: done
+  2-6-knowledge-base-editor-icp-definition: done
+  2-7-team-management-invite-remove-users: done
+  epic-2-retrospective: done
 
   # Epic 3: Lead Discovery
-  epic-3: backlog
-  3-1-leads-page-data-model: backlog
-  3-2-apollo-api-integration-service: backlog
-  3-3-traditional-filter-search: backlog
-  3-4-ai-conversational-search: backlog
-  3-5-lead-table-display: backlog
-  3-6-lead-selection-individual-batch: backlog
-  3-7-saved-filters-favorites: backlog
-  epic-3-retrospective: optional
+  epic-3: done
+  3-1-leads-page-data-model: done
+  3-2-apollo-api-integration-service: done
+  3-2-1-people-enrichment-integration: done  # Added: Enrich leads with complete data (email, phone, full last_name)
+  3-3-traditional-filter-search: done
+  3-4-ai-conversational-search: done
+  3-5-lead-table-display: done
+  3-5-1-contact-availability-indicators: done  # Added: Email/phone availability icons + email status filter
+  3-6-lead-selection-individual-batch: done
+  3-7-saved-filters-favorites: done  # Code review: AC #4 undo fix applied
+  3-8-lead-table-pagination: done  # Code review: race condition fix, dead code removal, pagination tests added
+  epic-3-retrospective: done
 
   # Epic 4: Lead Management
-  epic-4: backlog
-  4-1-lead-segments-lists: backlog
-  4-2-lead-status-management: backlog
-  4-3-lead-detail-view-interaction-history: backlog
-  4-4-signalhire-integration-service: backlog
-  4-5-phone-number-lookup: backlog
-  4-6-interested-leads-highlighting: backlog
-  4-7-import-campaign-results: backlog
-  epic-4-retrospective: optional
+  epic-4: in-progress
+  4-1-lead-segments-lists: done  # Code review: 4 HIGH, 3 MEDIUM fixes applied
+  4-2-lead-status-management: done  # Code review: 2 HIGH, 1 MEDIUM fixes applied (test logic, documentation)
+  # NEW STORIES - Lead Persistence Architecture (identified during 4.2 implementation)
+  # See: _bmad-output/implementation-artifacts/epic-4-lead-persistence-planning.md
+  4-2-1-lead-import-mechanism: done  # P0: Enables lead persistence, fixes 4.2 status bug. Code review: 3 HIGH, 1 MEDIUM fixes applied
+  4-2-2-my-leads-page: done  # P1: Dedicated view for saved/imported leads. Code review: 2 HIGH, 1 MEDIUM fixes applied
+  4-2-3-sidebar-navigation-enhancement: done  # P1: Expandable Leads submenu (Buscar, Meus Leads). Code review: 1 HIGH, 4 MEDIUM, 4 LOW fixes applied
+  # Original stories continue
+  4-3-lead-detail-view-interaction-history: done  # Code review: 2 HIGH, 4 MEDIUM, 4 LOW fixes applied (Zod validation, shared components, test coverage)
+  4-4-signalhire-integration-service: done  # Code review: 1 HIGH, 1 MEDIUM, 1 LOW fixes applied (requestId do body não header, mocks atualizados, console.warn removido)
+  # NEW STORY - Lead Data Enrichment (prerequisite for 4.5)
+  # Problem: SignalHire requires email OR LinkedIn, but imported leads don't have these
+  # Solution: Apollo People Enrichment to get email, LinkedIn, photo_url before phone lookup
+  4-4-1-lead-data-enrichment: done  # P0: Code review 2026-02-02: 4 fixes applied (hook tests, progress UI, error handling, accents)
+  # NEW STORY - SignalHire Callback Architecture (CRITICAL FIX)
+  # Problem: SignalHire API requires callbackUrl (mandatory), current code uses non-existent polling
+  # Solution: Supabase Edge Function as callback receiver, works in dev and prod without ngrok
+  4-4-2-signalhire-callback-architecture: done  # P0: Code review 2026-02-02: 4 MEDIUM fixes applied (act warnings, docs)
+  4-5-phone-number-lookup: blocked  # BLOCKED: needs 4.4.2 (callback architecture) - 4.4.1 DONE
+  4-6-interested-leads-highlighting: done  # Code review: 3 MEDIUM, 2 LOW fixes applied (fallback ordering, documentation)
+  4-7-import-campaign-results: done  # Code review 2026-02-02: 5 HIGH, 3 MEDIUM fixes (drag-and-drop, batch processing, email validation, progress indicator)
+  epic-4-retrospective: done
 
   # Epic 5: Campaign Builder
-  epic-5: backlog
-  5-1-campaigns-page-data-model: backlog
-  5-2-campaign-builder-canvas: backlog
-  5-3-email-block-component: backlog
-  5-4-delay-block-component: backlog
-  5-5-sequence-connector-lines: backlog
-  5-6-block-drag-reorder: backlog
-  5-7-campaign-lead-association: backlog
-  5-8-campaign-preview: backlog
-  5-9-campaign-save-multiple-campaigns: backlog
-  epic-5-retrospective: optional
+  epic-5: done
+  5-1-campaigns-page-data-model: done  # Code review 2026-02-02: 5 fixes applied (missing tests, JSON validation, RLS policy, hook refactor, accessibility)
+  5-2-campaign-builder-canvas: done  # Code review 2026-02-02: 3 MEDIUM fixes applied (unused var, max length validation, ARIA labels)
+  5-3-email-block-component: done  # Code review 2026-02-02: 3 HIGH, 2 MEDIUM fixes (useState sync, unused ref, body validation)
+  5-4-delay-block-component: done  # Code review 2026-02-02: 3 MEDIUM, 3 LOW fixes (useEffect deps, aria-label, type safety, data spread, docs)
+  5-5-sequence-connector-lines: done  # Code review 2026-02-02: 1 HIGH, 2 MEDIUM fixes (TypeScript mock types, --border color token, double gap spacing)
+  5-6-block-drag-reorder: done  # Code review 2026-02-02: 2 HIGH, 1 MEDIUM fixes (screen reader announcements, Portuguese aria-labels, drag handler tests)
+  5-7-campaign-lead-association: done  # Code review 2026-02-02: 2 HIGH, 3 MEDIUM fixes (modal close on add, hasChanges flag, File List docs)
+  5-8-campaign-preview: done  # Code review 2026-02-02: 1 HIGH, 2 MEDIUM fixes (keyboard nav tests, PreviewNavigation padding)
+  5-9-campaign-save-multiple-campaigns: done  # Code review 2026-02-02: 2 HIGH, 2 MEDIUM fixes (campaign existence check, atomic operations, editedName sync, tests)
+  epic-5-retrospective: done  # Completed 2026-02-02 - 100% stories, 36 code review fixes
 
   # Epic 6: AI Content Generation
-  epic-6: backlog
-  6-1-ai-provider-service-layer: backlog
-  6-2-ai-text-generation-in-builder: backlog
-  6-3-knowledge-base-integration-for-context: backlog
-  6-4-personalized-icebreakers: backlog
-  6-5-inline-text-editing: backlog
-  6-6-text-regeneration: backlog
-  6-7-tone-of-voice-application: backlog
-  6-8-use-of-successful-examples: backlog
-  epic-6-retrospective: optional
+  epic-6: done
+  6-1-ai-provider-service-layer: done  # Code review 2026-02-02: 3 HIGH, 3 MEDIUM fixes (import type, streaming timeout, search_translation seed, promptKey validation, mock improvement, error logging)
+  6-2-ai-text-generation-in-builder: done  # Code review 2026-02-02: 1 HIGH, 3 MEDIUM fixes (5s timeout, test count, body gen test, stale closure)
+  6-3-knowledge-base-integration-for-context: done  # Code review 2026-02-02: 1 HIGH, 2 MEDIUM fixes (conditional blocks, File List docs, test warnings)
+  # NEW STORIES - Product Context Architecture (identified during 6.3 planning)
+  # Rationale: Product context must exist BEFORE personalization stories (6.6-6.10) to avoid rework
+  6-4-product-catalog-crud: done  # Code review 2026-02-02: 3 MEDIUM fixes (DialogDescription accessibility, DELETE 404, comment update)
+  6-5-campaign-product-context: done  # Code review 2026-02-03: 2 MEDIUM fixes (debug console.log removed, migration 00026 documented)
+  # Original stories continue (renumbered)
+  6-6-personalized-icebreakers: done  # Code review 2026-02-03: 1 HIGH, 1 MEDIUM, 1 LOW fixes (test isolation, previewLead validation, phase testid)
+  6-7-inline-text-editing: done  # Code review 2026-02-03: 3 MEDIUM, 2 LOW fixes (useCombinedRef perf, adjustHeight double call, aria-label, test docs)
+  6-8-text-regeneration: done  # Code review 2026-02-03: 1 HIGH, 1 MEDIUM fixes (flaky test waitFor, stale closure removed)
+  6-9-tone-of-voice-application: done  # Code review 2026-02-03: 1 CRITICAL, 4 MEDIUM fixes + manual tests validated
+  6-10-use-of-successful-examples: done  # Code review 2026-02-03: 2 MEDIUM fixes (debug console.log removed, File List updated)
+  # NEW STORY - Follow-Up Email Mode (identified during 6.8 completion via Course Correction 2026-02-03)
+  # Rationale: Follow-up awareness must exist BEFORE campaign automation (6.12, 6.13) to avoid rework
+  # See: sprint-change-proposal-2026-02-03.md
+  6-11-follow-up-email-mode: done  # Code review 2026-02-03: 4 HIGH, 2 MEDIUM fixes applied (AC#6 test, prompt docs, architecture ADR, migration safety)
+  
+  #Precisamos implementar a inteligencia de continuar os follows-up, reconhecendo os emails anteriores, para nã
+  # perder o contexto e continuar a conversa de forma natural, evitando que o sistema gere emails que não fazem sentido para o destinatário.
+  
+  6-12-ai-campaign-structure-generation: done  # Code review 2026-02-03: 2 HIGH, 3 MEDIUM fixes (tasks marked, File List, CR-5 tests). 50/50 tests passing
+  # NEW STORY - AI Full Campaign Generation (identified during 6.12 completion)
+  # Rationale: Structure generation (6.12) creates empty blocks; users still need to generate content manually.
+  # This story adds: (1) rationale display explaining AI's structure choice, (2) full content generation for all emails in sequence.
+  # See: sprint-status.yaml discussion 2026-02-03
+  6-12-1-ai-full-campaign-generation: done  # P0: Code review 2026-02-03: 2 fixes applied (test model count, File List docs). 59 story tests passing.
+  6-13-smart-campaign-templates: done  # Code review 2026-02-03: 3 MEDIUM, 2 LOW fixes applied (TypeScript mock types, migration doc, "Sequência" accent). 80/80 tests passing
+  epic-6-retrospective: done  # Completed 2026-02-03 - 14/14 stories, all code review fixes applied
 
-  # Epic 7: Campaign Deployment
+  # Epic 6.5: Icebreaker Premium
+  # Icebreakers personalizados baseados em posts reais do LinkedIn do lead
+  # Dependências: Epic 6 (AI infrastructure), Apollo (lead data), OpenAI (generation)
+  # Pesquisa: technical-lead-enrichment-icebreakers-research-2026-02-03.md
+  epic-6-5: done
+  6-5-1-apify-integration-configuration: done  # Adicionar Apify às integrações (card config, teste conexão)
+  6-5-2-apify-linkedin-posts-service: done  # Serviço para buscar posts do LinkedIn via Apify actor (code review complete)
+  6-5-3-icebreaker-prompt-configuration: done  # Prompt específico e configurável para geração de icebreaker (code review complete)
+  6-5-4-lead-icebreaker-database-schema: done  # Code review 2026-02-04: 3 fixes applied (File List docs, partial index comment, test count)
+  6-5-5-icebreaker-enrichment-api: done  # Code review 2026-02-04: 3 HIGH, 3 MEDIUM fixes (skipped count logic, KB integration, batch test, DB error msg, OpenAI key test)
+  6-5-6-icebreaker-ui-lead-table-integration: done  # Code review 2026-02-04: 4 fixes applied (double toast, error capture, tooltip tests, hook mock)
+  6-5-7-icebreaker-integration-with-email-generation: done  # Code review 2026-02-04: 1 HIGH, 3 MEDIUM fixes (removed unused hook, consolidated interfaces, added badge tests)
+  6-5-8-apify-cost-tracking: done  # Code review 2026-02-04: 3 HIGH, 4 MEDIUM fixes (nullish coalescing, admin check, custom date, try/catch, UsagePage tests, retry button). 44 tests passing
+  epic-6-5-retrospective: optional
+
+  # Epic 8: Visual Refresh - Clean B&W Theme (PRIORIDADE ANTES DA EPIC 7)
+  # Transformação visual: tema azulado → preto e branco neutro
+  # Referência: ui.tripled.work
+  # Decisões aprovadas: Light mode incluído, glow mantido, charts grayscale, UI TripleD incluído
+  epic-8: done
+  8-1-dark-theme-bw-conversion: done  # Code review 2026-02-04: 1 HIGH fix (chart colors), 3 action items created
+  8-2-light-theme-bw-conversion: done  # Code review 2026-02-04: 5 fixes applied (WCAG contrast, ring visibility, hue consistency, glow opacity)
+  8-3-charts-grayscale-conversion: done  # Code review 2026-02-05: 3 MEDIUM fixes (docs deviation, regression test). 4 new tests
+  8-4-ui-tripled-components-integration: done  # Code review 2026-02-05: 2 HIGH, 4 MEDIUM fixes (onComplete ref, rgb hardcoded, dead import, dead code, desvios documentados). 54 testes passando.
+  8-5-visual-qa-contrast-review: done  # Code review 2026-02-05: 7 findings (1H, 3M, 3L). Fixes: hex/ratio docs corrigidos, scan expandido para src/app/, checklist atualizado. 18/18 testes passando.
+  epic-8-retrospective: done  # Completed 2026-02-05 - 5/5 stories, 76 new tests, 24 hardcoded colors fixed, cleanup sprint approved
+
+  # Cleanup Sprint (ANTES DA EPIC 9 — Aprovado na retro Epic 8)
+  # Objetivo: Resolver débito técnico acumulado desde Epic 5/6
+  # Referência: epic-8-retro-2026-02-05.md → Action Items 4-7
+  cleanup-sprint: done
+  cleanup-1-fix-failing-tests-and-typescript-errors: done  # Code review 2026-02-05: 2 fixes applied (timer leak deterministic flush, redundant mockClear). 47/47 tests passing
+  cleanup-2-eslint-rule-and-mock-factories: done  # Code review 2026-02-05: 1 fix applied (console.warn removido — log de sucesso desnecessário). 97/97 tests passing
+
+  # Epic 9: AI Content Quality & Personalization (APÓS CLEANUP SPRINT)
+  # Evolução dos prompts de AI e personalização de Ice Breakers
+  # Dependências: Infraestrutura AI existente (Epic 6, 6.5)
+  # Documento: _bmad-output/planning-artifacts/epic-9-ai-content-quality-personalization.md
+  epic-9: done
+  9-1-categorias-de-ice-breaker: done  # Code review 2026-02-05: 2 HIGH, 2 MEDIUM fixes (category descriptions in dropdown, reset on lead change, dead re-export, API test). 38/38 tests passing
+  9-2-exemplos-de-referencia-para-ice-breakers-no-knowledge-base: done  # Code review 2026-02-06: 1 CRITICAL, 2 HIGH, 2 MEDIUM fixes (server action tests, component CRUD tests, type dedup, edge case tests, File List). 173 files, 3046 tests passing.
+  9-3-refatoracao-dos-prompts-de-ice-breaker: done  # Code review 2026-02-06: 1 CRITICAL, 3 MEDIUM, 3 LOW fixes (nested {{#if}} rendering bug, rendering tests, sequential blocks, Lead fallback). 174 files, 3065 tests passing
+  9-4-variavel-ice-breaker-na-geracao-de-campanha-ai: done  # Code review 2026-02-06: 4 MEDIUM fixes (File List docs, scope creep docs, test count). 177 files, 3107 tests passing
+  9-5-estrutura-clara-nos-prompts-de-geracao-de-email-de-campanha: done  # Code review 2026-02-06: 4 MEDIUM fixes (TÉCNICO tone in follow-up, test quality improvements). 51 prompt tests passing
+  9-6-revisao-de-qualidade-geral-dos-prompts-ai: done  # Code review 2026-02-06: 2 MEDIUM fixes (stale camelCase comment, stale mock content). 179 files, 3188 tests passing. 53 cross-prompt tests.
+  epic-9-retrospective: done  # Completed 2026-02-06 — 6/6 stories, 211 new tests, 33 code review fixes, 0 blockers. Key insight: story continuity mechanism needed.
+
+  # Epic 7: Campaign Deployment & Export (REESTRUTURADO 2026-02-06)
+  # Export de campanhas personalizadas com sistema de variáveis de personalização
+  # Pré-requisitos: Epic 9 (base do sistema {{ice_breaker}})
+  # Documento: _bmad-output/planning-artifacts/epic-7-campaign-deployment-export.md
   epic-7: backlog
-  7-1-snov-io-integration-service: backlog
-  7-2-instantly-integration-service: backlog
-  7-3-export-dialog-ui: backlog
-  7-4-export-to-instantly: backlog
-  7-5-export-to-snov-io: backlog
-  7-6-manual-export-copy-to-clipboard: backlog
-  7-7-error-messages-fallback: backlog
-  7-8-loading-states-system: backlog
-  7-9-toast-notification-system: backlog
+  7-1-sistema-de-variaveis-de-personalizacao-para-exportacao: backlog  # P0: Fundação — define variáveis, motor de substituição, mapeamento por plataforma
+  7-2-instantly-integration-service-gestao-de-campanhas: backlog  # P1: Expandir InstantlyService com createCampaign, addLeads, getStatus
+  7-3-snov-io-integration-service-gestao-de-campanhas: backlog  # P1: Service completo para Snov.io drip campaigns
+  7-4-export-dialog-ui-com-preview-de-variaveis: backlog  # P1: Dialog com opções, preview de mapeamento, status de conexão
+  7-5-export-to-instantly-fluxo-completo: backlog  # P2: End-to-end: campanha + leads + tags → Instantly
+  7-6-export-to-snov-io-fluxo-completo: backlog  # P2: End-to-end: drip campaign + recipients → Snov.io
+  7-7-exportacao-manual-csv-e-clipboard: backlog  # P1: CSV resolvido/com variáveis + clipboard formatado
+  7-8-validacao-pre-export-e-error-handling: backlog  # P2: Validação de dados, mensagens PT-BR, fallback manual
   epic-7-retrospective: optional

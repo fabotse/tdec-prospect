@@ -1173,3 +1173,107 @@ npx shadcn init
 npm install @supabase/supabase-js @supabase/ssr @tanstack/react-query zustand zod react-hook-form @dnd-kit/core @dnd-kit/sortable framer-motion
 ```
 
+---
+
+## Architectural Decision Records (ADRs)
+
+### ADR-001: AI Prompt Management System
+
+**Status:** Accepted
+**Date:** 2026-01-30
+**Context:** O sistema utilizará AI para múltiplas funcionalidades (busca conversacional, geração de texto, personalização). Os criadores do software precisam de flexibilidade para ajustar prompts sem necessidade de deploy.
+
+**Decision:**
+
+Todos os prompts de AI serão centralizados e externalizados, permitindo alteração fácil pelos desenvolvedores.
+
+**Abordagem de Armazenamento:**
+
+| Componente | Localização | Rationale |
+|------------|-------------|-----------|
+| **Prompts Base** | Tabela `ai_prompts` no Supabase | Editável via admin, versionável, sem deploy |
+| **System Prompts** | `lib/ai/prompts/*.ts` com fallback | Defaults no código, override via DB |
+| **Tenant Customizations** | Tabela `ai_prompts` com `tenant_id` | Personalização por cliente |
+
+**Schema da Tabela `ai_prompts`:**
+
+```sql
+CREATE TABLE ai_prompts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+  prompt_key VARCHAR(100) NOT NULL,           -- 'search_translation', 'email_generation', etc.
+  prompt_template TEXT NOT NULL,              -- Template com {{variáveis}}
+  model_preference VARCHAR(50),               -- 'gpt-4o', 'claude-3.5-sonnet', etc.
+  version INTEGER DEFAULT 1,
+  is_active BOOLEAN DEFAULT true,
+  metadata JSONB DEFAULT '{}',                -- Parâmetros extras (temperature, max_tokens)
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  created_by UUID REFERENCES auth.users(id),
+  UNIQUE(tenant_id, prompt_key, version)
+);
+
+-- RLS para isolamento
+ALTER TABLE ai_prompts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON ai_prompts
+  FOR ALL USING (tenant_id IS NULL OR tenant_id = auth.jwt() ->> 'tenant_id');
+```
+
+**Prompt Keys Definidos:**
+
+| Key | Uso | Epic |
+|-----|-----|------|
+| `search_translation` | Traducao de linguagem natural - filtros Apollo | Epic 3 |
+| `email_subject_generation` | Geracao de assunto de email | Epic 6 |
+| `email_body_generation` | Geracao de corpo de email | Epic 6 |
+| `icebreaker_generation` | Quebra-gelos personalizados | Epic 6 |
+| `tone_application` | Aplicacao de tom de voz | Epic 6 |
+| `follow_up_email_generation` | Geracao de email follow-up com contexto do email anterior (Story 6.11) | Epic 6 |
+| `follow_up_subject_generation` | Geracao de assunto follow-up com prefixo RE: (Story 6.11) | Epic 6 |
+
+**Padrão de Uso no Código:**
+
+```typescript
+// lib/ai/prompt-manager.ts
+export class PromptManager {
+  async getPrompt(key: string, tenantId?: string): Promise<PromptConfig> {
+    // 1. Busca prompt específico do tenant
+    // 2. Fallback para prompt global (tenant_id = NULL)
+    // 3. Fallback para default no código
+  }
+
+  async renderPrompt(key: string, variables: Record<string, string>): Promise<string> {
+    const template = await this.getPrompt(key);
+    return this.interpolate(template.prompt_template, variables);
+  }
+}
+```
+
+**Interface Admin (Futuro):**
+- UI para editar prompts será disponibilizada em fase posterior
+- Inicialmente, alterações via Supabase Studio ou migrations
+- Versionamento automático para rollback
+
+**Consequences:**
+
+✅ **Positivas:**
+- Prompts editáveis sem deploy de código
+- Experimentação A/B possível com versionamento
+- Personalização por tenant
+- Auditoria de alterações
+
+⚠️ **Trade-offs:**
+- Latência adicional (query ao DB antes de cada chamada AI)
+- Mitigação: cache de prompts em memória com TTL de 5 minutos
+- Complexidade adicional no setup inicial
+
+**Implementation Notes:**
+
+1. **Epic 6, Story 6.1** deve incluir a criação do `PromptManager` e tabela `ai_prompts`
+2. Prompts iniciais serão seed no banco via migration
+3. Cache implementado via `unstable_cache` do Next.js ou TanStack Query
+
+**Related:**
+- Epic 6: AI Content Generation
+- Story 6.1: AI Provider Service Layer
+

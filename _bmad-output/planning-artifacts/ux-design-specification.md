@@ -523,6 +523,63 @@ Paleta dark mode sofisticada inspirada em Linear/Vercel - moderna, elegante e pr
 3. **Legibilidade** - Line heights generosos para conforto em dark mode
 4. **Consistência** - Mesmo scale em toda aplicação
 
+### Iconography System
+
+**Biblioteca: Lucide React**
+
+Utilizamos exclusivamente [Lucide React](https://lucide.dev/) para ícones em toda a aplicação. Lucide é um fork do Feather Icons com mais de 1400 ícones consistentes.
+
+**Por que Lucide React:**
+
+| Critério | Benefício |
+|----------|-----------|
+| **Consistência** | Todos os ícones seguem o mesmo estilo de linha (stroke-based) |
+| **Sem cor** | Ícones monocromáticos que herdam `currentColor` do texto |
+| **Leve** | Tree-shakeable - só inclui ícones usados no bundle |
+| **Acessível** | SVG com atributos ARIA configuráveis |
+| **Customizável** | Tamanho e stroke-width via props |
+
+**Especificações de Uso:**
+
+| Aspecto | Valor | Exemplo |
+|---------|-------|---------|
+| **Tamanho padrão** | 20x20px (`h-5 w-5`) | Navegação, botões |
+| **Tamanho pequeno** | 16x16px (`h-4 w-4`) | Badges, inputs |
+| **Tamanho grande** | 24x24px (`h-6 w-6`) | Headers, destaque |
+| **Stroke width** | 2px (padrão Lucide) | - |
+| **Cor** | `currentColor` | Herda do texto pai |
+
+**Implementação:**
+
+```tsx
+import { Settings, ChevronRight, Loader2 } from "lucide-react";
+
+// Uso padrão
+<Settings className="h-5 w-5" />
+
+// Com cor customizada
+<Settings className="h-5 w-5 text-muted-foreground" />
+
+// Loading spinner
+<Loader2 className="h-5 w-5 animate-spin" />
+```
+
+**Ícones por Contexto:**
+
+| Contexto | Ícones Usados |
+|----------|---------------|
+| **Navegação** | `Users`, `Send`, `Settings`, `ChevronLeft`, `ChevronRight` |
+| **Ações** | `LogOut`, `Eye`, `EyeOff` |
+| **Status** | `Loader2` (loading), `Check`, `X` |
+| **Tema** | `Moon`, `Sun` |
+
+**Princípios:**
+
+1. **Monocromático** - Nunca usar ícones coloridos; cor vem do contexto
+2. **Significativo** - Ícone deve ser autoexplicativo ou acompanhado de label
+3. **Consistente** - Mesmo ícone = mesma ação em toda aplicação
+4. **Acessível** - Usar `aria-label` quando ícone está sozinho
+
 ### Spacing & Layout Foundation
 
 #### Spacing Scale
@@ -1196,6 +1253,23 @@ components/
 
 ### Form Patterns
 
+**Espaçamento label → input:**
+
+| Elemento | Classe | Valor | Nota |
+|----------|--------|-------|------|
+| Label | `mb-2 block` | 8px margin-bottom | Cria espaço entre label e input |
+| Container do campo | `space-y-1` | 4px | Para mensagem de erro abaixo do input |
+| Entre campos | `space-y-4` | 16px | Separação entre campos do form |
+
+**Exemplo de estrutura:**
+```html
+<div class="space-y-1">
+  <Label class="mb-2 block">Email</Label>
+  <Input />
+  {error && <p class="text-xs text-destructive">Mensagem de erro</p>}
+</div>
+```
+
 **Input padrão:**
 
 | Estado | Visual |
@@ -1297,9 +1371,11 @@ components/
 - Focus trap
 
 **Sheet (Sidepanel):**
-- Largura: 400px (md), 600px (lg)
-- Slide from right
+- Largura: 480px (default), 600px (lg)
+- Padding: `px-6` (24px) lateral, `pt-6 pb-4` header, `pb-6` conteúdo
+- Slide from right com duração 200ms
 - Não bloqueia conteúdo principal
+- Close button: `top-4 right-4` com `rounded-sm`
 
 **Popover:**
 - Próximo ao trigger
@@ -1369,7 +1445,7 @@ xl: 1280px  /* Desktop wide */
 - Sidebar expandida (240px) com labels
 - Builder canvas com espaço generoso
 - Tabela de leads com todas as colunas
-- Sidepanel de edição (400-600px)
+- Sidepanel de edição (480-600px)
 - Atalhos de teclado completos
 
 **Tablet (640px - 1023px):**
