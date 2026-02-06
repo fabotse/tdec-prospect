@@ -233,7 +233,7 @@ development_status:
   # Documento: _bmad-output/planning-artifacts/epic-7-campaign-deployment-export.md
   epic-7: in-progress
   7-1-sistema-de-variaveis-de-personalizacao-para-exportacao: done  # P0: Fundação — define variáveis, motor de substituição, mapeamento por plataforma. Code review: 2 HIGH, 3 MEDIUM fixes
-  7-2-instantly-integration-service-gestao-de-campanhas: backlog  # P1: Expandir InstantlyService com createCampaign, addLeads, getStatus
+  7-2-instantly-integration-service-gestao-de-campanhas: done  # P1: Code review 2026-02-06: 3 HIGH, 5 MEDIUM fixes (constants in types, step[0] delay guard, partial batch error, params objects, sequence validation, rate limit test, remainingInPlan init, 500 error tests). 95 story tests, 3402 total
   7-3-snov-io-integration-service-gestao-de-campanhas: backlog  # P1: Service completo para Snov.io drip campaigns
   7-4-export-dialog-ui-com-preview-de-variaveis: backlog  # P1: Dialog com opções, preview de mapeamento, status de conexão
   7-5-export-to-instantly-fluxo-completo: backlog  # P2: End-to-end: campanha + leads + tags → Instantly
