@@ -113,3 +113,45 @@ export interface ExportRecord {
   exportedAt: string | null;
   exportStatus: ExportStatus | null;
 }
+
+// ==============================================
+// EXPORT DIALOG TYPES (Story 7.4: AC #1, #2)
+// ==============================================
+
+/**
+ * Connection status for a platform in the export dialog
+ * Story 7.4: AC #1 - Status badge per platform
+ */
+export type PlatformConnectionStatus = "connected" | "configured" | "not_configured" | "error";
+
+/**
+ * Platform option displayed in the export dialog
+ * Story 7.4: AC #1 - Export platform card with status
+ */
+export interface ExportDialogPlatformOption {
+  /** Target platform */
+  platform: ExportPlatform;
+  /** Display name in PT-BR (e.g., "Instantly", "Snov.io", "CSV", "Clipboard") */
+  displayName: string;
+  /** Whether integration is configured */
+  configured: boolean;
+  /** Connection status for badge display */
+  connectionStatus: PlatformConnectionStatus;
+  /** Previous export record if campaign was exported to this platform */
+  exportRecord: ExportRecord | null;
+}
+
+/**
+ * Summary of leads for export preview
+ * Story 7.4: AC #2, #3 - Lead count breakdown
+ */
+export interface LeadExportSummary {
+  /** Total leads in the campaign */
+  totalLeads: number;
+  /** Leads with valid email (eligible for export) */
+  leadsWithEmail: number;
+  /** Leads without email (excluded from export) */
+  leadsWithoutEmail: number;
+  /** Leads without icebreaker (warning only) */
+  leadsWithoutIcebreaker: number;
+}

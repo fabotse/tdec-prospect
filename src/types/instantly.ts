@@ -141,6 +141,44 @@ export interface GetCampaignResponse {
 }
 
 // ==============================================
+// ACCOUNT TYPES (Story 7.4: AC #4)
+// ==============================================
+
+/**
+ * Single sending account in Instantly
+ * Story 7.4: AC #4 - Sending account selection
+ */
+export interface InstantlyAccountItem {
+  email: string;
+  first_name?: string;
+  last_name?: string;
+}
+
+/**
+ * Response from GET /api/v2/accounts
+ */
+export interface ListAccountsResponse {
+  items: InstantlyAccountItem[];
+  total_count: number;
+}
+
+/**
+ * Parameters for InstantlyService.listAccounts()
+ */
+export interface ListAccountsParams {
+  apiKey: string;
+  limit?: number;
+}
+
+/**
+ * Result from InstantlyService.listAccounts()
+ */
+export interface ListAccountsResult {
+  accounts: InstantlyAccountItem[];
+  totalCount: number;
+}
+
+// ==============================================
 // SERVICE PARAM/RESULT TYPES
 // ==============================================
 

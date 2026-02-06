@@ -25,7 +25,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, Save, Users, Eye, Loader2, Sparkles, Trash2, LayoutTemplate } from "lucide-react";
+import { ArrowLeft, Save, Users, Eye, Loader2, Sparkles, Trash2, LayoutTemplate, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -58,6 +58,8 @@ interface BuilderHeaderProps {
   campaignId?: string;
   /** Callback when delete campaign button is clicked */
   onDelete?: () => void;
+  /** Callback when "Exportar" button is clicked (Story 7.4 AC #1) */
+  onExport?: () => void;
 }
 
 /**
@@ -94,6 +96,7 @@ export function BuilderHeader({
   hasBlocks = false,
   campaignId,
   onDelete,
+  onExport,
 }: BuilderHeaderProps) {
   const hasChanges = useBuilderStore((state) => state.hasChanges);
   // Story 6.12.1 AC #5: AI-generated campaign indicator
@@ -104,11 +107,13 @@ export function BuilderHeader({
   const [editedName, setEditedName] = useState(campaignName);
 
   // CR-3 FIX: Sync editedName when campaignName prop changes (e.g., after save)
+  /* eslint-disable react-hooks/set-state-in-effect -- Intentional: sync derived state from prop */
   useEffect(() => {
     if (!isEditing) {
       setEditedName(campaignName);
     }
   }, [campaignName, isEditing]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleNameSubmit = () => {
     const trimmedName = editedName.trim();
@@ -235,6 +240,20 @@ export function BuilderHeader({
           >
             <Eye className="h-4 w-4" />
             Preview
+          </Button>
+
+          {/* Export button - Story 7.4 AC #1 */}
+          <Button
+            data-testid="export-button"
+            variant="outline"
+            size="sm"
+            onClick={onExport}
+            disabled={!hasBlocks}
+            aria-label="Exportar campanha"
+            className="gap-1.5"
+          >
+            <Upload className="h-4 w-4" />
+            Exportar
           </Button>
 
           <Button

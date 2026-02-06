@@ -31,6 +31,9 @@ import type {
   GetCampaignResponse,
   InstantlySequenceStep,
   InstantlyLead,
+  ListAccountsParams,
+  ListAccountsResult,
+  ListAccountsResponse,
 } from "@/types/instantly";
 
 // ==============================================
@@ -120,7 +123,7 @@ export class InstantlyService extends ExternalService {
       // V2 API uses Bearer token authentication
       const url = `${INSTANTLY_API_BASE}${INSTANTLY_ACCOUNTS_ENDPOINT}?limit=1`;
 
-      await this.request<InstantlyAccountsResponse>(url, {
+      await this.request<ListAccountsResponse>(url, {
         method: "GET",
         headers: buildAuthHeaders(apiKey),
       });
@@ -302,6 +305,28 @@ export class InstantlyService extends ExternalService {
   }
 
   /**
+   * List sending accounts configured in Instantly
+   * Story 7.4: AC #4
+   *
+   * @param params - API key and optional limit (default 100)
+   * @returns List of sending accounts with email, first_name, last_name
+   */
+  async listAccounts(params: ListAccountsParams): Promise<ListAccountsResult> {
+    const { apiKey, limit = 100 } = params;
+    const url = `${INSTANTLY_API_BASE}${INSTANTLY_ACCOUNTS_ENDPOINT}?limit=${limit}`;
+
+    const response = await this.request<ListAccountsResponse>(url, {
+      method: "GET",
+      headers: buildAuthHeaders(apiKey),
+    });
+
+    return {
+      accounts: response.items,
+      totalCount: response.total_count,
+    };
+  }
+
+  /**
    * Get campaign status from Instantly
    * Story 7.2: AC #4
    *
@@ -326,17 +351,3 @@ export class InstantlyService extends ExternalService {
   }
 }
 
-// ==============================================
-// INSTANTLY API TYPES (legacy — connection testing)
-// ==============================================
-
-interface InstantlyAccount {
-  email: string;
-  first_name?: string;
-  last_name?: string;
-}
-
-interface InstantlyAccountsResponse {
-  items: InstantlyAccount[];
-  total_count: number;
-}

@@ -20,12 +20,11 @@
 
 "use client";
 
-import { use, useEffect, useRef, useState } from "react";
+import { use, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   DndContext,
   DragEndEvent,
-  DragStartEvent,
   closestCenter,
   PointerSensor,
   useSensor,
@@ -43,8 +42,11 @@ import {
   BuilderCanvas,
   AddLeadsDialog,
   CampaignPreviewPanel,
+  ExportDialog,
 } from "@/components/builder";
 import { DeleteCampaignDialog } from "@/components/campaigns";
+import { useCampaignExport } from "@/hooks/use-campaign-export";
+import { useIntegrationConfig } from "@/hooks/use-integration-config";
 
 interface PageProps {
   params: Promise<{ campaignId: string }>;
@@ -142,7 +144,7 @@ export default function CampaignBuilderPage({ params }: PageProps) {
   const hasLoadedBlocksRef = useRef(false);
 
   // Story 5.7: Campaign leads management
-  const { leadCount, addLeads } = useCampaignLeads(campaignId);
+  const { leadCount, addLeads, leads: campaignLeadsForExport } = useCampaignLeads(campaignId);
   const [isAddLeadsOpen, setIsAddLeadsOpen] = useState(false);
   const hasAddedLeadsRef = useRef(false);
 
@@ -154,6 +156,19 @@ export default function CampaignBuilderPage({ params }: PageProps) {
   // Delete campaign
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
+  // Story 7.4: Export dialog
+  const [isExportOpen, setIsExportOpen] = useState(false);
+  const { configs: integrationConfigs } = useIntegrationConfig();
+  const exportLeadInfos = useMemo(
+    () => (campaignLeadsForExport ?? []).map((cl) => cl.lead),
+    [campaignLeadsForExport]
+  );
+  const { platformOptions, leadSummary, previousExport } = useCampaignExport({
+    leads: exportLeadInfos,
+    campaign: campaign ?? null,
+    integrationConfigs,
+  });
+
   // Story 5.7 AC #5: Update store lead count when it changes
   useEffect(() => {
     setLeadCount(leadCount);
@@ -164,9 +179,6 @@ export default function CampaignBuilderPage({ params }: PageProps) {
   useEffect(() => {
     // Prevent multiple loads (React Strict Mode / re-renders)
     if (hasLoadedBlocksRef.current) return;
-
-    // Get current store blocks to check if AI wizard pre-loaded them
-    const currentStoreBlocks = useBuilderStore.getState().blocks;
 
     if (initialBlocks && initialBlocks.length > 0) {
       // DB has blocks, load them (existing campaign)
@@ -254,7 +266,7 @@ export default function CampaignBuilderPage({ params }: PageProps) {
     })
   );
 
-  function handleDragStart(_event: DragStartEvent) {
+  function handleDragStart() {
     setDragging(true);
   }
 
@@ -321,6 +333,17 @@ export default function CampaignBuilderPage({ params }: PageProps) {
     setIsPreviewOpen(true);
   };
 
+  // Story 7.4 AC #1: Handle opening export dialog
+  const handleExport = () => {
+    setIsExportOpen(true);
+  };
+
+  // Story 7.4: Export callback (placeholder — real orchestration in Stories 7.5/7.6/7.7)
+  const handleExportConfirm = () => {
+    setIsExportOpen(false);
+    toast.success("Configuração de export salva. Implementação do deploy nas próximas stories.");
+  };
+
   // Delete campaign handlers
   const handleDeleteClick = () => {
     setIsDeleteDialogOpen(true);
@@ -377,6 +400,7 @@ export default function CampaignBuilderPage({ params }: PageProps) {
           hasBlocks={hasBlocks}
           campaignId={campaignId}
           onDelete={handleDeleteClick}
+          onExport={handleExport}
         />
         <div className="flex-1 flex overflow-hidden">
           <BuilderSidebar />
@@ -398,6 +422,19 @@ export default function CampaignBuilderPage({ params }: PageProps) {
         onOpenChange={setIsPreviewOpen}
         campaignName={campaign.name}
         leadCount={leadCount}
+      />
+
+      {/* Story 7.4: Export Dialog */}
+      <ExportDialog
+        open={isExportOpen}
+        onOpenChange={setIsExportOpen}
+        campaignId={campaignId}
+        campaignName={campaignNameState || campaign.name}
+        blocks={blocks}
+        platformOptions={platformOptions}
+        leadSummary={leadSummary}
+        previousExport={previousExport}
+        onExport={handleExportConfirm}
       />
 
       {/* Delete Campaign Dialog */}

@@ -878,6 +878,83 @@ describe("InstantlyService", () => {
   });
 
   // ==============================================
+  // listAccounts (Story 7.4 AC: #4)
+  // ==============================================
+
+  describe("listAccounts", () => {
+    const mockAccountsResponse = {
+      items: [
+        { email: "sender1@company.com", first_name: "Ana", last_name: "Silva" },
+        { email: "sender2@company.com", first_name: "João" },
+      ],
+      total_count: 2,
+    };
+
+    it("returns accounts on success", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/v2\/accounts/,
+          method: "GET",
+          response: mockJsonResponse(mockAccountsResponse),
+        },
+      ]);
+
+      const result = await service.listAccounts({ apiKey: "test-key" });
+
+      expect(result.accounts).toHaveLength(2);
+      expect(result.accounts[0].email).toBe("sender1@company.com");
+      expect(result.accounts[1].email).toBe("sender2@company.com");
+      expect(result.totalCount).toBe(2);
+    });
+
+    it("returns empty array when no accounts configured", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/v2\/accounts/,
+          method: "GET",
+          response: mockJsonResponse({ items: [], total_count: 0 }),
+        },
+      ]);
+
+      const result = await service.listAccounts({ apiKey: "test-key" });
+
+      expect(result.accounts).toHaveLength(0);
+      expect(result.totalCount).toBe(0);
+    });
+
+    it("uses default limit=100 when not specified", async () => {
+      const { mock } = createMockFetch([
+        {
+          url: /\/api\/v2\/accounts/,
+          method: "GET",
+          response: mockJsonResponse(mockAccountsResponse),
+        },
+      ]);
+
+      await service.listAccounts({ apiKey: "test-key" });
+
+      expect(mock).toHaveBeenCalledWith(
+        expect.stringContaining("limit=100"),
+        expect.any(Object)
+      );
+    });
+
+    it("throws ExternalServiceError on 401", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/v2\/accounts/,
+          method: "GET",
+          response: mockErrorResponse(401),
+        },
+      ]);
+
+      await expect(
+        service.listAccounts({ apiKey: "bad-key" })
+      ).rejects.toThrow(ExternalServiceError);
+    });
+  });
+
+  // ==============================================
   // activateCampaign (Story 7.2 AC: #4)
   // ==============================================
 

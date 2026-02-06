@@ -45,7 +45,7 @@ interface PreviewEmailStepProps {
  * - Variables matching registry → styled placeholder with placeholderLabel
  * - Unknown {{variables}} → rendered as-is
  */
-function renderTextWithVariablePlaceholders(text: string): ReactNode[] {
+export function renderTextWithVariablePlaceholders(text: string): ReactNode[] {
   const variables = getVariables();
   const variableMap = new Map(variables.map((v) => [v.name, v]));
   const VARIABLE_REGEX = /\{\{(\w+)\}\}/g;

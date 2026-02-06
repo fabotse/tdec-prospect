@@ -15,6 +15,8 @@ import {
   type ExportStatus,
   type RemoteExportPlatform,
   type ExportRecord,
+  type ExportDialogPlatformOption,
+  type LeadExportSummary,
 } from "@/types/export";
 import { EXPORT_PLATFORMS } from "@/lib/export/variable-registry";
 
@@ -188,6 +190,89 @@ describe("export types", () => {
     it("should support snovio platform", () => {
       const platform: RemoteExportPlatform = "snovio";
       expect(platform).toBe("snovio");
+    });
+  });
+
+  // ==============================================
+  // EXPORT DIALOG TYPES (Story 7.4: AC #1, #2)
+  // ==============================================
+
+  describe("ExportDialogPlatformOption", () => {
+    it("should represent a configured and connected platform", () => {
+      const option: ExportDialogPlatformOption = {
+        platform: "instantly",
+        displayName: "Instantly",
+        configured: true,
+        connectionStatus: "connected",
+        exportRecord: null,
+      };
+
+      expect(option.platform).toBe("instantly");
+      expect(option.displayName).toBe("Instantly");
+      expect(option.configured).toBe(true);
+      expect(option.connectionStatus).toBe("connected");
+      expect(option.exportRecord).toBeNull();
+    });
+
+    it("should represent a non-configured platform", () => {
+      const option: ExportDialogPlatformOption = {
+        platform: "snovio",
+        displayName: "Snov.io",
+        configured: false,
+        connectionStatus: "not_configured",
+        exportRecord: null,
+      };
+
+      expect(option.configured).toBe(false);
+      expect(option.connectionStatus).toBe("not_configured");
+    });
+
+    it("should include previous export record when available", () => {
+      const option: ExportDialogPlatformOption = {
+        platform: "instantly",
+        displayName: "Instantly",
+        configured: true,
+        connectionStatus: "connected",
+        exportRecord: {
+          campaignId: "c-1",
+          externalCampaignId: "ext-abc",
+          exportPlatform: "instantly",
+          exportedAt: "2026-02-06T10:00:00Z",
+          exportStatus: "success",
+        },
+      };
+
+      expect(option.exportRecord).not.toBeNull();
+      expect(option.exportRecord!.exportPlatform).toBe("instantly");
+      expect(option.exportRecord!.exportStatus).toBe("success");
+    });
+  });
+
+  describe("LeadExportSummary", () => {
+    it("should summarize lead export eligibility", () => {
+      const summary: LeadExportSummary = {
+        totalLeads: 50,
+        leadsWithEmail: 45,
+        leadsWithoutEmail: 5,
+        leadsWithoutIcebreaker: 10,
+      };
+
+      expect(summary.totalLeads).toBe(50);
+      expect(summary.leadsWithEmail).toBe(45);
+      expect(summary.leadsWithoutEmail).toBe(5);
+      expect(summary.leadsWithoutIcebreaker).toBe(10);
+    });
+
+    it("should represent campaign with all leads having email", () => {
+      const summary: LeadExportSummary = {
+        totalLeads: 20,
+        leadsWithEmail: 20,
+        leadsWithoutEmail: 0,
+        leadsWithoutIcebreaker: 0,
+      };
+
+      expect(summary.leadsWithEmail).toBe(summary.totalLeads);
+      expect(summary.leadsWithoutEmail).toBe(0);
     });
   });
 
