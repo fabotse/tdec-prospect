@@ -28,7 +28,6 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useSearchLeads, filterLeadsBySegment, filterLeadsByStatus } from "@/hooks/use-leads";
-import { useAISearch } from "@/hooks/use-ai-search";
 import { useSegmentLeadIds } from "@/hooks/use-segments";
 import { useFilterStore } from "@/stores/use-filter-store";
 import { useSelectionStore } from "@/stores/use-selection-store";
@@ -63,8 +62,8 @@ export function LeadsPageContent() {
   // Manual search
   const manualSearch = useSearchLeads();
 
-  // AI search
-  const aiSearch = useAISearch();
+  // AI search results stored via callback from AISearchInput
+  const [aiLeads, setAiLeads] = useState<Lead[]>([]);
 
   // Track search mode and if search has been performed
   const [searchMode, setSearchMode] = useState<SearchMode>("ai");
@@ -93,7 +92,7 @@ export function LeadsPageContent() {
   const currentFiltersRef = useRef<ApolloSearchFilters>({});
 
   // Current data based on mode
-  const rawLeads: Lead[] = searchMode === "ai" ? aiSearch.data : manualSearch.data;
+  const rawLeads: Lead[] = searchMode === "ai" ? aiLeads : manualSearch.data;
 
   // Story 4.1: AC #3 - Filter leads by segment if segment is selected
   // Story 4.2: AC #3 - Filter leads by status if status filter is active
@@ -116,9 +115,9 @@ export function LeadsPageContent() {
     return filteredLeads;
   }, [rawLeads, selectedSegmentId, segmentLeadIds, filters.leadStatuses]);
 
-  const isLoading =
-    searchMode === "ai" ? aiSearch.isLoading : manualSearch.isLoading;
-  const error = searchMode === "ai" ? aiSearch.error : manualSearch.error;
+  // AI loading/error is handled inside AISearchInput's own UI
+  const isLoading = searchMode === "manual" ? manualSearch.isLoading : false;
+  const error = searchMode === "manual" ? manualSearch.error : null;
 
   // Story 3.8: Get pagination state from manual search
   const { pagination, page, perPage, setPage, setPerPage, resetPage } = manualSearch;
@@ -166,8 +165,9 @@ export function LeadsPageContent() {
     [setFilters, setExpanded]
   );
 
-  // Handle AI search completion
-  const handleAISearchComplete = useCallback(() => {
+  // Handle AI search completion — receive leads from AISearchInput
+  const handleAISearchComplete = useCallback((leads: Lead[]) => {
+    setAiLeads(leads);
     setSearchMode("ai");
     setHasSearched(true);
   }, []);

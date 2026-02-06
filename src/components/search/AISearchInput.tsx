@@ -23,6 +23,7 @@ import { useWhisperTranscription } from "@/hooks/use-whisper-transcription";
 import { ExtractedFiltersDisplay } from "./ExtractedFiltersDisplay";
 import { cn } from "@/lib/utils";
 import type { ApolloSearchFilters } from "@/types/apollo";
+import type { Lead } from "@/types/lead";
 import type { InputPhase } from "@/types/ai-search";
 import { PHASE_MESSAGES } from "@/types/ai-search";
 
@@ -32,7 +33,7 @@ import { PHASE_MESSAGES } from "@/types/ai-search";
 
 interface AISearchInputProps {
   onFiltersExtracted?: (filters: ApolloSearchFilters) => void;
-  onSearchComplete?: () => void;
+  onSearchComplete?: (leads: Lead[]) => void;
 }
 
 // ==============================================
@@ -48,6 +49,7 @@ export function AISearchInput({
   // AI Search
   const {
     search,
+    data,
     isLoading,
     searchPhase,
     extractedFilters,
@@ -109,9 +111,9 @@ export function AISearchInput({
   // Notify parent when search completes with results
   useEffect(() => {
     if (searchPhase === "done" && onSearchComplete) {
-      onSearchComplete();
+      onSearchComplete(data);
     }
-  }, [searchPhase, onSearchComplete]);
+  }, [searchPhase, onSearchComplete, data]);
 
   const handleSearch = useCallback(() => {
     if (query.trim()) {
