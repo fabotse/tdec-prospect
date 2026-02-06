@@ -15,15 +15,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { CompanyProfileForm } from "./CompanyProfileForm";
 import { ToneOfVoiceForm } from "./ToneOfVoiceForm";
 import { EmailExamplesForm } from "./EmailExamplesForm";
+import { IcebreakerExamplesForm } from "./IcebreakerExamplesForm";
 import { ICPDefinitionForm } from "./ICPDefinitionForm";
 
 export function KnowledgeBaseTabs() {
   return (
     <Tabs defaultValue="company" className="w-full">
-      <TabsList className="grid w-full grid-cols-4 bg-background-secondary">
+      <TabsList className="grid w-full grid-cols-5 bg-background-secondary">
         <TabsTrigger value="company">Empresa</TabsTrigger>
         <TabsTrigger value="tone">Tom de Voz</TabsTrigger>
         <TabsTrigger value="examples">Exemplos</TabsTrigger>
+        <TabsTrigger value="icebreakers">Ice Breakers</TabsTrigger>
         <TabsTrigger value="icp">ICP</TabsTrigger>
       </TabsList>
 
@@ -65,6 +67,20 @@ export function KnowledgeBaseTabs() {
           </CardHeader>
           <CardContent>
             <EmailExamplesForm />
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="icebreakers" className="mt-4">
+        <Card className="bg-background-secondary border-border">
+          <CardHeader>
+            <CardTitle className="text-h3">Exemplos de Ice Breakers</CardTitle>
+            <CardDescription className="text-body-small text-foreground-muted">
+              Adicione exemplos de ice breakers bem-sucedidos para a IA aprender seu estilo de personalização.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <IcebreakerExamplesForm />
           </CardContent>
         </Card>
       </TabsContent>

@@ -23,6 +23,10 @@ import {
   createEmailExample,
   updateEmailExample,
   deleteEmailExample,
+  getIcebreakerExamples,
+  createIcebreakerExample,
+  updateIcebreakerExample,
+  deleteIcebreakerExample,
   getICPDefinition,
   saveICPDefinition,
 } from "@/actions/knowledge-base";
@@ -643,6 +647,356 @@ describe("knowledge-base actions", () => {
       const result = await deleteEmailExample(validUUID);
 
       expect(result).toEqual({ success: true });
+    });
+  });
+
+  // ==============================================
+  // ICEBREAKER EXAMPLES ACTIONS (Story 9.2)
+  // ==============================================
+
+  describe("getIcebreakerExamples", () => {
+    it("should require authentication", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(null);
+
+      const result = await getIcebreakerExamples();
+
+      expect(result).toEqual({
+        success: false,
+        error: "Não autenticado",
+      });
+    });
+
+    it("should require admin role", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockUserProfile);
+
+      const result = await getIcebreakerExamples();
+
+      expect(result).toEqual({
+        success: false,
+        error: "Apenas administradores podem acessar exemplos de ice breaker",
+      });
+    });
+
+    it("should return examples list", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+
+      const mockExamples = [
+        {
+          id: "1",
+          tenant_id: "tenant-456",
+          text: "Vi que a Acme está expandindo para SaaS.",
+          category: "empresa",
+          created_at: "2026-01-01",
+          updated_at: "2026-01-01",
+        },
+      ];
+
+      mockSupabase.from.mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            order: vi.fn().mockResolvedValue({
+              data: mockExamples,
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      const result = await getIcebreakerExamples();
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data).toEqual(mockExamples);
+      }
+      expect(mockSupabase.from).toHaveBeenCalledWith("icebreaker_examples");
+    });
+
+    it("should return error on database failure", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+
+      mockSupabase.from.mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            order: vi.fn().mockResolvedValue({
+              data: null,
+              error: { message: "Database error" },
+            }),
+          }),
+        }),
+      });
+
+      const result = await getIcebreakerExamples();
+
+      expect(result).toEqual({
+        success: false,
+        error: "Erro ao buscar exemplos",
+      });
+    });
+  });
+
+  describe("createIcebreakerExample", () => {
+    it("should require authentication", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(null);
+
+      const result = await createIcebreakerExample({
+        text: "Test ice breaker",
+      });
+
+      expect(result).toEqual({
+        success: false,
+        error: "Não autenticado",
+      });
+    });
+
+    it("should require admin role", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockUserProfile);
+
+      const result = await createIcebreakerExample({
+        text: "Test ice breaker",
+      });
+
+      expect(result).toEqual({
+        success: false,
+        error: "Apenas administradores podem adicionar exemplos",
+      });
+    });
+
+    it("should validate input - require text", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+
+      const result = await createIcebreakerExample({
+        text: "",
+      });
+
+      expect(result.success).toBe(false);
+      expect(result).toHaveProperty("error");
+    });
+
+    it("should validate input - reject text over 500 chars", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+
+      const result = await createIcebreakerExample({
+        text: "a".repeat(501),
+      });
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error).toContain("500");
+      }
+    });
+
+    it("should validate input - reject invalid category", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+
+      const result = await createIcebreakerExample({
+        text: "Valid text",
+        // @ts-expect-error - Testing invalid category
+        category: "invalid",
+      });
+
+      expect(result.success).toBe(false);
+    });
+
+    it("should create example successfully with category", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+
+      const mockCreated = {
+        id: "new-id",
+        tenant_id: "tenant-456",
+        text: "New ice breaker",
+        category: "empresa",
+        created_at: "2026-01-01",
+        updated_at: "2026-01-01",
+      };
+
+      mockSupabase.from.mockReturnValue({
+        insert: vi.fn().mockReturnValue({
+          select: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({
+              data: mockCreated,
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      const result = await createIcebreakerExample({
+        text: "New ice breaker",
+        category: "empresa",
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data).toEqual(mockCreated);
+      }
+      expect(mockSupabase.from).toHaveBeenCalledWith("icebreaker_examples");
+    });
+
+    it("should create example successfully without category", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+
+      const mockCreated = {
+        id: "new-id",
+        tenant_id: "tenant-456",
+        text: "Generic ice breaker",
+        category: null,
+        created_at: "2026-01-01",
+        updated_at: "2026-01-01",
+      };
+
+      mockSupabase.from.mockReturnValue({
+        insert: vi.fn().mockReturnValue({
+          select: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({
+              data: mockCreated,
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      const result = await createIcebreakerExample({
+        text: "Generic ice breaker",
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data?.category).toBeNull();
+      }
+    });
+  });
+
+  describe("updateIcebreakerExample", () => {
+    const validUUID = "550e8400-e29b-41d4-a716-446655440000";
+
+    it("should reject invalid UUID", async () => {
+      const result = await updateIcebreakerExample("invalid-id", {
+        text: "Updated",
+      });
+
+      expect(result).toEqual({
+        success: false,
+        error: "ID inválido",
+      });
+    });
+
+    it("should require authentication", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(null);
+
+      const result = await updateIcebreakerExample(validUUID, {
+        text: "Updated",
+      });
+
+      expect(result).toEqual({
+        success: false,
+        error: "Não autenticado",
+      });
+    });
+
+    it("should require admin role", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockUserProfile);
+
+      const result = await updateIcebreakerExample(validUUID, {
+        text: "Updated",
+      });
+
+      expect(result).toEqual({
+        success: false,
+        error: "Apenas administradores podem editar exemplos",
+      });
+    });
+
+    it("should update example successfully", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+
+      const mockUpdated = {
+        id: validUUID,
+        tenant_id: "tenant-456",
+        text: "Updated ice breaker",
+        category: "lead",
+        created_at: "2026-01-01",
+        updated_at: "2026-01-02",
+      };
+
+      mockSupabase.from.mockReturnValue({
+        update: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              select: vi.fn().mockReturnValue({
+                single: vi.fn().mockResolvedValue({
+                  data: mockUpdated,
+                  error: null,
+                }),
+              }),
+            }),
+          }),
+        }),
+      });
+
+      const result = await updateIcebreakerExample(validUUID, {
+        text: "Updated ice breaker",
+        category: "lead",
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data).toEqual(mockUpdated);
+      }
+      expect(mockSupabase.from).toHaveBeenCalledWith("icebreaker_examples");
+    });
+  });
+
+  describe("deleteIcebreakerExample", () => {
+    const validUUID = "550e8400-e29b-41d4-a716-446655440000";
+
+    it("should reject invalid UUID", async () => {
+      const result = await deleteIcebreakerExample("invalid-id");
+
+      expect(result).toEqual({
+        success: false,
+        error: "ID inválido",
+      });
+    });
+
+    it("should require authentication", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(null);
+
+      const result = await deleteIcebreakerExample(validUUID);
+
+      expect(result).toEqual({
+        success: false,
+        error: "Não autenticado",
+      });
+    });
+
+    it("should require admin role", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockUserProfile);
+
+      const result = await deleteIcebreakerExample(validUUID);
+
+      expect(result).toEqual({
+        success: false,
+        error: "Apenas administradores podem remover exemplos",
+      });
+    });
+
+    it("should delete example successfully", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+
+      mockSupabase.from.mockReturnValue({
+        delete: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      const result = await deleteIcebreakerExample(validUUID);
+
+      expect(result).toEqual({ success: true });
+      expect(mockSupabase.from).toHaveBeenCalledWith("icebreaker_examples");
     });
   });
 

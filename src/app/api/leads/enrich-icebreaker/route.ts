@@ -27,7 +27,7 @@ import type { FetchLinkedInPostsResult, LinkedInPost } from "@/types/apify";
 import type { PromptKey, IcebreakerCategory } from "@/types/ai-prompt";
 import { ICEBREAKER_CATEGORY_INSTRUCTIONS } from "@/types/ai-prompt";
 import type { AIModel } from "@/types/ai-provider";
-import type { CompanyProfile, ToneOfVoice, KnowledgeBaseSection } from "@/types/knowledge-base";
+import type { CompanyProfile, ToneOfVoice, KnowledgeBaseSection, IcebreakerExample } from "@/types/knowledge-base";
 
 // ==============================================
 // KB CONTEXT TYPES
@@ -36,6 +36,7 @@ import type { CompanyProfile, ToneOfVoice, KnowledgeBaseSection } from "@/types/
 interface IcebreakerKBContext {
   company: CompanyProfile | null;
   tone: ToneOfVoice | null;
+  icebreakerExamples: IcebreakerExample[];
 }
 
 // ==============================================
@@ -44,6 +45,7 @@ interface IcebreakerKBContext {
 
 const BATCH_SIZE = 5; // AC #4: Max concurrent requests
 const MAX_LEADS_PER_REQUEST = 50;
+const MAX_IB_EXAMPLES_IN_PROMPT = 3; // Story 9.2: AC #3 - max examples injected
 
 // ==============================================
 // ERROR MESSAGES (Portuguese) - AC #7
@@ -160,12 +162,84 @@ async function fetchKBSection<T>(
 
 async function fetchKBContext(tenantId: string): Promise<IcebreakerKBContext> {
   const supabase = await createClient();
-  const [company, tone] = await Promise.all([
+  const [company, tone, icebreakerExamples] = await Promise.all([
     fetchKBSection<CompanyProfile>(supabase, tenantId, "company"),
     fetchKBSection<ToneOfVoice>(supabase, tenantId, "tone"),
+    fetchIcebreakerExamples(supabase, tenantId),
   ]);
 
-  return { company, tone };
+  return { company, tone, icebreakerExamples };
+}
+
+// ==============================================
+// HELPER: Fetch Icebreaker Examples (Story 9.2)
+// ==============================================
+
+async function fetchIcebreakerExamples(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenantId: string
+): Promise<IcebreakerExample[]> {
+  const { data, error } = await supabase
+    .from("icebreaker_examples")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .order("created_at", { ascending: false });
+
+  if (error || !data) {
+    return [];
+  }
+
+  return data as IcebreakerExample[];
+}
+
+// ==============================================
+// HELPER: Format Icebreaker Examples (Story 9.2)
+// ==============================================
+
+/**
+ * Story 9.2 AC #3: Select and format icebreaker examples for prompt injection.
+ * Priority: same-category examples first, then null-category to fill up to MAX.
+ * Returns empty string if no examples (graceful degradation AC #4).
+ */
+function formatIcebreakerExamples(
+  examples: IcebreakerExample[],
+  category?: IcebreakerCategory
+): string {
+  if (examples.length === 0) {
+    return "";
+  }
+
+  // Separate by category match
+  const sameCategory = category
+    ? examples.filter((e) => e.category === category)
+    : [];
+  const noCategory = examples.filter((e) => e.category === null);
+
+  // Priority: same category first, then no-category, up to MAX
+  const selected: IcebreakerExample[] = [];
+
+  for (const ex of sameCategory) {
+    if (selected.length >= MAX_IB_EXAMPLES_IN_PROMPT) break;
+    selected.push(ex);
+  }
+
+  for (const ex of noCategory) {
+    if (selected.length >= MAX_IB_EXAMPLES_IN_PROMPT) break;
+    selected.push(ex);
+  }
+
+  if (selected.length === 0) {
+    return "";
+  }
+
+  return selected
+    .map((ex, idx) => {
+      const catLabel = ex.category
+        ? ex.category.charAt(0).toUpperCase() + ex.category.slice(1)
+        : "Geral";
+      return `Exemplo ${idx + 1}:\nTexto: ${ex.text}\nCategoria: ${catLabel}`;
+    })
+    .join("\n\n");
 }
 
 // ==============================================
@@ -275,6 +349,7 @@ function buildStandardIcebreakerVariables(
     products_services: "",
     successful_examples: "",
     category_instructions: ICEBREAKER_CATEGORY_INSTRUCTIONS[category],
+    icebreaker_examples: formatIcebreakerExamples(kbContext.icebreakerExamples, category),
   };
 }
 

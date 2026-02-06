@@ -175,6 +175,18 @@ describe("POST /api/leads/enrich-icebreaker", () => {
           }),
         };
       }
+      if (table === "icebreaker_examples") {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              order: vi.fn().mockResolvedValue({
+                data: [],
+                error: null,
+              }),
+            }),
+          }),
+        };
+      }
       return {};
     });
 
@@ -586,6 +598,18 @@ describe("POST /api/leads/enrich-icebreaker", () => {
             }),
           };
         }
+        if (table === "icebreaker_examples") {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                order: vi.fn().mockResolvedValue({
+                  data: [],
+                  error: null,
+                }),
+              }),
+            }),
+          };
+        }
         return {};
       });
 
@@ -616,6 +640,18 @@ describe("POST /api/leads/enrich-icebreaker", () => {
                     data: null,
                     error: new Error("Not found"),
                   }),
+                }),
+              }),
+            }),
+          };
+        }
+        if (table === "icebreaker_examples") {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                order: vi.fn().mockResolvedValue({
+                  data: [],
+                  error: null,
                 }),
               }),
             }),
@@ -658,6 +694,18 @@ describe("POST /api/leads/enrich-icebreaker", () => {
                       error: new Error("Not found"),
                     }),
                   };
+                }),
+              }),
+            }),
+          };
+        }
+        if (table === "icebreaker_examples") {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                order: vi.fn().mockResolvedValue({
+                  data: [],
+                  error: null,
                 }),
               }),
             }),

@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod";
+import type { IcebreakerCategory } from "./ai-prompt";
 
 // ==============================================
 // SHARED VALIDATION SCHEMAS
@@ -262,6 +263,45 @@ export const icpDefinitionSchema = z.object({
 });
 
 export type ICPDefinitionInput = z.infer<typeof icpDefinitionSchema>;
+
+// ==============================================
+// ICEBREAKER EXAMPLES TYPES (Story 9.2)
+// ==============================================
+
+/**
+ * Icebreaker example record as stored in database
+ * AC: #1, #2 - Fields: id, tenant_id, text, category, created_at, updated_at
+ */
+export interface IcebreakerExample {
+  id: string;
+  tenant_id: string;
+  text: string;
+  category: IcebreakerCategory | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Zod schema for icebreaker example validation
+ * Story 9.2: text (1-500 chars), category (optional enum)
+ */
+export const icebreakerExampleSchema = z.object({
+  text: z
+    .string()
+    .min(1, "Texto do ice breaker é obrigatório")
+    .max(500, "Texto muito longo (máximo 500 caracteres)"),
+  category: z.enum(["lead", "empresa", "cargo", "post"] as const).optional(),
+});
+
+export type IcebreakerExampleInput = z.infer<typeof icebreakerExampleSchema>;
+
+/**
+ * Icebreaker example record for insert operations
+ */
+export type IcebreakerExampleInsert = Omit<
+  IcebreakerExample,
+  "id" | "created_at" | "updated_at"
+>;
 
 // ==============================================
 // ACTION RESULT TYPE (SHARED)

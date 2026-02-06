@@ -18,12 +18,15 @@ import {
   type ToneOfVoiceInput,
   type EmailExample,
   type EmailExampleInput,
+  type IcebreakerExample,
+  type IcebreakerExampleInput,
   type ICPDefinition,
   type ICPDefinitionInput,
   type ActionResult,
   companyProfileSchema,
   toneOfVoiceSchema,
   emailExampleSchema,
+  icebreakerExampleSchema,
   icpDefinitionSchema,
   uuidSchema,
   KNOWLEDGE_BASE_SECTIONS,
@@ -414,6 +417,201 @@ export async function deleteEmailExample(
     return { success: true };
   } catch (error) {
     console.error("deleteEmailExample error:", error);
+    return { success: false, error: "Erro interno do servidor" };
+  }
+}
+
+// ==============================================
+// ICEBREAKER EXAMPLES ACTIONS (Story 9.2)
+// ==============================================
+
+/**
+ * Get all icebreaker examples for current tenant
+ * AC: #1, #2 - Fetch icebreaker examples list
+ */
+export async function getIcebreakerExamples(): Promise<ActionResult<IcebreakerExample[]>> {
+  try {
+    const profile = await getCurrentUserProfile();
+
+    if (!profile) {
+      return { success: false, error: "Não autenticado" };
+    }
+
+    if (profile.role !== "admin") {
+      return {
+        success: false,
+        error: "Apenas administradores podem acessar exemplos de ice breaker",
+      };
+    }
+
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("icebreaker_examples")
+      .select("*")
+      .eq("tenant_id", profile.tenant_id)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching icebreaker examples:", error);
+      return { success: false, error: "Erro ao buscar exemplos" };
+    }
+
+    return { success: true, data: data as IcebreakerExample[] };
+  } catch (error) {
+    console.error("getIcebreakerExamples error:", error);
+    return { success: false, error: "Erro interno do servidor" };
+  }
+}
+
+/**
+ * Create a new icebreaker example
+ * AC: #2 - Add new icebreaker example with text and optional category
+ */
+export async function createIcebreakerExample(
+  data: IcebreakerExampleInput
+): Promise<ActionResult<IcebreakerExample>> {
+  try {
+    const validated = icebreakerExampleSchema.safeParse(data);
+    if (!validated.success) {
+      const message = validated.error.issues[0]?.message ?? "Dados inválidos";
+      return { success: false, error: message };
+    }
+
+    const profile = await getCurrentUserProfile();
+
+    if (!profile) {
+      return { success: false, error: "Não autenticado" };
+    }
+
+    if (profile.role !== "admin") {
+      return {
+        success: false,
+        error: "Apenas administradores podem adicionar exemplos",
+      };
+    }
+
+    const supabase = await createClient();
+    const { data: example, error } = await supabase
+      .from("icebreaker_examples")
+      .insert({
+        tenant_id: profile.tenant_id,
+        text: validated.data.text,
+        category: validated.data.category ?? null,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error creating icebreaker example:", error);
+      return { success: false, error: "Erro ao criar exemplo. Tente novamente." };
+    }
+
+    return { success: true, data: example as IcebreakerExample };
+  } catch (error) {
+    console.error("createIcebreakerExample error:", error);
+    return { success: false, error: "Erro interno do servidor" };
+  }
+}
+
+/**
+ * Update an existing icebreaker example
+ * AC: #2 - Edit existing icebreaker example
+ */
+export async function updateIcebreakerExample(
+  id: string,
+  data: IcebreakerExampleInput
+): Promise<ActionResult<IcebreakerExample>> {
+  try {
+    const idValidation = uuidSchema.safeParse(id);
+    if (!idValidation.success) {
+      return { success: false, error: "ID inválido" };
+    }
+
+    const validated = icebreakerExampleSchema.safeParse(data);
+    if (!validated.success) {
+      const message = validated.error.issues[0]?.message ?? "Dados inválidos";
+      return { success: false, error: message };
+    }
+
+    const profile = await getCurrentUserProfile();
+
+    if (!profile) {
+      return { success: false, error: "Não autenticado" };
+    }
+
+    if (profile.role !== "admin") {
+      return {
+        success: false,
+        error: "Apenas administradores podem editar exemplos",
+      };
+    }
+
+    const supabase = await createClient();
+    const { data: example, error } = await supabase
+      .from("icebreaker_examples")
+      .update({
+        text: validated.data.text,
+        category: validated.data.category ?? null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .eq("tenant_id", profile.tenant_id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error updating icebreaker example:", error);
+      return { success: false, error: "Erro ao atualizar exemplo. Tente novamente." };
+    }
+
+    return { success: true, data: example as IcebreakerExample };
+  } catch (error) {
+    console.error("updateIcebreakerExample error:", error);
+    return { success: false, error: "Erro interno do servidor" };
+  }
+}
+
+/**
+ * Delete an icebreaker example
+ * AC: #2 - Remove icebreaker example
+ */
+export async function deleteIcebreakerExample(
+  id: string
+): Promise<ActionResult<void>> {
+  try {
+    const idValidation = uuidSchema.safeParse(id);
+    if (!idValidation.success) {
+      return { success: false, error: "ID inválido" };
+    }
+
+    const profile = await getCurrentUserProfile();
+
+    if (!profile) {
+      return { success: false, error: "Não autenticado" };
+    }
+
+    if (profile.role !== "admin") {
+      return {
+        success: false,
+        error: "Apenas administradores podem remover exemplos",
+      };
+    }
+
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from("icebreaker_examples")
+      .delete()
+      .eq("id", id)
+      .eq("tenant_id", profile.tenant_id);
+
+    if (error) {
+      console.error("Error deleting icebreaker example:", error);
+      return { success: false, error: "Erro ao remover exemplo. Tente novamente." };
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("deleteIcebreakerExample error:", error);
     return { success: false, error: "Erro interno do servidor" };
   }
 }

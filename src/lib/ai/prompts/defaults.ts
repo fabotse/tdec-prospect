@@ -385,6 +385,19 @@ EXEMPLOS DE ABORDAGENS QUE FUNCIONARAM (APRENDA COM ELES):
 - Se os exemplos fazem conexões específicas com o lead, faça conexões similares
 {{/if}}
 
+{{#if icebreaker_examples}}
+EXEMPLOS DE ICE BREAKERS DE REFERÊNCIA (APRENDA COM ELES):
+{{icebreaker_examples}}
+
+⚠️ INSTRUÇÕES CRÍTICAS - IMITE OS EXEMPLOS:
+- Adote o MESMO estilo de abertura dos exemplos
+- Use vocabulário e expressões similares aos exemplos de ice breaker
+- Copie a forma como personalizam (menção à empresa, setor, conquistas)
+- O quebra-gelo gerado DEVE parecer escrito pela mesma pessoa que escreveu os exemplos
+- Observe o comprimento dos exemplos e mantenha similar
+- Se os exemplos fazem conexões específicas, faça conexões similares
+{{/if}}
+
 REGRAS OBRIGATÓRIAS:
 1. Máximo 2 frases
 2. USE O NOME REAL DA EMPRESA "{{lead_company}}" - não use placeholders
@@ -394,7 +407,7 @@ REGRAS OBRIGATÓRIAS:
 6. Se houver diretrizes de escrita, elas têm prioridade
 7. Demonstre que pesquisou sobre a empresa
 8. Não faça perguntas - afirme algo relevante
-9. {{#if successful_examples}}PRIORIDADE MÁXIMA: Imite o estilo dos exemplos fornecidos{{else}}Use as abordagens eficazes listadas abaixo{{/if}}
+9. {{#if icebreaker_examples}}PRIORIDADE MÁXIMA: Imite o estilo dos exemplos de ice breaker fornecidos{{else}}{{#if successful_examples}}PRIORIDADE MÁXIMA: Imite o estilo dos exemplos fornecidos{{else}}Use as abordagens eficazes listadas abaixo{{/if}}{{/if}}
 10. SIGA O FOCO DA CATEGORIA indicado acima — ele define o ângulo principal do quebra-gelo
 
 TIPOS DE QUEBRA-GELO EFICAZES:
