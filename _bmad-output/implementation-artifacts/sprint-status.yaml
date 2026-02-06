@@ -41,8 +41,8 @@ story_location: _bmad-output/implementation-artifacts
 
 # GIT BRANCH TRACKING
 # ===================
-current_branch: epic/9-ai-content-quality
-base_branch: epic/8-visual-refresh
+current_branch: cleanup/2-mock-resilience
+base_branch: main
 
 branch_strategy:
   # Branch naming convention:
@@ -63,8 +63,9 @@ branches:
   epic/5-campaign-builder: "Epic 5 - Campaign Builder (DONE)"
   epic/6-ai-content-generation: "Epic 6 - AI Content Generation (DONE)"
   epic/6.5-icebreaker-premium: "Epic 6.5 - Icebreaker Premium (DONE)"
-  epic/8-visual-refresh: "Epic 8 - Visual Refresh B&W Theme (IN-PROGRESS)"
-  epic/9-ai-content-quality: "Epic 9 - AI Content Quality & Personalization (IN-PROGRESS)"
+  epic/8-visual-refresh: "Epic 8 - Visual Refresh B&W Theme (DONE)"
+  epic/9-ai-content-quality: "Epic 9 - AI Content Quality & Personalization (DONE)"
+  cleanup/2-mock-resilience: "Cleanup Sprint 2 - Mock Infrastructure (IN-PROGRESS)"
 
 development_status:
   # Epic 1: Foundation & Authentication
@@ -217,6 +218,13 @@ development_status:
   9-5-estrutura-clara-nos-prompts-de-geracao-de-email-de-campanha: done  # Code review 2026-02-06: 4 MEDIUM fixes (TÉCNICO tone in follow-up, test quality improvements). 51 prompt tests passing
   9-6-revisao-de-qualidade-geral-dos-prompts-ai: done  # Code review 2026-02-06: 2 MEDIUM fixes (stale camelCase comment, stale mock content). 179 files, 3188 tests passing. 53 cross-prompt tests.
   epic-9-retrospective: done  # Completed 2026-02-06 — 6/6 stories, 211 new tests, 33 code review fixes, 0 blockers. Key insight: story continuity mechanism needed.
+
+  # Cleanup Sprint 2 (ANTES DA EPIC 7 — Aprovado na retro Epic 9)
+  # Objetivo: Resolver débito técnico de infraestrutura de mocks
+  # Referência: epic-9-retro-2026-02-06.md → Action Items 4-5, Critical Path item 2
+  cleanup-sprint-2: in-progress
+  cleanup-3-mock-supabase-resiliente: done  # HIGH: Handler default para tabelas desconhecidas — 7 arquivos migrados, 3214 testes passando, +26 novos testes. Code review: 4 MEDIUM fixes
+  cleanup-4-mock-http-centralizado: done  # HIGH: Helper centralizado para global.fetch — padrão consistente para APIs externas (15 arquivos, 5 migrados). Code review: 3 MEDIUM fixes. 181 files, 3242 tests, 0 failures
 
   # Epic 7: Campaign Deployment & Export (REESTRUTURADO 2026-02-06)
   # Export de campanhas personalizadas com sistema de variáveis de personalização

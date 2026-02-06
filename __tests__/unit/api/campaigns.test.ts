@@ -9,6 +9,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { GET, POST } from "@/app/api/campaigns/route";
+import { createChainBuilder } from "../../helpers/mock-supabase";
 
 // Mock Supabase
 const mockFrom = vi.fn();
@@ -50,6 +51,7 @@ describe("Campaigns API", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFrom.mockImplementation(() => createChainBuilder());
   });
 
   describe("GET /api/campaigns (AC: #1, #5)", () => {
@@ -58,13 +60,10 @@ describe("Campaigns API", () => {
         data: { user: { id: mockUserId } },
       });
 
-      const campaignsChain = {
-        select: vi.fn().mockReturnThis(),
-        order: vi.fn().mockResolvedValue({
-          data: campaigns,
-          error: null,
-        }),
-      };
+      const campaignsChain = createChainBuilder({
+        data: campaigns,
+        error: null,
+      });
 
       mockFrom.mockImplementation(() => campaignsChain);
 
@@ -156,13 +155,11 @@ describe("Campaigns API", () => {
         data: { user: { id: mockUserId } },
       });
 
-      mockFrom.mockImplementation(() => ({
-        select: vi.fn().mockReturnThis(),
-        order: vi.fn().mockResolvedValue({
-          data: null,
-          error: { message: "Database error" },
-        }),
-      }));
+      const errorChain = createChainBuilder({
+        data: null,
+        error: { message: "Database error" },
+      });
+      mockFrom.mockImplementation(() => errorChain);
 
       const response = await GET();
       const body = await response.json();
@@ -187,34 +184,27 @@ describe("Campaigns API", () => {
         data: { user: { id: mockUserId } },
       });
 
-      const profileChain = {
-        select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({
-          data: { tenant_id: mockTenantId },
-          error: null,
-        }),
-      };
+      const profileChain = createChainBuilder({
+        data: { tenant_id: mockTenantId },
+        error: null,
+      });
 
-      const insertChain = {
-        insert: vi.fn().mockReturnThis(),
-        select: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({
-          data: {
-            id: "campaign-new",
-            tenant_id: mockTenantId,
-            name: "New Campaign",
-            status: "draft",
-            created_at: "2026-02-02T10:00:00Z",
-            updated_at: "2026-02-02T10:00:00Z",
-          },
-          error: null,
-        }),
-      };
+      const insertChain = createChainBuilder({
+        data: {
+          id: "campaign-new",
+          tenant_id: mockTenantId,
+          name: "New Campaign",
+          status: "draft",
+          created_at: "2026-02-02T10:00:00Z",
+          updated_at: "2026-02-02T10:00:00Z",
+        },
+        error: null,
+      });
 
       mockFrom.mockImplementation((table: string) => {
         if (table === "profiles") return profileChain;
-        return insertChain;
+        if (table === "campaigns") return insertChain;
+        return createChainBuilder();
       });
 
       return { profileChain, insertChain };
@@ -236,14 +226,8 @@ describe("Campaigns API", () => {
         data: { user: { id: mockUserId } },
       });
 
-      mockFrom.mockImplementation(() => ({
-        select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({
-          data: null,
-          error: null,
-        }),
-      }));
+      // Default createChainBuilder returns { data: null, error: null }
+      // so profile query returns null → 403
 
       const request = createRequest({ name: "Test Campaign" });
       const response = await POST(request);
@@ -329,27 +313,20 @@ describe("Campaigns API", () => {
         data: { user: { id: mockUserId } },
       });
 
-      const profileChain = {
-        select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({
-          data: { tenant_id: mockTenantId },
-          error: null,
-        }),
-      };
+      const profileChain = createChainBuilder({
+        data: { tenant_id: mockTenantId },
+        error: null,
+      });
 
-      const insertChain = {
-        insert: vi.fn().mockReturnThis(),
-        select: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({
-          data: null,
-          error: { message: "Database error" },
-        }),
-      };
+      const insertChain = createChainBuilder({
+        data: null,
+        error: { message: "Database error" },
+      });
 
       mockFrom.mockImplementation((table: string) => {
         if (table === "profiles") return profileChain;
-        return insertChain;
+        if (table === "campaigns") return insertChain;
+        return createChainBuilder();
       });
 
       const request = createRequest({ name: "Test Campaign" });
@@ -366,15 +343,10 @@ describe("Campaigns API", () => {
         data: { user: { id: mockUserId } },
       });
 
-      const profileChain = {
-        select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({
-          data: { tenant_id: mockTenantId },
-          error: null,
-        }),
-      };
-
+      const profileChain = createChainBuilder({
+        data: { tenant_id: mockTenantId },
+        error: null,
+      });
       mockFrom.mockImplementation(() => profileChain);
 
       // Create request with invalid JSON

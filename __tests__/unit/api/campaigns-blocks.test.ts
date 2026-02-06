@@ -9,6 +9,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { GET } from "@/app/api/campaigns/[campaignId]/blocks/route";
+import { createChainBuilder } from "../../helpers/mock-supabase";
 
 // Mock Supabase
 const mockFrom = vi.fn();
@@ -62,6 +63,7 @@ describe("GET /api/campaigns/[campaignId]/blocks (AC: #2, #7)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFrom.mockImplementation(() => createChainBuilder());
   });
 
   function createRouteParams(campaignId: string) {
@@ -96,7 +98,7 @@ describe("GET /api/campaigns/[campaignId]/blocks (AC: #2, #7)", () => {
           }),
         };
       }
-      return {};
+      return createChainBuilder();
     });
   }
 
@@ -258,7 +260,7 @@ describe("GET /api/campaigns/[campaignId]/blocks (AC: #2, #7)", () => {
           }),
         };
       }
-      return {};
+      return createChainBuilder();
     });
 
     const request = new Request(
@@ -298,7 +300,7 @@ describe("GET /api/campaigns/[campaignId]/blocks (AC: #2, #7)", () => {
           }),
         };
       }
-      return {};
+      return createChainBuilder();
     });
 
     const request = new Request(

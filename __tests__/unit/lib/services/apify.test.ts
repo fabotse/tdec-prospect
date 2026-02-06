@@ -15,10 +15,17 @@
  * - fetchLinkedInPosts error handling (invalid profile, no posts, timeout, actor failure)
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ApifyService, APIFY_ERROR_MESSAGES } from "@/lib/services/apify";
 import { ERROR_MESSAGES } from "@/lib/services/base-service";
 import type { ApifyLinkedInPostInput } from "@/types/apify";
+import {
+  createMockFetch,
+  mockJsonResponse,
+  mockErrorResponse,
+  mockNetworkError,
+  restoreFetch,
+} from "../../../helpers/mock-fetch";
 
 // Shared mock object - must be defined before vi.mock for proper hoisting
 const apifyMocks = {
@@ -52,22 +59,21 @@ describe("ApifyService", () => {
   });
 
   afterEach(() => {
+    restoreFetch();
     vi.restoreAllMocks();
   });
 
   describe("testConnection", () => {
+    const actorData = {
+      id: "Wpp1BZ6yGWjySadk3",
+      name: "supreme_coder/linkedin-post",
+      isPublic: true,
+    };
+
     it("returns success on 200 response", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            data: {
-              id: "Wpp1BZ6yGWjySadk3",
-              name: "supreme_coder/linkedin-post",
-              isPublic: true,
-            },
-          }),
-      });
+      createMockFetch([
+        { url: /apify\.com/, response: mockJsonResponse({ data: actorData }) },
+      ]);
 
       const result = await service.testConnection("test-api-token");
 
@@ -78,10 +84,9 @@ describe("ApifyService", () => {
     });
 
     it("returns error on 401 (invalid token)", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-      });
+      createMockFetch([
+        { url: /apify\.com/, response: mockErrorResponse(401) },
+      ]);
 
       const result = await service.testConnection("invalid-token");
 
@@ -91,10 +96,9 @@ describe("ApifyService", () => {
     });
 
     it("returns error on 403 (forbidden)", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 403,
-      });
+      createMockFetch([
+        { url: /apify\.com/, response: mockErrorResponse(403) },
+      ]);
 
       const result = await service.testConnection("test-token");
 
@@ -103,10 +107,9 @@ describe("ApifyService", () => {
     });
 
     it("returns error on 429 (rate limit)", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 429,
-      });
+      createMockFetch([
+        { url: /apify\.com/, response: mockErrorResponse(429) },
+      ]);
 
       const result = await service.testConnection("test-token");
 
@@ -115,26 +118,9 @@ describe("ApifyService", () => {
     });
 
     it("includes latency in successful result", async () => {
-      global.fetch = vi.fn().mockImplementation(
-        () =>
-          new Promise((resolve) => {
-            setTimeout(
-              () =>
-                resolve({
-                  ok: true,
-                  json: () =>
-                    Promise.resolve({
-                      data: {
-                        id: "Wpp1BZ6yGWjySadk3",
-                        name: "supreme_coder/linkedin-post",
-                        isPublic: true,
-                      },
-                    }),
-                }),
-              10
-            );
-          })
-      );
+      createMockFetch([
+        { url: /apify\.com/, response: mockJsonResponse({ data: actorData }) },
+      ]);
 
       const result = await service.testConnection("test-token");
 
@@ -143,60 +129,43 @@ describe("ApifyService", () => {
     });
 
     it("uses correct API endpoint with token", async () => {
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            data: {
-              id: "Wpp1BZ6yGWjySadk3",
-              name: "supreme_coder/linkedin-post",
-              isPublic: true,
-            },
-          }),
-      });
-      global.fetch = fetchMock;
+      const { mock } = createMockFetch([
+        { url: /apify\.com/, response: mockJsonResponse({ data: actorData }) },
+      ]);
 
       await service.testConnection("my-test-token");
 
-      expect(fetchMock).toHaveBeenCalledWith(
+      expect(mock).toHaveBeenCalledWith(
         expect.stringContaining("api.apify.com"),
         expect.any(Object)
       );
-      expect(fetchMock).toHaveBeenCalledWith(
+      expect(mock).toHaveBeenCalledWith(
         expect.stringContaining("Wpp1BZ6yGWjySadk3"),
         expect.any(Object)
       );
-      expect(fetchMock).toHaveBeenCalledWith(
+      expect(mock).toHaveBeenCalledWith(
         expect.stringContaining("token=my-test-token"),
         expect.any(Object)
       );
     });
 
     it("URL encodes special characters in token", async () => {
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            data: {
-              id: "Wpp1BZ6yGWjySadk3",
-              name: "supreme_coder/linkedin-post",
-              isPublic: true,
-            },
-          }),
-      });
-      global.fetch = fetchMock;
+      const { calls } = createMockFetch([
+        { url: /apify\.com/, response: mockJsonResponse({ data: actorData }) },
+      ]);
 
       // Token with special characters that need URL encoding
       await service.testConnection("token+with=special&chars");
 
       // Verify the URL was called with encoded characters
-      const calledUrl = fetchMock.mock.calls[0][0] as string;
-      expect(calledUrl).toContain("token%2Bwith%3Dspecial%26chars");
-      expect(calledUrl).not.toContain("token+with=special&chars");
+      expect(calls()[0].url).toContain("token%2Bwith%3Dspecial%26chars");
+      expect(calls()[0].url).not.toContain("token+with=special&chars");
     });
 
     it("handles network errors", async () => {
-      global.fetch = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+      createMockFetch([
+        { url: /apify\.com/, response: mockNetworkError("Failed to fetch") },
+      ]);
 
       const result = await service.testConnection("test-token");
 
@@ -205,6 +174,7 @@ describe("ApifyService", () => {
     });
 
     it("handles timeout errors", async () => {
+      // AbortError needs specific error name — keep direct mock for this edge case
       const abortError = new Error("Aborted");
       abortError.name = "AbortError";
       global.fetch = vi.fn().mockRejectedValue(abortError);
@@ -216,6 +186,7 @@ describe("ApifyService", () => {
     });
 
     it("handles unknown errors gracefully", async () => {
+      // Generic Error (not TypeError) — keep direct mock for this edge case
       global.fetch = vi.fn().mockRejectedValue(new Error("Unknown error"));
 
       const result = await service.testConnection("test-token");

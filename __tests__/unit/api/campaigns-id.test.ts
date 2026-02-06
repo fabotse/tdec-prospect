@@ -11,6 +11,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { GET, PATCH, DELETE } from "@/app/api/campaigns/[campaignId]/route";
+import { createChainBuilder } from "../../helpers/mock-supabase";
 
 // Mock Supabase
 const mockFrom = vi.fn();
@@ -42,6 +43,7 @@ describe("GET /api/campaigns/[campaignId] (AC: #1)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFrom.mockImplementation(() => createChainBuilder());
   });
 
   function createRouteParams(campaignId: string) {
@@ -55,14 +57,10 @@ describe("GET /api/campaigns/[campaignId] (AC: #1)", () => {
       data: { user: { id: mockUserId } },
     });
 
-    const campaignChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: campaign,
-        error: null,
-      }),
-    };
+    const campaignChain = createChainBuilder({
+      data: campaign,
+      error: null,
+    });
 
     mockFrom.mockImplementation(() => campaignChain);
 
@@ -116,14 +114,11 @@ describe("GET /api/campaigns/[campaignId] (AC: #1)", () => {
       data: { user: { id: mockUserId } },
     });
 
-    mockFrom.mockImplementation(() => ({
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: null,
-        error: { code: "PGRST116", message: "Row not found" },
-      }),
-    }));
+    const notFoundChain = createChainBuilder({
+      data: null,
+      error: { code: "PGRST116", message: "Row not found" },
+    });
+    mockFrom.mockImplementation(() => notFoundChain);
 
     const request = new Request("http://localhost:3000/api/campaigns/" + mockCampaignId);
     const response = await GET(request, createRouteParams(mockCampaignId));
@@ -169,14 +164,11 @@ describe("GET /api/campaigns/[campaignId] (AC: #1)", () => {
       data: { user: { id: mockUserId } },
     });
 
-    mockFrom.mockImplementation(() => ({
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: null,
-        error: { code: "UNKNOWN", message: "Database error" },
-      }),
-    }));
+    const errorChain = createChainBuilder({
+      data: null,
+      error: { code: "UNKNOWN", message: "Database error" },
+    });
+    mockFrom.mockImplementation(() => errorChain);
 
     const request = new Request("http://localhost:3000/api/campaigns/" + mockCampaignId);
     const response = await GET(request, createRouteParams(mockCampaignId));
@@ -219,6 +211,7 @@ describe("PATCH /api/campaigns/[campaignId] (AC 5.9: #1, #3)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFrom.mockImplementation(() => createChainBuilder());
   });
 
   function createRouteParams(campaignId: string) {
@@ -276,7 +269,7 @@ describe("PATCH /api/campaigns/[campaignId] (AC 5.9: #1, #3)", () => {
           ...insertChain,
         };
       }
-      return {};
+      return createChainBuilder();
     });
 
     return { updateChain, deleteChain, insertChain, selectChain };
@@ -442,12 +435,11 @@ describe("PATCH /api/campaigns/[campaignId] (AC 5.9: #1, #3)", () => {
       data: { user: { id: mockUserId } },
     });
 
-    mockFrom.mockImplementation(() => ({
-      update: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockResolvedValue({
-        error: { code: "UNKNOWN", message: "Database error" },
-      }),
-    }));
+    const updateErrorChain = createChainBuilder({
+      data: null,
+      error: { code: "UNKNOWN", message: "Database error" },
+    });
+    mockFrom.mockImplementation(() => updateErrorChain);
 
     const request = createPatchRequest(mockCampaignId, { name: "New Name" });
     const response = await PATCH(request, createRouteParams(mockCampaignId));
@@ -487,7 +479,7 @@ describe("PATCH /api/campaigns/[campaignId] (AC 5.9: #1, #3)", () => {
           }),
         };
       }
-      return {};
+      return createChainBuilder();
     });
 
     const request = createPatchRequest(mockCampaignId, {
@@ -533,7 +525,7 @@ describe("PATCH /api/campaigns/[campaignId] (AC 5.9: #1, #3)", () => {
           }),
         };
       }
-      return {};
+      return createChainBuilder();
     });
 
     const request = createPatchRequest(mockCampaignId, {
@@ -585,7 +577,7 @@ describe("PATCH /api/campaigns/[campaignId] (AC 5.9: #1, #3)", () => {
           }),
         };
       }
-      return {};
+      return createChainBuilder();
     });
 
     const request = createPatchRequest(mockCampaignId, {
@@ -617,6 +609,7 @@ describe("DELETE /api/campaigns/[campaignId]", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFrom.mockImplementation(() => createChainBuilder());
   });
 
   function createRouteParams(campaignId: string) {
@@ -663,14 +656,11 @@ describe("DELETE /api/campaigns/[campaignId]", () => {
       data: { user: { id: mockUserId } },
     });
 
-    mockFrom.mockImplementation(() => ({
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: null,
-        error: { code: "PGRST116", message: "Row not found" },
-      }),
-    }));
+    const notFoundChain = createChainBuilder({
+      data: null,
+      error: { code: "PGRST116", message: "Row not found" },
+    });
+    mockFrom.mockImplementation(() => notFoundChain);
 
     const request = createDeleteRequest(mockCampaignId);
     const response = await DELETE(request, createRouteParams(mockCampaignId));
@@ -686,22 +676,9 @@ describe("DELETE /api/campaigns/[campaignId]", () => {
       data: { user: { id: mockUserId } },
     });
 
-    // Mock for select().eq().single() chain - needs proper chaining
-    const singleMock = vi.fn().mockResolvedValue({
-      data: { id: mockCampaignId },
-      error: null,
-    });
-    const selectEqMock = vi.fn().mockReturnValue({ single: singleMock });
-    const selectMock = vi.fn().mockReturnValue({ eq: selectEqMock });
-
-    // Mock for delete().eq() chain
-    const deleteEqMock = vi.fn().mockResolvedValue({ error: null });
-    const deleteMock = vi.fn().mockReturnValue({ eq: deleteEqMock });
-
-    mockFrom.mockImplementation(() => ({
-      select: selectMock,
-      delete: deleteMock,
-    }));
+    mockFrom.mockImplementation(() =>
+      createChainBuilder({ data: { id: mockCampaignId }, error: null })
+    );
 
     const request = createDeleteRequest(mockCampaignId);
     const response = await DELETE(request, createRouteParams(mockCampaignId));
@@ -715,24 +692,10 @@ describe("DELETE /api/campaigns/[campaignId]", () => {
       data: { user: { id: mockUserId } },
     });
 
-    // Mock for select().eq().single() chain - needs proper chaining
-    const singleMock = vi.fn().mockResolvedValue({
-      data: { id: mockCampaignId },
-      error: null,
-    });
-    const selectEqMock = vi.fn().mockReturnValue({ single: singleMock });
-    const selectMock = vi.fn().mockReturnValue({ eq: selectEqMock });
-
-    // Mock for delete().eq() chain - returns error
-    const deleteEqMock = vi.fn().mockResolvedValue({
-      error: { code: "UNKNOWN", message: "Database error" },
-    });
-    const deleteMock = vi.fn().mockReturnValue({ eq: deleteEqMock });
-
-    mockFrom.mockImplementation(() => ({
-      select: selectMock,
-      delete: deleteMock,
-    }));
+    // First from() = select (campaign found), second from() = delete (error)
+    mockFrom
+      .mockReturnValueOnce(createChainBuilder({ data: { id: mockCampaignId }, error: null }))
+      .mockReturnValueOnce(createChainBuilder({ data: null, error: { code: "UNKNOWN", message: "Database error" } }));
 
     const request = createDeleteRequest(mockCampaignId);
     const response = await DELETE(request, createRouteParams(mockCampaignId));
@@ -748,22 +711,9 @@ describe("DELETE /api/campaigns/[campaignId]", () => {
       data: { user: { id: mockUserId } },
     });
 
-    // Mock for select().eq().single() chain
-    const singleMock = vi.fn().mockResolvedValue({
-      data: { id: mockCampaignId },
-      error: null,
-    });
-    const selectEqMock = vi.fn().mockReturnValue({ single: singleMock });
-    const selectMock = vi.fn().mockReturnValue({ eq: selectEqMock });
-
-    // Mock for delete().eq() chain
-    const deleteEqMock = vi.fn().mockResolvedValue({ error: null });
-    const deleteMock = vi.fn().mockReturnValue({ eq: deleteEqMock });
-
-    mockFrom.mockImplementation(() => ({
-      select: selectMock,
-      delete: deleteMock,
-    }));
+    mockFrom.mockImplementation(() =>
+      createChainBuilder({ data: { id: mockCampaignId }, error: null })
+    );
 
     const request = createDeleteRequest(mockCampaignId);
     await DELETE(request, createRouteParams(mockCampaignId));

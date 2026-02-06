@@ -8,6 +8,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { InstantlyService } from "@/lib/services/instantly";
 import { ERROR_MESSAGES } from "@/lib/services/base-service";
+import {
+  createMockFetch,
+  mockJsonResponse,
+  mockErrorResponse,
+  restoreFetch,
+} from "../../../helpers/mock-fetch";
 
 describe("InstantlyService", () => {
   let service: InstantlyService;
@@ -17,19 +23,21 @@ describe("InstantlyService", () => {
   });
 
   afterEach(() => {
+    restoreFetch();
     vi.restoreAllMocks();
   });
 
   describe("testConnection", () => {
     it("returns success on 200 response", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
+      createMockFetch([
+        {
+          url: /instantly\.ai/,
+          response: mockJsonResponse({
             items: [{ email: "user@example.com" }],
             total_count: 1,
           }),
-      });
+        },
+      ]);
 
       const result = await service.testConnection("test-api-key");
 
@@ -39,10 +47,9 @@ describe("InstantlyService", () => {
     });
 
     it("returns error on 401", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-      });
+      createMockFetch([
+        { url: /instantly\.ai/, response: mockErrorResponse(401) },
+      ]);
 
       const result = await service.testConnection("invalid-key");
 
@@ -51,10 +58,9 @@ describe("InstantlyService", () => {
     });
 
     it("returns error on 403", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 403,
-      });
+      createMockFetch([
+        { url: /instantly\.ai/, response: mockErrorResponse(403) },
+      ]);
 
       const result = await service.testConnection("insufficient-scopes-key");
 
@@ -63,10 +69,9 @@ describe("InstantlyService", () => {
     });
 
     it("returns error on 429", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 429,
-      });
+      createMockFetch([
+        { url: /instantly\.ai/, response: mockErrorResponse(429) },
+      ]);
 
       const result = await service.testConnection("test-key");
 
@@ -75,26 +80,23 @@ describe("InstantlyService", () => {
     });
 
     it("uses V2 API endpoint with Bearer token", async () => {
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            items: [],
-            total_count: 0,
-          }),
-      });
-      global.fetch = fetchMock;
+      const { mock } = createMockFetch([
+        {
+          url: /instantly\.ai/,
+          response: mockJsonResponse({ items: [], total_count: 0 }),
+        },
+      ]);
 
       await service.testConnection("test-api-key");
 
       // Should call V2 accounts endpoint
-      expect(fetchMock).toHaveBeenCalledWith(
+      expect(mock).toHaveBeenCalledWith(
         expect.stringContaining("/api/v2/accounts"),
         expect.any(Object)
       );
 
       // Should use Bearer token in Authorization header
-      expect(fetchMock).toHaveBeenCalledWith(
+      expect(mock).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           headers: expect.objectContaining({
@@ -105,33 +107,28 @@ describe("InstantlyService", () => {
     });
 
     it("calls correct domain", async () => {
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            items: [],
-            total_count: 0,
-          }),
-      });
-      global.fetch = fetchMock;
+      const { mock } = createMockFetch([
+        {
+          url: /instantly\.ai/,
+          response: mockJsonResponse({ items: [], total_count: 0 }),
+        },
+      ]);
 
       await service.testConnection("test-api-key");
 
-      expect(fetchMock).toHaveBeenCalledWith(
+      expect(mock).toHaveBeenCalledWith(
         expect.stringContaining("api.instantly.ai"),
         expect.any(Object)
       );
     });
 
     it("handles empty response body", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            items: [],
-            total_count: 0,
-          }),
-      });
+      createMockFetch([
+        {
+          url: /instantly\.ai/,
+          response: mockJsonResponse({ items: [], total_count: 0 }),
+        },
+      ]);
 
       const result = await service.testConnection("test-api-key");
 

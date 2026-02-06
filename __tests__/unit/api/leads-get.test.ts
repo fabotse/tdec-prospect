@@ -8,6 +8,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/leads/route";
+import { createChainBuilder } from "../../helpers/mock-supabase";
 
 // Mock Supabase
 const mockFrom = vi.fn();
@@ -128,6 +129,7 @@ describe("GET /api/leads", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFrom.mockImplementation(() => createChainBuilder());
   });
 
   describe("Authentication", () => {

@@ -14,6 +14,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 import { POST } from "@/app/api/leads/enrich-icebreaker/route";
+import { createChainBuilder } from "../../helpers/mock-supabase";
 
 // Use vi.hoisted for mocks that need to be used in vi.mock factories
 const {
@@ -187,7 +188,7 @@ describe("POST /api/leads/enrich-icebreaker", () => {
           }),
         };
       }
-      return {};
+      return createChainBuilder();
     });
 
     mockFetchLinkedInPosts.mockResolvedValue({
@@ -609,7 +610,7 @@ describe("POST /api/leads/enrich-icebreaker", () => {
             }),
           };
         }
-        return {};
+        return createChainBuilder();
       });
 
       const request = createRequest({ leadIds: [leadId], category: "post" });
@@ -656,7 +657,7 @@ describe("POST /api/leads/enrich-icebreaker", () => {
             }),
           };
         }
-        return {};
+        return createChainBuilder();
       });
 
       const request = createRequest({ leadIds: [leadId] });
@@ -710,7 +711,7 @@ describe("POST /api/leads/enrich-icebreaker", () => {
             }),
           };
         }
-        return {};
+        return createChainBuilder();
       });
 
       const request = createRequest({ leadIds: [leadId] });

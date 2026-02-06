@@ -12,6 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 import { POST } from "@/app/api/leads/enrich-icebreaker/route";
+import { createChainBuilder } from "../../helpers/mock-supabase";
 
 // Use vi.hoisted for mocks
 const {
@@ -195,7 +196,7 @@ describe("Story 9.2: Icebreaker Examples in Generation", () => {
           }),
         };
       }
-      return {};
+      return createChainBuilder();
     });
 
     mockRenderPrompt.mockResolvedValue({

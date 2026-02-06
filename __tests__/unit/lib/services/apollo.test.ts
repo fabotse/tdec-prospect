@@ -18,6 +18,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ApolloService } from "@/lib/services/apollo";
 import { ERROR_MESSAGES } from "@/lib/services/base-service";
+import {
+  createMockFetch,
+  mockJsonResponse,
+  mockErrorResponse,
+  mockNetworkError,
+  restoreFetch,
+} from "../../../helpers/mock-fetch";
 
 // Mock Supabase
 vi.mock("@/lib/supabase/server", () => ({
@@ -51,25 +58,19 @@ describe("ApolloService", () => {
 
   beforeEach(() => {
     service = new ApolloService();
-    vi.useFakeTimers();
   });
 
   afterEach(() => {
-    vi.useRealTimers();
+    restoreFetch();
     vi.restoreAllMocks();
   });
 
   describe("testConnection", () => {
     it("returns success on 200 response", async () => {
-      vi.useRealTimers();
 
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            is_logged_in: true,
-          }),
-      });
+      createMockFetch([
+        { url: /apollo\.io/, response: mockJsonResponse({ is_logged_in: true }) },
+      ]);
 
       const result = await service.testConnection("test-api-key");
 
@@ -80,12 +81,10 @@ describe("ApolloService", () => {
     });
 
     it("returns error on 401 (invalid key)", async () => {
-      vi.useRealTimers();
 
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-      });
+      createMockFetch([
+        { url: /apollo\.io/, response: mockErrorResponse(401) },
+      ]);
 
       const result = await service.testConnection("invalid-api-key");
 
@@ -95,12 +94,10 @@ describe("ApolloService", () => {
     });
 
     it("returns error on 403 (forbidden)", async () => {
-      vi.useRealTimers();
 
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 403,
-      });
+      createMockFetch([
+        { url: /apollo\.io/, response: mockErrorResponse(403) },
+      ]);
 
       const result = await service.testConnection("test-api-key");
 
@@ -108,12 +105,10 @@ describe("ApolloService", () => {
     });
 
     it("returns error on 429 (rate limit)", async () => {
-      vi.useRealTimers();
 
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 429,
-      });
+      createMockFetch([
+        { url: /apollo\.io/, response: mockErrorResponse(429) },
+      ]);
 
       const result = await service.testConnection("test-api-key");
 
@@ -122,21 +117,10 @@ describe("ApolloService", () => {
     });
 
     it("includes latency in successful result", async () => {
-      vi.useRealTimers();
 
-      global.fetch = vi.fn().mockImplementation(
-        () =>
-          new Promise((resolve) => {
-            setTimeout(
-              () =>
-                resolve({
-                  ok: true,
-                  json: () => Promise.resolve({ is_logged_in: true }),
-                }),
-              10
-            );
-          })
-      );
+      createMockFetch([
+        { url: /apollo\.io/, response: mockJsonResponse({ is_logged_in: true }) },
+      ]);
 
       const result = await service.testConnection("test-api-key");
 
@@ -145,17 +129,14 @@ describe("ApolloService", () => {
     });
 
     it("uses correct API endpoint", async () => {
-      vi.useRealTimers();
 
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ is_logged_in: true }),
-      });
-      global.fetch = fetchMock;
+      const { mock } = createMockFetch([
+        { url: /apollo\.io/, response: mockJsonResponse({ is_logged_in: true }) },
+      ]);
 
       await service.testConnection("test-api-key");
 
-      expect(fetchMock).toHaveBeenCalledWith(
+      expect(mock).toHaveBeenCalledWith(
         expect.stringContaining("api.apollo.io"),
         expect.objectContaining({
           headers: expect.objectContaining({
@@ -166,9 +147,10 @@ describe("ApolloService", () => {
     });
 
     it("handles network errors", async () => {
-      vi.useRealTimers();
 
-      global.fetch = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+      createMockFetch([
+        { url: /apollo\.io/, response: mockNetworkError("Failed to fetch") },
+      ]);
 
       const result = await service.testConnection("test-api-key");
 
@@ -186,7 +168,6 @@ describe("ApolloService", () => {
     });
 
     it("transforms filters and calls Apollo API", async () => {
-      vi.useRealTimers();
 
       // Mock response matches api_search endpoint format
       const mockResponse = {
@@ -218,11 +199,9 @@ describe("ApolloService", () => {
         ],
       };
 
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
-      global.fetch = fetchMock;
+      const { mock } = createMockFetch([
+        { url: /apollo\.io/, method: "POST", response: mockJsonResponse(mockResponse) },
+      ]);
 
       const filters = {
         titles: ["CEO"],
@@ -234,7 +213,7 @@ describe("ApolloService", () => {
       const result = await serviceWithTenant.searchPeople(filters);
 
       // Verify api_search endpoint is called with query params
-      expect(fetchMock).toHaveBeenCalledWith(
+      expect(mock).toHaveBeenCalledWith(
         expect.stringContaining("api_search"),
         expect.objectContaining({
           method: "POST",
@@ -255,7 +234,6 @@ describe("ApolloService", () => {
     });
 
     it("returns ApolloSearchResult with leads and pagination", async () => {
-      vi.useRealTimers();
 
       const mockResponse = {
         total_entries: 1,
@@ -275,10 +253,9 @@ describe("ApolloService", () => {
         ],
       };
 
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
+      createMockFetch([
+        { url: /apollo\.io/, response: mockJsonResponse(mockResponse) },
+      ]);
 
       const result = await serviceWithTenant.searchPeople({});
 
@@ -296,17 +273,15 @@ describe("ApolloService", () => {
     });
 
     it("handles empty response", async () => {
-      vi.useRealTimers();
 
       const mockResponse = {
         total_entries: 0,
         people: [],
       };
 
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
+      createMockFetch([
+        { url: /apollo\.io/, response: mockJsonResponse(mockResponse) },
+      ]);
 
       const result = await serviceWithTenant.searchPeople({});
 
@@ -316,7 +291,6 @@ describe("ApolloService", () => {
     });
 
     it("sets default status to novo", async () => {
-      vi.useRealTimers();
 
       const mockResponse = {
         total_entries: 1,
@@ -336,10 +310,9 @@ describe("ApolloService", () => {
         ],
       };
 
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
+      createMockFetch([
+        { url: /apollo\.io/, response: mockJsonResponse(mockResponse) },
+      ]);
 
       const result = await serviceWithTenant.searchPeople({});
 
@@ -348,17 +321,15 @@ describe("ApolloService", () => {
 
     // Story 3.8: Pagination tests
     it("caps totalPages at 500 per Apollo limits", async () => {
-      vi.useRealTimers();
 
       const mockResponse = {
         total_entries: 100000, // Would be 4000 pages at 25/page
         people: [],
       };
 
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
+      createMockFetch([
+        { url: /apollo\.io/, response: mockJsonResponse(mockResponse) },
+      ]);
 
       const result = await serviceWithTenant.searchPeople({ perPage: 25 });
 
@@ -369,12 +340,10 @@ describe("ApolloService", () => {
 
   describe("handleError (Story 3.2)", () => {
     it("translates 401 to Portuguese", async () => {
-      vi.useRealTimers();
 
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-      });
+      createMockFetch([
+        { url: /apollo\.io/, response: mockErrorResponse(401) },
+      ]);
 
       const result = await service.testConnection("invalid-key");
 
@@ -383,12 +352,10 @@ describe("ApolloService", () => {
     });
 
     it("translates 429 to Portuguese", async () => {
-      vi.useRealTimers();
 
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 429,
-      });
+      createMockFetch([
+        { url: /apollo\.io/, response: mockErrorResponse(429) },
+      ]);
 
       const result = await service.testConnection("test-key");
 
@@ -397,12 +364,10 @@ describe("ApolloService", () => {
     });
 
     it("translates 403 to Portuguese", async () => {
-      vi.useRealTimers();
 
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 403,
-      });
+      createMockFetch([
+        { url: /apollo\.io/, response: mockErrorResponse(403) },
+      ]);
 
       const result = await service.testConnection("test-key");
 
@@ -411,8 +376,8 @@ describe("ApolloService", () => {
     });
 
     it("translates timeout to Portuguese", async () => {
-      vi.useRealTimers();
 
+      // AbortError needs specific error name — keep direct mock for this edge case
       const abortError = new Error("Aborted");
       abortError.name = "AbortError";
       global.fetch = vi.fn().mockRejectedValue(abortError);
@@ -424,8 +389,8 @@ describe("ApolloService", () => {
     });
 
     it("handles unknown errors gracefully", async () => {
-      vi.useRealTimers();
 
+      // Generic Error (not TypeError) — keep direct mock for this edge case
       global.fetch = vi.fn().mockRejectedValue(new Error("Unknown error"));
 
       const result = await service.testConnection("test-key");
@@ -458,7 +423,6 @@ describe("ApolloService", () => {
     });
 
     it("enriches person by apollo_id", async () => {
-      vi.useRealTimers();
 
       const mockResponse = {
         person: {
@@ -484,15 +448,13 @@ describe("ApolloService", () => {
         },
       };
 
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
-      global.fetch = fetchMock;
+      const { mock } = createMockFetch([
+        { url: /apollo\.io.*people\/match/, method: "POST", response: mockJsonResponse(mockResponse) },
+      ]);
 
       const result = await serviceWithTenant.enrichPerson("apollo-1");
 
-      expect(fetchMock).toHaveBeenCalledWith(
+      expect(mock).toHaveBeenCalledWith(
         expect.stringContaining("people/match"),
         expect.objectContaining({
           method: "POST",
@@ -505,7 +467,6 @@ describe("ApolloService", () => {
     });
 
     it("returns full last_name (not obfuscated)", async () => {
-      vi.useRealTimers();
 
       const mockResponse = {
         person: {
@@ -525,10 +486,9 @@ describe("ApolloService", () => {
         organization: null,
       };
 
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
+      createMockFetch([
+        { url: /apollo\.io/, response: mockJsonResponse(mockResponse) },
+      ]);
 
       const result = await serviceWithTenant.enrichPerson("apollo-1");
 
@@ -537,7 +497,6 @@ describe("ApolloService", () => {
     });
 
     it("returns email when reveal_personal_emails=true", async () => {
-      vi.useRealTimers();
 
       const mockResponse = {
         person: {
@@ -557,17 +516,15 @@ describe("ApolloService", () => {
         organization: null,
       };
 
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
-      global.fetch = fetchMock;
+      const { mock } = createMockFetch([
+        { url: /apollo\.io/, method: "POST", response: mockJsonResponse(mockResponse) },
+      ]);
 
       const result = await serviceWithTenant.enrichPerson("apollo-1", {
         revealPersonalEmails: true,
       });
 
-      expect(fetchMock).toHaveBeenCalledWith(
+      expect(mock).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           body: expect.stringContaining('"reveal_personal_emails":true'),
@@ -577,7 +534,6 @@ describe("ApolloService", () => {
     });
 
     it("returns null email for GDPR region", async () => {
-      vi.useRealTimers();
 
       const mockResponse = {
         person: {
@@ -597,10 +553,9 @@ describe("ApolloService", () => {
         organization: null,
       };
 
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
+      createMockFetch([
+        { url: /apollo\.io/, response: mockJsonResponse(mockResponse) },
+      ]);
 
       const result = await serviceWithTenant.enrichPerson("apollo-1", {
         revealPersonalEmails: true,
@@ -611,17 +566,15 @@ describe("ApolloService", () => {
     });
 
     it("handles person not found", async () => {
-      vi.useRealTimers();
 
       const mockResponse = {
         person: null,
         organization: null,
       };
 
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
+      createMockFetch([
+        { url: /apollo\.io/, response: mockJsonResponse(mockResponse) },
+      ]);
 
       await expect(
         serviceWithTenant.enrichPerson("nonexistent-id")
@@ -629,7 +582,6 @@ describe("ApolloService", () => {
     });
 
     it("throws when webhook_url missing for phone", async () => {
-      vi.useRealTimers();
 
       await expect(
         serviceWithTenant.enrichPerson("apollo-1", {
@@ -640,7 +592,6 @@ describe("ApolloService", () => {
     });
 
     it("includes waterfall status for async phone delivery", async () => {
-      vi.useRealTimers();
 
       const mockResponse = {
         person: {
@@ -664,10 +615,9 @@ describe("ApolloService", () => {
         },
       };
 
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
+      createMockFetch([
+        { url: /apollo\.io/, response: mockJsonResponse(mockResponse) },
+      ]);
 
       const result = await serviceWithTenant.enrichPerson("apollo-1", {
         revealPhoneNumber: true,
@@ -686,7 +636,6 @@ describe("ApolloService", () => {
     });
 
     it("enriches up to 10 people", async () => {
-      vi.useRealTimers();
 
       const mockResponse = {
         matches: [
@@ -728,18 +677,16 @@ describe("ApolloService", () => {
         missing: 0,
       };
 
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
-      global.fetch = fetchMock;
+      const { mock } = createMockFetch([
+        { url: /apollo\.io.*bulk_match/, response: mockJsonResponse(mockResponse) },
+      ]);
 
       const result = await serviceWithTenant.enrichPeople([
         "apollo-1",
         "apollo-2",
       ]);
 
-      expect(fetchMock).toHaveBeenCalledWith(
+      expect(mock).toHaveBeenCalledWith(
         expect.stringContaining("bulk_match"),
         expect.any(Object)
       );
@@ -750,7 +697,6 @@ describe("ApolloService", () => {
     });
 
     it("throws error for more than 10 people", async () => {
-      vi.useRealTimers();
 
       const apolloIds = Array.from({ length: 11 }, (_, i) => `apollo-${i}`);
 
@@ -760,7 +706,6 @@ describe("ApolloService", () => {
     });
 
     it("filters out null results", async () => {
-      vi.useRealTimers();
 
       const mockResponse = {
         matches: [
@@ -789,10 +734,9 @@ describe("ApolloService", () => {
         missing: 1,
       };
 
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
+      createMockFetch([
+        { url: /apollo\.io/, response: mockJsonResponse(mockResponse) },
+      ]);
 
       const result = await serviceWithTenant.enrichPeople([
         "apollo-1",
@@ -804,7 +748,6 @@ describe("ApolloService", () => {
     });
 
     it("returns empty array for empty input", async () => {
-      vi.useRealTimers();
 
       const result = await serviceWithTenant.enrichPeople([]);
 
@@ -812,7 +755,6 @@ describe("ApolloService", () => {
     });
 
     it("validates webhook_url for phone enrichment", async () => {
-      vi.useRealTimers();
 
       await expect(
         serviceWithTenant.enrichPeople(["apollo-1"], {

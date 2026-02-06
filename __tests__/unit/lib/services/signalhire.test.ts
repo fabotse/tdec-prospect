@@ -15,6 +15,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { SignalHireService } from "@/lib/services/signalhire";
 import { ERROR_MESSAGES } from "@/lib/services/base-service";
+import {
+  createMockFetch,
+  mockJsonResponse,
+  mockErrorResponse,
+  mockNetworkError,
+  restoreFetch,
+} from "../../../helpers/mock-fetch";
 
 // Mock data for database operations
 const mockLookupRow: {
@@ -144,6 +151,7 @@ describe("SignalHireService", () => {
   });
 
   afterEach(() => {
+    restoreFetch();
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
@@ -154,10 +162,9 @@ describe("SignalHireService", () => {
 
   describe("testConnection", () => {
     it("returns success on 200 response", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ credits: 100 }),
-      });
+      createMockFetch([
+        { url: /signalhire\.com/, response: mockJsonResponse({ credits: 100 }) },
+      ]);
 
       const result = await service.testConnection("test-api-key");
 
@@ -167,10 +174,9 @@ describe("SignalHireService", () => {
     });
 
     it("returns error on 401", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-      });
+      createMockFetch([
+        { url: /signalhire\.com/, response: mockErrorResponse(401) },
+      ]);
 
       const result = await service.testConnection("invalid-key");
 
@@ -179,10 +185,9 @@ describe("SignalHireService", () => {
     });
 
     it("returns error on 429 (rate limit)", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 429,
-      });
+      createMockFetch([
+        { url: /signalhire\.com/, response: mockErrorResponse(429) },
+      ]);
 
       const result = await service.testConnection("test-key");
 
@@ -191,15 +196,13 @@ describe("SignalHireService", () => {
     });
 
     it("uses correct API endpoint and header", async () => {
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ credits: 100 }),
-      });
-      global.fetch = fetchMock;
+      const { mock } = createMockFetch([
+        { url: /signalhire\.com/, response: mockJsonResponse({ credits: 100 }) },
+      ]);
 
       await service.testConnection("test-api-key");
 
-      expect(fetchMock).toHaveBeenCalledWith(
+      expect(mock).toHaveBeenCalledWith(
         expect.stringContaining("signalhire.com"),
         expect.objectContaining({
           headers: expect.objectContaining({
@@ -210,19 +213,9 @@ describe("SignalHireService", () => {
     });
 
     it("includes latency in successful result", async () => {
-      global.fetch = vi.fn().mockImplementation(
-        () =>
-          new Promise((resolve) => {
-            setTimeout(
-              () =>
-                resolve({
-                  ok: true,
-                  json: () => Promise.resolve({ credits: 100 }),
-                }),
-              10
-            );
-          })
-      );
+      createMockFetch([
+        { url: /signalhire\.com/, response: mockJsonResponse({ credits: 100 }) },
+      ]);
 
       const result = await service.testConnection("test-api-key");
 
@@ -244,13 +237,14 @@ describe("SignalHireService", () => {
     });
 
     it("creates a lookup record in the database", async () => {
-      // Mock successful SignalHire response
       // CORREÇÃO: requestId vem no BODY da resposta, não no header
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 201,
-        json: () => Promise.resolve({ requestId: 12345 }),
-      });
+      createMockFetch([
+        {
+          url: /signalhire\.com/,
+          method: "POST",
+          response: mockJsonResponse({ requestId: 12345 }, 201),
+        },
+      ]);
 
       const result = await serviceWithTenant.lookupPhone(
         "https://linkedin.com/in/john-doe"
@@ -262,16 +256,17 @@ describe("SignalHireService", () => {
 
     it("sends request with callbackUrl", async () => {
       // CORREÇÃO: requestId vem no BODY da resposta
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 201,
-        json: () => Promise.resolve({ requestId: 12345 }),
-      });
-      global.fetch = fetchMock;
+      const { mock } = createMockFetch([
+        {
+          url: /signalhire\.com/,
+          method: "POST",
+          response: mockJsonResponse({ requestId: 12345 }, 201),
+        },
+      ]);
 
       await serviceWithTenant.lookupPhone("https://linkedin.com/in/john-doe");
 
-      expect(fetchMock).toHaveBeenCalledWith(
+      expect(mock).toHaveBeenCalledWith(
         expect.stringContaining("signalhire.com"),
         expect.objectContaining({
           method: "POST",
@@ -280,7 +275,7 @@ describe("SignalHireService", () => {
       );
 
       // Verify the body contains correct callbackUrl
-      const callBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+      const callBody = JSON.parse(mock.mock.calls[0][1].body);
       expect(callBody.callbackUrl).toBe(
         "https://test.supabase.co/functions/v1/signalhire-callback"
       );
@@ -288,11 +283,13 @@ describe("SignalHireService", () => {
 
     it("includes leadId in the lookup record when provided", async () => {
       // CORREÇÃO: requestId vem no BODY da resposta
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 201,
-        json: () => Promise.resolve({ requestId: 12345 }),
-      });
+      createMockFetch([
+        {
+          url: /signalhire\.com/,
+          method: "POST",
+          response: mockJsonResponse({ requestId: 12345 }, 201),
+        },
+      ]);
 
       const result = await serviceWithTenant.lookupPhone(
         "https://linkedin.com/in/john-doe",
@@ -319,11 +316,13 @@ describe("SignalHireService", () => {
     });
 
     it("updates lookup record with error on SignalHire failure", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-        json: () => Promise.resolve({ error: "Unauthorized" }),
-      });
+      createMockFetch([
+        {
+          url: /signalhire\.com/,
+          method: "POST",
+          response: mockErrorResponse(401, "Unauthorized"),
+        },
+      ]);
 
       await expect(
         serviceWithTenant.lookupPhone("test@example.com")
@@ -396,10 +395,9 @@ describe("SignalHireService", () => {
 
   describe("handleError (Story 4.4)", () => {
     it("translates 401 to Portuguese", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-      });
+      createMockFetch([
+        { url: /signalhire\.com/, response: mockErrorResponse(401) },
+      ]);
 
       const result = await service.testConnection("invalid-key");
 
@@ -408,10 +406,9 @@ describe("SignalHireService", () => {
     });
 
     it("translates 402 (payment required / credits exhausted) to Portuguese", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 402,
-      });
+      createMockFetch([
+        { url: /signalhire\.com/, response: mockErrorResponse(402) },
+      ]);
 
       const result = await service.testConnection("test-key");
 
@@ -420,10 +417,9 @@ describe("SignalHireService", () => {
     });
 
     it("translates 403 to Portuguese", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 403,
-      });
+      createMockFetch([
+        { url: /signalhire\.com/, response: mockErrorResponse(403) },
+      ]);
 
       const result = await service.testConnection("test-key");
 
@@ -432,10 +428,9 @@ describe("SignalHireService", () => {
     });
 
     it("translates 404 to Portuguese", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 404,
-      });
+      createMockFetch([
+        { url: /signalhire\.com/, response: mockErrorResponse(404) },
+      ]);
 
       const result = await service.testConnection("test-key");
 
@@ -444,10 +439,9 @@ describe("SignalHireService", () => {
     });
 
     it("translates 406 (limit exceeded) to Portuguese", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 406,
-      });
+      createMockFetch([
+        { url: /signalhire\.com/, response: mockErrorResponse(406) },
+      ]);
 
       const result = await service.testConnection("test-key");
 
@@ -456,10 +450,9 @@ describe("SignalHireService", () => {
     });
 
     it("translates 429 (rate limit) to Portuguese", async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 429,
-      });
+      createMockFetch([
+        { url: /signalhire\.com/, response: mockErrorResponse(429) },
+      ]);
 
       const result = await service.testConnection("test-key");
 
@@ -468,6 +461,7 @@ describe("SignalHireService", () => {
     });
 
     it("translates timeout to Portuguese", async () => {
+      // AbortError needs specific error name — keep direct mock for this edge case
       const abortError = new Error("Aborted");
       abortError.name = "AbortError";
       global.fetch = vi.fn().mockRejectedValue(abortError);
@@ -479,7 +473,9 @@ describe("SignalHireService", () => {
     });
 
     it("handles network errors gracefully", async () => {
-      global.fetch = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+      createMockFetch([
+        { url: /signalhire\.com/, response: mockNetworkError("Failed to fetch") },
+      ]);
 
       const result = await service.testConnection("test-key");
 
