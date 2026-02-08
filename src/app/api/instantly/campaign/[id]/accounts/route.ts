@@ -1,10 +1,9 @@
 /**
- * Instantly Campaign API Route
- * Story 7.2: Instantly Integration Service - Gestão de Campanhas
+ * Instantly Campaign Accounts API Route
+ * Story 7.5: Export to Instantly - Fluxo Completo
  *
- * POST /api/instantly/campaign — Create a campaign in Instantly
- * AC: #1 - Proxied via API route with tenant auth
- * AC: #2 - Create campaign with sequences
+ * POST /api/instantly/campaign/[id]/accounts — Associate sending accounts with a campaign
+ * AC: #1 - Sending accounts linked to campaign before activation
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -14,17 +13,10 @@ import { decryptApiKey } from "@/lib/crypto/encryption";
 import { InstantlyService } from "@/lib/services/instantly";
 import { ExternalServiceError } from "@/lib/services/base-service";
 
-interface CreateCampaignBody {
-  name: string;
-  sequences: Array<{
-    subject: string;
-    body: string;
-    delayDays: number;
-  }>;
-  sendingAccounts?: string[];
-}
-
-export async function POST(request: NextRequest) {
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
     const profile = await getCurrentUserProfile();
 
@@ -35,21 +27,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body: CreateCampaignBody = await request.json();
+    const { id: campaignId } = await params;
 
-    if (!body.name || !body.sequences?.length) {
-      return NextResponse.json(
-        { error: "Nome da campanha e sequências são obrigatórios" },
-        { status: 400 }
-      );
-    }
+    const body = await request.json();
+    const { accountEmails } = body;
 
-    const invalidSequence = body.sequences.some(
-      (seq) => !seq.subject || !seq.body || seq.delayDays == null
-    );
-    if (invalidSequence) {
+    if (!Array.isArray(accountEmails) || accountEmails.length === 0) {
       return NextResponse.json(
-        { error: "Cada sequência deve ter subject, body e delayDays" },
+        { error: "accountEmails deve ser um array com pelo menos 1 email" },
         { status: 400 }
       );
     }
@@ -71,14 +56,13 @@ export async function POST(request: NextRequest) {
 
     const apiKey = decryptApiKey(config.encrypted_key);
     const service = new InstantlyService();
-    const result = await service.createCampaign({
+    const result = await service.addAccountsToCampaign({
       apiKey,
-      name: body.name,
-      sequences: body.sequences,
-      sendingAccounts: body.sendingAccounts,
+      campaignId,
+      accountEmails,
     });
 
-    return NextResponse.json(result, { status: 201 });
+    return NextResponse.json(result);
   } catch (error) {
     if (error instanceof ExternalServiceError) {
       return NextResponse.json(
@@ -87,8 +71,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const errorMsg =
+      error instanceof Error ? error.message : "Erro desconhecido";
     return NextResponse.json(
-      { error: "Erro interno ao criar campanha" },
+      { error: `Erro interno ao associar accounts à campanha: ${errorMsg}` },
       { status: 500 }
     );
   }

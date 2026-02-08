@@ -23,24 +23,16 @@ import { Badge } from "@/components/ui/badge";
 import { ExportPreview } from "./ExportPreview";
 import { SendingAccountSelector } from "./SendingAccountSelector";
 import { useSendingAccounts } from "@/hooks/use-sending-accounts";
-import type { ExportPlatform, ExportDialogPlatformOption, LeadExportSummary } from "@/types/export";
-import type { ExportRecord } from "@/types/export";
+import type {
+  ExportPlatform,
+  ExportDialogPlatformOption,
+  LeadExportSummary,
+  ExportRecord,
+  ExportConfig,
+  LeadSelection,
+  ExportMode,
+} from "@/types/export";
 import type { BuilderBlock } from "@/stores/use-builder-store";
-
-// ==============================================
-// TYPES
-// ==============================================
-
-export type LeadSelection = "all" | "selected";
-export type ExportMode = "new" | "re-export" | "update";
-
-export interface ExportConfig {
-  campaignId: string;
-  platform: ExportPlatform;
-  sendingAccounts?: string[];
-  leadSelection: LeadSelection;
-  exportMode: ExportMode;
-}
 
 interface ExportDialogProps {
   open: boolean;
@@ -150,6 +142,9 @@ export function ExportDialog({
     if (isInstantly && selectedAccounts.length > 0) {
       config.sendingAccounts = selectedAccounts;
     }
+    if (exportMode === "update" && previousExport?.externalCampaignId) {
+      config.externalCampaignId = previousExport.externalCampaignId;
+    }
 
     onExport(config);
   }
@@ -161,7 +156,7 @@ export function ExportDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Exportar Campanha</DialogTitle>
           <DialogDescription>
@@ -169,7 +164,7 @@ export function ExportDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-6">
+        <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-6">
           {/* Previous Export Indicator (AC: #5) */}
           {previousExport && previousExport.exportedAt && (
             <div

@@ -46,7 +46,9 @@ import {
 } from "@/components/builder";
 import { DeleteCampaignDialog } from "@/components/campaigns";
 import { useCampaignExport } from "@/hooks/use-campaign-export";
+import { useInstantlyExport } from "@/hooks/use-instantly-export";
 import { useIntegrationConfig } from "@/hooks/use-integration-config";
+import type { ExportConfig } from "@/types/export";
 
 interface PageProps {
   params: Promise<{ campaignId: string }>;
@@ -157,7 +159,10 @@ export default function CampaignBuilderPage({ params }: PageProps) {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
   // Story 7.4: Export dialog
+  // Story 7.5: Instantly export orchestration
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const { exportToInstantly, isExporting, steps: exportSteps } = useInstantlyExport();
+  const exportToastIdRef = useRef<string | number | undefined>();
   const { configs: integrationConfigs } = useIntegrationConfig();
   const exportLeadInfos = useMemo(
     () => (campaignLeadsForExport ?? []).map((cl) => cl.lead),
@@ -168,6 +173,15 @@ export default function CampaignBuilderPage({ params }: PageProps) {
     campaign: campaign ?? null,
     integrationConfigs,
   });
+
+  // Story 7.5 AC #1: Update progress toast with current export step
+  useEffect(() => {
+    if (!isExporting || !exportToastIdRef.current) return;
+    const runningStep = exportSteps.find((s) => s.status === "running");
+    if (runningStep) {
+      toast.loading(`${runningStep.label}...`, { id: exportToastIdRef.current });
+    }
+  }, [exportSteps, isExporting]);
 
   // Story 5.7 AC #5: Update store lead count when it changes
   useEffect(() => {
@@ -338,10 +352,85 @@ export default function CampaignBuilderPage({ params }: PageProps) {
     setIsExportOpen(true);
   };
 
-  // Story 7.4: Export callback (placeholder — real orchestration in Stories 7.5/7.6/7.7)
-  const handleExportConfirm = () => {
-    setIsExportOpen(false);
-    toast.success("Configuração de export salva. Implementação do deploy nas próximas stories.");
+  // Story 7.5: Export callback — dispatches to platform-specific export
+  const handleExportConfirm = async (config: ExportConfig) => {
+    if (config.platform === "instantly") {
+      setIsExportOpen(false);
+      const toastId = toast.loading("Iniciando export para Instantly...");
+      exportToastIdRef.current = toastId;
+
+      try {
+        const exportLeads = (campaignLeadsForExport ?? []).map((cl) => ({
+          email: cl.lead.email,
+          firstName: cl.lead.firstName ?? undefined,
+          lastName: cl.lead.lastName ?? undefined,
+          companyName: cl.lead.companyName ?? undefined,
+          title: cl.lead.title ?? undefined,
+          icebreaker: cl.lead.icebreaker ?? undefined,
+        }));
+
+        const result = await exportToInstantly({
+          config,
+          campaignName: campaignNameState || campaign?.name || "",
+          blocks,
+          leads: exportLeads,
+        });
+
+        if (result.success) {
+          const leadsMsg = result.leadsUploaded
+            ? ` — ${result.leadsUploaded} leads enviados`
+            : "";
+          const warnings = result.steps
+            .filter((s) => s.status === "failed")
+            .map((s) => s.error)
+            .filter(Boolean);
+          const instantlyAction = result.externalCampaignId
+            ? {
+                label: "Abrir no Instantly",
+                onClick: () =>
+                  window.open(
+                    `https://app.instantly.ai/app/campaign/status/${result.externalCampaignId}`,
+                    "_blank"
+                  ),
+              }
+            : undefined;
+          const message = warnings.length > 0
+            ? `Campanha exportada para Instantly${leadsMsg}. Avisos: ${warnings.join("; ")}`
+            : `Campanha exportada para Instantly${leadsMsg}`;
+          toast.success(message, { id: toastId, action: instantlyAction });
+        } else {
+          const failedStep = result.steps.find((s) => s.status === "failed");
+          toast.error(
+            failedStep?.error ?? result.error ?? "Erro ao exportar campanha",
+            {
+              id: toastId,
+              description: "Você pode tentar novamente ou exportar como CSV.",
+              action: {
+                label: "Tentar Novamente",
+                onClick: () => setIsExportOpen(true),
+              },
+            }
+          );
+        }
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : "Erro inesperado ao exportar campanha",
+          {
+            id: toastId,
+            action: {
+              label: "Tentar Novamente",
+              onClick: () => setIsExportOpen(true),
+            },
+          }
+        );
+      } finally {
+        exportToastIdRef.current = undefined;
+      }
+    } else {
+      // CSV/clipboard/snovio — Stories 7.6/7.7
+      setIsExportOpen(false);
+      toast.success("Configuração de export salva. Implementação do deploy nas próximas stories.");
+    }
   };
 
   // Delete campaign handlers

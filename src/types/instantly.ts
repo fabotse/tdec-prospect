@@ -65,6 +65,14 @@ export interface CreateCampaignRequest {
   sequences: Array<{
     steps: InstantlySequenceStep[];
   }>;
+  /** List of sending account emails to associate with the campaign */
+  email_list?: string[];
+  /** Stop sending follow-ups when lead replies */
+  stop_on_reply?: boolean;
+  /** Enable open tracking */
+  open_tracking?: boolean;
+  /** Enable link/click tracking */
+  link_tracking?: boolean;
 }
 
 /**
@@ -179,6 +187,46 @@ export interface ListAccountsResult {
 }
 
 // ==============================================
+// ACCOUNT CAMPAIGN MAPPING TYPES (Story 7.5: AC #1)
+// ==============================================
+
+/**
+ * Request body for POST /api/v2/account-campaign-mappings
+ * Story 7.5: Associates a sending account with a campaign
+ */
+export interface AccountCampaignMappingRequest {
+  campaign_id: string;
+  email_account: string;
+}
+
+/**
+ * Response from POST /api/v2/account-campaign-mappings
+ */
+export interface AccountCampaignMappingResponse {
+  campaign_id: string;
+  email_account: string;
+  status: string;
+}
+
+/**
+ * Parameters for InstantlyService.addAccountsToCampaign()
+ * Story 7.5: AC #1 - Associate sending accounts with campaign
+ */
+export interface AddAccountsParams {
+  apiKey: string;
+  campaignId: string;
+  accountEmails: string[];
+}
+
+/**
+ * Result from InstantlyService.addAccountsToCampaign()
+ */
+export interface AddAccountsResult {
+  success: boolean;
+  accountsAdded: number;
+}
+
+// ==============================================
 // SERVICE PARAM/RESULT TYPES
 // ==============================================
 
@@ -193,6 +241,8 @@ export interface CreateCampaignParams {
     body: string;
     delayDays: number;
   }>;
+  /** Sending account emails to associate with the campaign at creation */
+  sendingAccounts?: string[];
 }
 
 /**

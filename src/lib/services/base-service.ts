@@ -18,6 +18,8 @@ export const ERROR_MESSAGES: Record<string, string> = {
   TIMEOUT: "Tempo limite excedido. Tente novamente.",
   NETWORK_ERROR: "Erro de conexão. Verifique sua internet.",
   INTERNAL_ERROR: "Erro interno. Tente novamente.",
+  BAD_REQUEST: "Requisição inválida.",
+  NOT_FOUND: "Recurso não encontrado.",
 
   // Auth errors
   UNAUTHORIZED: "API key inválida ou expirada.",
@@ -87,10 +89,14 @@ export class ExternalServiceError extends Error {
  */
 function getErrorMessageByStatus(status: number): string {
   switch (status) {
+    case 400:
+      return ERROR_MESSAGES.BAD_REQUEST;
     case 401:
       return ERROR_MESSAGES.UNAUTHORIZED;
     case 403:
       return ERROR_MESSAGES.FORBIDDEN;
+    case 404:
+      return ERROR_MESSAGES.NOT_FOUND;
     case 408:
       return ERROR_MESSAGES.TIMEOUT;
     case 429:
@@ -230,7 +236,23 @@ export abstract class ExternalService {
       });
 
       if (!response.ok) {
-        throw this.handleError(new Error(`HTTP ${response.status}`));
+        let errorBody: unknown;
+        try {
+          errorBody = await response.json();
+        } catch {
+          // Response may not be JSON
+        }
+
+        // Use handleError for service-specific translation (preserves subclass overrides)
+        const translated = this.handleError(new Error(`HTTP ${response.status}`));
+
+        // Re-create with actual HTTP status and response body as details
+        throw new ExternalServiceError(
+          translated.serviceName,
+          response.status,
+          translated.userMessage,
+          errorBody
+        );
       }
 
       return await response.json();

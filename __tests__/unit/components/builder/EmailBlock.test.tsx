@@ -557,16 +557,13 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
 
       fireEvent.click(screen.getByText("Gerar com IA"));
 
-      // Wait for ALL 3 generation calls to complete (icebreaker, subject, body)
-      // The generation flow has 300ms delays between phases, so we need more time
-      // CR-H1 FIX: Move all assertions inside waitFor to ensure all 3 phases complete
-      // before checking prompt keys (fixes race condition/flaky test)
+      // Wait for both generation calls to complete (subject, body)
+      // Story 7.5: Generation is now 2-phase (no icebreaker generation)
       await waitFor(
         () => {
           const allPromptKeys = mockGenerate.mock.calls.map(
             (call) => call[0]?.promptKey
           );
-          expect(allPromptKeys).toContain("icebreaker_generation");
           expect(allPromptKeys).toContain("email_subject_generation");
           expect(allPromptKeys).toContain("email_body_generation");
         },
@@ -721,7 +718,9 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
   // ==============================================
 
   describe("Real Lead Data Integration (Story 6.6 AC: #2)", () => {
-    it("uses real lead data when previewLead is set", async () => {
+    it("uses KB variables (not lead data) even when previewLead is set (Story 7.5)", async () => {
+      // Story 7.5: mergedVariables always uses kbVariables (template mode)
+      // Lead data is no longer merged into generation variables
       mockPreviewLead = {
         id: "lead-1",
         firstName: "Joao",
@@ -740,9 +739,11 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
         expect(mockGenerate).toHaveBeenCalledWith(
           expect.objectContaining({
             variables: expect.objectContaining({
-              lead_name: "Joao",
-              lead_company: "Tech Corp",
-              lead_title: "CTO",
+              // Story 7.5: lead_* fields cleared to force template mode
+              // Prompt {{#if lead_name}} evaluates to false → AI uses {{first_name}}, etc.
+              lead_name: "",
+              lead_company: "",
+              lead_title: "",
             }),
           })
         );
@@ -761,8 +762,8 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
         expect(mockGenerate).toHaveBeenCalledWith(
           expect.objectContaining({
             variables: expect.objectContaining({
-              lead_name: "Lead Name", // KB default
-              lead_company: "Lead Corp", // KB default
+              lead_name: "", // Cleared for template mode
+              lead_company: "", // Cleared for template mode
             }),
           })
         );
@@ -770,39 +771,39 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
     });
   });
 
-  describe("3-Phase Generation Flow (Story 6.6 AC: #3)", () => {
-    it("generates icebreaker first before subject and body", async () => {
-      // Use mockImplementation for better test isolation
+  describe("2-Phase Generation Flow (Story 7.5)", () => {
+    it("generates subject first before body", async () => {
+      // Story 7.5: Generation is now 2-phase (subject → body), no icebreaker generation
       mockGenerate.mockImplementation(() => Promise.resolve("Generated text"));
 
       render(<EmailBlock block={mockBlock} stepNumber={1} />);
 
       fireEvent.click(screen.getByText("Gerar com IA"));
 
-      // Wait for ALL 3 calls to complete to avoid leaking async operations to next test
+      // Wait for both calls to complete
       await waitFor(
         () => {
-          expect(mockGenerate.mock.calls.length).toBeGreaterThanOrEqual(3);
+          expect(mockGenerate.mock.calls.length).toBeGreaterThanOrEqual(2);
         },
         { timeout: 2000 }
       );
 
-      // Verify first call was icebreaker
+      // Verify first call was subject generation (not icebreaker)
       expect(mockGenerate.mock.calls[0]?.[0]?.promptKey).toBe(
-        "icebreaker_generation"
+        "email_subject_generation"
       );
     });
 
-    it("passes generated icebreaker to body generation variables (CR-H1)", async () => {
-      // CR-H1 FIX: Test that body generation receives the icebreaker variable
-      // This verifies the 3-phase flow correctly passes icebreaker from phase 1 to phase 3
-      mockGenerate.mockImplementation(() => Promise.resolve("Mock icebreaker value"));
+    it("body generation does NOT receive a generated icebreaker variable (Story 7.5)", async () => {
+      // Story 7.5: Icebreaker is no longer generated and passed to body.
+      // Body uses mergedVariables directly (which has KB default icebreaker: "")
+      mockGenerate.mockImplementation(() => Promise.resolve("Generated text"));
 
       render(<EmailBlock block={mockBlock} stepNumber={1} />);
 
       fireEvent.click(screen.getByText("Gerar com IA"));
 
-      // Wait for body generation call (the 3rd phase)
+      // Wait for body generation call (the 2nd phase)
       await waitFor(
         () => {
           const bodyCall = mockGenerate.mock.calls.find(
@@ -818,41 +819,40 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
         (call) => call[0]?.promptKey === "email_body_generation"
       );
 
-      // CR-H1: Verify icebreaker variable is passed to body generation
-      // The icebreaker should be a non-empty string (returned by icebreaker_generation)
-      // KB default is empty string, so any non-empty value proves the flow works
+      // Icebreaker variable should be the KB default (empty string),
+      // not a generated value
       const icebreakerVar = bodyCall?.[0]?.variables?.icebreaker;
-      expect(icebreakerVar).toBeDefined();
-      expect(typeof icebreakerVar).toBe("string");
-      expect(icebreakerVar.length).toBeGreaterThan(0);
-
-      // Also verify it's not the KB default empty string
-      expect(icebreakerVar).not.toBe("");
+      expect(icebreakerVar).toBe("");
     });
 
-    it("generates in correct order: icebreaker → subject → body", async () => {
+    it("generates in correct order: subject → body", async () => {
       mockGenerate.mockResolvedValue("Generated");
 
       render(<EmailBlock block={mockBlock} stepNumber={1} />);
 
       fireEvent.click(screen.getByText("Gerar com IA"));
 
-      // Wait for all 3 prompt types to be called
+      // Wait for both prompt types to be called
       await waitFor(
         () => {
           const promptKeys = mockGenerate.mock.calls.map(
             (call) => call[0]?.promptKey
           );
-          expect(promptKeys).toContain("icebreaker_generation");
           expect(promptKeys).toContain("email_subject_generation");
           expect(promptKeys).toContain("email_body_generation");
         },
         { timeout: 2000 }
       );
 
-      // Verify icebreaker is called first
-      const firstCallPromptKey = mockGenerate.mock.calls[0]?.[0]?.promptKey;
-      expect(firstCallPromptKey).toBe("icebreaker_generation");
+      // Verify subject is called first, body second
+      expect(mockGenerate.mock.calls[0]?.[0]?.promptKey).toBe("email_subject_generation");
+      expect(mockGenerate.mock.calls[1]?.[0]?.promptKey).toBe("email_body_generation");
+
+      // Verify icebreaker_generation is NOT called
+      const icebreakerCall = mockGenerate.mock.calls.find(
+        (call) => call[0]?.promptKey === "icebreaker_generation"
+      );
+      expect(icebreakerCall).toBeUndefined();
     });
   });
 
@@ -909,7 +909,7 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
   });
 
   describe("Product Context Integration (Story 6.6 AC: #4)", () => {
-    it("passes productId to icebreaker generation", async () => {
+    it("passes productId to subject and body generation", async () => {
       mockProductId = "product-123";
       mockGenerate.mockResolvedValue("Generated text");
 
@@ -917,12 +917,22 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
 
       fireEvent.click(screen.getByText("Gerar com IA"));
 
-      await waitFor(() => {
-        const icebreakerCall = mockGenerate.mock.calls.find(
-          (call) => call[0]?.promptKey === "icebreaker_generation"
-        );
-        expect(icebreakerCall?.[0]?.productId).toBe("product-123");
-      });
+      await waitFor(
+        () => {
+          // Verify productId is passed to subject generation
+          const subjectCall = mockGenerate.mock.calls.find(
+            (call) => call[0]?.promptKey === "email_subject_generation"
+          );
+          expect(subjectCall?.[0]?.productId).toBe("product-123");
+
+          // Verify productId is passed to body generation
+          const bodyCall = mockGenerate.mock.calls.find(
+            (call) => call[0]?.promptKey === "email_body_generation"
+          );
+          expect(bodyCall?.[0]?.productId).toBe("product-123");
+        },
+        { timeout: 3000 }
+      );
     });
   });
 
@@ -1388,36 +1398,19 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
       fireEvent.click(screen.getByText("Regenerar"));
 
       await waitFor(() => {
-        // Verify context is passed
+        // Story 7.5: Verify lead_* cleared for template mode, KB context preserved
         expect(mockGenerate).toHaveBeenCalledWith(
           expect.objectContaining({
             productId: "product-456",
             variables: expect.objectContaining({
-              lead_name: "Carlos",
-              lead_company: "Empresa XYZ",
-              lead_title: "CEO",
+              // lead_* cleared → prompt enters template mode
+              lead_name: "",
+              lead_company: "",
+              // KB context preserved
+              company_context: "KB Test Company",
             }),
           })
         );
-      });
-    });
-
-    it("generates fresh icebreaker on regeneration (AC #5)", async () => {
-      const blockWithContent: BuilderBlock = {
-        ...mockBlock,
-        data: { subject: "Old Subject", body: "Old Body" },
-      };
-
-      mockGenerate.mockResolvedValue("Fresh icebreaker");
-
-      render(<EmailBlock block={blockWithContent} stepNumber={1} />);
-
-      fireEvent.click(screen.getByText("Regenerar"));
-
-      await waitFor(() => {
-        // Icebreaker generation should be called first
-        const firstCall = mockGenerate.mock.calls[0];
-        expect(firstCall?.[0]?.promptKey).toBe("icebreaker_generation");
       });
     });
 
@@ -1669,7 +1662,7 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
       expect(icebreakerCall).toBeUndefined();
     });
 
-    it("generates icebreaker for initial mode emails", async () => {
+    it("generates subject and body for initial mode emails (Story 7.5)", async () => {
       mockGenerate.mockResolvedValue("Generated text");
 
       render(<EmailBlock block={mockBlock} stepNumber={1} />);
@@ -1678,10 +1671,16 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
 
       await waitFor(
         () => {
-          const icebreakerCall = mockGenerate.mock.calls.find(
-            (call) => call[0]?.promptKey === "icebreaker_generation"
+          // Story 7.5: No icebreaker generation, only subject and body
+          const subjectCall = mockGenerate.mock.calls.find(
+            (call) => call[0]?.promptKey === "email_subject_generation"
           );
-          expect(icebreakerCall).toBeDefined();
+          expect(subjectCall).toBeDefined();
+
+          const bodyCall = mockGenerate.mock.calls.find(
+            (call) => call[0]?.promptKey === "email_body_generation"
+          );
+          expect(bodyCall).toBeDefined();
         },
         { timeout: 3000 }
       );
@@ -1733,11 +1732,11 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
           );
           expect(bodyCall).toBeDefined();
 
-          // Verify icebreaker was generated (initial emails generate icebreaker)
+          // Story 7.5: Icebreaker is no longer generated for initial emails
           const icebreakerCall = mockGenerate.mock.calls.find(
             (call) => call[0]?.promptKey === "icebreaker_generation"
           );
-          expect(icebreakerCall).toBeDefined();
+          expect(icebreakerCall).toBeUndefined();
         },
         { timeout: 3000 }
       );
@@ -2011,30 +2010,7 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
   });
 
   describe("Toast on IB generated with specific lead (Story 9.4 AC #2)", () => {
-    it("shows toast.info after generation when previewLead is set", async () => {
-      mockPreviewLead = {
-        id: "lead-toast",
-        firstName: "Maria",
-        lastName: "Silva",
-        companyName: "Corp SA",
-        title: "CEO",
-        email: "maria@corp.com",
-      };
-      mockGenerate.mockResolvedValue("Generated icebreaker text");
-
-      render(<EmailBlock block={mockBlock} stepNumber={1} />);
-
-      fireEvent.click(screen.getByText("Gerar com IA"));
-
-      await waitFor(
-        () => {
-          expect(mockToastInfo).toHaveBeenCalledWith(
-            expect.stringContaining("Maria")
-          );
-        },
-        { timeout: 5000 }
-      );
-    });
+    // Story 7.5: Toast about icebreaker generation was removed (no icebreaker generation anymore)
 
     it("does NOT show toast when no previewLead is set", async () => {
       mockPreviewLead = null;

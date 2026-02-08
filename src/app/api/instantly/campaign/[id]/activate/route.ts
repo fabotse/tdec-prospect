@@ -53,13 +53,15 @@ export async function POST(
   } catch (error) {
     if (error instanceof ExternalServiceError) {
       return NextResponse.json(
-        { error: error.userMessage },
+        { error: error.userMessage, details: error.details },
         { status: error.statusCode || 502 }
       );
     }
 
+    const errorMsg =
+      error instanceof Error ? error.message : "Erro desconhecido";
     return NextResponse.json(
-      { error: "Erro interno ao ativar campanha" },
+      { error: `Erro interno ao ativar campanha: ${errorMsg}` },
       { status: 500 }
     );
   }

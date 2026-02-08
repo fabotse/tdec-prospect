@@ -142,6 +142,6 @@ describe("POST /api/instantly/campaign/[id]/activate", () => {
     const data = await response.json();
 
     expect(response.status).toBe(500);
-    expect(data.error).toBe("Erro interno ao ativar campanha");
+    expect(data.error).toBe("Erro interno ao ativar campanha: Unexpected");
   });
 });

@@ -4,7 +4,7 @@
  * Story 7.2: Instantly Integration Service - Gestão de Campanhas
  *
  * Instantly API V2 integration for email campaign automation.
- * Provides: testConnection, createCampaign, addLeadsToCampaign, activateCampaign, getCampaignStatus
+ * Provides: testConnection, createCampaign, addAccountsToCampaign, addLeadsToCampaign, activateCampaign, getCampaignStatus
  *
  * API Docs: https://developer.instantly.ai/getting-started/authorization
  */
@@ -34,6 +34,10 @@ import type {
   ListAccountsParams,
   ListAccountsResult,
   ListAccountsResponse,
+  AddAccountsParams,
+  AddAccountsResult,
+  AccountCampaignMappingRequest,
+  AccountCampaignMappingResponse,
 } from "@/types/instantly";
 
 // ==============================================
@@ -44,6 +48,7 @@ const INSTANTLY_API_BASE = "https://api.instantly.ai";
 const INSTANTLY_ACCOUNTS_ENDPOINT = "/api/v2/accounts";
 const INSTANTLY_CAMPAIGNS_ENDPOINT = "/api/v2/campaigns";
 const INSTANTLY_LEADS_ADD_ENDPOINT = "/api/v2/leads/add";
+const INSTANTLY_ACCOUNT_CAMPAIGN_MAPPINGS_ENDPOINT = "/api/v2/account-campaign-mappings";
 const RATE_LIMIT_DELAY_MS = 150;
 
 export const MAX_LEADS_PER_BATCH = 1000;
@@ -93,6 +98,37 @@ function buildAuthHeaders(apiKey: string): Record<string, string> {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Convert plain text email body to HTML for Instantly API.
+ * Instantly renders HTML by default (text_only: false), so we need
+ * proper HTML tags for line breaks to display correctly.
+ *
+ * - Double newlines (\n\n) become paragraph breaks
+ * - Single newlines (\n) become <br> tags
+ * - Template variables {{...}} are preserved as-is
+ * - HTML entities in text are escaped to prevent injection
+ *
+ * @param text - Plain text body (may contain \n and {{variables}})
+ * @returns HTML-formatted string safe for Instantly email body
+ */
+export function textToEmailHtml(text: string): string {
+  if (!text) return "";
+
+  // Escape HTML entities (preserves {{variables}} since they don't use < or >)
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  // Split on double newlines to get paragraphs
+  const paragraphs = escaped.split(/\n\n+/);
+
+  // Convert single newlines to <br> within each paragraph, wrap in <p> tags
+  return paragraphs
+    .map((p) => `<p>${p.replace(/\n/g, "<br>")}</p>`)
+    .join("");
 }
 
 // ==============================================
@@ -151,18 +187,27 @@ export class InstantlyService extends ExternalService {
    * @returns Campaign ID, name, and status
    */
   async createCampaign(params: CreateCampaignParams): Promise<CreateCampaignResult> {
-    const { apiKey, name, sequences } = params;
+    const { apiKey, name, sequences, sendingAccounts } = params;
 
     const steps: InstantlySequenceStep[] = sequences.map((seq, index) => ({
       type: "email" as const,
-      delay: index === 0 ? 0 : seq.delayDays,
-      variants: [{ subject: seq.subject, body: seq.body }],
+      delay: index < sequences.length - 1 ? sequences[index + 1].delayDays : 0,
+      variants: [{
+        subject: seq.subject,
+        body: textToEmailHtml(seq.body),
+      }],
     }));
 
     const requestBody: CreateCampaignRequest = {
       name,
       campaign_schedule: buildDefaultSchedule(),
       sequences: [{ steps }],
+      stop_on_reply: true,
+      open_tracking: true,
+      link_tracking: true,
+      ...(sendingAccounts && sendingAccounts.length > 0 && {
+        email_list: sendingAccounts,
+      }),
     };
 
     const url = `${INSTANTLY_API_BASE}${INSTANTLY_CAMPAIGNS_ENDPOINT}`;
@@ -178,6 +223,48 @@ export class InstantlyService extends ExternalService {
       name: response.name,
       status: response.status,
     };
+  }
+
+  /**
+   * Add sending accounts to an Instantly campaign
+   * Story 7.5: AC #1
+   *
+   * Uses POST /api/v2/account-campaign-mappings to associate
+   * each sending account with the campaign.
+   *
+   * @param params - API key, campaign ID, and account emails
+   * @returns Success status and count of accounts added
+   */
+  async addAccountsToCampaign(params: AddAccountsParams): Promise<AddAccountsResult> {
+    const { apiKey, campaignId, accountEmails } = params;
+
+    if (accountEmails.length === 0) {
+      return { success: true, accountsAdded: 0 };
+    }
+
+    const url = `${INSTANTLY_API_BASE}${INSTANTLY_ACCOUNT_CAMPAIGN_MAPPINGS_ENDPOINT}`;
+    let accountsAdded = 0;
+
+    for (let i = 0; i < accountEmails.length; i++) {
+      if (i > 0) {
+        await delay(RATE_LIMIT_DELAY_MS);
+      }
+
+      const requestBody: AccountCampaignMappingRequest = {
+        campaign_id: campaignId,
+        email_account: accountEmails[i],
+      };
+
+      await this.request<AccountCampaignMappingResponse>(url, {
+        method: "POST",
+        headers: buildAuthHeaders(apiKey),
+        body: JSON.stringify(requestBody),
+      });
+
+      accountsAdded++;
+    }
+
+    return { success: true, accountsAdded };
   }
 
   /**
@@ -299,6 +386,7 @@ export class InstantlyService extends ExternalService {
     const response = await this.request<ActivateCampaignResponse>(url, {
       method: "POST",
       headers: buildAuthHeaders(apiKey),
+      body: JSON.stringify({}),
     });
 
     return { success: response.success };

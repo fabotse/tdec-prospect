@@ -115,6 +115,87 @@ export interface ExportRecord {
 }
 
 // ==============================================
+// DEPLOYMENT TYPES (Story 7.5: AC #1, #3, #4, #5)
+// ==============================================
+
+/**
+ * Step identifiers for the deployment orchestration pipeline
+ * Story 7.5: AC #1 - Sequential deployment steps
+ */
+export type DeploymentStepId =
+  | "validate"
+  | "create_campaign"
+  | "add_accounts"
+  | "add_leads"
+  | "activate"
+  | "persist";
+
+/**
+ * A single step in the deployment pipeline with status tracking
+ * Story 7.5: AC #1 - Progress indicator with current step
+ */
+export interface DeploymentStep {
+  id: DeploymentStepId;
+  label: string;
+  status: "pending" | "running" | "success" | "failed" | "skipped";
+  error?: string;
+  detail?: string;
+}
+
+/**
+ * Result of a complete deployment operation
+ * Story 7.5: AC #2, #3, #5 - Success/failure with details
+ */
+export interface DeploymentResult {
+  success: boolean;
+  externalCampaignId?: string;
+  leadsUploaded?: number;
+  duplicatedLeads?: number;
+  steps: DeploymentStep[];
+  error?: string;
+}
+
+/**
+ * Result of pre-deploy validation
+ * Story 7.5: AC #4 - Blocking errors and non-blocking warnings
+ */
+export interface PreDeployValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+// ==============================================
+// EXPORT CONFIG TYPES (Story 7.5: moved from ExportDialog)
+// ==============================================
+
+/**
+ * Lead selection mode for export
+ * Story 7.4/7.5: "all" exports all campaign leads, "selected" exports a subset
+ */
+export type LeadSelection = "all" | "selected";
+
+/**
+ * Export mode: new campaign, re-export, or update existing
+ * Story 7.4/7.5: Controls deployment flow
+ */
+export type ExportMode = "new" | "re-export" | "update";
+
+/**
+ * Configuration collected by ExportDialog for deployment
+ * Story 7.4/7.5: Passed from dialog to deployment hook
+ */
+export interface ExportConfig {
+  campaignId: string;
+  platform: ExportPlatform;
+  sendingAccounts?: string[];
+  leadSelection: LeadSelection;
+  exportMode: ExportMode;
+  /** External campaign ID for update mode (from previous export) */
+  externalCampaignId?: string;
+}
+
+// ==============================================
 // EXPORT DIALOG TYPES (Story 7.4: AC #1, #2)
 // ==============================================
 

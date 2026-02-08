@@ -9,6 +9,8 @@ import { describe, it, expect } from "vitest";
 import {
   sanitizeGeneratedSubject,
   sanitizeGeneratedBody,
+  normalizeTemplateVariables,
+  ensureIceBreakerVariable,
 } from "@/lib/ai/sanitize-ai-output";
 
 describe("sanitizeGeneratedSubject", () => {
@@ -117,5 +119,149 @@ describe("sanitizeGeneratedBody", () => {
     const input = "Corpo: Olá Pedro,\n\nGostaria de apresentar nosso produto.\n\nAbraços";
     const expected = "Olá Pedro,\n\nGostaria de apresentar nosso produto.\n\nAbraços";
     expect(sanitizeGeneratedBody(input)).toBe(expected);
+  });
+});
+
+// ==============================================
+// normalizeTemplateVariables (Story 7.5)
+// ==============================================
+
+describe("normalizeTemplateVariables", () => {
+  // first_name variants
+  it("normalizes {{Nome}} to {{first_name}}", () => {
+    expect(normalizeTemplateVariables("Oi {{Nome}}, tudo bem?")).toBe(
+      "Oi {{first_name}}, tudo bem?"
+    );
+  });
+
+  it("normalizes {{nome}} (lowercase) to {{first_name}}", () => {
+    expect(normalizeTemplateVariables("Oi {{nome}}, tudo bem?")).toBe(
+      "Oi {{first_name}}, tudo bem?"
+    );
+  });
+
+  it("normalizes {{Name}} to {{first_name}}", () => {
+    expect(normalizeTemplateVariables("Hi {{Name}}!")).toBe("Hi {{first_name}}!");
+  });
+
+  it("normalizes {{FirstName}} to {{first_name}}", () => {
+    expect(normalizeTemplateVariables("Oi {{FirstName}}")).toBe("Oi {{first_name}}");
+  });
+
+  // company_name variants
+  it("normalizes {{Empresa}} to {{company_name}}", () => {
+    expect(normalizeTemplateVariables("Na {{Empresa}}, vimos que")).toBe(
+      "Na {{company_name}}, vimos que"
+    );
+  });
+
+  it("normalizes {{empresa}} to {{company_name}}", () => {
+    expect(normalizeTemplateVariables("a {{empresa}} tem")).toBe("a {{company_name}} tem");
+  });
+
+  it("normalizes {{Company}} to {{company_name}}", () => {
+    expect(normalizeTemplateVariables("at {{Company}}")).toBe("at {{company_name}}");
+  });
+
+  // title variants
+  it("normalizes {{Cargo}} to {{title}}", () => {
+    expect(normalizeTemplateVariables("Como {{Cargo}} da empresa")).toBe(
+      "Como {{title}} da empresa"
+    );
+  });
+
+  it("normalizes {{cargo}} to {{title}}", () => {
+    expect(normalizeTemplateVariables("seu {{cargo}}")).toBe("seu {{title}}");
+  });
+
+  // ice_breaker variants
+  it("normalizes {{icebreaker}} to {{ice_breaker}}", () => {
+    expect(normalizeTemplateVariables("{{icebreaker}} e mais")).toBe(
+      "{{ice_breaker}} e mais"
+    );
+  });
+
+  it("normalizes {{quebra_gelo}} to {{ice_breaker}}", () => {
+    expect(normalizeTemplateVariables("{{quebra_gelo}}")).toBe("{{ice_breaker}}");
+  });
+
+  // Preserves correct variables
+  it("preserves already-correct {{first_name}}", () => {
+    expect(normalizeTemplateVariables("Oi {{first_name}}")).toBe("Oi {{first_name}}");
+  });
+
+  it("preserves already-correct {{company_name}}", () => {
+    expect(normalizeTemplateVariables("{{company_name}} rocks")).toBe("{{company_name}} rocks");
+  });
+
+  it("preserves already-correct {{ice_breaker}}", () => {
+    expect(normalizeTemplateVariables("{{ice_breaker}}")).toBe("{{ice_breaker}}");
+  });
+
+  // Unknown variables untouched
+  it("preserves unknown variables", () => {
+    expect(normalizeTemplateVariables("{{custom_field}}")).toBe("{{custom_field}}");
+  });
+
+  // Multiple variables in one text
+  it("normalizes multiple variables in the same text", () => {
+    const input = "Oi {{Nome}}, como vai na {{Empresa}}? {{icebreaker}}";
+    const expected = "Oi {{first_name}}, como vai na {{company_name}}? {{ice_breaker}}";
+    expect(normalizeTemplateVariables(input)).toBe(expected);
+  });
+
+  // Handles whitespace inside braces
+  it("handles whitespace inside braces", () => {
+    expect(normalizeTemplateVariables("{{ Nome }}")).toBe("{{first_name}}");
+  });
+
+  // No variables
+  it("returns text unchanged when no variables present", () => {
+    const text = "Olá, tudo bem? Aqui é da TDEC.";
+    expect(normalizeTemplateVariables(text)).toBe(text);
+  });
+
+  it("returns empty string for empty input", () => {
+    expect(normalizeTemplateVariables("")).toBe("");
+  });
+});
+
+// ==============================================
+// ensureIceBreakerVariable (Story 7.5)
+// ==============================================
+
+describe("ensureIceBreakerVariable", () => {
+  it("returns body unchanged if {{ice_breaker}} already present", () => {
+    const body = "Oi {{first_name}},\n\n{{ice_breaker}}\n\nNosso produto...";
+    expect(ensureIceBreakerVariable(body)).toBe(body);
+  });
+
+  it("injects {{ice_breaker}} after first paragraph (double newline)", () => {
+    const body = "Oi {{first_name}}, tudo bem?\n\nNosso produto é incrível.";
+    const expected = "Oi {{first_name}}, tudo bem?\n\n{{ice_breaker}}\n\nNosso produto é incrível.";
+    expect(ensureIceBreakerVariable(body)).toBe(expected);
+  });
+
+  it("injects {{ice_breaker}} after first line (single newline)", () => {
+    const body = "Oi {{first_name}},\nNosso produto é incrível.";
+    const expected = "Oi {{first_name}},\n\n{{ice_breaker}}\nNosso produto é incrível.";
+    expect(ensureIceBreakerVariable(body)).toBe(expected);
+  });
+
+  it("prepends {{ice_breaker}} when no newlines exist", () => {
+    const body = "Email sem quebras de linha.";
+    const expected = "{{ice_breaker}}\n\nEmail sem quebras de linha.";
+    expect(ensureIceBreakerVariable(body)).toBe(expected);
+  });
+
+  it("handles multiline body with multiple paragraphs", () => {
+    const body = "Saudação\n\nParágrafo 1\n\nParágrafo 2\n\nAssinatura";
+    const expected = "Saudação\n\n{{ice_breaker}}\n\nParágrafo 1\n\nParágrafo 2\n\nAssinatura";
+    expect(ensureIceBreakerVariable(body)).toBe(expected);
+  });
+
+  it("does not duplicate if {{ice_breaker}} is already at the right position", () => {
+    const body = "Oi!\n\n{{ice_breaker}}\n\nConteúdo";
+    expect(ensureIceBreakerVariable(body)).toBe(body);
   });
 });

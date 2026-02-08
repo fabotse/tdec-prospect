@@ -17,6 +17,13 @@ import {
   type ExportRecord,
   type ExportDialogPlatformOption,
   type LeadExportSummary,
+  type DeploymentStepId,
+  type DeploymentStep,
+  type DeploymentResult,
+  type PreDeployValidationResult,
+  type ExportConfig,
+  type LeadSelection,
+  type ExportMode,
 } from "@/types/export";
 import { EXPORT_PLATFORMS } from "@/lib/export/variable-registry";
 
@@ -190,6 +197,186 @@ describe("export types", () => {
     it("should support snovio platform", () => {
       const platform: RemoteExportPlatform = "snovio";
       expect(platform).toBe("snovio");
+    });
+  });
+
+  // ==============================================
+  // DEPLOYMENT TYPES (Story 7.5: AC #1, #3, #4, #5)
+  // ==============================================
+
+  describe("DeploymentStepId", () => {
+    it("should support all 6 deployment step identifiers", () => {
+      const steps: DeploymentStepId[] = [
+        "validate",
+        "create_campaign",
+        "add_accounts",
+        "add_leads",
+        "activate",
+        "persist",
+      ];
+      expect(steps).toHaveLength(6);
+    });
+  });
+
+  describe("DeploymentStep", () => {
+    it("should represent a pending step", () => {
+      const step: DeploymentStep = {
+        id: "validate",
+        label: "Validação",
+        status: "pending",
+      };
+      expect(step.id).toBe("validate");
+      expect(step.status).toBe("pending");
+      expect(step.error).toBeUndefined();
+    });
+
+    it("should represent a failed step with error", () => {
+      const step: DeploymentStep = {
+        id: "create_campaign",
+        label: "Criar Campanha",
+        status: "failed",
+        error: "API key inválida",
+      };
+      expect(step.status).toBe("failed");
+      expect(step.error).toBe("API key inválida");
+    });
+
+    it("should represent a skipped step with detail", () => {
+      const step: DeploymentStep = {
+        id: "add_accounts",
+        label: "Associar Accounts",
+        status: "skipped",
+        detail: "Accounts included in campaign creation",
+      };
+      expect(step.status).toBe("skipped");
+      expect(step.detail).toBeDefined();
+    });
+  });
+
+  describe("DeploymentResult", () => {
+    it("should represent a successful deployment", () => {
+      const result: DeploymentResult = {
+        success: true,
+        externalCampaignId: "ext-123",
+        leadsUploaded: 50,
+        duplicatedLeads: 2,
+        steps: [
+          { id: "validate", label: "Validação", status: "success" },
+          { id: "create_campaign", label: "Criar Campanha", status: "success" },
+          { id: "add_accounts", label: "Associar Accounts", status: "success" },
+          { id: "add_leads", label: "Enviar Leads", status: "success" },
+          { id: "activate", label: "Ativar Campanha", status: "success" },
+          { id: "persist", label: "Salvar Registro", status: "success" },
+        ],
+      };
+      expect(result.success).toBe(true);
+      expect(result.externalCampaignId).toBe("ext-123");
+      expect(result.leadsUploaded).toBe(50);
+      expect(result.steps).toHaveLength(6);
+    });
+
+    it("should represent a failed deployment", () => {
+      const result: DeploymentResult = {
+        success: false,
+        steps: [
+          { id: "validate", label: "Validação", status: "success" },
+          { id: "create_campaign", label: "Criar Campanha", status: "failed", error: "Erro na API" },
+          { id: "add_accounts", label: "Associar Accounts", status: "pending" },
+          { id: "add_leads", label: "Enviar Leads", status: "pending" },
+          { id: "activate", label: "Ativar Campanha", status: "pending" },
+          { id: "persist", label: "Salvar Registro", status: "pending" },
+        ],
+        error: "Erro na API",
+      };
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Erro na API");
+    });
+  });
+
+  describe("PreDeployValidationResult", () => {
+    it("should represent valid pre-deploy state", () => {
+      const result: PreDeployValidationResult = {
+        valid: true,
+        errors: [],
+        warnings: [],
+      };
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it("should represent invalid state with blocking errors", () => {
+      const result: PreDeployValidationResult = {
+        valid: false,
+        errors: ["Nenhum lead com email válido"],
+        warnings: [],
+      };
+      expect(result.valid).toBe(false);
+      expect(result.errors).toHaveLength(1);
+    });
+
+    it("should represent valid state with warnings", () => {
+      const result: PreDeployValidationResult = {
+        valid: true,
+        errors: [],
+        warnings: ["5 leads sem icebreaker"],
+      };
+      expect(result.valid).toBe(true);
+      expect(result.warnings).toHaveLength(1);
+    });
+  });
+
+  describe("ExportConfig", () => {
+    it("should represent a new Instantly export config", () => {
+      const config: ExportConfig = {
+        campaignId: "c-1",
+        platform: "instantly",
+        sendingAccounts: ["user@example.com"],
+        leadSelection: "all",
+        exportMode: "new",
+      };
+      expect(config.platform).toBe("instantly");
+      expect(config.sendingAccounts).toHaveLength(1);
+      expect(config.exportMode).toBe("new");
+    });
+
+    it("should support re-export mode", () => {
+      const config: ExportConfig = {
+        campaignId: "c-1",
+        platform: "instantly",
+        leadSelection: "all",
+        exportMode: "re-export",
+      };
+      expect(config.exportMode).toBe("re-export");
+      expect(config.sendingAccounts).toBeUndefined();
+    });
+
+    it("should support update mode with selected leads and externalCampaignId", () => {
+      const config: ExportConfig = {
+        campaignId: "c-1",
+        platform: "instantly",
+        leadSelection: "selected",
+        exportMode: "update",
+        externalCampaignId: "ext-abc-123",
+      };
+      expect(config.exportMode).toBe("update");
+      expect(config.leadSelection).toBe("selected");
+      expect(config.externalCampaignId).toBe("ext-abc-123");
+    });
+  });
+
+  describe("LeadSelection", () => {
+    it("should support all and selected values", () => {
+      const all: LeadSelection = "all";
+      const selected: LeadSelection = "selected";
+      expect(all).toBe("all");
+      expect(selected).toBe("selected");
+    });
+  });
+
+  describe("ExportMode", () => {
+    it("should support new, re-export, and update values", () => {
+      const modes: ExportMode[] = ["new", "re-export", "update"];
+      expect(modes).toHaveLength(3);
     });
   });
 

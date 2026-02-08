@@ -20,6 +20,7 @@ import { InstantlyCampaignStatus } from "@/types/instantly";
 import {
   MAX_LEADS_PER_BATCH,
   INSTANTLY_CAMPAIGN_STATUS_LABELS,
+  textToEmailHtml,
 } from "@/lib/services/instantly";
 
 describe("InstantlyService", () => {
@@ -58,6 +59,47 @@ describe("InstantlyService", () => {
 
     it("should return undefined for unknown status", () => {
       expect(INSTANTLY_CAMPAIGN_STATUS_LABELS[999]).toBeUndefined();
+    });
+  });
+
+  // ==============================================
+  // textToEmailHtml (Story 7.5 — HTML body conversion)
+  // ==============================================
+
+  describe("textToEmailHtml", () => {
+    it("returns empty string for empty input", () => {
+      expect(textToEmailHtml("")).toBe("");
+    });
+
+    it("wraps simple text in <p> tags", () => {
+      expect(textToEmailHtml("Hello world")).toBe("<p>Hello world</p>");
+    });
+
+    it("converts single \\n to <br>", () => {
+      expect(textToEmailHtml("Line 1\nLine 2")).toBe("<p>Line 1<br>Line 2</p>");
+    });
+
+    it("converts double \\n to paragraph break", () => {
+      expect(textToEmailHtml("Para 1\n\nPara 2")).toBe("<p>Para 1</p><p>Para 2</p>");
+    });
+
+    it("handles mixed single and double newlines", () => {
+      expect(textToEmailHtml("A\nB\n\nC\nD")).toBe("<p>A<br>B</p><p>C<br>D</p>");
+    });
+
+    it("escapes HTML entities", () => {
+      expect(textToEmailHtml("a < b & c > d")).toBe("<p>a &lt; b &amp; c &gt; d</p>");
+    });
+
+    it("preserves {{variables}} in output", () => {
+      const result = textToEmailHtml("Olá {{first_name}}\n\n{{ice_breaker}}");
+      expect(result).toContain("{{first_name}}");
+      expect(result).toContain("{{ice_breaker}}");
+      expect(result).toBe("<p>Olá {{first_name}}</p><p>{{ice_breaker}}</p>");
+    });
+
+    it("handles triple+ newlines as single paragraph break", () => {
+      expect(textToEmailHtml("A\n\n\nB")).toBe("<p>A</p><p>B</p>");
     });
   });
 
@@ -221,9 +263,32 @@ describe("InstantlyService", () => {
       expect(sequences[0].steps[0].type).toBe("email");
       expect(sequences[0].steps[0].delay).toBe(0);
       expect(sequences[0].steps[0].variants[0].subject).toBe("Assunto 1");
+      // Body is converted to HTML for proper rendering in Instantly
+      expect(sequences[0].steps[0].variants[0].body).toBe("<p>Corpo 1</p>");
     });
 
-    it("creates campaign with multiple email steps and delays", async () => {
+    it("includes stop_on_reply, open_tracking, and link_tracking in request", async () => {
+      const { calls } = createMockFetch([
+        {
+          url: /\/api\/v2\/campaigns$/,
+          method: "POST",
+          response: mockJsonResponse(mockCampaignResponse),
+        },
+      ]);
+
+      await service.createCampaign({
+        apiKey: "test-key",
+        name: "Config Test",
+        sequences: [{ subject: "S", body: "B", delayDays: 0 }],
+      });
+
+      const body = calls()[0].body as Record<string, unknown>;
+      expect(body.stop_on_reply).toBe(true);
+      expect(body.open_tracking).toBe(true);
+      expect(body.link_tracking).toBe(true);
+    });
+
+    it("creates campaign with multiple email steps and delays mapped to NEXT email", async () => {
       const { calls } = createMockFetch([
         {
           url: /\/api\/v2\/campaigns$/,
@@ -245,9 +310,13 @@ describe("InstantlyService", () => {
       const body = calls()[0].body as Record<string, unknown>;
       const sequences = body.sequences as Array<{ steps: Array<{ delay: number }> }>;
       expect(sequences[0].steps).toHaveLength(3);
-      expect(sequences[0].steps[0].delay).toBe(0);
-      expect(sequences[0].steps[1].delay).toBe(3);
-      expect(sequences[0].steps[2].delay).toBe(5);
+      // Instantly API: delay = "delay before sending the NEXT email"
+      // step[0].delay = sequences[1].delayDays (delay before step 1)
+      // step[1].delay = sequences[2].delayDays (delay before step 2)
+      // step[2].delay = 0 (last step, no next email)
+      expect(sequences[0].steps[0].delay).toBe(3);
+      expect(sequences[0].steps[1].delay).toBe(5);
+      expect(sequences[0].steps[2].delay).toBe(0);
     });
 
     it("includes default campaign schedule with Brazilian business hours", async () => {
@@ -333,8 +402,39 @@ describe("InstantlyService", () => {
 
       const body = calls()[0].body as Record<string, unknown>;
       const sequences = body.sequences as Array<{ steps: Array<{ variants: Array<{ subject: string; body: string }> }> }>;
+      // Subject is NOT converted to HTML
       expect(sequences[0].steps[0].variants[0].subject).toContain("{{first_name}}");
+      // Body is HTML but variables are preserved
       expect(sequences[0].steps[0].variants[0].body).toContain("{{ice_breaker}}");
+      expect(sequences[0].steps[0].variants[0].body).toContain("{{company_name}}");
+    });
+
+    it("converts \\n line breaks to HTML in email body for Instantly rendering", async () => {
+      const { calls } = createMockFetch([
+        {
+          url: /\/api\/v2\/campaigns$/,
+          method: "POST",
+          response: mockJsonResponse(mockCampaignResponse),
+        },
+      ]);
+
+      await service.createCampaign({
+        apiKey: "key",
+        name: "LineBreaks Test",
+        sequences: [
+          {
+            subject: "Assunto",
+            body: "Primeira linha\nSegunda linha\n\nTerceira linha",
+            delayDays: 0,
+          },
+        ],
+      });
+
+      const body = calls()[0].body as Record<string, unknown>;
+      const sequences = body.sequences as Array<{ steps: Array<{ variants: Array<{ subject: string; body: string }> }> }>;
+      const emailBody = sequences[0].steps[0].variants[0].body;
+      // Double newline (\n\n) becomes paragraph break, single \n becomes <br>
+      expect(emailBody).toBe("<p>Primeira linha<br>Segunda linha</p><p>Terceira linha</p>");
     });
 
     it("throws ExternalServiceError on 401", async () => {
@@ -373,7 +473,7 @@ describe("InstantlyService", () => {
       ).rejects.toThrow(ExternalServiceError);
     });
 
-    it("forces first step delay to 0 even if caller provides non-zero (H2)", async () => {
+    it("maps delay to NEXT step - step[0] gets sequences[1].delay, last step gets 0 (H2)", async () => {
       const { calls } = createMockFetch([
         {
           url: /\/api\/v2\/campaigns$/,
@@ -393,8 +493,10 @@ describe("InstantlyService", () => {
 
       const body = calls()[0].body as Record<string, unknown>;
       const sequences = body.sequences as Array<{ steps: Array<{ delay: number }> }>;
-      expect(sequences[0].steps[0].delay).toBe(0);
-      expect(sequences[0].steps[1].delay).toBe(3);
+      // step[0].delay = sequences[1].delayDays = 3 (delay before next email)
+      expect(sequences[0].steps[0].delay).toBe(3);
+      // step[1].delay = 0 (last step, no next email)
+      expect(sequences[0].steps[1].delay).toBe(0);
     });
   });
 
@@ -874,6 +976,125 @@ describe("InstantlyService", () => {
 
       const leadsCall = getCalls().find(c => c.url.includes("/leads/add"));
       expect(leadsCall?.headers?.Authorization).toBe("Bearer my-secret-key");
+    });
+  });
+
+  // ==============================================
+  // addAccountsToCampaign (Story 7.5 AC: #1)
+  // ==============================================
+
+  describe("addAccountsToCampaign", () => {
+    it("adds accounts to campaign successfully", async () => {
+      const { calls } = createMockFetch([
+        {
+          url: /\/api\/v2\/account-campaign-mappings/,
+          method: "POST",
+          response: mockJsonResponse({
+            campaign_id: "camp-123",
+            email_account: "sender@example.com",
+            status: "active",
+          }),
+        },
+      ]);
+
+      const result = await service.addAccountsToCampaign({
+        apiKey: "test-key",
+        campaignId: "camp-123",
+        accountEmails: ["sender@example.com"],
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.accountsAdded).toBe(1);
+
+      const body = calls()[0].body as Record<string, unknown>;
+      expect(body.campaign_id).toBe("camp-123");
+      expect(body.email_account).toBe("sender@example.com");
+    });
+
+    it("returns success with 0 accounts when empty array", async () => {
+      const result = await service.addAccountsToCampaign({
+        apiKey: "test-key",
+        campaignId: "camp-123",
+        accountEmails: [],
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.accountsAdded).toBe(0);
+    });
+
+    it("adds multiple accounts with rate limiting", async () => {
+      vi.useFakeTimers();
+
+      const { mock } = createMockFetch([
+        {
+          url: /\/api\/v2\/account-campaign-mappings/,
+          method: "POST",
+          response: mockJsonResponse({
+            campaign_id: "camp-123",
+            email_account: "sender@example.com",
+            status: "active",
+          }),
+        },
+      ]);
+
+      const promise = service.addAccountsToCampaign({
+        apiKey: "test-key",
+        campaignId: "camp-123",
+        accountEmails: ["s1@test.com", "s2@test.com", "s3@test.com"],
+      });
+
+      await vi.advanceTimersByTimeAsync(500);
+      const result = await promise;
+
+      expect(result.success).toBe(true);
+      expect(result.accountsAdded).toBe(3);
+
+      const mappingCalls = mock.mock.calls.filter(
+        (c: [string]) => typeof c[0] === "string" && c[0].includes("/account-campaign-mappings")
+      );
+      expect(mappingCalls).toHaveLength(3);
+
+      vi.useRealTimers();
+    });
+
+    it("throws ExternalServiceError on API failure", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/v2\/account-campaign-mappings/,
+          method: "POST",
+          response: mockErrorResponse(401),
+        },
+      ]);
+
+      await expect(
+        service.addAccountsToCampaign({
+          apiKey: "bad-key",
+          campaignId: "camp-123",
+          accountEmails: ["sender@test.com"],
+        })
+      ).rejects.toThrow(ExternalServiceError);
+    });
+
+    it("sends Bearer token in requests", async () => {
+      const { calls } = createMockFetch([
+        {
+          url: /\/api\/v2\/account-campaign-mappings/,
+          method: "POST",
+          response: mockJsonResponse({
+            campaign_id: "camp-123",
+            email_account: "sender@test.com",
+            status: "active",
+          }),
+        },
+      ]);
+
+      await service.addAccountsToCampaign({
+        apiKey: "my-secret",
+        campaignId: "camp-123",
+        accountEmails: ["sender@test.com"],
+      });
+
+      expect(calls()[0].headers?.Authorization).toBe("Bearer my-secret");
     });
   });
 

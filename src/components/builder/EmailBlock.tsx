@@ -46,7 +46,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Mail, GripVertical, Trash2, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
@@ -73,7 +72,12 @@ import { useDebouncedCallback } from "@/hooks/use-debounce";
 import { AIGenerateButton } from "./AIGenerateButton";
 import { ExamplesHint } from "./ExamplesHint";
 import { PremiumIcebreakerBadge } from "./PremiumIcebreakerBadge";
-import { sanitizeGeneratedSubject, sanitizeGeneratedBody } from "@/lib/ai/sanitize-ai-output";
+import {
+  sanitizeGeneratedSubject,
+  sanitizeGeneratedBody,
+  normalizeTemplateVariables,
+  ensureIceBreakerVariable,
+} from "@/lib/ai/sanitize-ai-output";
 
 /**
  * Story 9.4 AC #3: Detect {{ice_breaker}} variable in email body text
@@ -147,19 +151,21 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
   // Knowledge Base context for AI generation (Story 6.3, 6.10)
   const { variables: kbVariables, isLoading: kbLoading, hasExamples } = useKnowledgeBaseContext();
 
-  // Story 6.6 AC #2: Merge KB variables with real lead data when available
-  const mergedVariables = useMemo(() => {
-    if (!previewLead) {
-      return kbVariables;
-    }
-    // Override KB placeholders with real lead data
-    return {
-      ...kbVariables,
-      lead_name: previewLead.firstName,
-      lead_title: previewLead.title || kbVariables.lead_title || "Profissional",
-      lead_company: previewLead.companyName || kbVariables.lead_company || "",
-    };
-  }, [kbVariables, previewLead]);
+  // Story 7.5: Always use template mode — AI outputs {{first_name}}, {{company_name}}, etc.
+  // Preview panel resolves variables for display using resolveEmailVariables()
+  // Export sends template variables to Instantly for per-lead personalization
+  //
+  // Clear lead_* and icebreaker so prompt conditionals ({{#if lead_name}}, {{#if icebreaker}})
+  // evaluate to false → AI enters template mode and uses {{first_name}}, {{ice_breaker}}, etc.
+  const mergedVariables = useMemo(() => ({
+    ...kbVariables,
+    lead_name: "",
+    lead_title: "",
+    lead_company: "",
+    lead_industry: "",
+    lead_location: "",
+    icebreaker: "",
+  }), [kbVariables]);
 
   // Story 6.8 AC #1, #6: Determine if content has been generated
   // Shows "Regenerar" when BOTH subject AND body have content
@@ -271,8 +277,6 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
     const isFollowUp = blockData.emailMode === "follow-up" && canBeFollowUp;
 
     try {
-      let generatedIcebreaker = "";
-
       // Story 6.11 AC #3, #4: For follow-up emails, get previous email context
       if (isFollowUp) {
         // Get previous email content for context (AC #4: chain reads from immediately previous)
@@ -291,7 +295,7 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
             stream: true,
             productId,
           });
-          const cleanSubject = sanitizeGeneratedSubject(generatedSubject);
+          const cleanSubject = normalizeTemplateVariables(sanitizeGeneratedSubject(generatedSubject));
           setSubject(cleanSubject);
 
           await new Promise((resolve) => setTimeout(resolve, 300));
@@ -310,7 +314,8 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
             productId,
           });
 
-          const cleanBody = sanitizeGeneratedBody(generatedBody);
+          // Follow-ups: normalize variables but do NOT inject ice_breaker
+          const cleanBody = normalizeTemplateVariables(sanitizeGeneratedBody(generatedBody));
           setBody(cleanBody);
           // Story 6.5.7: Follow-up emails don't use icebreakers
           updateBlock(block.id, {
@@ -333,32 +338,11 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
         );
       }
 
-      // Story 6.5.7 AC #1: Use premium icebreaker if available
-      // AC #2: Fall back to standard icebreaker generation if not
-      if (hasPremiumIcebreaker && previewLead?.icebreaker) {
-        // Use premium icebreaker - skip generation
-        generatedIcebreaker = previewLead.icebreaker;
-        setUsedIcebreakerSource("premium");
-        // Brief visual feedback that premium icebreaker is being used
-        setGeneratingField("icebreaker");
-        await new Promise((resolve) => setTimeout(resolve, 200));
-      } else {
-        // Story 6.6 AC #3: Generate icebreaker FIRST (for initial emails)
-        setGeneratingField("icebreaker");
-        setUsedIcebreakerSource("standard");
-        generatedIcebreaker = await generate({
-          promptKey: "icebreaker_generation",
-          variables: mergedVariables,
-          stream: true,
-          productId,
-        });
+      // Story 7.5: Skip icebreaker generation — template mode uses {{ice_breaker}} variable
+      // Track source for premium badge display in preview
+      setUsedIcebreakerSource(hasPremiumIcebreaker ? "premium" : "none");
 
-        // Small delay before generating subject for better UX
-        await new Promise((resolve) => setTimeout(resolve, 300));
-        resetAI();
-      }
-
-      // Generate subject using KB context (AC 6.3 #1), product context (Story 6.5), and real lead data (Story 6.6)
+      // Generate subject using KB context (AC 6.3 #1), product context (Story 6.5)
       setGeneratingField("subject");
       const generatedSubject = await generate({
         promptKey: "email_subject_generation",
@@ -370,43 +354,40 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
       // Update local state immediately for UI feedback (streaming already shows progress)
       // CR-M1 FIX: Removed intermediate store update to avoid stale closure issue
       // Store will be updated after body generation completes with both subject and body
-      const cleanSubject = sanitizeGeneratedSubject(generatedSubject);
+      const cleanSubject = normalizeTemplateVariables(sanitizeGeneratedSubject(generatedSubject));
       setSubject(cleanSubject);
 
       // Small delay before generating body for better UX
       await new Promise((resolve) => setTimeout(resolve, 300));
       resetAI();
 
-      // Story 6.6 AC #3: Generate body WITH icebreaker context
+      // Story 7.5: Generate body WITHOUT icebreaker — prompt uses {{ice_breaker}} variable
       setGeneratingField("body");
       const generatedBody = await generate({
         promptKey: "email_body_generation",
-        variables: { ...mergedVariables, icebreaker: generatedIcebreaker },
+        variables: mergedVariables,
         stream: true,
         productId,
       });
 
       // Update body in store after complete generation
       // Use generatedSubject directly to avoid stale closure (Code Review Fix M3)
-      // Story 6.5.7: Store icebreakerSource and icebreakerPosts for preview badge
-      const cleanBody = sanitizeGeneratedBody(generatedBody);
+      // Story 7.5: Normalize variables + ensure {{ice_breaker}} is in the body
+      const cleanBody = ensureIceBreakerVariable(
+        normalizeTemplateVariables(sanitizeGeneratedBody(generatedBody))
+      );
       setBody(cleanBody);
       updateBlock(block.id, {
         data: {
           ...blockData,
           subject: cleanSubject,
           body: cleanBody,
-          icebreakerSource: hasPremiumIcebreaker ? "premium" : "standard",
-          icebreakerPosts: previewLead?.linkedinPostsCache?.posts || null,
+          icebreakerSource: hasPremiumIcebreaker ? "premium" : "none",
+          icebreakerPosts: hasPremiumIcebreaker
+            ? (previewLead?.linkedinPostsCache?.posts || null)
+            : null,
         },
       });
-
-      // Story 9.4 AC #2: Inform user that icebreaker was generated with specific lead
-      if (previewLead && generatedIcebreaker) {
-        toast.info(
-          `Ice Breaker gerado com base no lead ${previewLead.firstName}. Pode variar para outros leads.`
-        );
-      }
 
       setGeneratingField(null);
     } catch {
