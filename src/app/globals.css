@@ -265,6 +265,49 @@
 }
 
 /* ==========================================================================
+   CUSTOM SCROLLBAR - Outside @layer for full specificity
+   ========================================================================== */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(0 0% 22%) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: hsl(0 0% 22%);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(0 0% 32%);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.light {
+  scrollbar-color: hsl(0 0% 78%) transparent;
+}
+
+.light ::-webkit-scrollbar-thumb {
+  background-color: hsl(0 0% 78%);
+}
+
+.light ::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(0 0% 65%);
+}
+
+/* ==========================================================================
    BASE STYLES
    ========================================================================== */
 

@@ -170,7 +170,7 @@ export function ExportDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-6">
+        <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-6 pr-3">
           {/* Previous Export Indicator (AC: #5) */}
           {previousExport && previousExport.exportedAt && (
             <div
