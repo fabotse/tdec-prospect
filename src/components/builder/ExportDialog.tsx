@@ -101,6 +101,8 @@ export function ExportDialog({
   const [exportMode, setExportMode] = useState<ExportMode>(
     previousExport ? "re-export" : "new"
   );
+  // Story 7.7 AC #2: CSV mode toggle (resolved vs with_variables)
+  const [csvMode, setCsvMode] = useState<"resolved" | "with_variables">("resolved");
 
   // M1 fix: Only fetch accounts when Instantly is selected
   const { accounts, isLoading: accountsLoading } = useSendingAccounts({
@@ -115,6 +117,7 @@ export function ExportDialog({
         setSelectedAccounts([]);
         setLeadSelection("all");
         setExportMode(previousExport ? "re-export" : "new");
+        setCsvMode("resolved");
       }
       onOpenChange(newOpen);
     },
@@ -127,7 +130,7 @@ export function ExportDialog({
   const canExport =
     selectedPlatform !== null &&
     selectedOption?.configured &&
-    leadSummary.leadsWithEmail > 0 &&
+    (selectedPlatform === "clipboard" || leadSummary.leadsWithEmail > 0) &&
     (!isInstantly || selectedAccounts.length > 0);
 
   function handleExport() {
@@ -144,6 +147,9 @@ export function ExportDialog({
     }
     if (exportMode === "update" && previousExport?.externalCampaignId) {
       config.externalCampaignId = previousExport.externalCampaignId;
+    }
+    if (selectedPlatform === "csv") {
+      config.csvMode = csvMode;
     }
 
     onExport(config);
@@ -277,6 +283,44 @@ export function ExportDialog({
                   Selecionar leads
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* Story 7.7 AC #2: CSV Mode Toggle (only for CSV platform) */}
+          {selectedPlatform === "csv" && (
+            <div className="flex flex-col gap-2" data-testid="csv-mode-toggle">
+              <span className="text-sm font-medium">Modo do CSV</span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCsvMode("resolved")}
+                  className={`rounded-md border px-3 py-2 text-sm transition-colors ${
+                    csvMode === "resolved"
+                      ? "border-primary bg-primary/5"
+                      : "hover:bg-muted/50"
+                  }`}
+                  data-testid="csv-mode-resolved"
+                >
+                  CSV Resolvido
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCsvMode("with_variables")}
+                  className={`rounded-md border px-3 py-2 text-sm transition-colors ${
+                    csvMode === "with_variables"
+                      ? "border-primary bg-primary/5"
+                      : "hover:bg-muted/50"
+                  }`}
+                  data-testid="csv-mode-with-variables"
+                >
+                  CSV com Variáveis
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {csvMode === "resolved"
+                  ? "Variáveis substituídas por dados reais de cada lead."
+                  : "Templates com {{variáveis}} mantidas — ideal para importar em plataformas."}
+              </p>
             </div>
           )}
 

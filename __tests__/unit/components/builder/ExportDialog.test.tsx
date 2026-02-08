@@ -236,7 +236,7 @@ describe("ExportDialog", () => {
     expect(exportButton.closest("button")).toBeDisabled();
   });
 
-  it("export button is disabled when no leads with email", () => {
+  it("export button is disabled when no leads with email (CSV)", () => {
     render(
       <ExportDialog
         {...defaultProps}
@@ -248,6 +248,21 @@ describe("ExportDialog", () => {
 
     const exportButton = screen.getByText("Exportar para CSV");
     expect(exportButton.closest("button")).toBeDisabled();
+  });
+
+  // H1 fix: Clipboard should be enabled even without leads (AC #3 — template only)
+  it("export button is enabled for clipboard even when no leads with email", () => {
+    render(
+      <ExportDialog
+        {...defaultProps}
+        leadSummary={mockLeadSummaryNoEmails}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("platform-option-clipboard"));
+
+    const exportButton = screen.getByText("Exportar para Clipboard");
+    expect(exportButton.closest("button")).not.toBeDisabled();
   });
 
   it("calls onExport with correct config including campaignId and leadSelection", () => {
@@ -267,6 +282,7 @@ describe("ExportDialog", () => {
       platform: "csv",
       leadSelection: "all",
       exportMode: "new",
+      csvMode: "resolved",
     });
   });
 
@@ -318,5 +334,47 @@ describe("ExportDialog", () => {
 
     const exportButton = screen.getByText("Exportar para Snov.io");
     expect(exportButton.closest("button")).toBeDisabled();
+  });
+
+  // Story 7.7 AC #2: CSV Mode Toggle
+  describe("CSV mode toggle (Story 7.7)", () => {
+    it("mostra toggle CSV mode quando plataforma CSV é selecionada", () => {
+      render(<ExportDialog {...defaultProps} />);
+
+      // Select CSV platform
+      fireEvent.click(screen.getByTestId("platform-option-csv"));
+
+      expect(screen.getByTestId("csv-mode-toggle")).toBeInTheDocument();
+      expect(screen.getByTestId("csv-mode-resolved")).toBeInTheDocument();
+      expect(screen.getByTestId("csv-mode-with-variables")).toBeInTheDocument();
+    });
+
+    it("não mostra toggle CSV mode para outras plataformas", () => {
+      render(<ExportDialog {...defaultProps} />);
+
+      // Select Instantly platform
+      fireEvent.click(screen.getByTestId("platform-option-instantly"));
+
+      expect(screen.queryByTestId("csv-mode-toggle")).not.toBeInTheDocument();
+    });
+
+    it("inclui csvMode no config ao exportar CSV", () => {
+      const onExport = vi.fn();
+      render(<ExportDialog {...defaultProps} onExport={onExport} />);
+
+      // Select CSV platform
+      fireEvent.click(screen.getByTestId("platform-option-csv"));
+      // Select "com variáveis" mode
+      fireEvent.click(screen.getByTestId("csv-mode-with-variables"));
+      // Click export
+      fireEvent.click(screen.getByText(/Exportar para CSV/));
+
+      expect(onExport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          platform: "csv",
+          csvMode: "with_variables",
+        })
+      );
+    });
   });
 });

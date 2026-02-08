@@ -193,6 +193,8 @@ export interface ExportConfig {
   exportMode: ExportMode;
   /** External campaign ID for update mode (from previous export) */
   externalCampaignId?: string;
+  /** Story 7.7 AC #2: CSV export mode — resolved (real data) or with_variables (templates) */
+  csvMode?: "resolved" | "with_variables";
 }
 
 // ==============================================

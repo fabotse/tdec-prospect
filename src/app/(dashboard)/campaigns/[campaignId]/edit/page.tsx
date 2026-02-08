@@ -47,6 +47,7 @@ import {
 import { DeleteCampaignDialog } from "@/components/campaigns";
 import { useCampaignExport } from "@/hooks/use-campaign-export";
 import { useInstantlyExport } from "@/hooks/use-instantly-export";
+import { useCsvClipboardExport } from "@/hooks/use-csv-clipboard-export";
 import { useIntegrationConfig } from "@/hooks/use-integration-config";
 import type { ExportConfig } from "@/types/export";
 
@@ -160,12 +161,27 @@ export default function CampaignBuilderPage({ params }: PageProps) {
 
   // Story 7.4: Export dialog
   // Story 7.5: Instantly export orchestration
+  // Story 7.7: CSV/Clipboard export
   const [isExportOpen, setIsExportOpen] = useState(false);
   const { exportToInstantly, isExporting, steps: exportSteps } = useInstantlyExport();
+  const { exportToCsv, exportToCsvWithVariables, exportToClipboard } = useCsvClipboardExport();
   const exportToastIdRef = useRef<string | number | undefined>();
   const { configs: integrationConfigs } = useIntegrationConfig();
   const exportLeadInfos = useMemo(
     () => (campaignLeadsForExport ?? []).map((cl) => cl.lead),
+    [campaignLeadsForExport]
+  );
+  // M2 fix: Shared lead mapping for export (Instantly + CSV) — avoid duplication
+  const exportLeadsMapped = useMemo(
+    () =>
+      (campaignLeadsForExport ?? []).map((cl) => ({
+        email: cl.lead.email,
+        firstName: cl.lead.firstName ?? undefined,
+        lastName: cl.lead.lastName ?? undefined,
+        companyName: cl.lead.companyName ?? undefined,
+        title: cl.lead.title ?? undefined,
+        icebreaker: cl.lead.icebreaker ?? undefined,
+      })),
     [campaignLeadsForExport]
   );
   const { platformOptions, leadSummary, previousExport } = useCampaignExport({
@@ -360,20 +376,11 @@ export default function CampaignBuilderPage({ params }: PageProps) {
       exportToastIdRef.current = toastId;
 
       try {
-        const exportLeads = (campaignLeadsForExport ?? []).map((cl) => ({
-          email: cl.lead.email,
-          firstName: cl.lead.firstName ?? undefined,
-          lastName: cl.lead.lastName ?? undefined,
-          companyName: cl.lead.companyName ?? undefined,
-          title: cl.lead.title ?? undefined,
-          icebreaker: cl.lead.icebreaker ?? undefined,
-        }));
-
         const result = await exportToInstantly({
           config,
           campaignName: campaignNameState || campaign?.name || "",
           blocks,
-          leads: exportLeads,
+          leads: exportLeadsMapped,
         });
 
         if (result.success) {
@@ -426,8 +433,48 @@ export default function CampaignBuilderPage({ params }: PageProps) {
       } finally {
         exportToastIdRef.current = undefined;
       }
+    } else if (config.platform === "csv") {
+      // Story 7.7 AC #1, #2: CSV export
+      setIsExportOpen(false);
+      try {
+        const csvParams = {
+          blocks,
+          leads: exportLeadsMapped,
+          campaignName: campaignNameState || campaign?.name || "",
+        };
+
+        const result = config.csvMode === "with_variables"
+          ? await exportToCsvWithVariables(csvParams)
+          : await exportToCsv(csvParams);
+
+        if (result.success) {
+          toast.success(`Campanha exportada — ${result.rowCount} leads em CSV`);
+        } else {
+          toast.error(result.error ?? "Erro ao exportar CSV");
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Erro ao exportar CSV");
+      }
+    } else if (config.platform === "clipboard") {
+      // Story 7.7 AC #3: Clipboard export
+      setIsExportOpen(false);
+      try {
+        const result = await exportToClipboard({
+          blocks,
+          campaignName: campaignNameState || campaign?.name || "",
+        });
+
+        if (result.success) {
+          const emailCount = blocks.filter((b) => b.type === "email").length;
+          toast.success(`Campanha copiada — ${emailCount} emails na sequência`);
+        } else {
+          toast.error(result.error ?? "Erro ao copiar para clipboard");
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Erro ao copiar para clipboard");
+      }
     } else {
-      // CSV/clipboard/snovio — Stories 7.6/7.7
+      // snovio — Story 7.6
       setIsExportOpen(false);
       toast.success("Configuração de export salva. Implementação do deploy nas próximas stories.");
     }
