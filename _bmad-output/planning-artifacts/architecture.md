@@ -22,7 +22,7 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 ### Requirements Overview
 
 **Functional Requirements:**
-O projeto possui 49 requisitos funcionais organizados em 8 domínios:
+O projeto possui 56 requisitos funcionais organizados em 9 domínios:
 - Lead Acquisition (6 FRs): Busca conversacional IA, filtros, seleção em lote
 - Lead Management (6 FRs): Status, histórico, segmentação, escalonamento
 - Campaign Building (7 FRs): Builder visual drag-and-drop, sequências, intervalos
@@ -31,6 +31,7 @@ O projeto possui 49 requisitos funcionais organizados em 8 domínios:
 - User Management (5 FRs): Auth, roles Admin/Usuário, convites
 - Administration (7 FRs): Config APIs, base de conhecimento, tom de voz
 - Interface & Experience (4 FRs): Visual clean, navegação, feedback
+- Campaign Tracking & Janela de Oportunidade (7 FRs): Webhooks, analytics dashboard, lead tracking, threshold configurável, polling backup, preparação WhatsApp
 
 **Non-Functional Requirements:**
 - Performance: Busca <3s, IA <5s, Export <10s, UI <2s, 10 usuários simultâneos
@@ -54,7 +55,7 @@ O projeto possui 49 requisitos funcionais organizados em 8 domínios:
 - Apollo API: Fonte principal de leads
 - SignalHire API: Enriquecimento de telefones
 - Snov.io API: Exportação de campanhas
-- Instantly API: Exportação de campanhas
+- Instantly API: Exportação de campanhas + Campaign Tracking (analytics, lead tracking, webhooks)
 
 **Restrições:**
 - API keys são do cliente, não centralizadas
@@ -69,6 +70,7 @@ O projeto possui 49 requisitos funcionais organizados em 8 domínios:
 4. **AI Context Management**: Base de conhecimento isolada por tenant
 5. **Cost Optimization**: Escolha de modelos IA por complexidade de tarefa
 6. **Observability**: Logs de auditoria para ações admin
+7. **Event Processing**: Recepção e processamento de webhooks (Instantly tracking events), idempotência, sincronização híbrida (webhook + polling)
 
 ## Starter Template Evaluation
 
@@ -198,6 +200,103 @@ src/
 - Soft deletes para dados críticos (leads, campanhas)
 - Timestamps automáticos (created_at, updated_at)
 
+**Campaign Tracking Data Models (Epic 10):**
+
+```sql
+-- Tabela de eventos de tracking (webhooks + polling)
+CREATE TABLE campaign_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  campaign_id UUID NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  event_type VARCHAR(50) NOT NULL,           -- 'email_opened', 'email_clicked', 'email_replied', 'email_bounced'
+  lead_email VARCHAR(255) NOT NULL,
+  event_timestamp TIMESTAMPTZ NOT NULL,      -- Timestamp do evento no Instantly
+  payload JSONB DEFAULT '{}',                -- Payload original completo
+  source VARCHAR(20) DEFAULT 'webhook',      -- 'webhook' ou 'polling'
+  processed_at TIMESTAMPTZ DEFAULT now(),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  -- Idempotência: previne duplicatas de webhook
+  UNIQUE(campaign_id, event_type, lead_email, event_timestamp)
+);
+
+-- Índices para queries frequentes
+CREATE INDEX idx_campaign_events_campaign_id ON campaign_events(campaign_id);
+CREATE INDEX idx_campaign_events_campaign_lead ON campaign_events(campaign_id, lead_email);
+CREATE INDEX idx_campaign_events_campaign_type ON campaign_events(campaign_id, event_type);
+
+-- RLS
+ALTER TABLE campaign_events ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON campaign_events
+  FOR ALL USING (tenant_id = auth.jwt() ->> 'tenant_id');
+
+-- Configuração da Janela de Oportunidade por campanha
+CREATE TABLE opportunity_configs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  campaign_id UUID NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  min_opens INTEGER NOT NULL DEFAULT 3,       -- Mínimo de aberturas para qualificar
+  period_days INTEGER NOT NULL DEFAULT 7,     -- Período em dias para contagem
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(campaign_id)                         -- Uma config por campanha
+);
+
+-- RLS
+ALTER TABLE opportunity_configs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON opportunity_configs
+  FOR ALL USING (tenant_id = auth.jwt() ->> 'tenant_id');
+```
+
+**Tipos TypeScript para Tracking:**
+
+```typescript
+// types/tracking.ts
+interface CampaignAnalytics {
+  campaignId: string;
+  totalSent: number;
+  totalOpens: number;
+  totalClicks: number;
+  totalReplies: number;
+  totalBounces: number;
+  openRate: number;
+  clickRate: number;
+  replyRate: number;
+  bounceRate: number;
+  lastSyncAt: string;
+}
+
+interface LeadTracking {
+  leadEmail: string;
+  campaignId: string;
+  openCount: number;
+  clickCount: number;
+  hasReplied: boolean;
+  lastOpenAt: string | null;
+  events: CampaignEvent[];
+}
+
+interface OpportunityConfig {
+  campaignId: string;
+  minOpens: number;
+  periodDays: number;
+  isActive: boolean;
+}
+
+interface OpportunityLead extends LeadTracking {
+  qualifiedAt: string;           // Quando atingiu o threshold
+  isInOpportunityWindow: boolean;
+}
+
+interface InstantlyWebhookEvent {
+  event_type: string;
+  lead_email: string;
+  campaign_id: string;
+  timestamp: string;
+  payload?: Record<string, unknown>;
+}
+```
+
 ### Authentication & Security
 
 | Decision | Choice | Rationale |
@@ -236,6 +335,69 @@ class ApolloService implements ExternalAPIService { ... }
 class SignalHireService implements ExternalAPIService { ... }
 class SnovioService implements ExternalAPIService { ... }
 class InstantlyService implements ExternalAPIService { ... }
+```
+
+**Campaign Tracking Services (Epic 10):**
+
+```typescript
+// lib/services/tracking.ts — Tracking Service
+export class TrackingService {
+  // Agrega métricas de uma campanha (opens, clicks, replies, bounces, taxas)
+  async getCampaignAnalytics(campaignId: string): Promise<CampaignAnalytics>;
+
+  // Tracking detalhado por lead (opens, último open, timeline de eventos)
+  async getLeadTracking(campaignId: string, leadEmail: string): Promise<LeadTracking>;
+
+  // Polling manual/scheduled — busca analytics da API Instantly e sincroniza com DB
+  async syncAnalytics(campaignId: string): Promise<SyncResult>;
+
+  // Processa evento recebido via webhook (idempotente)
+  async processWebhookEvent(event: InstantlyWebhookEvent): Promise<void>;
+}
+
+// lib/services/opportunity-engine.ts — Opportunity Engine
+export class OpportunityEngine {
+  // Filtra leads que atingiram o threshold de oportunidade
+  async evaluateOpportunityWindow(
+    campaignId: string,
+    config: OpportunityConfig
+  ): Promise<OpportunityLead[]>;
+
+  // Busca config ativa para uma campanha
+  async getConfig(campaignId: string): Promise<OpportunityConfig>;
+
+  // Salva/atualiza config de threshold
+  async saveConfig(config: OpportunityConfig): Promise<void>;
+}
+
+// Interface extensível para ações de oportunidade (WhatsApp futuro)
+interface IOpportunityAction {
+  type: string;                        // 'whatsapp', 'email', 'slack', etc.
+  execute(lead: OpportunityLead): Promise<ActionResult>;
+  isAvailable(): boolean;              // Verifica se a integração está configurada
+}
+```
+
+**Webhook Receiver (Supabase Edge Function):**
+
+```typescript
+// supabase/functions/instantly-webhook/index.ts
+// Endpoint: POST /functions/v1/instantly-webhook
+//
+// Fluxo:
+// 1. Recebe payload do Instantly (event_type, lead_email, campaign_id, timestamp)
+// 2. Valida payload obrigatório
+// 3. Responde 200 imediatamente (Instantly requer resposta rápida)
+// 4. Persiste em campaign_events com idempotência via UNIQUE constraint
+// 5. Ignora duplicatas silenciosamente (ON CONFLICT DO NOTHING)
+//
+// Event types suportados:
+// - email_opened, email_clicked, email_replied, email_bounced, email_unsubscribed
+//
+// Segurança:
+// - Validação de estrutura do payload
+// - Rate limiting via Supabase Edge Function limits
+// - Logs de eventos recebidos para auditoria
 ```
 
 **Error Handling Standard:**
@@ -487,6 +649,11 @@ const ERROR_CODES = {
   SNOVIO_ERROR: 'Erro na comunicação com Snov.io',
   INSTANTLY_ERROR: 'Erro na comunicação com Instantly',
 
+  // Tracking (Epic 10)
+  TRACKING_SYNC_ERROR: 'Erro ao sincronizar dados de tracking',
+  WEBHOOK_INVALID_PAYLOAD: 'Payload de webhook inválido',
+  OPPORTUNITY_CONFIG_ERROR: 'Erro na configuração da Janela de Oportunidade',
+
   // AI
   AI_GENERATION_ERROR: 'Erro ao gerar texto',
   AI_RATE_LIMIT: 'Limite de requisições atingido',
@@ -667,6 +834,7 @@ export abstract class ExternalService {
 | User Management (FR34-38) | `app/(auth)/`, `lib/supabase/` | Auth flows, middleware |
 | Administration (FR39-45) | `app/(dashboard)/settings/` | APIConfig, KnowledgeBase |
 | Interface (FR46-49) | `components/ui/`, `components/common/` | Layout, Navigation, Feedback |
+| Campaign Tracking (FR50-56) | `components/tracking/`, `lib/services/tracking.ts`, `lib/services/opportunity-engine.ts`, `supabase/functions/instantly-webhook/` | AnalyticsDashboard, LeadTrackingTable, OpportunityPanel, ThresholdConfig, WebhookReceiver |
 
 ### Complete Project Directory Structure
 
@@ -694,6 +862,9 @@ tdec-prospect/
 ├── supabase/
 │   ├── config.toml                    # Supabase local config
 │   ├── seed.sql                       # Dados iniciais (dev)
+│   ├── functions/                     # Edge Functions (Epic 10)
+│   │   └── instantly-webhook/
+│   │       └── index.ts               # Webhook receiver
 │   └── migrations/
 │       ├── 00001_create_tenants.sql
 │       ├── 00002_create_users.sql
@@ -744,8 +915,10 @@ tdec-prospect/
 │   │   │   │   │   └── page.tsx       # Nova campanha (builder)
 │   │   │   │   └── [campaignId]/
 │   │   │   │       ├── page.tsx       # Editar campanha
-│   │   │   │       └── preview/
-│   │   │   │           └── page.tsx   # Preview da campanha
+│   │   │   │       ├── preview/
+│   │   │   │       │   └── page.tsx   # Preview da campanha
+│   │   │   │       └── analytics/     # (Epic 10)
+│   │   │   │           └── page.tsx   # Campaign analytics dashboard
 │   │   │   │
 │   │   │   └── settings/
 │   │   │       ├── page.tsx           # Settings overview
@@ -848,6 +1021,15 @@ tdec-prospect/
 │   │   │   ├── ExportDialog.tsx
 │   │   │   └── index.ts
 │   │   │
+│   │   ├── tracking/                    # Campaign tracking (Epic 10)
+│   │   │   ├── AnalyticsDashboard.tsx   # Cards de métricas + gráfico
+│   │   │   ├── AnalyticsCards.tsx       # Opens, clicks, replies, bounces
+│   │   │   ├── LeadTrackingTable.tsx    # Tabela estilo Airtable por lead
+│   │   │   ├── OpportunityPanel.tsx     # Janela de Oportunidade
+│   │   │   ├── ThresholdConfig.tsx      # Config de threshold inline
+│   │   │   ├── SyncIndicator.tsx        # Indicador de sync webhook/polling
+│   │   │   └── index.ts
+│   │   │
 │   │   └── settings/
 │   │       ├── IntegrationCard.tsx
 │   │       ├── APIKeyInput.tsx
@@ -870,6 +1052,8 @@ tdec-prospect/
 │   │   │   ├── signalhire.ts          # SignalHireService
 │   │   │   ├── snovio.ts              # SnovioService
 │   │   │   ├── instantly.ts           # InstantlyService
+│   │   │   ├── tracking.ts            # TrackingService (Epic 10)
+│   │   │   ├── opportunity-engine.ts  # OpportunityEngine (Epic 10)
 │   │   │   └── index.ts               # Service factory
 │   │   │
 │   │   ├── ai/
@@ -901,6 +1085,9 @@ tdec-prospect/
 │   │   ├── use-ai-search.ts           # AI search mutation
 │   │   ├── use-ai-generate.ts         # AI text generation
 │   │   ├── use-export.ts              # Campaign export
+│   │   ├── use-campaign-analytics.ts  # TanStack Query: analytics (Epic 10)
+│   │   ├── use-lead-tracking.ts       # TanStack Query: lead tracking (Epic 10)
+│   │   ├── use-opportunity-window.ts  # Janela de Oportunidade (Epic 10)
 │   │   └── use-debounce.ts            # Utility hook
 │   │
 │   ├── stores/
@@ -914,6 +1101,7 @@ tdec-prospect/
 │   │   ├── lead.ts                    # Lead domain types
 │   │   ├── campaign.ts                # Campaign domain types
 │   │   ├── ai.ts                      # AI config types
+│   │   ├── tracking.ts               # Campaign tracking types (Epic 10)
 │   │   └── index.ts                   # Re-exports
 │   │
 │   ├── actions/                       # Server Actions
@@ -975,10 +1163,21 @@ tdec-prospect/
 │Supabase │         │ AI Services │       │ External  │
 │ Client  │         │ (OpenAI,    │       │   APIs    │
 │         │         │  Anthropic) │       │(Apollo,   │
-│ Auth    │         └─────────────┘       │SignalHire)│
-│ Database│                               └───────────┘
-│ RLS     │
-└─────────┘
+│ Auth    │         └─────────────┘       │SignalHire,│
+│ Database│                               │Instantly) │
+│ RLS     │                               └─────┬─────┘
+└────┬────┘                                     │
+     │                                    ┌─────┴──────────┐
+     │                                    │ Instantly       │
+     │                                    │ Webhooks        │
+     │                                    └─────┬──────────┘
+     │                                          │
+     │         ┌────────────────────────────────┘
+     │         │
+     │    ┌────┴──────────────┐
+     └────│ Supabase Edge Fn  │ ← Webhook Receiver (Epic 10)
+          │ /instantly-webhook│
+          └───────────────────┘
 ```
 
 **Component Boundaries:**
@@ -1037,6 +1236,17 @@ Config:       src/app/(dashboard)/settings/integrations/
 Componentes:  src/components/settings/IntegrationCard.tsx
 ```
 
+**Epic: Campaign Tracking & Janela de Oportunidade (FR50-56)**
+```
+Componentes:  src/components/tracking/
+Services:     src/lib/services/tracking.ts, src/lib/services/opportunity-engine.ts
+Hooks:        src/hooks/use-campaign-analytics.ts, src/hooks/use-lead-tracking.ts, src/hooks/use-opportunity-window.ts
+Types:        src/types/tracking.ts
+Pages:        src/app/(dashboard)/campaigns/[campaignId]/analytics/
+Edge Funcs:   supabase/functions/instantly-webhook/
+Migrations:   supabase/migrations/000XX_create_campaign_events.sql, 000XX_create_opportunity_configs.sql
+```
+
 ### Integration Points
 
 **Internal Communication:**
@@ -1049,7 +1259,8 @@ Componentes:  src/components/settings/IntegrationCard.tsx
 - Apollo API: Lead search and enrichment
 - SignalHire API: Phone number lookup
 - Snov.io API: Campaign export
-- Instantly API: Campaign export
+- Instantly API: Campaign export + Campaign Tracking (analytics polling, lead tracking, webhooks)
+- Instantly Webhooks → Supabase Edge Function: Event ingestion (opens, clicks, replies, bounces)
 - OpenAI/Anthropic API: Text generation
 
 **Data Flow:**
@@ -1057,6 +1268,17 @@ Componentes:  src/components/settings/IntegrationCard.tsx
 User Input → Component → Hook/Action → API Route → Service → External API
                                               ↓
 User Display ← Component ← TanStack Cache ← Response
+```
+
+**Tracking Data Flow (Epic 10):**
+```
+Instantly → Webhook → Edge Function → campaign_events (DB)
+                                           ↓
+User Display ← TrackingComponents ← TanStack Cache ← TrackingService ← campaign_events
+
+Polling (backup): TrackingService → Instantly API → campaign_events (DB)
+
+Janela de Oportunidade: OpportunityEngine ← campaign_events + opportunity_configs → OpportunityPanel
 ```
 
 ## Architecture Validation Results
@@ -1082,11 +1304,12 @@ A estrutura do projeto suporta todas as decisões e permite crescimento futuro.
 ### Requirements Coverage Validation ✅
 
 **Functional Requirements Coverage:**
-49/49 requisitos funcionais têm suporte arquitetural completo:
+56/56 requisitos funcionais têm suporte arquitetural completo:
 - Lead Acquisition: Apollo service + AI search
 - Campaign Building: Builder components + Zustand + @dnd-kit
 - AI Generation: Multi-provider + streaming
 - Integrations: Service classes com error handling
+- Campaign Tracking (FR50-56): Webhook Receiver + TrackingService + OpportunityEngine + Edge Function
 
 **Non-Functional Requirements Coverage:**
 11/11 NFRs endereçados arquiteturalmente:
@@ -1115,7 +1338,7 @@ A estrutura do projeto suporta todas as decisões e permite crescimento futuro.
 - [x] Project context thoroughly analyzed
 - [x] Scale and complexity assessed (Medium-High)
 - [x] Technical constraints identified (4 external APIs, multi-tenant)
-- [x] Cross-cutting concerns mapped (6 concerns)
+- [x] Cross-cutting concerns mapped (7 concerns, inclui Event Processing)
 
 **✅ Architectural Decisions**
 - [x] Critical decisions documented with versions
@@ -1276,4 +1499,203 @@ export class PromptManager {
 **Related:**
 - Epic 6: AI Content Generation
 - Story 6.1: AI Provider Service Layer
+
+---
+
+### ADR-003: Webhook Receiver Architecture
+
+**Status:** Accepted
+**Date:** 2026-02-09
+**Context:** O Epic 10 (Campaign Tracking) requer recepção de eventos do Instantly em tempo real. Precisamos de um endpoint público, sempre disponível, que processe webhooks rapidamente e persista eventos no banco.
+
+**Decision:**
+
+Utilizar **Supabase Edge Function** (Deno runtime) como receptor de webhooks do Instantly.
+
+**Alternativas Consideradas:**
+
+| Opção | Prós | Contras | Decisão |
+|-------|------|---------|---------|
+| **Supabase Edge Function** | Sempre online, acesso direto ao DB, já no stack, deploy simples | Cold start (~50ms), runtime Deno | **Selecionada** |
+| Next.js API Route (Vercel) | Stack unificado, TypeScript nativo | Precisa de URL pública, spin-up mais lento | Descartada |
+| AWS Lambda | Escalável, robusto | Infra adicional fora do stack, complexidade | Descartada |
+
+**Arquitetura do Webhook Receiver:**
+
+```
+Instantly → POST /functions/v1/instantly-webhook
+              │
+              ├── 1. Validar payload (event_type, lead_email, campaign_id)
+              ├── 2. Responder 200 OK imediatamente
+              ├── 3. Lookup campaign via external_campaign_id
+              ├── 4. INSERT em campaign_events (ON CONFLICT DO NOTHING)
+              └── 5. Log de auditoria
+```
+
+**Idempotência:**
+- UNIQUE constraint em `(campaign_id, event_type, lead_email, event_timestamp)`
+- `INSERT ... ON CONFLICT DO NOTHING` — duplicatas são silenciosamente ignoradas
+- Nenhum efeito colateral em processamento duplicado
+
+**Segurança:**
+- Validação de estrutura do payload (campos obrigatórios)
+- Rate limiting nativo das Supabase Edge Functions
+- Sem autenticação por token (Instantly não suporta custom headers em webhooks)
+- Mitigação: validação de payload + idempotência previnem abuso
+
+**Consequences:**
+
+✅ **Positivas:**
+- Zero infraestrutura adicional (já temos Supabase)
+- Acesso direto ao PostgreSQL (sem hop intermediário)
+- Deploy via `supabase functions deploy`
+- Escalabilidade automática
+
+⚠️ **Trade-offs:**
+- Cold start de ~50ms (aceitável para webhooks)
+- Runtime Deno (diferente do Node.js do restante do projeto)
+- Mitigação: Edge Function é isolada, código simples e focado
+
+**Related:**
+- Epic 10: Campaign Tracking & Janela de Oportunidade
+- Story 10.2: Webhook Receiver (Supabase Edge Function)
+- Pesquisa: [Instantly API v2 Research](research/instantly-campaign-tracking-api-research-2026-02-09.md)
+
+---
+
+### ADR-004: Estratégia Híbrida Webhook + Polling
+
+**Status:** Accepted
+**Date:** 2026-02-09
+**Context:** Webhooks podem falhar (Instantly down, Edge Function indisponível, network issues). Precisamos de uma estratégia que garanta dados completos e consistentes mesmo quando webhooks falham.
+
+**Decision:**
+
+Adotar **estratégia híbrida** com webhooks como canal primário (tempo real) e polling como backup/sincronização.
+
+**Arquitetura Híbrida:**
+
+```
+┌──────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│   Instantly   │────→│  Webhook Receiver │────→│ campaign_events │
+│   (eventos)   │     │  (Edge Function)  │     │   (PostgreSQL)  │
+└──────────────┘     └──────────────────┘     └────────┬────────┘
+                                                        │
+┌──────────────┐     ┌──────────────────┐              │
+│   Instantly   │────→│  Polling Service  │──── merge ──┘
+│   (API v2)   │     │  (TrackingService)│
+└──────────────┘     └──────────────────┘
+```
+
+**Estratégia de Polling:**
+
+| Cenário | Frequência | Gatilho |
+|---------|-----------|---------|
+| **Manual** | Sob demanda | Botão "Sincronizar" na UI |
+| **Ao abrir analytics** | Na navegação | Usuário acessa página de analytics |
+| **Background (futuro)** | A cada 15 min | Cron job (opcional, pós-MVP) |
+
+**Merge de Dados:**
+- Polling retorna analytics agregados (totals) — salva/atualiza métricas
+- Webhooks fornecem eventos individuais (lead-level) — salva em campaign_events
+- Ambos coexistem: polling corrige eventuais gaps, webhooks dão granularidade por lead
+- Idempotência via UNIQUE constraint previne duplicatas de ambas as fontes
+
+**Consequences:**
+
+✅ **Positivas:**
+- Dados sempre consistentes (polling corrige falhas de webhook)
+- Granularidade por lead (webhook) + totais confiáveis (polling)
+- Funciona mesmo sem webhooks configurados (fallback total para polling)
+- Usuário tem controle via sync manual
+
+⚠️ **Trade-offs:**
+- Duas fontes de dados para mesma informação (complexidade de merge)
+- Mitigação: campo `source` em campaign_events distingue origem
+- Polling consome chamadas de API (rate limit do Instantly)
+- Mitigação: polling sob demanda, não contínuo
+
+**Related:**
+- Epic 10: Campaign Tracking & Janela de Oportunidade
+- Stories 10.2 (Webhook) e 10.3 (Polling)
+- ADR-003: Webhook Receiver Architecture
+
+---
+
+### ADR-005: Preparação Arquitetural WhatsApp
+
+**Status:** Accepted
+**Date:** 2026-02-09
+**Context:** A Janela de Oportunidade identifica leads de alto interesse. O próximo passo natural é automatizar ações sobre esses leads (ex: enviar mensagem WhatsApp). Precisamos preparar a arquitetura para essa extensão sem implementar WhatsApp agora.
+
+**Decision:**
+
+Criar **interface extensível `IOpportunityAction`** que permita adicionar ações futuras (WhatsApp, email, Slack, etc.) sem alterar o Opportunity Engine.
+
+**Padrão de Extensibilidade:**
+
+```typescript
+// Interface base — estável, não muda
+interface IOpportunityAction {
+  type: string;                          // 'whatsapp', 'email', 'slack'
+  label: string;                         // Nome amigável para UI
+  execute(lead: OpportunityLead): Promise<ActionResult>;
+  isAvailable(): boolean;                // Integração configurada?
+}
+
+// Implementação stub (Epic 10, Story 10.8)
+class WhatsAppActionStub implements IOpportunityAction {
+  type = 'whatsapp';
+  label = 'WhatsApp';
+  execute(_lead: OpportunityLead): Promise<ActionResult> {
+    return Promise.resolve({ success: false, message: 'WhatsApp não configurado' });
+  }
+  isAvailable(): boolean {
+    return false;  // Sempre indisponível até implementação real
+  }
+}
+
+// Registry de ações
+class OpportunityActionRegistry {
+  private actions: Map<string, IOpportunityAction> = new Map();
+
+  register(action: IOpportunityAction): void {
+    this.actions.set(action.type, action);
+  }
+
+  getAvailable(): IOpportunityAction[] {
+    return [...this.actions.values()].filter(a => a.isAvailable());
+  }
+}
+```
+
+**Escopo do Epic 10 (Story 10.8):**
+- Criar `IOpportunityAction` interface
+- Criar `WhatsAppActionStub` (compile + executa sem erro, sempre retorna "não configurado")
+- Criar `OpportunityActionRegistry` com registro de stubs
+- Documentar contrato para implementação futura
+
+**O que NÃO será feito no Epic 10:**
+- Nenhuma integração real com WhatsApp API
+- Nenhuma UI de configuração de WhatsApp
+- Nenhum envio de mensagens
+
+**Consequences:**
+
+✅ **Positivas:**
+- Arquitetura pronta para extensão sem refactoring
+- Padrão Registry permite adicionar ações por configuração
+- Stubs servem como documentação viva do contrato
+- UI pode mostrar "WhatsApp (em breve)" baseado em `isAvailable()`
+
+⚠️ **Trade-offs:**
+- Código "morto" temporário (stubs não fazem nada)
+- Mitigação: stubs são mínimos e servem como spec
+- Over-engineering se WhatsApp nunca for implementado
+- Mitigação: custo mínimo (1 interface + 1 stub + 1 registry)
+
+**Related:**
+- Epic 10: Campaign Tracking & Janela de Oportunidade
+- Story 10.8: Preparação Arquitetural WhatsApp
+- Sprint Change Proposal: [Campaign Tracking Proposal](sprint-change-proposal-2026-02-09.md)
 

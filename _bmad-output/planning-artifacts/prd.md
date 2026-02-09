@@ -136,9 +136,9 @@ Diferente de ferramentas genéricas, o tdec-prospect oferece:
 ### Growth Features (Post-MVP)
 
 - Integração Sales Navigator
-- Analytics avançados de campanhas
+- ~~Analytics avançados de campanhas~~ → Antecipado para Epic 10 (Campaign Tracking & Janela de Oportunidade)
 - Divisão por times e permissões
-- Automação de WhatsApp
+- Automação de WhatsApp (preparação arquitetural no Epic 10, implementação futura)
 
 ### Vision (Future)
 
@@ -487,8 +487,8 @@ Tenant (TDEC)
 
 **Explicitly OUT of MVP:**
 - ❌ Sales Navigator (complexidade de integração)
-- ❌ Analytics avançados (usuários têm nas ferramentas de envio)
-- ❌ WhatsApp (feature avançada)
+- ~~❌ Analytics avançados~~ → ✅ Antecipado: Epic 10 implementa tracking de campanhas + Janela de Oportunidade
+- ❌ WhatsApp — implementação (preparação arquitetural incluída no Epic 10)
 - ❌ Divisão por times (só uma empresa no MVP)
 
 ### Post-MVP Features
@@ -620,6 +620,18 @@ Tenant (TDEC)
 - **FR47:** Usuário pode navegar entre áreas principais (leads, campanhas, configurações)
 - **FR48:** Sistema exibe feedback visual de ações em andamento (loading states)
 - **FR49:** Sistema exibe notificações de sucesso e erro de forma clara
+
+### Campaign Tracking & Janela de Oportunidade
+
+*Adicionado via Sprint Change Proposal 2026-02-09. Referência: [sprint-change-proposal-2026-02-09.md](sprint-change-proposal-2026-02-09.md)*
+
+- **FR50:** Sistema recebe eventos de tracking (opens, clicks, replies) via webhook do Instantly em tempo real
+- **FR51:** Sistema exibe dashboard de métricas por campanha (opens, clicks, replies, bounces, taxas percentuais)
+- **FR52:** Sistema identifica leads com email_open_count acima do threshold configurado pelo usuário (Janela de Oportunidade)
+- **FR53:** Usuário pode configurar threshold da Janela de Oportunidade (mínimo de aberturas e período em dias)
+- **FR54:** Sistema exibe lista de leads na Janela de Oportunidade com dados de tracking individuais por lead
+- **FR55:** Sistema faz polling de analytics da API Instantly como backup/sincronização dos webhooks
+- **FR56:** Arquitetura suporta extensão para automação de WhatsApp baseada na Janela de Oportunidade (interfaces preparadas, sem implementação)
 
 ## Non-Functional Requirements
 
