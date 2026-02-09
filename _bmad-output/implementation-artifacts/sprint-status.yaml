@@ -67,6 +67,7 @@ branches:
   epic/9-ai-content-quality: "Epic 9 - AI Content Quality & Personalization (DONE)"
   cleanup/2-mock-resilience: "Cleanup Sprint 2 - Mock Infrastructure (DONE)"
   epic/7-campaign-deployment-export: "Epic 7 - Campaign Deployment & Export (IN-PROGRESS)"
+  epic/10-campaign-tracking: "Epic 10 - Campaign Tracking & Janela de Oportunidade (BACKLOG)"
 
 development_status:
   # Epic 1: Foundation & Authentication
@@ -239,7 +240,25 @@ development_status:
   7-3-1-persistencia-de-campanhas-exportadas-no-banco: done  # P0: Migration + tipos + repository para external_campaign_id, export_platform, exported_at, export_status. Code review: 3 MEDIUM fixes (DRY types, error propagation, empty guard). 28 novos testes, 195 files, 3516 total
   7-4-export-dialog-ui-com-preview-de-variaveis: done  # P1: Dialog + preview + SENDING ACCOUNTS (Lacuna #2). Code review: 1 CRITICAL, 2 HIGH, 4 MEDIUM fixes (email preview, lead selection, re-export actions, conditional fetch, state reset, campaignId, dedup). 122 story tests, 200 files, 3572 total. Depende de 7.3.1
   7-5-export-to-instantly-fluxo-completo: done  # P1: Deployment Service ORQUESTRADO + validação pré-deploy + persistência do vínculo (Lacunas #3 e #4). Code review: 4 HIGH, 3 MEDIUM fixes (update mode campaignId, progress toast, Instantly link, retry/fallback, dead ternaries, type safety). 143 story tests, 205 files, 3640 total. Depende de 7.2 + 7.3.1 + 7.4
-  7-6-export-to-snov-io-fluxo-completo: backlog  # P1: Deployment Service ORQUESTRADO + validação pré-deploy + persistência do vínculo (Lacunas #3 e #4). Depende de 7.3 + 7.3.1 + 7.4
+  7-6-export-to-snov-io-fluxo-completo: deferred  # DEFERRED 2026-02-09: Integração Snov.io não será usada no momento. Revisitar se necessário no futuro.
   7-7-exportacao-manual-csv-e-clipboard: done  # P1: CSV resolvido/com variáveis + clipboard formatado. Code review: 1 HIGH, 3 MEDIUM fixes (canExport clipboard, double toast, lead mapping DRY, filter dedup). 54 story tests, 210 files, 3729 total. Depende de 7.1 + 7.4
   7-8-validacao-pre-export-e-error-handling: done  # P2: Validação AVANÇADA + error mapping + ValidationSummaryPanel. Code review: 1 HIGH, 4 MEDIUM fixes (csv-clipboard error mapping tests, dead code, regex safety, dedup, File List). 72 story tests, 215 files, 3796 total. Depende de 7.5 + 7.7
   epic-7-retrospective: optional
+
+  # Epic 10: Campaign Tracking & Janela de Oportunidade
+  # Tracking automatizado de campanhas Instantly com dashboard de métricas,
+  # tracking por lead, e Janela de Oportunidade para leads de alto interesse.
+  # Preparação arquitetural para automação WhatsApp futura.
+  # Dependências: Epic 7 (InstantlyService 7.2, Persistência 7.3.1 — ambos done)
+  # Documento: _bmad-output/planning-artifacts/epic-10-campaign-tracking.md
+  # Pesquisa: _bmad-output/planning-artifacts/research/instantly-campaign-tracking-api-research-2026-02-09.md
+  # Sprint Change Proposal: _bmad-output/planning-artifacts/sprint-change-proposal-2026-02-09.md
+  epic-10: in-progress
+  10-1-schema-de-tracking-e-tipos: done  # Code review 2026-02-09: 5 MEDIUM, 1 LOW fixes (isValidEventType guard, Row type alignment, NOT NULL constraints, re-export test, Task 6.4 status). 22 tests passing
+  10-2-webhook-receiver-supabase-edge-function: backlog
+  10-3-instantly-analytics-service-polling: backlog
+  10-4-campaign-analytics-dashboard-ui: backlog
+  10-5-lead-tracking-detail: backlog
+  10-6-janela-de-oportunidade-engine-config: backlog
+  10-7-janela-de-oportunidade-ui-notificacoes: backlog
+  10-8-preparacao-arquitetural-whatsapp: backlog
