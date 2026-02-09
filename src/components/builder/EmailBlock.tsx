@@ -135,6 +135,16 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
   // Story 6.11 AC #1: Check if this email can be a follow-up (not first email)
   const canBeFollowUp = stepNumber > 1;
 
+  // Calculate email-only position (excludes delay blocks) for display labels
+  const emailNumber = useMemo(() => {
+    if (!blocks || blocks.length === 0) return 1;
+    const emailBlocks = blocks
+      .filter((b) => b.type === "email")
+      .sort((a, b) => a.position - b.position);
+    const idx = emailBlocks.findIndex((b) => b.id === block.id);
+    return idx >= 0 ? idx + 1 : 1;
+  }, [blocks, block.id]);
+
   const [subject, setSubject] = useState(blockData.subject);
   const [body, setBody] = useState(blockData.body);
 
@@ -283,14 +293,42 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
         const previousEmail = getPreviousEmailBlock(blocks, block.position);
 
         if (previousEmail) {
+          // Calculate email position in sequence for strategy selection
+          const emailBlocks = blocks
+            .filter((b) => b.type === "email")
+            .sort((a, b) => a.position - b.position);
+          const emailIndex = emailBlocks.findIndex((b) => b.id === block.id) + 1;
+          const totalEmails = emailBlocks.length;
+          const isLastEmail = emailIndex === totalEmails;
+
+          // Select the SPECIFIC strategy for this position — don't give AI a choice
+          const bodyStrategy = isLastEmail || emailIndex >= 5
+            ? "DESPEDIDA: Ser direto, dar 'última chance' sem pressão. Diga que vai parar de escrever, deixe a porta aberta. Tom amigável de encerramento. NÃO referencie emails anteriores."
+            : emailIndex === 2
+            ? "CONFIRMAR VISUALIZAÇÃO: Pergunte gentilmente se o lead conseguiu ver o email anterior. Ofereça uma conversa rápida. NÃO repita o conteúdo do email anterior."
+            : emailIndex === 3
+            ? "AGENDA CORRIDA: Assuma que o lead está ocupado. Mostre empatia. Ofereça flexibilidade total de horário. NÃO mencione o email anterior diretamente."
+            : "NOVO ÂNGULO/VALOR: Traga um dado novo, case de sucesso ou insight do setor. NÃO referencie os emails anteriores. Foque 100% em valor novo.";
+
+          const subjectStrategy = isLastEmail || emailIndex >= 5
+            ? "CURTO E DIRETO: Assunto pessoal sem RE:. Exemplo: '{{first_name}}, última mensagem' ou 'Encerramento'"
+            : emailIndex === 2
+            ? "RE: SIMPLES: Use 'RE: ' + assunto anterior. Exemplo: 'RE: {{previous_email_subject}}'"
+            : emailIndex === 3
+            ? "RE: COM VARIAÇÃO: Use 'RE: ' + algo novo. Exemplo: 'RE: Bate-papo rápido?' ou 'RE: Sobre a {{company_name}}'"
+            : "CURTO E DIRETO: Assunto pessoal sem RE:. Exemplo: '{{first_name}}, conseguiu ver?' ou 'Rápida pergunta'";
+
+          const sequencePosition = `Este é o ${emailIndex}º email de ${totalEmails} na sequência. ${isLastEmail ? "Este é o ÚLTIMO email da sequência." : ""}`;
+
           // Skip icebreaker generation for follow-ups
-          // Story 6.11: Use follow_up_subject_generation for RE: prefix
           setGeneratingField("subject");
           const generatedSubject = await generate({
             promptKey: "follow_up_subject_generation",
             variables: {
               ...mergedVariables,
               previous_email_subject: previousEmail.subject,
+              sequence_position: sequencePosition,
+              subject_strategy: subjectStrategy,
             },
             stream: true,
             productId,
@@ -301,7 +339,7 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
           await new Promise((resolve) => setTimeout(resolve, 300));
           resetAI();
 
-          // Story 6.11 AC #3: Generate body with previous email context
+          // Generate body with previous email context and specific strategy
           setGeneratingField("body");
           const generatedBody = await generate({
             promptKey: "follow_up_email_generation",
@@ -309,6 +347,8 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
               ...mergedVariables,
               previous_email_subject: previousEmail.subject,
               previous_email_body: previousEmail.body,
+              sequence_position: sequencePosition,
+              follow_up_strategy: bodyStrategy,
             },
             stream: true,
             productId,
@@ -458,7 +498,7 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
               {strategicContext ? (
                 <span data-testid="strategic-context">{strategicContext}</span>
               ) : blockData.emailMode === "follow-up" && canBeFollowUp ? (
-                `Follow-up do Email ${stepNumber - 1}`
+                `Follow-up do Email ${emailNumber - 1}`
               ) : (
                 "Email"
               )}

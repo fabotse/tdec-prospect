@@ -241,5 +241,5 @@ development_status:
   7-5-export-to-instantly-fluxo-completo: done  # P1: Deployment Service ORQUESTRADO + validação pré-deploy + persistência do vínculo (Lacunas #3 e #4). Code review: 4 HIGH, 3 MEDIUM fixes (update mode campaignId, progress toast, Instantly link, retry/fallback, dead ternaries, type safety). 143 story tests, 205 files, 3640 total. Depende de 7.2 + 7.3.1 + 7.4
   7-6-export-to-snov-io-fluxo-completo: backlog  # P1: Deployment Service ORQUESTRADO + validação pré-deploy + persistência do vínculo (Lacunas #3 e #4). Depende de 7.3 + 7.3.1 + 7.4
   7-7-exportacao-manual-csv-e-clipboard: done  # P1: CSV resolvido/com variáveis + clipboard formatado. Code review: 1 HIGH, 3 MEDIUM fixes (canExport clipboard, double toast, lead mapping DRY, filter dedup). 54 story tests, 210 files, 3729 total. Depende de 7.1 + 7.4
-  7-8-validacao-pre-export-e-error-handling: backlog  # P2: Validação AVANÇADA + edge cases + UX refinada. Depende de 7.5 + 7.6 + 7.7
+  7-8-validacao-pre-export-e-error-handling: done  # P2: Validação AVANÇADA + error mapping + ValidationSummaryPanel. Code review: 1 HIGH, 4 MEDIUM fixes (csv-clipboard error mapping tests, dead code, regex safety, dedup, File List). 72 story tests, 215 files, 3796 total. Depende de 7.5 + 7.7
   epic-7-retrospective: optional

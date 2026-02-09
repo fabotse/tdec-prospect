@@ -23,6 +23,8 @@ const BODY_PREFIXES = [
   /^corpo\s*:\s*/i,
   /^corpo do email\s*:\s*/i,
   /^body\s*:\s*/i,
+  /^assunto\s*:[^\n]*\n*/i,
+  /^subject\s*:[^\n]*\n*/i,
 ];
 
 /**
@@ -44,6 +46,9 @@ export function sanitizeGeneratedSubject(text: string): string {
   ) {
     result = result.slice(1, -1);
   }
+
+  // Remove duplicated RE: prefix (e.g., "RE: RE: Proposta" → "RE: Proposta")
+  result = result.replace(/^(RE:\s*)+/i, "RE: ");
 
   return result.trim();
 }

@@ -17,6 +17,7 @@ import { generateCsvContent, type ExportLeadData } from "@/lib/export/generate-c
 import { downloadCsvFile, sanitizeFileName } from "@/lib/export/download-csv";
 import { formatCampaignForClipboard } from "@/lib/export/format-clipboard";
 import { validateCsvExport } from "@/lib/export/validate-csv-export";
+import { mapExportError } from "@/lib/export/error-messages";
 
 // ==============================================
 // TYPES
@@ -98,8 +99,8 @@ export function useCsvClipboardExport(): UseCsvClipboardExportReturn {
 
         return { success: true, rowCount: validLeads.length };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Erro ao exportar CSV";
-        return { success: false, rowCount: 0, error: msg };
+        const errorInfo = mapExportError(err, "csv");
+        return { success: false, rowCount: 0, error: errorInfo.message };
       } finally {
         setIsExporting(false);
       }
@@ -137,8 +138,8 @@ export function useCsvClipboardExport(): UseCsvClipboardExportReturn {
 
         return { success: true, rowCount: validLeads.length };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Erro ao exportar CSV";
-        return { success: false, rowCount: 0, error: msg };
+        const errorInfo = mapExportError(err, "csv");
+        return { success: false, rowCount: 0, error: errorInfo.message };
       } finally {
         setIsExporting(false);
       }
@@ -171,8 +172,8 @@ export function useCsvClipboardExport(): UseCsvClipboardExportReturn {
 
         return { success: true };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Erro ao copiar para clipboard";
-        return { success: false, error: msg };
+        const errorInfo = mapExportError(err, "clipboard");
+        return { success: false, error: errorInfo.message };
       } finally {
         setIsExporting(false);
       }

@@ -231,15 +231,17 @@ describe("Story 9.6: Regression — prompt keys and structure intact", () => {
     expect(template).toContain("[FECHAMENTO]");
   });
 
-  it("follow_up_email_generation still has block structure and anti-repetition (Story 9.5)", () => {
+  it("follow_up_email_generation still has block structure, strategy injection and anti-repetition (Story 9.5)", () => {
     const template =
       CODE_DEFAULT_PROMPTS.follow_up_email_generation.template;
-    expect(template).toContain("[SAUDAÇÃO]");
-    expect(template).toContain("[CONTEÚDO]");
-    expect(template).toContain("[CTA]");
-    expect(template).toContain("[FECHAMENTO]");
+    expect(template).toMatch(/saudação/i);
+    expect(template).toMatch(/conteúdo/i);
+    expect(template).toMatch(/CTA/);
+    expect(template).toMatch(/fechamento/i);
+    expect(template).toContain("{{follow_up_strategy}}");
     expect(template).toContain("ANTI-REPETIÇÃO");
     expect(template).toContain("NÃO inclua Ice Breaker");
+    expect(template).toContain("FRASES PROIBIDAS");
   });
 
   it("icebreaker_premium_generation uses snake_case variables (Story 9.6)", () => {

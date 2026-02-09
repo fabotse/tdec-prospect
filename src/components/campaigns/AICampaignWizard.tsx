@@ -52,6 +52,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useProducts } from "@/hooks/use-products";
 import { useToneOfVoice } from "@/hooks/use-tone-of-voice";
+import { useKnowledgeBaseContext } from "@/hooks/use-knowledge-base-context";
 import { useAICampaignStructure, type GeneratedStructure } from "@/hooks/use-ai-campaign-structure";
 import { useAIFullCampaignGeneration } from "@/hooks/use-ai-full-campaign-generation";
 import { useCreateCampaign } from "@/hooks/use-campaigns";
@@ -277,6 +278,7 @@ export function AICampaignWizard({
   const router = useRouter();
   const { data: products, isLoading: isLoadingProducts } = useProducts();
   const { data: toneSettings } = useToneOfVoice();
+  const { variables: kbVariables } = useKnowledgeBaseContext();
   const createCampaign = useCreateCampaign();
   const { loadBlocks, setProductId, setTemplateName } = useBuilderStore();
   const {
@@ -493,6 +495,7 @@ export function AICampaignWizard({
         productName: selectedProduct?.name || null,
         objective: formData?.objective || "cold_outreach",
         tone: formData?.tone || defaultTone,
+        kbVariables,
       });
 
       // Load blocks into builder store (AC 6.12.1 #5: mark as AI-generated)

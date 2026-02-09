@@ -44,8 +44,8 @@ export { AI_GENERATION_ERROR_MESSAGES } from "@/types/ai-provider";
 // DEFAULT OPTIONS
 // ==============================================
 
-/** Default timeout for text generation (5 seconds per AC) */
-export const DEFAULT_AI_TIMEOUT_MS = 5000;
+/** Default timeout for AI generation (30s — gpt-5-mini needs more time than gpt-4o-mini) */
+export const DEFAULT_AI_TIMEOUT_MS = 30000;
 
 /** Default max retries on timeout */
 export const DEFAULT_AI_RETRIES = 1;

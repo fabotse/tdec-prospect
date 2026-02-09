@@ -231,6 +231,73 @@ describe("useCsvClipboardExport", () => {
     });
   });
 
+  // ==============================================
+  // Story 7.8: mapExportError integration (code review fix)
+  // ==============================================
+  describe("mapExportError integration (Story 7.8)", () => {
+    it("mapeia erro de CSV para mensagem PT-BR amigável", async () => {
+      const { generateCsvContent } = await import("@/lib/export/generate-csv");
+      vi.mocked(generateCsvContent).mockImplementationOnce(() => {
+        throw new Error("Failed to fetch");
+      });
+
+      const { result } = renderHook(() => useCsvClipboardExport());
+
+      let exportResult: Awaited<ReturnType<typeof result.current.exportToCsv>>;
+      await act(async () => {
+        exportResult = await result.current.exportToCsv({
+          blocks: mockBlocks,
+          leads: mockLeads,
+          campaignName: "Test",
+        });
+      });
+
+      expect(exportResult!.success).toBe(false);
+      // mapExportError maps "Failed to fetch" → network error PT-BR
+      expect(exportResult!.error).toBe("Erro de conexão. Verifique sua internet.");
+    });
+
+    it("mapeia erro genérico de CSV com variáveis para mensagem PT-BR", async () => {
+      const { generateCsvContent } = await import("@/lib/export/generate-csv");
+      vi.mocked(generateCsvContent).mockImplementationOnce(() => {
+        throw new Error("Something unexpected");
+      });
+
+      const { result } = renderHook(() => useCsvClipboardExport());
+
+      let exportResult: Awaited<ReturnType<typeof result.current.exportToCsvWithVariables>>;
+      await act(async () => {
+        exportResult = await result.current.exportToCsvWithVariables({
+          blocks: mockBlocks,
+          leads: mockLeads,
+          campaignName: "Test",
+        });
+      });
+
+      expect(exportResult!.success).toBe(false);
+      // mapExportError generic fallback
+      expect(exportResult!.error).toBe("Erro inesperado durante o export. Tente novamente ou exporte via CSV.");
+    });
+
+    it("mapeia erro de clipboard para mensagem PT-BR amigável", async () => {
+      writeTextMock.mockRejectedValueOnce(new Error("network error"));
+
+      const { result } = renderHook(() => useCsvClipboardExport());
+
+      let exportResult: Awaited<ReturnType<typeof result.current.exportToClipboard>>;
+      await act(async () => {
+        exportResult = await result.current.exportToClipboard({
+          blocks: mockBlocks,
+          campaignName: "Test",
+        });
+      });
+
+      expect(exportResult!.success).toBe(false);
+      // mapExportError maps "network error" → connection error PT-BR
+      expect(exportResult!.error).toBe("Erro de conexão. Verifique sua internet.");
+    });
+  });
+
   describe("estado isExporting", () => {
     it("isExporting é true durante o export e false após", async () => {
       const { result } = renderHook(() => useCsvClipboardExport());

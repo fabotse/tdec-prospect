@@ -25,6 +25,7 @@ import type {
 } from "@/types/export";
 import { blocksToInstantlySequences } from "@/lib/export/blocks-to-sequences";
 import { validateInstantlyPreDeploy } from "@/lib/export/validate-pre-deploy";
+import { mapExportError } from "@/lib/export/error-messages";
 
 // ==============================================
 // TYPES
@@ -193,9 +194,11 @@ export function useInstantlyExport(): UseInstantlyExportReturn {
           if (!createRes.ok) {
             const errorData = await createRes.json().catch(() => ({}));
             const errorMsg = errorData.error ?? "Erro ao criar campanha no Instantly";
+            const errorInfo = mapExportError({ status: createRes.status, message: errorMsg }, "instantly");
             currentSteps = updateStep(currentSteps, "create_campaign", {
               status: "failed",
-              error: errorMsg,
+              error: errorInfo.message,
+              errorInfo,
             });
             setSteps([...currentSteps]);
             const failResult: DeploymentResult = {
@@ -264,9 +267,11 @@ export function useInstantlyExport(): UseInstantlyExportReturn {
         if (!leadsRes.ok) {
           const errorData = await leadsRes.json().catch(() => ({}));
           const errorMsg = errorData.error ?? "Erro ao enviar leads para Instantly";
+          const leadsErrorInfo = mapExportError({ status: leadsRes.status, message: errorMsg }, "instantly");
           currentSteps = updateStep(currentSteps, "add_leads", {
             status: "failed",
-            error: errorMsg,
+            error: leadsErrorInfo.message,
+            errorInfo: leadsErrorInfo,
           });
           setSteps([...currentSteps]);
           const failResult: DeploymentResult = {
@@ -344,15 +349,14 @@ export function useInstantlyExport(): UseInstantlyExportReturn {
         setIsExporting(false);
         return finalResult;
       } catch (err) {
-        const errorMsg =
-          err instanceof Error ? err.message : "Erro inesperado durante o export";
+        const errorInfo = mapExportError(err, "instantly");
         const failResult: DeploymentResult = {
           success: false,
           externalCampaignId,
           leadsUploaded,
           duplicatedLeads,
           steps: currentSteps,
-          error: errorMsg,
+          error: errorInfo.message,
         };
         setResult(failResult);
         setIsExporting(false);

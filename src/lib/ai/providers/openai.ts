@@ -113,7 +113,7 @@ export class OpenAIProvider extends AIProvider {
   /**
    * Generate text with streaming response
    * AC: #6 - Streaming with Server-Sent Events pattern
-   * AC: #1 - Timeout support for streaming (5 seconds default)
+   * AC: #1 - Timeout support for streaming (30 seconds default)
    */
   async *generateStream(
     prompt: string,

@@ -49,6 +49,7 @@ import { useCampaignExport } from "@/hooks/use-campaign-export";
 import { useInstantlyExport } from "@/hooks/use-instantly-export";
 import { useCsvClipboardExport } from "@/hooks/use-csv-clipboard-export";
 import { useIntegrationConfig } from "@/hooks/use-integration-config";
+import { mapExportError } from "@/lib/export/error-messages";
 import type { ExportConfig } from "@/types/export";
 
 interface PageProps {
@@ -368,6 +369,24 @@ export default function CampaignBuilderPage({ params }: PageProps) {
     setIsExportOpen(true);
   };
 
+  // Story 7.8: CSV fallback for failed API exports
+  const handleCsvFallback = async () => {
+    try {
+      const result = await exportToCsv({
+        blocks,
+        leads: exportLeadsMapped,
+        campaignName: campaignNameState || campaign?.name || "",
+      });
+      if (result.success) {
+        toast.success(`Fallback CSV — ${result.rowCount} leads exportados`);
+      } else {
+        toast.error(result.error ?? "Erro ao exportar CSV");
+      }
+    } catch {
+      toast.error("Erro ao exportar CSV como alternativa");
+    }
+  };
+
   // Story 7.5: Export callback — dispatches to platform-specific export
   const handleExportConfirm = async (config: ExportConfig) => {
     if (config.platform === "instantly") {
@@ -407,29 +426,28 @@ export default function CampaignBuilderPage({ params }: PageProps) {
           toast.success(message, { id: toastId, action: instantlyAction });
         } else {
           const failedStep = result.steps.find((s) => s.status === "failed");
-          toast.error(
-            failedStep?.error ?? result.error ?? "Erro ao exportar campanha",
-            {
-              id: toastId,
-              description: "Você pode tentar novamente ou exportar como CSV.",
-              action: {
-                label: "Tentar Novamente",
-                onClick: () => setIsExportOpen(true),
-              },
-            }
-          );
+          const errorInfo = failedStep?.errorInfo ?? mapExportError(result.error, "instantly");
+          toast.error(errorInfo.title, {
+            id: toastId,
+            description: errorInfo.message,
+            action: errorInfo.canRetry
+              ? { label: "Tentar Novamente", onClick: () => setIsExportOpen(true) }
+              : errorInfo.canFallback
+                ? { label: "Exportar CSV", onClick: () => handleCsvFallback() }
+                : undefined,
+          });
         }
       } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : "Erro inesperado ao exportar campanha",
-          {
-            id: toastId,
-            action: {
-              label: "Tentar Novamente",
-              onClick: () => setIsExportOpen(true),
-            },
-          }
-        );
+        const errorInfo = mapExportError(err, "instantly");
+        toast.error(errorInfo.title, {
+          id: toastId,
+          description: errorInfo.message,
+          action: errorInfo.canRetry
+            ? { label: "Tentar Novamente", onClick: () => setIsExportOpen(true) }
+            : errorInfo.canFallback
+              ? { label: "Exportar CSV", onClick: () => handleCsvFallback() }
+              : undefined,
+        });
       } finally {
         exportToastIdRef.current = undefined;
       }
@@ -453,7 +471,8 @@ export default function CampaignBuilderPage({ params }: PageProps) {
           toast.error(result.error ?? "Erro ao exportar CSV");
         }
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Erro ao exportar CSV");
+        const csvErrorInfo = mapExportError(err, "csv");
+        toast.error(csvErrorInfo.title, { description: csvErrorInfo.message });
       }
     } else if (config.platform === "clipboard") {
       // Story 7.7 AC #3: Clipboard export
@@ -471,7 +490,8 @@ export default function CampaignBuilderPage({ params }: PageProps) {
           toast.error(result.error ?? "Erro ao copiar para clipboard");
         }
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Erro ao copiar para clipboard");
+        const clipErrorInfo = mapExportError(err, "clipboard");
+        toast.error(clipErrorInfo.title, { description: clipErrorInfo.message });
       }
     } else {
       // snovio — Story 7.6
@@ -569,6 +589,7 @@ export default function CampaignBuilderPage({ params }: PageProps) {
         blocks={blocks}
         platformOptions={platformOptions}
         leadSummary={leadSummary}
+        leads={exportLeadInfos}
         previousExport={previousExport}
         onExport={handleExportConfirm}
       />

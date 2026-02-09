@@ -1,6 +1,7 @@
 /**
  * Export Dialog Component
  * Story 7.4: Export Dialog UI com Preview de Variáveis
+ * Story 7.8: Advanced validation + ValidationSummaryPanel
  * AC: #1 - Platform selection with status badges
  * AC: #3 - Lead selection with email validation
  * AC: #5 - Previous export indicator with re-export/update actions
@@ -8,7 +9,7 @@
 
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { Settings, Upload, RefreshCw, Users } from "lucide-react";
 import {
   Dialog,
@@ -22,7 +23,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ExportPreview } from "./ExportPreview";
 import { SendingAccountSelector } from "./SendingAccountSelector";
+import { ValidationSummaryPanel } from "./ValidationSummaryPanel";
 import { useSendingAccounts } from "@/hooks/use-sending-accounts";
+import { validateExportAdvanced } from "@/lib/export/validate-export-advanced";
+import type { ExportLeadInfo } from "@/lib/export/validate-pre-deploy";
 import type {
   ExportPlatform,
   ExportDialogPlatformOption,
@@ -42,6 +46,7 @@ interface ExportDialogProps {
   blocks: BuilderBlock[];
   platformOptions: ExportDialogPlatformOption[];
   leadSummary: LeadExportSummary;
+  leads: ExportLeadInfo[];
   previousExport: ExportRecord | null;
   onExport: (config: ExportConfig) => void;
 }
@@ -92,6 +97,7 @@ export function ExportDialog({
   blocks,
   platformOptions,
   leadSummary,
+  leads,
   previousExport,
   onExport,
 }: ExportDialogProps) {
@@ -127,11 +133,25 @@ export function ExportDialog({
   const selectedOption = platformOptions.find((p) => p.platform === selectedPlatform);
   const isInstantly = selectedPlatform === "instantly";
 
+  // Story 7.8: Advanced validation (recalculates when platform, accounts, leads, or blocks change)
+  const advancedValidation = useMemo(() => {
+    if (!selectedPlatform) return null;
+    return validateExportAdvanced({
+      blocks,
+      leads,
+      platform: selectedPlatform,
+      sendingAccounts: isInstantly ? selectedAccounts : undefined,
+    });
+  }, [selectedPlatform, blocks, leads, selectedAccounts, isInstantly]);
+
   const canExport =
     selectedPlatform !== null &&
     selectedOption?.configured &&
     (selectedPlatform === "clipboard" || leadSummary.leadsWithEmail > 0) &&
-    (!isInstantly || selectedAccounts.length > 0);
+    (!isInstantly || selectedAccounts.length > 0) &&
+    (advancedValidation?.valid !== false);
+
+  const hasWarnings = advancedValidation?.valid === true && (advancedValidation?.warnings.length ?? 0) > 0;
 
   function handleExport() {
     if (!selectedPlatform) return;
@@ -342,6 +362,13 @@ export function ExportDialog({
               isLoading={accountsLoading}
             />
           )}
+
+          {/* Story 7.8: Validation Summary Panel */}
+          {selectedPlatform && advancedValidation && (
+            <ValidationSummaryPanel
+              validation={advancedValidation}
+            />
+          )}
         </div>
 
         <DialogFooter>
@@ -350,9 +377,11 @@ export function ExportDialog({
           </Button>
           <Button onClick={handleExport} disabled={!canExport}>
             <Upload className="h-4 w-4 mr-2" />
-            {selectedPlatform
-              ? `Exportar para ${selectedOption?.displayName ?? selectedPlatform}`
-              : "Selecione uma plataforma"}
+            {!selectedPlatform
+              ? "Selecione uma plataforma"
+              : hasWarnings
+                ? `Exportar com avisos`
+                : `Exportar para ${selectedOption?.displayName ?? selectedPlatform}`}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -211,6 +211,7 @@ describe("useInstantlyExport", () => {
       if (url === "/api/instantly/campaign" && options?.method === "POST") {
         return Promise.resolve({
           ok: false,
+          status: 401,
           json: () => Promise.resolve({ error: "API key inválida" }),
         } as Response);
       }
@@ -226,11 +227,13 @@ describe("useInstantlyExport", () => {
     });
 
     expect(exportResult!.success).toBe(false);
+    // Story 7.8: error is now mapped via mapExportError (401 → authentication error)
     expect(exportResult!.error).toBe("API key inválida");
 
     const createStep = exportResult!.steps.find((s) => s.id === "create_campaign");
     expect(createStep?.status).toBe("failed");
-    expect(createStep?.error).toBe("API key inválida");
+    // Story 7.8: step error uses mapped message from mapExportError
+    expect(createStep?.error).toContain("API key inválida");
 
     // Remaining steps should still be pending
     const leadsStep = exportResult!.steps.find((s) => s.id === "add_leads");
@@ -596,7 +599,8 @@ describe("useInstantlyExport", () => {
     });
 
     expect(exportResult!.success).toBe(false);
-    expect(exportResult!.error).toBe("Network error: connection refused");
+    // Story 7.8: error is now mapped via mapExportError (network → PT-BR message)
+    expect(exportResult!.error).toBe("Erro de conexão. Verifique sua internet.");
     expect(result.current.isExporting).toBe(false);
     expect(result.current.result).not.toBeNull();
     expect(result.current.result?.success).toBe(false);

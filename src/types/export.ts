@@ -133,6 +133,7 @@ export type DeploymentStepId =
 /**
  * A single step in the deployment pipeline with status tracking
  * Story 7.5: AC #1 - Progress indicator with current step
+ * Story 7.8: AC #3 - errorInfo for structured error metadata
  */
 export interface DeploymentStep {
   id: DeploymentStepId;
@@ -140,6 +141,8 @@ export interface DeploymentStep {
   status: "pending" | "running" | "success" | "failed" | "skipped";
   error?: string;
   detail?: string;
+  /** Story 7.8: Structured error info with friendly message, retry/fallback flags */
+  errorInfo?: import("@/lib/export/error-messages").ExportErrorInfo;
 }
 
 /**

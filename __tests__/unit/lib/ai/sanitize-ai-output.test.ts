@@ -73,6 +73,18 @@ describe("sanitizeGeneratedSubject", () => {
   it("preserves RE: prefix (intentional for follow-ups)", () => {
     expect(sanitizeGeneratedSubject("RE: Proposta comercial")).toBe("RE: Proposta comercial");
   });
+
+  it("deduplicates RE: RE: prefix to single RE:", () => {
+    expect(sanitizeGeneratedSubject("RE: RE: Proposta comercial")).toBe("RE: Proposta comercial");
+  });
+
+  it("deduplicates multiple RE: prefixes", () => {
+    expect(sanitizeGeneratedSubject("RE: RE: RE: Teste")).toBe("RE: Teste");
+  });
+
+  it("deduplicates RE: case-insensitively", () => {
+    expect(sanitizeGeneratedSubject("Re: re: Proposta")).toBe("RE: Proposta");
+  });
 });
 
 describe("sanitizeGeneratedBody", () => {
@@ -108,6 +120,21 @@ describe("sanitizeGeneratedBody", () => {
 
   it("returns empty string for empty input", () => {
     expect(sanitizeGeneratedBody("")).toBe("");
+  });
+
+  it("strips 'Assunto:' line from body (AI sometimes includes subject in body)", () => {
+    const input = "Assunto: Relembrando nosso papo, {{first_name}}!\n\nOi {{first_name}}!\n\nDando continuidade...";
+    const expected = "Oi {{first_name}}!\n\nDando continuidade...";
+    expect(sanitizeGeneratedBody(input)).toBe(expected);
+  });
+
+  it("strips 'Assunto:' line case-insensitively", () => {
+    expect(sanitizeGeneratedBody("ASSUNTO: Teste\nOlá!")).toBe("Olá!");
+    expect(sanitizeGeneratedBody("assunto: teste\nOlá!")).toBe("Olá!");
+  });
+
+  it("strips 'Subject:' line from body", () => {
+    expect(sanitizeGeneratedBody("Subject: Test subject\nHello!")).toBe("Hello!");
   });
 
   it("preserves {{ice_breaker}} variable in body", () => {

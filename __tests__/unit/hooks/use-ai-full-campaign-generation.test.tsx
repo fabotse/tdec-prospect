@@ -282,12 +282,13 @@ describe("useAIFullCampaignGeneration", () => {
         await result.current.generate(defaultParams);
       });
 
-      // Should NOT have lead variables — prompts trigger MODO TEMPLATE
+      // Lead variables should be empty strings to force MODO TEMPLATE in prompts
+      // ({{#if lead_name}} evaluates to false when lead_name is "")
       const firstCallBody = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(firstCallBody.variables.lead_name).toBeUndefined();
-      expect(firstCallBody.variables.lead_company).toBeUndefined();
-      expect(firstCallBody.variables.lead_title).toBeUndefined();
-      expect(firstCallBody.variables.icebreaker).toBeUndefined();
+      expect(firstCallBody.variables.lead_name).toBe("");
+      expect(firstCallBody.variables.lead_company).toBe("");
+      expect(firstCallBody.variables.lead_title).toBe("");
+      expect(firstCallBody.variables.icebreaker).toBe("");
     });
 
     it("always passes tone_style and email_objective", async () => {

@@ -36,6 +36,8 @@ export interface FullGenerationParams {
   objective: CampaignObjective;
   /** Tone of voice */
   tone: string;
+  /** KB context variables for AI prompts (company, ICP, tone, examples) */
+  kbVariables?: Record<string, string>;
 }
 
 /**
@@ -226,7 +228,7 @@ export function useAIFullCampaignGeneration(): UseAIFullCampaignGenerationReturn
    */
   const generate = useCallback(
     async (params: FullGenerationParams): Promise<BuilderBlock[]> => {
-      const { blocks, productId, objective, tone } = params;
+      const { blocks, productId, objective, tone, kbVariables } = params;
 
       // Reset state
       setError(null);
@@ -280,18 +282,57 @@ export function useAIFullCampaignGeneration(): UseAIFullCampaignGenerationReturn
           const { subjectKey, bodyKey } = getPromptKeys(objective, i, emailMode);
 
           // Build variables for generation
+          // Include KB context (company, ICP, tone, examples) + lead vars empty for template mode
           // Story 7.1: Lead variables are never passed to Wizard generation
           // → prompts' {{#if lead_name}} triggers MODO TEMPLATE (personalization variables)
           // Preview resolution is handled by PreviewEmailStep via resolveEmailVariables()
           const baseVariables: Record<string, string> = {
+            ...kbVariables,
+            // Override lead variables to force template mode (same pattern as EmailBlock.tsx)
+            lead_name: "",
+            lead_title: "",
+            lead_company: "",
+            lead_industry: "",
+            lead_location: "",
+            icebreaker: "",
             tone_style: tone,
             email_objective: context,
           };
 
-          // Add previous email context for follow-ups
+          // Add follow-up specific variables: context + position + strategy
           if (previousEmail && emailMode === "follow-up") {
             baseVariables.previous_email_subject = previousEmail.subject;
             baseVariables.previous_email_body = previousEmail.body;
+
+            // Accumulated history of all previous emails for anti-repetition
+            if (completedEmails.length > 1) {
+              baseVariables.previous_emails_history = completedEmails
+                .map((e, idx) => `Email ${idx + 1}: Assunto: "${e.subject}" | Abordagem: ${e.context || "N/A"}`)
+                .join("\n");
+            }
+
+            // Sequence position for strategy selection
+            const emailPosition = i + 1; // 1-indexed
+            const isLastEmail = emailPosition === totalEmails || emailPosition >= 5;
+            baseVariables.sequence_position = `Este é o ${emailPosition}º email de ${totalEmails} na sequência.${isLastEmail ? " Este é o ÚLTIMO email da sequência." : ""}`;
+
+            // Body strategy based on position (same logic as EmailBlock.tsx)
+            baseVariables.follow_up_strategy = isLastEmail
+              ? "DESPEDIDA: Ser direto, dar 'última chance' sem pressão. Diga que vai parar de escrever, deixe a porta aberta. Tom amigável de encerramento. NÃO referencie emails anteriores."
+              : emailPosition === 2
+              ? "CONFIRMAR VISUALIZAÇÃO: Pergunte gentilmente se o lead conseguiu ver o email anterior. Ofereça uma conversa rápida. NÃO repita o conteúdo do email anterior."
+              : emailPosition === 3
+              ? "AGENDA CORRIDA: Assuma que o lead está ocupado. Mostre empatia. Ofereça flexibilidade total de horário. NÃO mencione o email anterior diretamente."
+              : "NOVO ÂNGULO/VALOR: Traga um dado novo, case de sucesso ou insight do setor. NÃO referencie os emails anteriores. Foque 100% em valor novo.";
+
+            // Subject strategy based on position
+            baseVariables.subject_strategy = isLastEmail
+              ? "CURTO E DIRETO: Assunto pessoal sem RE:. Exemplo: '{{first_name}}, última mensagem' ou 'Encerramento'"
+              : emailPosition === 2
+              ? "RE: SIMPLES: Use 'RE: ' + assunto anterior. Exemplo: 'RE: {{previous_email_subject}}'"
+              : emailPosition === 3
+              ? "RE: COM VARIAÇÃO: Use 'RE: ' + algo novo. Exemplo: 'RE: Bate-papo rápido?' ou 'RE: Sobre a {{company_name}}'"
+              : "CURTO E DIRETO: Assunto pessoal sem RE:. Exemplo: '{{first_name}}, conseguiu ver?' ou 'Rápida pergunta'";
           }
 
           // Set up timeout

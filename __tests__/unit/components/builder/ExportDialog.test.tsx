@@ -1,6 +1,7 @@
 /**
  * ExportDialog Component Tests
  * Story 7.4: Export Dialog UI com Preview de Variaveis
+ * Story 7.8: Advanced validation + ValidationSummaryPanel integration
  *
  * AC: #1 - Platform selection with status badges
  * AC: #3 - Lead selection with email validation
@@ -33,9 +34,20 @@ vi.mock("@/components/builder/SendingAccountSelector", () => ({
   ),
 }));
 
+// Mock variable-registry for advanced validation
+vi.mock("@/lib/export/variable-registry", () => ({
+  getVariables: () => [
+    { name: "first_name", label: "Nome", leadField: "firstName", template: "{{first_name}}", placeholderLabel: "" },
+    { name: "company_name", label: "Empresa", leadField: "companyName", template: "{{company_name}}", placeholderLabel: "" },
+    { name: "title", label: "Cargo", leadField: "title", template: "{{title}}", placeholderLabel: "" },
+    { name: "ice_breaker", label: "Quebra-gelo", leadField: "icebreaker", template: "{{ice_breaker}}", placeholderLabel: "" },
+  ],
+}));
+
 import { ExportDialog } from "@/components/builder/ExportDialog";
 import type { ExportDialogPlatformOption, LeadExportSummary, ExportRecord } from "@/types/export";
 import type { BuilderBlock } from "@/stores/use-builder-store";
+import type { ExportLeadInfo } from "@/lib/export/validate-pre-deploy";
 
 // ==============================================
 // TEST FIXTURES
@@ -104,6 +116,26 @@ const mockPreviousExport: ExportRecord = {
   exportStatus: "success",
 };
 
+// Story 7.8: Leads for advanced validation (all valid — no warnings)
+const mockLeads: ExportLeadInfo[] = [
+  { email: "lead1@test.com", icebreaker: "Nice post" },
+  { email: "lead2@test.com", icebreaker: "Great work" },
+  { email: "lead3@test.com", icebreaker: "Interesting article" },
+  { email: "lead4@test.com", icebreaker: "Cool project" },
+  { email: "lead5@test.com", icebreaker: "Good insights" },
+  { email: "lead6@test.com", icebreaker: "Thanks for sharing" },
+  { email: "lead7@test.com", icebreaker: "Well done" },
+  { email: "lead8@test.com", icebreaker: "Impressive" },
+];
+
+const mockLeadsNoEmails: ExportLeadInfo[] = [
+  { email: null },
+  { email: null },
+  { email: null },
+  { email: null },
+  { email: null },
+];
+
 const defaultProps = {
   open: true,
   onOpenChange: vi.fn(),
@@ -112,6 +144,7 @@ const defaultProps = {
   blocks: mockBlocks,
   platformOptions: mockPlatformOptions,
   leadSummary: mockLeadSummary,
+  leads: mockLeads,
   previousExport: null as ExportRecord | null,
   onExport: vi.fn(),
 };
@@ -241,13 +274,16 @@ describe("ExportDialog", () => {
       <ExportDialog
         {...defaultProps}
         leadSummary={mockLeadSummaryNoEmails}
+        leads={mockLeadsNoEmails}
       />
     );
 
     fireEvent.click(screen.getByTestId("platform-option-csv"));
 
-    const exportButton = screen.getByText("Exportar para CSV");
-    expect(exportButton.closest("button")).toBeDisabled();
+    // Button disabled because advanced validation returns valid=false (no valid emails)
+    const buttons = screen.getAllByRole("button");
+    const exportBtn = buttons.find((b) => b.textContent?.includes("Exportar"));
+    expect(exportBtn).toBeDisabled();
   });
 
   // H1 fix: Clipboard should be enabled even without leads (AC #3 — template only)
@@ -256,13 +292,17 @@ describe("ExportDialog", () => {
       <ExportDialog
         {...defaultProps}
         leadSummary={mockLeadSummaryNoEmails}
+        leads={mockLeadsNoEmails}
       />
     );
 
     fireEvent.click(screen.getByTestId("platform-option-clipboard"));
 
-    const exportButton = screen.getByText("Exportar para Clipboard");
-    expect(exportButton.closest("button")).not.toBeDisabled();
+    // Clipboard with no leads: validation still valid (clipboard skips lead checks)
+    // but no email blocks error may show — blocks have complete email so should be valid
+    const buttons = screen.getAllByRole("button");
+    const exportBtn = buttons.find((b) => b.textContent?.includes("Exportar"));
+    expect(exportBtn).not.toBeDisabled();
   });
 
   it("calls onExport with correct config including campaignId and leadSelection", () => {
@@ -332,8 +372,10 @@ describe("ExportDialog", () => {
     // Select Snov.io (not configured in fixture)
     fireEvent.click(screen.getByTestId("platform-option-snovio"));
 
-    const exportButton = screen.getByText("Exportar para Snov.io");
-    expect(exportButton.closest("button")).toBeDisabled();
+    // Button text may vary (with/without warnings), but it should be disabled
+    const buttons = screen.getAllByRole("button");
+    const exportBtn = buttons.find((b) => b.textContent?.includes("Exportar"));
+    expect(exportBtn).toBeDisabled();
   });
 
   // Story 7.7 AC #2: CSV Mode Toggle
@@ -366,8 +408,10 @@ describe("ExportDialog", () => {
       fireEvent.click(screen.getByTestId("platform-option-csv"));
       // Select "com variáveis" mode
       fireEvent.click(screen.getByTestId("csv-mode-with-variables"));
-      // Click export
-      fireEvent.click(screen.getByText(/Exportar para CSV/));
+      // Click export button (use role to avoid title collision)
+      const buttons = screen.getAllByRole("button");
+      const exportBtn = buttons.find((b) => b.textContent?.includes("Exportar para CSV"));
+      fireEvent.click(exportBtn!);
 
       expect(onExport).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -375,6 +419,96 @@ describe("ExportDialog", () => {
           csvMode: "with_variables",
         })
       );
+    });
+  });
+
+  // ==============================================
+  // Story 7.8: Advanced Validation Integration
+  // ==============================================
+  describe("Advanced validation (Story 7.8)", () => {
+    it("shows ValidationSummaryPanel when platform is selected", () => {
+      render(<ExportDialog {...defaultProps} />);
+
+      // No panel before platform selection
+      expect(screen.queryByTestId("validation-panel-success")).not.toBeInTheDocument();
+
+      // Select CSV
+      fireEvent.click(screen.getByTestId("platform-option-csv"));
+
+      // Panel should appear (success since all data is valid)
+      expect(screen.getByTestId("validation-panel-success")).toBeInTheDocument();
+    });
+
+    it("disables export button when validation has errors", () => {
+      const blocksNoComplete: BuilderBlock[] = [
+        { id: "b1", type: "email", position: 0, data: { subject: "Sub", body: "" } },
+      ];
+      render(
+        <ExportDialog
+          {...defaultProps}
+          blocks={blocksNoComplete}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId("platform-option-csv"));
+
+      // Should show error panel (no complete email blocks)
+      expect(screen.getByTestId("validation-panel-error")).toBeInTheDocument();
+
+      // Export button disabled
+      const buttons = screen.getAllByRole("button");
+      const exportBtn = buttons.find((b) => b.textContent?.includes("Exportar"));
+      expect(exportBtn).toBeDisabled();
+    });
+
+    it("shows 'Exportar com avisos' label when validation has warnings", () => {
+      // Leads without icebreaker generate warnings
+      const leadsWithWarnings: ExportLeadInfo[] = [
+        { email: "a@b.com" },
+        { email: "c@d.com" },
+      ];
+      render(
+        <ExportDialog
+          {...defaultProps}
+          leads={leadsWithWarnings}
+          leadSummary={{ ...mockLeadSummary, leadsWithoutIcebreaker: 2 }}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId("platform-option-csv"));
+
+      expect(screen.getByText("Exportar com avisos")).toBeInTheDocument();
+    });
+
+    it("clipboard does not validate leads", () => {
+      render(
+        <ExportDialog
+          {...defaultProps}
+          leads={mockLeadsNoEmails}
+          leadSummary={mockLeadSummaryNoEmails}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId("platform-option-clipboard"));
+
+      // Should show success panel (clipboard skips lead validation)
+      expect(screen.getByTestId("validation-panel-success")).toBeInTheDocument();
+    });
+
+    it("shows warning panel for unknown template variables", () => {
+      const blocksWithUnknown: BuilderBlock[] = [
+        { id: "b1", type: "email", position: 0, data: { subject: "{{unknown_var}}", body: "body" } },
+      ];
+      render(
+        <ExportDialog
+          {...defaultProps}
+          blocks={blocksWithUnknown}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId("platform-option-csv"));
+
+      expect(screen.getByTestId("validation-panel-warning")).toBeInTheDocument();
     });
   });
 });

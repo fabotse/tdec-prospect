@@ -130,31 +130,21 @@ describe("email_body_generation prompt - Block Structure (AC #1)", () => {
 describe("follow_up_email_generation prompt - Block Structure (AC #2)", () => {
   const template = CODE_DEFAULT_PROMPTS.follow_up_email_generation.template;
 
-  it("should contain [SAUDAÇÃO] section marker", () => {
-    expect(template).toContain("[SAUDAÇÃO]");
+  it("should contain numbered structure with Saudação, Conteúdo, CTA, Fechamento", () => {
+    expect(template).toMatch(/saudação/i);
+    expect(template).toMatch(/conteúdo/i);
+    expect(template).toMatch(/CTA/);
+    expect(template).toMatch(/fechamento/i);
   });
 
-  it("should contain [CONTEÚDO] section marker", () => {
-    expect(template).toContain("[CONTEÚDO]");
-  });
-
-  it("should contain [CTA] section marker", () => {
-    expect(template).toContain("[CTA]");
-  });
-
-  it("should contain [FECHAMENTO] section marker", () => {
-    expect(template).toContain("[FECHAMENTO]");
-  });
-
-  it("should have blocks in correct order: SAUDAÇÃO → CONTEÚDO → CTA → FECHAMENTO", () => {
-    // Find block markers within ESTRUTURA section (not in strategy examples)
-    const estruturaStart = template.indexOf("ESTRUTURA OBRIGATÓRIA");
+  it("should have structure items in correct order", () => {
+    const estruturaStart = template.indexOf("ESTRUTURA");
     const structureSection = template.slice(estruturaStart);
 
-    const saudacaoIdx = structureSection.indexOf("[SAUDAÇÃO]");
-    const conteudoIdx = structureSection.indexOf("[CONTEÚDO]");
-    const ctaIdx = structureSection.indexOf("[CTA]");
-    const fechamentoIdx = structureSection.indexOf("[FECHAMENTO]");
+    const saudacaoIdx = structureSection.search(/saudação/i);
+    const conteudoIdx = structureSection.search(/conteúdo/i);
+    const ctaIdx = structureSection.indexOf("CTA");
+    const fechamentoIdx = structureSection.search(/fechamento/i);
 
     expect(saudacaoIdx).toBeLessThan(conteudoIdx);
     expect(conteudoIdx).toBeLessThan(ctaIdx);
@@ -162,15 +152,17 @@ describe("follow_up_email_generation prompt - Block Structure (AC #2)", () => {
   });
 
   it("should NOT include Ice Breaker section (AC #2 explicit rule)", () => {
-    // The structure section should explicitly state no ice breaker
     expect(template).toContain("NÃO inclua Ice Breaker");
   });
 
-  it("should define all 4 suggested angles per position in sequence", () => {
-    expect(template).toMatch(/valor/i);
-    expect(template).toMatch(/prova social/i);
-    expect(template).toMatch(/escassez/i);
-    expect(template).toMatch(/despedida/i);
+  it("should use {{follow_up_strategy}} variable for strategy selection", () => {
+    expect(template).toContain("{{follow_up_strategy}}");
+    expect(template).toMatch(/ESTRATÉGIA OBRIGATÓRIA/i);
+  });
+
+  it("should contain banned phrases list to prevent repetitive outputs", () => {
+    expect(template).toContain("Dando continuidade");
+    expect(template).toContain("FRASES PROIBIDAS");
   });
 });
 
@@ -193,8 +185,8 @@ describe("follow_up_email_generation prompt - Sequential Context (AC #3)", () =>
     expect(template).toMatch(/[Nn]ÃO repita|anti.?repetição|não repetir/i);
   });
 
-  it("should instruct to use different angle from previous emails", () => {
-    expect(template).toMatch(/ângulo.*(novo|diferente)|diferente.*ângulo/i);
+  it("should instruct not to copy structure from previous email", () => {
+    expect(template).toMatch(/NÃO copie a estrutura|ângulo.*(novo|diferente)/i);
   });
 });
 
@@ -303,10 +295,7 @@ describe("follow_up_email_generation prompt - Conditional Regression (AC #4)", (
     expect(template).toContain("{{#if successful_examples}}");
   });
 
-  it("should keep existing 4 strategies", () => {
-    expect(template).toContain("CONFIRMAR VISUALIZAÇÃO");
-    expect(template).toContain("AGENDA CORRIDA");
-    expect(template).toMatch(/NOVO ÂNGULO|NOVO VALOR/i);
-    expect(template).toContain("ÚLTIMA TENTATIVA");
+  it("should use {{follow_up_strategy}} for strategy injection", () => {
+    expect(template).toContain("{{follow_up_strategy}}");
   });
 });
