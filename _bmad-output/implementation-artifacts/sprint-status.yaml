@@ -41,7 +41,7 @@ story_location: _bmad-output/implementation-artifacts
 
 # GIT BRANCH TRACKING
 # ===================
-current_branch: epic/7-campaign-deployment-export
+current_branch: epic/10-campaign-tracking
 base_branch: main
 
 branch_strategy:
@@ -66,8 +66,8 @@ branches:
   epic/8-visual-refresh: "Epic 8 - Visual Refresh B&W Theme (DONE)"
   epic/9-ai-content-quality: "Epic 9 - AI Content Quality & Personalization (DONE)"
   cleanup/2-mock-resilience: "Cleanup Sprint 2 - Mock Infrastructure (DONE)"
-  epic/7-campaign-deployment-export: "Epic 7 - Campaign Deployment & Export (IN-PROGRESS)"
-  epic/10-campaign-tracking: "Epic 10 - Campaign Tracking & Janela de Oportunidade (BACKLOG)"
+  epic/7-campaign-deployment-export: "Epic 7 - Campaign Deployment & Export (DONE)"
+  epic/10-campaign-tracking: "Epic 10 - Campaign Tracking & Janela de Oportunidade (IN-PROGRESS)"
 
 development_status:
   # Epic 1: Foundation & Authentication
@@ -232,7 +232,7 @@ development_status:
   # Export de campanhas personalizadas com sistema de variáveis de personalização
   # Pré-requisitos: Epic 9 (base do sistema {{ice_breaker}})
   # Documento: _bmad-output/planning-artifacts/epic-7-campaign-deployment-export.md
-  epic-7: in-progress
+  epic-7: done
   7-1-sistema-de-variaveis-de-personalizacao-para-exportacao: done  # P0: Fundação — define variáveis, motor de substituição, mapeamento por plataforma. Code review: 2 HIGH, 3 MEDIUM fixes
   7-2-instantly-integration-service-gestao-de-campanhas: done  # P1: Code review 2026-02-06: 3 HIGH, 5 MEDIUM fixes (constants in types, step[0] delay guard, partial batch error, params objects, sequence validation, rate limit test, remainingInPlan init, 500 error tests). 95 story tests, 3402 total
   7-3-snov-io-integration-service-gestao-de-campanhas: done  # P1: Service para Snov.io lists + prospects (API não suporta criar drip campaigns). Code review: 1 HIGH, 3 MEDIUM fixes (withTokenRetry, credential isolation, network error test, M3 comment). 96 story tests, 3488 total
