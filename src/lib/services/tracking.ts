@@ -133,11 +133,19 @@ export class TrackingService extends ExternalService {
     });
 
     if (!response.length) {
-      throw new ExternalServiceError(
-        this.name,
-        404,
-        "Nenhum dado de analytics encontrado para esta campanha."
-      );
+      return {
+        campaignId: params.externalCampaignId,
+        totalSent: 0,
+        totalOpens: 0,
+        totalClicks: 0,
+        totalReplies: 0,
+        totalBounces: 0,
+        openRate: 0,
+        clickRate: 0,
+        replyRate: 0,
+        bounceRate: 0,
+        lastSyncAt: new Date().toISOString(),
+      };
     }
 
     return mapToCampaignAnalytics(response[0], params.externalCampaignId);

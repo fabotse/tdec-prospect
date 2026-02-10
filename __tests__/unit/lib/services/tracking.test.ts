@@ -152,17 +152,27 @@ describe("TrackingService", () => {
       ).rejects.toThrow("Esta campanha ainda não foi exportada");
     });
 
-    it("throws error when analytics response is empty array", async () => {
+    it("returns zero-filled analytics when response is empty array", async () => {
       createMockFetch([
         { url: ANALYTICS_URL, response: mockJsonResponse([]) },
       ]);
 
-      await expect(
-        service.getCampaignAnalytics({
-          apiKey: TEST_API_KEY,
-          externalCampaignId: TEST_EXTERNAL_ID,
-        })
-      ).rejects.toThrow("Nenhum dado de analytics encontrado");
+      const result = await service.getCampaignAnalytics({
+        apiKey: TEST_API_KEY,
+        externalCampaignId: TEST_EXTERNAL_ID,
+      });
+
+      expect(result.campaignId).toBe(TEST_EXTERNAL_ID);
+      expect(result.totalSent).toBe(0);
+      expect(result.totalOpens).toBe(0);
+      expect(result.totalClicks).toBe(0);
+      expect(result.totalReplies).toBe(0);
+      expect(result.totalBounces).toBe(0);
+      expect(result.openRate).toBe(0);
+      expect(result.clickRate).toBe(0);
+      expect(result.replyRate).toBe(0);
+      expect(result.bounceRate).toBe(0);
+      expect(result.lastSyncAt).toBeDefined();
     });
   });
 

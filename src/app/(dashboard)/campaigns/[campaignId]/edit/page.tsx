@@ -557,6 +557,7 @@ export default function CampaignBuilderPage({ params }: PageProps) {
           campaignId={campaignId}
           onDelete={handleDeleteClick}
           onExport={handleExport}
+          externalCampaignId={campaign.externalCampaignId}
         />
         <div className="flex-1 flex overflow-hidden">
           <BuilderSidebar />

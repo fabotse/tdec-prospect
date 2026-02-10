@@ -52,12 +52,12 @@ async function syncAnalytics(campaignId: string): Promise<SyncResult> {
  * AC: #1 — CampaignAnalytics with totals and rates
  * AC: #6 — lastSyncAt included, data from polling (not persisted)
  */
-export function useCampaignAnalytics(campaignId: string) {
+export function useCampaignAnalytics(campaignId: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ANALYTICS_QUERY_KEY(campaignId),
     queryFn: () => fetchAnalytics(campaignId),
     staleTime: 5 * 60 * 1000,
-    enabled: !!campaignId,
+    enabled: !!campaignId && (options?.enabled ?? true),
   });
 }
 

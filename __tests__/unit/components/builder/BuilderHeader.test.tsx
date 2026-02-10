@@ -3,10 +3,12 @@
  * Story 5.2: Campaign Builder Canvas
  * Story 5.7: Campaign Lead Association
  * Story 5.8: Campaign Preview
+ * Story 10.4: Campaign Analytics Dashboard UI
  *
  * AC: #4 - Header do Builder
  * AC 5.7 #5: Lead count display and add leads button
  * AC 5.8 #1: Preview button
+ * AC 10.4 #6: Analytics link when campaign exported
  */
 
 import { render, screen, fireEvent } from "@testing-library/react";
@@ -40,6 +42,16 @@ vi.mock("@/stores/use-builder-store", () => ({
 vi.mock("@/hooks/use-products", () => ({
   useProducts: () => ({
     data: [],
+    isLoading: false,
+  }),
+}));
+
+// Mock useCampaignLeads (used by LeadPreviewSelector — Story 10.4)
+vi.mock("@/hooks/use-campaign-leads", () => ({
+  useCampaignLeads: () => ({
+    leads: [],
+    leadCount: 0,
+    addLeads: { mutate: vi.fn() },
     isLoading: false,
   }),
 }));
@@ -282,6 +294,68 @@ describe("BuilderHeader (AC: #4)", () => {
 
       const button = screen.getByTestId("preview-button");
       expect(button).toHaveAttribute("aria-label", "Preview da campanha");
+    });
+  });
+
+  describe("Analytics Button (Story 10.4 AC #6)", () => {
+    it("does not show analytics button when externalCampaignId is null", () => {
+      render(
+        <BuilderHeader
+          {...defaultProps}
+          campaignId="c-1"
+          externalCampaignId={null}
+        />
+      );
+
+      expect(screen.queryByTestId("analytics-button")).not.toBeInTheDocument();
+    });
+
+    it("does not show analytics button when externalCampaignId is undefined", () => {
+      render(
+        <BuilderHeader
+          {...defaultProps}
+          campaignId="c-1"
+        />
+      );
+
+      expect(screen.queryByTestId("analytics-button")).not.toBeInTheDocument();
+    });
+
+    it("shows analytics button when externalCampaignId exists", () => {
+      render(
+        <BuilderHeader
+          {...defaultProps}
+          campaignId="c-1"
+          externalCampaignId="ext-123"
+        />
+      );
+
+      expect(screen.getByTestId("analytics-button")).toBeInTheDocument();
+      expect(screen.getByTestId("analytics-button")).toHaveTextContent("Analytics");
+    });
+
+    it("analytics button links to correct analytics page", () => {
+      render(
+        <BuilderHeader
+          {...defaultProps}
+          campaignId="c-1"
+          externalCampaignId="ext-123"
+        />
+      );
+
+      const link = screen.getByTestId("analytics-button");
+      expect(link).toHaveAttribute("href", "/campaigns/c-1/analytics");
+    });
+
+    it("does not show analytics button when campaignId is missing", () => {
+      render(
+        <BuilderHeader
+          {...defaultProps}
+          externalCampaignId="ext-123"
+        />
+      );
+
+      expect(screen.queryByTestId("analytics-button")).not.toBeInTheDocument();
     });
   });
 });

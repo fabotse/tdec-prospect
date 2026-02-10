@@ -255,9 +255,9 @@ development_status:
   # Sprint Change Proposal: _bmad-output/planning-artifacts/sprint-change-proposal-2026-02-09.md
   epic-10: in-progress
   10-1-schema-de-tracking-e-tipos: done  # Code review 2026-02-09: 5 MEDIUM, 1 LOW fixes (isValidEventType guard, Row type alignment, NOT NULL constraints, re-export test, Task 6.4 status). 22 tests passing
-  10-2-webhook-receiver-supabase-edge-function: review
+  10-2-webhook-receiver-supabase-edge-function: done  # Code review 2026-02-09: 1 HIGH, 2 MEDIUM fixes (handler-flow tests, timestamp optional, SYNC-NOTICE). 53 tests passing
   10-3-instantly-analytics-service-polling: done  # Code review 2026-02-10: 1 HIGH, 3 MEDIUM fixes (test 6.8 timeout/retry rewritten, campaignId JSDoc semantics, UUID validation in 3 API routes). 51 tests passing
-  10-4-campaign-analytics-dashboard-ui: backlog
+  10-4-campaign-analytics-dashboard-ui: done  # Code review 2026-02-10: 1 HIGH, 3 MEDIUM, 2 LOW fixes (dead import, enabled option, skeleton flash, redundant wrapper, inline fallback). 42 tests, all ACs satisfied
   10-5-lead-tracking-detail: backlog
   10-6-janela-de-oportunidade-engine-config: backlog
   10-7-janela-de-oportunidade-ui-notificacoes: backlog

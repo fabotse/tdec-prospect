@@ -8,6 +8,7 @@
  * Story 6.12: AI Campaign Structure Generation
  * Story 6.12.1: AI Full Campaign Generation
  * Story 6.13: Smart Campaign Templates
+ * Story 10.4: Campaign Analytics Dashboard UI
  *
  * AC: #4 - Header do Builder
  * AC 5.7 #5: Lead count display and add leads button
@@ -17,6 +18,7 @@
  * AC 6.12 #4: Campaign summary (email count, total duration)
  * AC 6.12.1 #5: AI-generated campaign indicator
  * AC 6.13 #4: Template name indicator
+ * AC 10.4 #6: Analytics link when campaign exported
  *
  * Header showing campaign name (editable), status badge, lead count, product selector, lead preview selector, campaign summary, preview, and save button.
  */
@@ -25,7 +27,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, Save, Users, Eye, Loader2, Sparkles, Trash2, LayoutTemplate, Upload } from "lucide-react";
+import { ArrowLeft, Save, Users, Eye, Loader2, Sparkles, Trash2, LayoutTemplate, Upload, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -60,6 +62,8 @@ interface BuilderHeaderProps {
   onDelete?: () => void;
   /** Callback when "Exportar" button is clicked (Story 7.4 AC #1) */
   onExport?: () => void;
+  /** External campaign ID for analytics link (Story 10.4 AC #6) */
+  externalCampaignId?: string | null;
 }
 
 /**
@@ -97,6 +101,7 @@ export function BuilderHeader({
   campaignId,
   onDelete,
   onExport,
+  externalCampaignId,
 }: BuilderHeaderProps) {
   const hasChanges = useBuilderStore((state) => state.hasChanges);
   // Story 6.12.1 AC #5: AI-generated campaign indicator
@@ -255,6 +260,22 @@ export function BuilderHeader({
             <Upload className="h-4 w-4" />
             Exportar
           </Button>
+
+          {/* Analytics button - Story 10.4 AC #6 */}
+          {externalCampaignId && campaignId && (
+            <Button
+              data-testid="analytics-button"
+              variant="outline"
+              size="sm"
+              asChild
+              className="gap-1.5"
+            >
+              <Link href={`/campaigns/${campaignId}/analytics`}>
+                <BarChart3 className="h-4 w-4" />
+                Analytics
+              </Link>
+            </Button>
+          )}
 
           <Button
             data-testid="save-button"
