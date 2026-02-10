@@ -7,11 +7,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { POST } from "@/app/api/leads/import-results/route";
 
-// Mock Supabase client
+// Mock getCurrentUserProfile
+const mockGetCurrentUserProfile = vi.fn();
+
+vi.mock("@/lib/supabase/tenant", () => ({
+  getCurrentUserProfile: () => mockGetCurrentUserProfile(),
+}));
+
+// Mock Supabase client (still needed for DB operations)
 const mockSupabaseClient = {
-  auth: {
-    getUser: vi.fn(),
-  },
   from: vi.fn(),
 };
 
@@ -44,26 +48,18 @@ function setupMocks(options: {
     insertError = null,
   } = options;
 
-  // Mock auth
-  mockSupabaseClient.auth.getUser.mockResolvedValue({
-    data: { user },
-    error: null,
-  });
+  // Mock getCurrentUserProfile
+  if (!user || !tenantId) {
+    mockGetCurrentUserProfile.mockResolvedValue(null);
+  } else {
+    mockGetCurrentUserProfile.mockResolvedValue({
+      id: user.id,
+      tenant_id: tenantId,
+      role: "user",
+    });
+  }
 
   mockSupabaseClient.from.mockImplementation((table: string) => {
-    if (table === "profiles") {
-      return {
-        select: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({
-            single: vi.fn().mockResolvedValue({
-              data: tenantId ? { tenant_id: tenantId } : null,
-              error: tenantId ? null : new Error("Not found"),
-            }),
-          }),
-        }),
-      };
-    }
-
     if (table === "leads") {
       return {
         select: vi.fn().mockReturnValue({
@@ -131,7 +127,7 @@ describe("POST /api/leads/import-results", () => {
       expect(data.error.code).toBe("UNAUTHORIZED");
     });
 
-    it("should return 500 when profile is not found", async () => {
+    it("should return 401 when profile is not found", async () => {
       setupMocks({ tenantId: null });
 
       const request = createMockRequest({
@@ -141,8 +137,8 @@ describe("POST /api/leads/import-results", () => {
       const response = await POST(request);
       const data = await response.json();
 
-      expect(response.status).toBe(500);
-      expect(data.error.code).toBe("INTERNAL_ERROR");
+      expect(response.status).toBe(401);
+      expect(data.error.code).toBe("UNAUTHORIZED");
     });
   });
 

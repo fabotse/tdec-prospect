@@ -201,7 +201,7 @@ function compileICPSummary(icp: ICPDefinition | null): string {
  * AC: #4 - Email Examples Reference
  */
 function formatEmailExamples(examples: EmailExample[]): string {
-  if (examples.length === 0) {
+  if (!examples || examples.length === 0) {
     return "";
   }
 

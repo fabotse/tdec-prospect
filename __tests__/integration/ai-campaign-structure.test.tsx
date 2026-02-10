@@ -59,6 +59,42 @@ vi.mock("@/stores/use-builder-store", () => ({
   }),
 }));
 
+// Mock useKnowledgeBaseContext (used by AICampaignWizard)
+vi.mock("@/hooks/use-knowledge-base-context", () => ({
+  useKnowledgeBaseContext: () => ({
+    context: null,
+    variables: {
+      company_context: "",
+      products_services: "",
+      competitive_advantages: "",
+      product_name: "",
+      product_description: "",
+      product_features: "",
+      product_differentials: "",
+      product_target_audience: "",
+      tone_description: "",
+      tone_style: "profissional",
+      writing_guidelines: "",
+      icp_summary: "",
+      target_industries: "",
+      target_titles: "",
+      pain_points: "",
+      successful_examples: "",
+      lead_name: "Nome",
+      lead_title: "Cargo",
+      lead_company: "Empresa",
+      lead_industry: "Tecnologia",
+      lead_location: "Brasil",
+      email_objective: "Prospecção inicial para apresentar soluções",
+      icebreaker: "",
+    },
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+    hasExamples: false,
+  }),
+}));
+
 // Mock useCampaignTemplates (used by TemplateSelector in AICampaignWizard)
 vi.mock("@/hooks/use-campaign-templates", () => ({
   useCampaignTemplates: () => ({

@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { z } from "zod";
 
 const createSegmentSchema = z.object({
@@ -22,15 +23,15 @@ const createSegmentSchema = z.object({
  * AC: #4 - View segment list ordered alphabetically with lead count
  */
 export async function GET() {
-  const supabase = await createClient();
-
-  const { data: user } = await supabase.auth.getUser();
-  if (!user.user) {
+  const profile = await getCurrentUserProfile();
+  if (!profile) {
     return NextResponse.json(
       { error: { code: "UNAUTHORIZED", message: "Não autenticado" } },
       { status: 401 }
     );
   }
+
+  const supabase = await createClient();
 
   // Query segments with lead count via subquery
   const { data, error } = await supabase
@@ -73,29 +74,15 @@ export async function GET() {
  * AC: #1 - Create segment with name and optional description
  */
 export async function POST(request: NextRequest) {
-  const supabase = await createClient();
-
-  const { data: user } = await supabase.auth.getUser();
-  if (!user.user) {
+  const profile = await getCurrentUserProfile();
+  if (!profile) {
     return NextResponse.json(
       { error: { code: "UNAUTHORIZED", message: "Não autenticado" } },
       { status: 401 }
     );
   }
 
-  // Get user's tenant_id
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("tenant_id")
-    .eq("id", user.user.id)
-    .single();
-
-  if (!profile) {
-    return NextResponse.json(
-      { error: { code: "NOT_FOUND", message: "Perfil não encontrado" } },
-      { status: 404 }
-    );
-  }
+  const supabase = await createClient();
 
   const body = await request.json();
   const validation = createSegmentSchema.safeParse(body);

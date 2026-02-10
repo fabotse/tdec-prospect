@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { transformOpportunityConfigRow } from "@/types/tracking";
 import { z } from "zod";
 
@@ -29,17 +30,15 @@ export async function GET(
     );
   }
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+  const profile = await getCurrentUserProfile();
+  if (!profile) {
     return NextResponse.json(
       { error: "Nao autenticado" },
       { status: 401 }
     );
   }
+
+  const supabase = await createClient();
 
   const { data, error } = await supabase
     .from("opportunity_configs")
@@ -78,31 +77,15 @@ export async function PUT(
     );
   }
 
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+  const profile = await getCurrentUserProfile();
+  if (!profile) {
     return NextResponse.json(
       { error: "Nao autenticado" },
       { status: 401 }
     );
   }
 
-  // Get tenant_id from profile
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("tenant_id")
-    .eq("id", user.id)
-    .single();
-
-  if (!profile?.tenant_id) {
-    return NextResponse.json(
-      { error: "Sem tenant associado" },
-      { status: 403 }
-    );
-  }
+  const supabase = await createClient();
 
   let body: unknown;
   try {

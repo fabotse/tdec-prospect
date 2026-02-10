@@ -253,7 +253,7 @@ development_status:
   # Documento: _bmad-output/planning-artifacts/epic-10-campaign-tracking.md
   # Pesquisa: _bmad-output/planning-artifacts/research/instantly-campaign-tracking-api-research-2026-02-09.md
   # Sprint Change Proposal: _bmad-output/planning-artifacts/sprint-change-proposal-2026-02-09.md
-  epic-10: in-progress
+  epic-10: done
   10-1-schema-de-tracking-e-tipos: done  # Code review 2026-02-09: 5 MEDIUM, 1 LOW fixes (isValidEventType guard, Row type alignment, NOT NULL constraints, re-export test, Task 6.4 status). 22 tests passing
   10-2-webhook-receiver-supabase-edge-function: done  # Code review 2026-02-09: 1 HIGH, 2 MEDIUM fixes (handler-flow tests, timestamp optional, SYNC-NOTICE). 53 tests passing
   10-3-instantly-analytics-service-polling: done  # Code review 2026-02-10: 1 HIGH, 3 MEDIUM fixes (test 6.8 timeout/retry rewritten, campaignId JSDoc semantics, UUID validation in 3 API routes). 51 tests passing
@@ -261,4 +261,22 @@ development_status:
   10-5-lead-tracking-detail: done  # Code review 2026-02-10: 3 MEDIUM fixes (stale currentPage, error state, pagination AC #5). 42 tests, 3986 total
   10-6-janela-de-oportunidade-engine-config: done  # Code review 2026-02-10: 2 HIGH, 4 MEDIUM fixes (UUID validation, useMemo estabilização, timer cleanup, toast tests). 55 tests, 4028 total
   10-7-janela-de-oportunidade-ui-notificacoes: done  # Code review 2026-02-10: 3 MEDIUM fixes (unused config prop, open-by-default AC#1, ThresholdConfig File List). 30 tests, 4061 total
-  10-8-preparacao-arquitetural-whatsapp: backlog
+  10-8-preparacao-arquitetural-whatsapp: deferred  # DEFERRED 2026-02-10: YAGNI — interfaces/stub/registry serão criados quando integração WhatsApp for prioridade real. Contrato pode mudar com requisitos concretos.
+  epic-10-retrospective: done  # Completed 2026-02-10 — 7/7 stories (1 deferred YAGNI), 243 new tests, 31 code review fixes, 0 blockers. Key insight: dev preflight checklist needed.
+
+  # Epic 11: WhatsApp Integration via Z-API
+  # Envio de mensagens WhatsApp personalizadas para leads quentes identificados pela Janela de Oportunidade.
+  # Integração com Z-API (3 credenciais: Instance ID, Instance Token, Security Token).
+  # Suporte a envio individual e em massa com intervalos humanizados.
+  # Geração de mensagem por IA (baseada no produto da campanha) ou digitação manual.
+  # Dependências: Epic 10 (OpportunityPanel, OpportunityEngine), Epic 4 (SignalHire), Epic 6 (AI generation)
+  # Documento: _bmad-output/planning-artifacts/epic-11-whatsapp-integration.md
+  # Sprint Change Proposal: _bmad-output/planning-artifacts/sprint-change-proposal-2026-02-10.md
+  epic-11: backlog
+  11-1-zapi-integration-service-config: backlog  # ZApiService + IntegrationCard multi-field (3 credenciais) + API key storage
+  11-2-schema-whatsapp-messages-tipos: backlog  # Tabela whatsapp_messages + tipos TS + RLS
+  11-3-composer-mensagem-whatsapp: backlog  # UI: editor de texto + geração IA baseada no produto da campanha
+  11-4-envio-individual-whatsapp: backlog  # Envio via Z-API + tracking de status + integração no OpportunityPanel
+  11-5-busca-telefone-fluxo-leads-quentes: backlog  # Integrar SignalHire lookup no OpportunityPanel + input manual
+  11-6-envio-em-massa-com-intervalos: backlog  # Seleção de leads + config intervalo + fila humanizada
+  11-7-tracking-historico-mensagens: backlog  # Marcar leads contactados + histórico por campanha + indicadores visuais

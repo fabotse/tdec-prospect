@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import {
   createProductSchema,
   transformProductRow,
@@ -22,17 +23,15 @@ import {
  * AC: #2, #8 - View products with campaign usage indicator
  */
 export async function GET() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+  const profile = await getCurrentUserProfile();
+  if (!profile) {
     return NextResponse.json(
       { error: { code: "UNAUTHORIZED", message: "Nao autenticado" } },
       { status: 401 }
     );
   }
+
+  const supabase = await createClient();
 
   // Query products with campaign count
   // Note: campaigns.product_id FK will be added in Story 6.5
@@ -70,31 +69,15 @@ export async function GET() {
  * AC: #4 - Save product to database
  */
 export async function POST(request: NextRequest) {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+  const profile = await getCurrentUserProfile();
+  if (!profile) {
     return NextResponse.json(
       { error: { code: "UNAUTHORIZED", message: "Nao autenticado" } },
       { status: 401 }
     );
   }
 
-  // Get tenant_id
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("tenant_id")
-    .eq("id", user.id)
-    .single();
-
-  if (!profile?.tenant_id) {
-    return NextResponse.json(
-      { error: { code: "FORBIDDEN", message: "Sem tenant associado" } },
-      { status: 403 }
-    );
-  }
+  const supabase = await createClient();
 
   // Parse and validate body
   let body: unknown;

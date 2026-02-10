@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { z } from "zod";
 import { ApolloService } from "@/lib/services/apollo";
 import { transformEnrichmentToLead } from "@/types/apollo";
@@ -39,30 +40,15 @@ interface EnrichmentResult {
  * AC: #4
  */
 export async function POST(request: NextRequest) {
-  const supabase = await createClient();
-
-  // Get authenticated user
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user) {
+  const profile = await getCurrentUserProfile();
+  if (!profile) {
     return NextResponse.json(
       { error: { code: "UNAUTHORIZED", message: "Não autenticado" } },
       { status: 401 }
     );
   }
 
-  // Get user's tenant from profile
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("tenant_id")
-    .eq("id", authData.user.id)
-    .single();
-
-  if (!profile?.tenant_id) {
-    return NextResponse.json(
-      { error: { code: "UNAUTHORIZED", message: "Tenant não encontrado" } },
-      { status: 401 }
-    );
-  }
+  const supabase = await createClient();
 
   // Parse and validate request body
   let body: unknown;

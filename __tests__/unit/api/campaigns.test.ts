@@ -11,15 +11,18 @@ import { NextRequest } from "next/server";
 import { GET, POST } from "@/app/api/campaigns/route";
 import { createChainBuilder } from "../../helpers/mock-supabase";
 
-// Mock Supabase
+// Mock getCurrentUserProfile
+const mockGetCurrentUserProfile = vi.fn();
+
+vi.mock("@/lib/supabase/tenant", () => ({
+  getCurrentUserProfile: () => mockGetCurrentUserProfile(),
+}));
+
+// Mock Supabase (still needed for DB operations)
 const mockFrom = vi.fn();
-const mockGetUser = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(() => ({
-    auth: {
-      getUser: mockGetUser,
-    },
     from: mockFrom,
   })),
 }));
@@ -56,8 +59,10 @@ describe("Campaigns API", () => {
 
   describe("GET /api/campaigns (AC: #1, #5)", () => {
     function setupGetMocks(campaigns = mockCampaigns) {
-      mockGetUser.mockResolvedValue({
-        data: { user: { id: mockUserId } },
+      mockGetCurrentUserProfile.mockResolvedValue({
+        id: mockUserId,
+        tenant_id: mockTenantId,
+        role: "user",
       });
 
       const campaignsChain = createChainBuilder({
@@ -71,7 +76,7 @@ describe("Campaigns API", () => {
     }
 
     it("should return 401 when user is not authenticated", async () => {
-      mockGetUser.mockResolvedValue({ data: { user: null } });
+      mockGetCurrentUserProfile.mockResolvedValue(null);
 
       const response = await GET();
       const body = await response.json();
@@ -151,8 +156,10 @@ describe("Campaigns API", () => {
     });
 
     it("should return 500 on database error", async () => {
-      mockGetUser.mockResolvedValue({
-        data: { user: { id: mockUserId } },
+      mockGetCurrentUserProfile.mockResolvedValue({
+        id: mockUserId,
+        tenant_id: mockTenantId,
+        role: "user",
       });
 
       const errorChain = createChainBuilder({
@@ -180,13 +187,10 @@ describe("Campaigns API", () => {
     }
 
     function setupPostMocks() {
-      mockGetUser.mockResolvedValue({
-        data: { user: { id: mockUserId } },
-      });
-
-      const profileChain = createChainBuilder({
-        data: { tenant_id: mockTenantId },
-        error: null,
+      mockGetCurrentUserProfile.mockResolvedValue({
+        id: mockUserId,
+        tenant_id: mockTenantId,
+        role: "user",
       });
 
       const insertChain = createChainBuilder({
@@ -202,16 +206,15 @@ describe("Campaigns API", () => {
       });
 
       mockFrom.mockImplementation((table: string) => {
-        if (table === "profiles") return profileChain;
         if (table === "campaigns") return insertChain;
         return createChainBuilder();
       });
 
-      return { profileChain, insertChain };
+      return { insertChain };
     }
 
     it("should return 401 when user is not authenticated", async () => {
-      mockGetUser.mockResolvedValue({ data: { user: null } });
+      mockGetCurrentUserProfile.mockResolvedValue(null);
 
       const request = createRequest({ name: "Test Campaign" });
       const response = await POST(request);
@@ -221,21 +224,16 @@ describe("Campaigns API", () => {
       expect(body.error.code).toBe("UNAUTHORIZED");
     });
 
-    it("should return 403 when user has no tenant", async () => {
-      mockGetUser.mockResolvedValue({
-        data: { user: { id: mockUserId } },
-      });
-
-      // Default createChainBuilder returns { data: null, error: null }
-      // so profile query returns null → 403
+    it("should return 401 when profile not found (no tenant)", async () => {
+      mockGetCurrentUserProfile.mockResolvedValue(null);
 
       const request = createRequest({ name: "Test Campaign" });
       const response = await POST(request);
       const body = await response.json();
 
-      expect(response.status).toBe(403);
-      expect(body.error.code).toBe("FORBIDDEN");
-      expect(body.error.message).toBe("Sem tenant associado");
+      expect(response.status).toBe(401);
+      expect(body.error.code).toBe("UNAUTHORIZED");
+      expect(body.error.message).toBe("Nao autenticado");
     });
 
     it("should create campaign with status draft", async () => {
@@ -309,13 +307,10 @@ describe("Campaigns API", () => {
     });
 
     it("should return 500 on database error", async () => {
-      mockGetUser.mockResolvedValue({
-        data: { user: { id: mockUserId } },
-      });
-
-      const profileChain = createChainBuilder({
-        data: { tenant_id: mockTenantId },
-        error: null,
+      mockGetCurrentUserProfile.mockResolvedValue({
+        id: mockUserId,
+        tenant_id: mockTenantId,
+        role: "user",
       });
 
       const insertChain = createChainBuilder({
@@ -324,7 +319,6 @@ describe("Campaigns API", () => {
       });
 
       mockFrom.mockImplementation((table: string) => {
-        if (table === "profiles") return profileChain;
         if (table === "campaigns") return insertChain;
         return createChainBuilder();
       });
@@ -339,15 +333,11 @@ describe("Campaigns API", () => {
     });
 
     it("should return 400 for invalid JSON body", async () => {
-      mockGetUser.mockResolvedValue({
-        data: { user: { id: mockUserId } },
+      mockGetCurrentUserProfile.mockResolvedValue({
+        id: mockUserId,
+        tenant_id: mockTenantId,
+        role: "user",
       });
-
-      const profileChain = createChainBuilder({
-        data: { tenant_id: mockTenantId },
-        error: null,
-      });
-      mockFrom.mockImplementation(() => profileChain);
 
       // Create request with invalid JSON
       const request = new NextRequest("http://localhost:3000/api/campaigns", {

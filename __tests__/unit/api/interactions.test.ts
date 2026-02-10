@@ -8,15 +8,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
-// Mock Supabase
-const mockSupabaseAuth = {
-  getUser: vi.fn(),
-};
+// Mock getCurrentUserProfile
+const mockGetCurrentUserProfile = vi.fn();
+
+vi.mock("@/lib/supabase/tenant", () => ({
+  getCurrentUserProfile: () => mockGetCurrentUserProfile(),
+}));
 
 // Create separate mocks for different tables to avoid chain conflicts
 const createFromMock = () => {
   let callCount = 0;
-  const profileResult = { data: null, error: null };
   const leadResult = { data: null, error: null };
   const interactionResult = { data: null, error: null };
   const interactionsListResult = { data: [], error: null };
@@ -28,8 +29,7 @@ const createFromMock = () => {
     order: vi.fn().mockReturnThis(),
     single: vi.fn(() => {
       callCount++;
-      if (callCount === 1) return Promise.resolve(profileResult);
-      if (callCount === 2) return Promise.resolve(leadResult);
+      if (callCount === 1) return Promise.resolve(leadResult);
       return Promise.resolve(interactionResult);
     }),
     // For GET requests that return arrays
@@ -38,10 +38,6 @@ const createFromMock = () => {
 
   return {
     chainMock,
-    setProfileResult: (data: unknown, error: unknown = null) => {
-      profileResult.data = data as null;
-      profileResult.error = error as null;
-    },
     setLeadResult: (data: unknown, error: unknown = null) => {
       leadResult.data = data as null;
       leadResult.error = error as null;
@@ -65,7 +61,6 @@ let fromMockHelper = createFromMock();
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(() =>
     Promise.resolve({
-      auth: mockSupabaseAuth,
       from: vi.fn(() => fromMockHelper.chainMock),
     })
   ),
@@ -108,7 +103,7 @@ describe("GET /api/leads/[leadId]/interactions", () => {
   });
 
   it("returns 401 when user is not authenticated", async () => {
-    mockSupabaseAuth.getUser.mockResolvedValue({ data: { user: null } });
+    mockGetCurrentUserProfile.mockResolvedValue(null);
 
     const request = createMockRequest("GET");
     const response = await GET(request, createMockContext());
@@ -118,25 +113,23 @@ describe("GET /api/leads/[leadId]/interactions", () => {
     expect(json.error.code).toBe("UNAUTHORIZED");
   });
 
-  it("returns 500 when profile not found", async () => {
-    mockSupabaseAuth.getUser.mockResolvedValue({
-      data: { user: { id: "user-1" } },
-    });
-    fromMockHelper.setProfileResult(null, null);
+  it("returns 401 when profile not found", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(null);
 
     const request = createMockRequest("GET");
     const response = await GET(request, createMockContext());
     const json = await response.json();
 
-    expect(response.status).toBe(500);
-    expect(json.error.code).toBe("INTERNAL_ERROR");
+    expect(response.status).toBe(401);
+    expect(json.error.code).toBe("UNAUTHORIZED");
   });
 
   it("returns 404 when lead not found", async () => {
-    mockSupabaseAuth.getUser.mockResolvedValue({
-      data: { user: { id: "user-1" } },
+    mockGetCurrentUserProfile.mockResolvedValue({
+      id: "user-1",
+      tenant_id: "tenant-1",
+      role: "user",
     });
-    fromMockHelper.setProfileResult({ tenant_id: "tenant-1" });
     fromMockHelper.setLeadResult(null, { code: "PGRST116" });
 
     const request = createMockRequest("GET");
@@ -155,7 +148,7 @@ describe("POST /api/leads/[leadId]/interactions", () => {
   });
 
   it("returns 401 when user is not authenticated", async () => {
-    mockSupabaseAuth.getUser.mockResolvedValue({ data: { user: null } });
+    mockGetCurrentUserProfile.mockResolvedValue(null);
 
     const request = createMockRequest("POST", { content: "Test note" });
     const response = await POST(request, createMockContext());
@@ -166,10 +159,11 @@ describe("POST /api/leads/[leadId]/interactions", () => {
   });
 
   it("returns 400 when body is not valid JSON", async () => {
-    mockSupabaseAuth.getUser.mockResolvedValue({
-      data: { user: { id: "user-1" } },
+    mockGetCurrentUserProfile.mockResolvedValue({
+      id: "user-1",
+      tenant_id: "tenant-1",
+      role: "user",
     });
-    fromMockHelper.setProfileResult({ tenant_id: "tenant-1" });
     fromMockHelper.setLeadResult({ id: "lead-123" });
 
     // Create request with invalid JSON
@@ -188,10 +182,11 @@ describe("POST /api/leads/[leadId]/interactions", () => {
   });
 
   it("returns 400 when content is empty", async () => {
-    mockSupabaseAuth.getUser.mockResolvedValue({
-      data: { user: { id: "user-1" } },
+    mockGetCurrentUserProfile.mockResolvedValue({
+      id: "user-1",
+      tenant_id: "tenant-1",
+      role: "user",
     });
-    fromMockHelper.setProfileResult({ tenant_id: "tenant-1" });
     fromMockHelper.setLeadResult({ id: "lead-123" });
 
     const request = createMockRequest("POST", { content: "" });
@@ -203,10 +198,11 @@ describe("POST /api/leads/[leadId]/interactions", () => {
   });
 
   it("returns 404 when lead not found", async () => {
-    mockSupabaseAuth.getUser.mockResolvedValue({
-      data: { user: { id: "user-1" } },
+    mockGetCurrentUserProfile.mockResolvedValue({
+      id: "user-1",
+      tenant_id: "tenant-1",
+      role: "user",
     });
-    fromMockHelper.setProfileResult({ tenant_id: "tenant-1" });
     fromMockHelper.setLeadResult(null, { code: "PGRST116" });
 
     const request = createMockRequest("POST", { content: "Test note" });
@@ -218,10 +214,11 @@ describe("POST /api/leads/[leadId]/interactions", () => {
   });
 
   it("returns 201 when interaction is created successfully", async () => {
-    mockSupabaseAuth.getUser.mockResolvedValue({
-      data: { user: { id: "user-1" } },
+    mockGetCurrentUserProfile.mockResolvedValue({
+      id: "user-1",
+      tenant_id: "tenant-1",
+      role: "user",
     });
-    fromMockHelper.setProfileResult({ tenant_id: "tenant-1" });
     fromMockHelper.setLeadResult({ id: "lead-123" });
     fromMockHelper.setInteractionResult({
       id: "int-new",

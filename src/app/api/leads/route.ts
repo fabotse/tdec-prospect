@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import type { LeadRow } from "@/types/lead";
 import { transformLeadRow } from "@/types/lead";
 
@@ -26,29 +27,15 @@ import { transformLeadRow } from "@/types/lead";
  * - per_page: items per page (default 25, max 100)
  */
 export async function GET(request: NextRequest) {
-  const supabase = await createClient();
-
-  const { data: user } = await supabase.auth.getUser();
-  if (!user.user) {
+  const profile = await getCurrentUserProfile();
+  if (!profile) {
     return NextResponse.json(
       { error: { code: "UNAUTHORIZED", message: "Não autenticado" } },
       { status: 401 }
     );
   }
 
-  // Get tenant_id from user's profile
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("tenant_id")
-    .eq("id", user.user.id)
-    .single();
-
-  if (!profile?.tenant_id) {
-    return NextResponse.json(
-      { error: { code: "INTERNAL_ERROR", message: "Perfil não encontrado" } },
-      { status: 500 }
-    );
-  }
+  const supabase = await createClient();
 
   const searchParams = request.nextUrl.searchParams;
   const statusParam = searchParams.get("status");

@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { z } from "zod";
 
 /**
@@ -46,35 +47,15 @@ const importLeadsSchema = z.object({
  * 4. Return all leads (existing + new) with their DB IDs
  */
 export async function POST(request: NextRequest) {
-  const supabase = await createClient();
-
-  const { data: user } = await supabase.auth.getUser();
-  if (!user.user) {
+  const profile = await getCurrentUserProfile();
+  if (!profile) {
     return NextResponse.json(
       { error: { code: "UNAUTHORIZED", message: "Não autenticado" } },
       { status: 401 }
     );
   }
 
-  // Get tenant_id from user's profile
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("tenant_id")
-    .eq("id", user.user.id)
-    .single();
-
-  if (profileError || !profile?.tenant_id) {
-    console.error("[POST /api/leads/import] Profile error:", profileError);
-    return NextResponse.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: "Erro ao obter perfil do usuário",
-        },
-      },
-      { status: 500 }
-    );
-  }
+  const supabase = await createClient();
 
   const body = await request.json();
   const validation = importLeadsSchema.safeParse(body);

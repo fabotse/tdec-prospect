@@ -17,6 +17,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import {
   importCampaignResultsSchema,
   responseToStatus,
@@ -52,31 +53,15 @@ interface ProcessedLead {
  * 6. Return summary with matched, updated, unmatched, errors
  */
 export async function POST(request: NextRequest) {
-  const supabase = await createClient();
-
-  // Auth check
-  const { data: userData } = await supabase.auth.getUser();
-  if (!userData.user) {
+  const profile = await getCurrentUserProfile();
+  if (!profile) {
     return NextResponse.json(
       { error: { code: "UNAUTHORIZED", message: "Nao autenticado" } },
       { status: 401 }
     );
   }
 
-  // Get tenant_id from user's profile
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("tenant_id")
-    .eq("id", userData.user.id)
-    .single();
-
-  if (profileError || !profile?.tenant_id) {
-    console.error("[POST /api/leads/import-results] Profile error:", profileError);
-    return NextResponse.json(
-      { error: { code: "INTERNAL_ERROR", message: "Perfil nao encontrado" } },
-      { status: 500 }
-    );
-  }
+  const supabase = await createClient();
 
   // Parse and validate request body
   let body;
@@ -175,7 +160,7 @@ export async function POST(request: NextRequest) {
       tenant_id: profile.tenant_id,
       type: "campaign_reply",
       content: `Resposta de campanha: ${result.responseType}`,
-      created_by: userData.user.id,
+      created_by: profile.id,
     });
 
     // Group by status for batch update
@@ -273,7 +258,7 @@ export async function POST(request: NextRequest) {
           tenant_id: profile.tenant_id,
           type: "import",
           content: `Lead criado via importacao de campanha: ${result?.responseType || "unknown"}`,
-          created_by: userData.user.id,
+          created_by: profile.id,
         };
       });
 

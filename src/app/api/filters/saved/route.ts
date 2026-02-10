@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { z } from "zod";
 
 // Zod schema for filter values (must match FilterValues)
@@ -32,15 +33,15 @@ const createSavedFilterSchema = z.object({
  * AC: #2 - List saved filters ordered by created_at
  */
 export async function GET() {
-  const supabase = await createClient();
-
-  const { data: user } = await supabase.auth.getUser();
-  if (!user.user) {
+  const profile = await getCurrentUserProfile();
+  if (!profile) {
     return NextResponse.json(
       { error: { code: "UNAUTHORIZED", message: "Não autenticado" } },
       { status: 401 }
     );
   }
+
+  const supabase = await createClient();
 
   const { data, error } = await supabase
     .from("saved_filters")
@@ -76,29 +77,15 @@ export async function GET() {
  * AC: #5 - Validate name is required
  */
 export async function POST(request: NextRequest) {
-  const supabase = await createClient();
-
-  const { data: user } = await supabase.auth.getUser();
-  if (!user.user) {
+  const profile = await getCurrentUserProfile();
+  if (!profile) {
     return NextResponse.json(
       { error: { code: "UNAUTHORIZED", message: "Não autenticado" } },
       { status: 401 }
     );
   }
 
-  // Get user's tenant_id
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("tenant_id")
-    .eq("id", user.user.id)
-    .single();
-
-  if (!profile) {
-    return NextResponse.json(
-      { error: { code: "NOT_FOUND", message: "Perfil não encontrado" } },
-      { status: 404 }
-    );
-  }
+  const supabase = await createClient();
 
   // Parse and validate body
   const body = await request.json();
@@ -122,7 +109,7 @@ export async function POST(request: NextRequest) {
     .from("saved_filters")
     .insert({
       tenant_id: profile.tenant_id,
-      user_id: user.user.id,
+      user_id: profile.id,
       name,
       filters_json: filtersJson,
     })

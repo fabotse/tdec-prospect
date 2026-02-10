@@ -10,15 +10,18 @@ import { NextRequest } from "next/server";
 import { GET } from "@/app/api/leads/route";
 import { createChainBuilder } from "../../helpers/mock-supabase";
 
-// Mock Supabase
+// Mock getCurrentUserProfile
+const mockGetCurrentUserProfile = vi.fn();
+
+vi.mock("@/lib/supabase/tenant", () => ({
+  getCurrentUserProfile: () => mockGetCurrentUserProfile(),
+}));
+
+// Mock Supabase (still needed for DB operations)
 const mockFrom = vi.fn();
-const mockGetUser = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(() => ({
-    auth: {
-      getUser: mockGetUser,
-    },
     from: mockFrom,
   })),
 }));
@@ -81,19 +84,11 @@ describe("GET /api/leads", () => {
     count = mockLeads.length,
     segmentLeads: { lead_id: string }[] | null = null
   ) {
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: mockUserId } },
+    mockGetCurrentUserProfile.mockResolvedValue({
+      id: mockUserId,
+      tenant_id: mockTenantId,
+      role: "user",
     });
-
-    // Profile query chain
-    const profileChain = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({
-        data: { tenant_id: mockTenantId },
-        error: null,
-      }),
-    };
 
     // Leads query chain
     const leadsChain = {
@@ -119,12 +114,11 @@ describe("GET /api/leads", () => {
     };
 
     mockFrom.mockImplementation((table: string) => {
-      if (table === "profiles") return profileChain;
       if (table === "lead_segments") return segmentsChain;
       return leadsChain;
     });
 
-    return { profileChain, leadsChain, segmentsChain };
+    return { leadsChain, segmentsChain };
   }
 
   beforeEach(() => {
@@ -134,7 +128,7 @@ describe("GET /api/leads", () => {
 
   describe("Authentication", () => {
     it("should return 401 when user is not authenticated", async () => {
-      mockGetUser.mockResolvedValue({ data: { user: null } });
+      mockGetCurrentUserProfile.mockResolvedValue(null);
 
       const request = createRequest();
       const response = await GET(request);
@@ -145,27 +139,16 @@ describe("GET /api/leads", () => {
       expect(body.error.message).toBe("Não autenticado");
     });
 
-    it("should return 500 when profile not found", async () => {
-      mockGetUser.mockResolvedValue({
-        data: { user: { id: mockUserId } },
-      });
-
-      mockFrom.mockImplementation(() => ({
-        select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({
-          data: null,
-          error: null,
-        }),
-      }));
+    it("should return 401 when profile not found", async () => {
+      mockGetCurrentUserProfile.mockResolvedValue(null);
 
       const request = createRequest();
       const response = await GET(request);
       const body = await response.json();
 
-      expect(response.status).toBe(500);
-      expect(body.error.code).toBe("INTERNAL_ERROR");
-      expect(body.error.message).toBe("Perfil não encontrado");
+      expect(response.status).toBe(401);
+      expect(body.error.code).toBe("UNAUTHORIZED");
+      expect(body.error.message).toBe("Não autenticado");
     });
   });
 
@@ -323,18 +306,11 @@ describe("GET /api/leads", () => {
 
   describe("Error Handling", () => {
     it("should return 500 on database error", async () => {
-      mockGetUser.mockResolvedValue({
-        data: { user: { id: mockUserId } },
+      mockGetCurrentUserProfile.mockResolvedValue({
+        id: mockUserId,
+        tenant_id: mockTenantId,
+        role: "user",
       });
-
-      const profileChain = {
-        select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({
-          data: { tenant_id: mockTenantId },
-          error: null,
-        }),
-      };
 
       const leadsChain = {
         select: vi.fn().mockReturnThis(),
@@ -349,10 +325,7 @@ describe("GET /api/leads", () => {
         }),
       };
 
-      mockFrom.mockImplementation((table: string) => {
-        if (table === "profiles") return profileChain;
-        return leadsChain;
-      });
+      mockFrom.mockImplementation(() => leadsChain);
 
       const request = createRequest();
       const response = await GET(request);
