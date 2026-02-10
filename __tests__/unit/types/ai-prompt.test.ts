@@ -29,6 +29,7 @@ describe("AI Prompt Types (Story 6.5.3)", () => {
         "follow_up_email_generation",
         "follow_up_subject_generation",
         "campaign_structure_generation",
+        "whatsapp_message_generation",
       ];
 
       expectedKeys.forEach((key) => {
@@ -36,11 +37,12 @@ describe("AI Prompt Types (Story 6.5.3)", () => {
       });
     });
 
-    it("has correct length after adding icebreaker_premium_generation", () => {
-      // 9 total keys: search_translation, email_subject_generation, email_body_generation,
+    it("has correct length after adding whatsapp_message_generation", () => {
+      // 10 total keys: search_translation, email_subject_generation, email_body_generation,
       // icebreaker_generation, icebreaker_premium_generation, tone_application,
-      // follow_up_email_generation, follow_up_subject_generation, campaign_structure_generation
-      expect(PROMPT_KEYS.length).toBe(9);
+      // follow_up_email_generation, follow_up_subject_generation, campaign_structure_generation,
+      // whatsapp_message_generation
+      expect(PROMPT_KEYS.length).toBe(10);
     });
   });
 
@@ -94,8 +96,9 @@ describe("AI Prompt Types (Story 6.5.3)", () => {
         "follow_up_email_generation",
         "follow_up_subject_generation",
         "campaign_structure_generation",
+        "whatsapp_message_generation",
       ];
-      expect(keys.length).toBe(9);
+      expect(keys.length).toBe(10);
     });
   });
 });

@@ -823,4 +823,61 @@ Responda APENAS com o JSON.`,
       maxTokens: 1500,
     },
   },
+
+  // WhatsApp message generation (Story 11.3)
+  whatsapp_message_generation: {
+    template: `Você é um especialista em comunicação WhatsApp B2B no Brasil.
+
+Gere uma mensagem WhatsApp curta, conversacional e persuasiva para prospecção comercial.
+
+CONTEXTO DA EMPRESA REMETENTE:
+{{company_context}}
+Diferenciais: {{competitive_advantages}}
+
+{{#if product_name}}
+PRODUTO EM FOCO:
+- Nome: {{product_name}}
+- Descrição: {{product_description}}
+- Características: {{product_features}}
+- Diferenciais: {{product_differentials}}
+- Público-alvo: {{product_target_audience}}
+
+A mensagem DEVE mencionar o produto "{{product_name}}" de forma natural e conversacional.
+{{else}}
+Produtos/Serviços: {{products_services}}
+{{/if}}
+
+PERFIL DO LEAD:
+- Nome: {{lead_name}}
+- Cargo: {{lead_title}}
+- Empresa: {{lead_company}}
+- Setor: {{lead_industry}}
+
+ICP (Perfil de Cliente Ideal):
+{{icp_summary}}
+
+TOM DE VOZ:
+{{tone_description}}
+Estilo: {{tone_style}}
+Diretrizes: {{writing_guidelines}}
+
+REGRAS PARA WHATSAPP:
+1. Máximo 3-4 parágrafos curtos (WhatsApp não é email)
+2. Tom conversacional — como uma mensagem real entre profissionais
+3. Comece com saudação breve: "Olá {{lead_name}}" ou "Oi {{lead_name}}"
+4. Vá direto ao ponto — sem rodeios corporativos
+5. Termine com pergunta aberta que convida resposta
+6. NÃO use formatação de email (sem "Prezado", sem assinatura formal)
+7. NÃO use emojis excessivos (máximo 1-2 se o tom permitir)
+8. Use linguagem natural brasileira (não robotizada)
+9. Mencione algo específico sobre a empresa ou setor do lead
+10. Mantenha entre 200-400 caracteres (ideal para WhatsApp)
+
+Responda APENAS com a mensagem WhatsApp, sem explicações ou formatação extra.`,
+    modelPreference: "gpt-4o-mini",
+    metadata: {
+      temperature: 0.7,
+      maxTokens: 300,
+    },
+  },
 };

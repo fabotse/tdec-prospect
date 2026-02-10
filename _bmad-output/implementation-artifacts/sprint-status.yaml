@@ -276,7 +276,7 @@ development_status:
   epic-11: in-progress
   11-1-zapi-integration-service-config: done  # ZApiService + IntegrationCard multi-field (3 credenciais) + API key storage
   11-2-schema-whatsapp-messages-tipos: done  # Code review: 1 HIGH, 3 MEDIUM, 1 LOW fixes (Insert type bug, no-op test, code org, redundant index, comment tests). 53 testes, 4150 total
-  11-3-composer-mensagem-whatsapp: backlog  # UI: editor de texto + geração IA baseada no produto da campanha
+  11-3-composer-mensagem-whatsapp: done  # Code review: 3 HIGH, 2 MEDIUM fixes (AC#5 text preservation, test rewrite, array sync, abort-on-close, type drift). 60 tests, 233 files, 4210 total
   11-4-envio-individual-whatsapp: backlog  # Envio via Z-API + tracking de status + integração no OpportunityPanel
   11-5-busca-telefone-fluxo-leads-quentes: backlog  # Integrar SignalHire lookup no OpportunityPanel + input manual
   11-6-envio-em-massa-com-intervalos: backlog  # Seleção de leads + config intervalo + fila humanizada

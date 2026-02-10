@@ -14,6 +14,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
+import type { PromptKey } from "@/types/ai-prompt";
 
 // ==============================================
 // TYPES
@@ -32,14 +33,9 @@ export type GenerationPhase =
 
 /**
  * Prompt keys available for generation
+ * Derived from canonical PromptKey to prevent type drift
  */
-export type AIPromptKey =
-  | "email_subject_generation"
-  | "email_body_generation"
-  | "icebreaker_generation"
-  | "tone_application"
-  | "follow_up_email_generation"
-  | "follow_up_subject_generation";
+export type AIPromptKey = PromptKey;
 
 /**
  * Parameters for text generation

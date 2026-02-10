@@ -74,7 +74,8 @@ export type PromptKey =
   | "tone_application"
   | "follow_up_email_generation"
   | "follow_up_subject_generation"
-  | "campaign_structure_generation";
+  | "campaign_structure_generation"
+  | "whatsapp_message_generation";
 
 /**
  * All prompt keys as array (for validation)
@@ -89,6 +90,7 @@ export const PROMPT_KEYS: PromptKey[] = [
   "follow_up_email_generation",
   "follow_up_subject_generation",
   "campaign_structure_generation",
+  "whatsapp_message_generation",
 ];
 
 // ==============================================
@@ -178,6 +180,7 @@ export const promptKeySchema = z.enum([
   "follow_up_email_generation",
   "follow_up_subject_generation",
   "campaign_structure_generation",
+  "whatsapp_message_generation",
 ]);
 
 // ==============================================
