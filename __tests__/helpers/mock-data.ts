@@ -9,7 +9,13 @@ import type { CampaignTemplate } from "@/types/campaign-template";
 import type { SegmentWithCount } from "@/types/segment";
 import type { FilterValues } from "@/stores/use-filter-store";
 import type { Product } from "@/types/product";
-import type { CampaignEventRow } from "@/types/tracking";
+import type {
+  CampaignEventRow,
+  CampaignAnalytics,
+  LeadTracking,
+  InstantlyAnalyticsResponse,
+  InstantlyLeadEntry,
+} from "@/types/tracking";
 import type { InstantlyWebhookPayload } from "@/lib/webhook/instantly-webhook-utils";
 
 // ==============================================
@@ -258,6 +264,103 @@ export function createMockCampaignEvent(
     source: "webhook",
     processed_at: "2026-02-09T15:30:01.000Z",
     created_at: "2026-02-09T15:30:01.000Z",
+    ...overrides,
+  };
+}
+
+// ==============================================
+// TRACKING ANALYTICS MOCKS (Story 10.3)
+// ==============================================
+
+/**
+ * Creates a CampaignAnalytics mock with realistic data
+ * Task 8.1
+ */
+export function createMockCampaignAnalytics(
+  overrides: Partial<CampaignAnalytics> = {}
+): CampaignAnalytics {
+  return {
+    campaignId: "campaign-1",
+    totalSent: 500,
+    totalOpens: 120,
+    totalClicks: 35,
+    totalReplies: 20,
+    totalBounces: 8,
+    openRate: 0.24,
+    clickRate: 0.07,
+    replyRate: 0.04,
+    bounceRate: 0.016,
+    lastSyncAt: "2026-02-10T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/**
+ * Creates a LeadTracking mock
+ * Task 8.2
+ */
+export function createMockLeadTracking(
+  overrides: Partial<LeadTracking> = {}
+): LeadTracking {
+  return {
+    leadEmail: "joao@empresa.com",
+    campaignId: "campaign-1",
+    openCount: 5,
+    clickCount: 2,
+    hasReplied: false,
+    lastOpenAt: "2026-02-08T14:30:00.000Z",
+    events: [],
+    ...overrides,
+  };
+}
+
+/**
+ * Creates an Instantly analytics API response mock
+ * Task 8.3
+ */
+export function createMockInstantlyAnalyticsResponse(
+  overrides: Partial<InstantlyAnalyticsResponse> = {}
+): InstantlyAnalyticsResponse {
+  return {
+    campaign_id: "instantly-uuid-123",
+    campaign_name: "Q1 Prospecção B2B",
+    campaign_status: 1,
+    leads_count: 500,
+    contacted_count: 450,
+    emails_sent_count: 1200,
+    open_count: 250,
+    open_count_unique: 180,
+    reply_count: 30,
+    reply_count_unique: 25,
+    link_click_count: 60,
+    link_click_count_unique: 45,
+    bounced_count: 8,
+    unsubscribed_count: 3,
+    ...overrides,
+  };
+}
+
+/**
+ * Creates an Instantly lead entry mock
+ * Task 8.4
+ */
+export function createMockInstantlyLeadEntry(
+  overrides: Partial<InstantlyLeadEntry> = {}
+): InstantlyLeadEntry {
+  return {
+    id: "instantly-lead-1",
+    email: "joao@empresa.com",
+    first_name: "João",
+    last_name: "Silva",
+    company_name: "Empresa LTDA",
+    phone: "+5511999999999",
+    email_open_count: 5,
+    email_click_count: 2,
+    email_reply_count: 0,
+    timestamp_last_open: "2026-02-08T14:30:00.000Z",
+    timestamp_last_click: "2026-02-07T10:00:00.000Z",
+    timestamp_last_reply: null,
+    status: 1,
     ...overrides,
   };
 }

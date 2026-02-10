@@ -256,7 +256,7 @@ development_status:
   epic-10: in-progress
   10-1-schema-de-tracking-e-tipos: done  # Code review 2026-02-09: 5 MEDIUM, 1 LOW fixes (isValidEventType guard, Row type alignment, NOT NULL constraints, re-export test, Task 6.4 status). 22 tests passing
   10-2-webhook-receiver-supabase-edge-function: review
-  10-3-instantly-analytics-service-polling: backlog
+  10-3-instantly-analytics-service-polling: done  # Code review 2026-02-10: 1 HIGH, 3 MEDIUM fixes (test 6.8 timeout/retry rewritten, campaignId JSDoc semantics, UUID validation in 3 API routes). 51 tests passing
   10-4-campaign-analytics-dashboard-ui: backlog
   10-5-lead-tracking-detail: backlog
   10-6-janela-de-oportunidade-engine-config: backlog

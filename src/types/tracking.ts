@@ -178,6 +178,91 @@ export interface InstantlyWebhookEvent {
 export interface SyncResult {
   campaignId: string;
   analytics: CampaignAnalytics;
+  dailyAnalytics: DailyAnalyticsEntry[];
   lastSyncAt: string;
   source: "polling";
+}
+
+// ==============================================
+// TRACKING SERVICE — Request Params (Story 10.3)
+// ==============================================
+
+export interface GetAnalyticsParams {
+  apiKey: string;
+  externalCampaignId: string;
+}
+
+export interface GetDailyAnalyticsParams {
+  apiKey: string;
+  externalCampaignId: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface SyncAnalyticsParams {
+  apiKey: string;
+  externalCampaignId: string;
+}
+
+export interface GetLeadTrackingParams {
+  apiKey: string;
+  externalCampaignId: string;
+}
+
+// ==============================================
+// INSTANTLY API — Response Shapes (Story 10.3)
+// ==============================================
+
+export interface InstantlyAnalyticsResponse {
+  campaign_id: string;
+  campaign_name: string;
+  campaign_status: number;
+  leads_count: number;
+  contacted_count: number;
+  emails_sent_count: number;
+  open_count: number;
+  open_count_unique: number;
+  reply_count: number;
+  reply_count_unique: number;
+  link_click_count: number;
+  link_click_count_unique: number;
+  bounced_count: number;
+  unsubscribed_count: number;
+}
+
+export interface DailyAnalyticsEntry {
+  date: string;
+  sent: number;
+  contacted: number;
+  opened: number;
+  unique_opened: number;
+  replies: number;
+  unique_replies: number;
+  clicks: number;
+  unique_clicks: number;
+}
+
+export interface InstantlyDailyAnalyticsResponse {
+  data: DailyAnalyticsEntry[];
+}
+
+export interface InstantlyLeadEntry {
+  id: string;
+  email: string;
+  first_name?: string;
+  last_name?: string;
+  company_name?: string;
+  phone?: string;
+  email_open_count: number;
+  email_click_count: number;
+  email_reply_count: number;
+  timestamp_last_open: string | null;
+  timestamp_last_click: string | null;
+  timestamp_last_reply: string | null;
+  status: number;
+}
+
+export interface InstantlyLeadListResponse {
+  items: InstantlyLeadEntry[];
+  next_starting_after?: string;
 }

@@ -333,6 +333,7 @@ describe("Type structure validation", () => {
         bounceRate: 0.02,
         lastSyncAt: "2026-02-09T10:00:00Z",
       },
+      dailyAnalytics: [],
       lastSyncAt: "2026-02-09T10:00:00Z",
       source: "polling",
     };
