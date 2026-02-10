@@ -231,6 +231,129 @@ describe("ZApiService", () => {
     });
   });
 
+  describe("sendText", () => {
+    it("sends text message and returns zaapId + messageId on success", async () => {
+      const sendResponse = { zaapId: "ZAAP-123", messageId: "MSG-456" };
+      createMockFetch([
+        {
+          url: /z-api\.io.*\/send-text/,
+          method: "POST",
+          response: mockJsonResponse(sendResponse),
+        },
+      ]);
+
+      const result = await service.sendText(VALID_CREDENTIALS, "5511999999999", "Olá!");
+
+      expect(result).toEqual(sendResponse);
+    });
+
+    it("sends POST with correct URL and headers", async () => {
+      const fetchResult = createMockFetch([
+        {
+          url: /z-api\.io.*\/send-text/,
+          method: "POST",
+          response: mockJsonResponse({ zaapId: "Z1", messageId: "M1" }),
+        },
+      ]);
+
+      await service.sendText(VALID_CREDENTIALS, "5511999999999", "Teste");
+
+      const calls = fetchResult.calls();
+      expect(calls).toHaveLength(1);
+      expect(calls[0].url).toBe(
+        "https://api.z-api.io/instances/inst-123/token/tok-456/send-text"
+      );
+      expect(calls[0].method).toBe("POST");
+      expect(calls[0].headers?.["Client-Token"]).toBe("sec-789");
+      expect(calls[0].headers?.["Content-Type"]).toBe("application/json");
+    });
+
+    it("sends phone, message, and delayTyping in body", async () => {
+      const fetchResult = createMockFetch([
+        {
+          url: /z-api\.io.*\/send-text/,
+          method: "POST",
+          response: mockJsonResponse({ zaapId: "Z1", messageId: "M1" }),
+        },
+      ]);
+
+      await service.sendText(VALID_CREDENTIALS, "5511888888888", "Mensagem de teste");
+
+      const calls = fetchResult.calls();
+      expect(calls[0].body).toEqual({
+        phone: "5511888888888",
+        message: "Mensagem de teste",
+        delayTyping: 3,
+      });
+    });
+
+    it("throws ExternalServiceError on invalid credentials", async () => {
+      await expect(
+        service.sendText("bad-json", "5511999999999", "Olá")
+      ).rejects.toThrow(ExternalServiceError);
+    });
+
+    it("throws ExternalServiceError on 4xx error", async () => {
+      createMockFetch([
+        {
+          url: /z-api\.io.*\/send-text/,
+          method: "POST",
+          response: mockErrorResponse(405, "Method Not Allowed"),
+        },
+      ]);
+
+      await expect(
+        service.sendText(VALID_CREDENTIALS, "5511999999999", "Olá")
+      ).rejects.toThrow(ExternalServiceError);
+    });
+
+    it("throws ExternalServiceError on 5xx error", async () => {
+      createMockFetch([
+        {
+          url: /z-api\.io.*\/send-text/,
+          method: "POST",
+          response: mockErrorResponse(500, "Internal Server Error"),
+        },
+      ]);
+
+      await expect(
+        service.sendText(VALID_CREDENTIALS, "5511999999999", "Olá")
+      ).rejects.toThrow(ExternalServiceError);
+    });
+
+    it("throws ExternalServiceError on network error", async () => {
+      createMockFetch([
+        {
+          url: /z-api\.io.*\/send-text/,
+          method: "POST",
+          response: mockNetworkError("Failed to fetch"),
+        },
+      ]);
+
+      await expect(
+        service.sendText(VALID_CREDENTIALS, "5511999999999", "Olá")
+      ).rejects.toThrow(ExternalServiceError);
+    });
+
+    it("throws ExternalServiceError with Portuguese message on 415", async () => {
+      createMockFetch([
+        {
+          url: /z-api\.io.*\/send-text/,
+          method: "POST",
+          response: mockErrorResponse(415, "Unsupported Media Type"),
+        },
+      ]);
+
+      try {
+        await service.sendText(VALID_CREDENTIALS, "5511999999999", "Olá");
+        expect.fail("Should have thrown");
+      } catch (error) {
+        expect(error).toBeInstanceOf(ExternalServiceError);
+        expect((error as ExternalServiceError).statusCode).toBe(415);
+      }
+    });
+  });
+
   describe("parseZApiCredentials", () => {
     it("parses valid JSON credentials", () => {
       const credentials = parseZApiCredentials(VALID_CREDENTIALS);

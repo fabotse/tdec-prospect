@@ -34,8 +34,10 @@ vi.mock("@/hooks/use-campaign-analytics", () => ({
   useSyncAnalytics: (...args: unknown[]) => mockUseSyncAnalytics(...args),
 }));
 
+const mockUseSentLeadEmails = vi.fn();
 vi.mock("@/hooks/use-lead-tracking", () => ({
   useLeadTracking: (...args: unknown[]) => mockUseLeadTracking(...args),
+  useSentLeadEmails: (...args: unknown[]) => mockUseSentLeadEmails(...args),
 }));
 
 const mockUseOpportunityLeads = vi.fn();
@@ -104,6 +106,11 @@ describe("CampaignAnalyticsPage (AC: #1, #2, #4, #5)", () => {
     });
 
     mockUseOpportunityLeads.mockReturnValue([]);
+
+    mockUseSentLeadEmails.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+    });
 
     // Clear localStorage for toast tests
     localStorage.clear();

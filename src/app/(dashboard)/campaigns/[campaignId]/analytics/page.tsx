@@ -20,7 +20,7 @@ import { ArrowLeft, BarChart3, Flame } from "lucide-react";
 import { toast } from "sonner";
 import { useCampaign } from "@/hooks/use-campaigns";
 import { useCampaignAnalytics, useSyncAnalytics } from "@/hooks/use-campaign-analytics";
-import { useLeadTracking } from "@/hooks/use-lead-tracking";
+import { useLeadTracking, useSentLeadEmails } from "@/hooks/use-lead-tracking";
 import { useOpportunityConfig, useSaveOpportunityConfig, useOpportunityLeads } from "@/hooks/use-opportunity-window";
 import { DEFAULT_MIN_OPENS } from "@/lib/services/opportunity-engine";
 import { AnalyticsDashboard } from "@/components/tracking/AnalyticsDashboard";
@@ -70,6 +70,7 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
   const { data: opportunityConfig } = useOpportunityConfig(campaignId, { enabled: hasExternalId });
   const { mutate: saveConfig, isPending: isSavingConfig } = useSaveOpportunityConfig(campaignId);
 
+  const { data: sentLeadEmails } = useSentLeadEmails(campaignId, { enabled: hasExternalId });
   const opportunityLeads = useOpportunityLeads(leads, opportunityConfig);
   const opportunityPanelRef = useRef<HTMLDivElement>(null);
 
@@ -185,6 +186,10 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
             ref={opportunityPanelRef}
             leads={opportunityLeads}
             isLoading={isLoadingLeads}
+            campaignId={campaignId}
+            campaignName={campaign?.name}
+            productId={campaign?.productId ?? null}
+            sentLeadEmails={sentLeadEmails}
           />
           <LeadTrackingTable
             leads={leads ?? []}

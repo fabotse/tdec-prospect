@@ -84,13 +84,57 @@ export async function GET(_request: Request, { params }: RouteParams) {
       externalCampaignId: campaign.external_campaign_id,
     });
 
-    // Map campaignId to local ID
+    // Enrich tracking leads with phone from local leads table (Story 11.4)
+    // Instantly API doesn't return phone — fetch from DB by email match
+    const emails = leads.map((l) => l.leadEmail).filter(Boolean);
+    const phoneMap = new Map<string, string>();
+    const emailByLeadId = new Map<string, string>();
+
+    if (emails.length > 0) {
+      const { data: dbLeads } = await supabase
+        .from("leads")
+        .select("id, email, phone")
+        .in("email", emails)
+        .eq("tenant_id", profile.tenant_id);
+
+      if (dbLeads) {
+        for (const row of dbLeads) {
+          if (row.email && row.phone) {
+            phoneMap.set(row.email, row.phone);
+          }
+          if (row.id && row.email) {
+            emailByLeadId.set(row.id, row.email);
+          }
+        }
+      }
+    }
+
+    // Fetch sent WhatsApp emails for this campaign (Story 11.4 AC#7)
+    const sentLeadEmails: string[] = [];
+    if (emailByLeadId.size > 0) {
+      const { data: sentMessages } = await supabase
+        .from("whatsapp_messages")
+        .select("lead_id")
+        .eq("campaign_id", campaignId)
+        .eq("tenant_id", profile.tenant_id)
+        .eq("status", "sent");
+
+      if (sentMessages) {
+        for (const msg of sentMessages) {
+          const email = emailByLeadId.get(msg.lead_id);
+          if (email) sentLeadEmails.push(email);
+        }
+      }
+    }
+
+    // Map campaignId to local ID + merge phone from DB
     const mappedLeads = leads.map((lead) => ({
       ...lead,
       campaignId,
+      phone: lead.phone || phoneMap.get(lead.leadEmail) || undefined,
     }));
 
-    return NextResponse.json({ data: mappedLeads });
+    return NextResponse.json({ data: mappedLeads, sentLeadEmails });
   } catch (error) {
     if (error instanceof ExternalServiceError) {
       return NextResponse.json(

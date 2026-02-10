@@ -31,6 +31,15 @@ export interface ZApiCredentials {
   securityToken: string;
 }
 
+/**
+ * Result from Z-API send-text endpoint
+ * Story 11.4 AC#1
+ */
+export interface ZApiSendResult {
+  zaapId: string;
+  messageId: string;
+}
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -92,6 +101,24 @@ export function buildZApiHeaders(
 
 export class ZApiService extends ExternalService {
   readonly name = "zapi";
+
+  /**
+   * Send a text message via Z-API
+   * Story 11.4 AC#1 — POST /send-text with phone + message
+   * Uses delayTyping: 3 for natural typing simulation
+   *
+   * @throws ExternalServiceError on failure (Portuguese messages via base class)
+   */
+  async sendText(apiKey: string, phone: string, message: string): Promise<ZApiSendResult> {
+    const { instanceId, instanceToken, securityToken } = parseZApiCredentials(apiKey);
+    const url = buildZApiUrl(instanceId, instanceToken, "/send-text");
+
+    return this.request<ZApiSendResult>(url, {
+      method: "POST",
+      headers: buildZApiHeaders(securityToken),
+      body: JSON.stringify({ phone, message, delayTyping: 3 }),
+    });
+  }
 
   /**
    * Test connection to Z-API

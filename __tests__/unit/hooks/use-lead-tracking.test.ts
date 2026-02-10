@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
-import { useLeadTracking } from "@/hooks/use-lead-tracking";
+import { useLeadTracking, useSentLeadEmails } from "@/hooks/use-lead-tracking";
 import { createMockLeadTracking } from "../../helpers/mock-data";
 
 global.fetch = vi.fn();
@@ -41,7 +41,7 @@ describe("useLeadTracking (AC: #3, #6)", () => {
 
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ data: mockLeads }),
+      json: async () => ({ data: mockLeads, sentLeadEmails: [] }),
     } as Response);
 
     const { result } = renderHook(() => useLeadTracking(campaignId), {
@@ -85,6 +85,21 @@ describe("useLeadTracking (AC: #3, #6)", () => {
   it("returns empty array when no leads", async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
+      json: async () => ({ data: [], sentLeadEmails: [] }),
+    } as Response);
+
+    const { result } = renderHook(() => useLeadTracking(campaignId), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data).toEqual([]);
+  });
+
+  it("handles response without sentLeadEmails gracefully", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
       json: async () => ({ data: [] }),
     } as Response);
 
@@ -95,5 +110,48 @@ describe("useLeadTracking (AC: #3, #6)", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data).toEqual([]);
+  });
+});
+
+describe("useSentLeadEmails (Story 11.4 AC#7)", () => {
+  const campaignId = "campaign-uuid-001";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns Set of sent lead emails", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [createMockLeadTracking({ leadEmail: "a@x.com" })],
+        sentLeadEmails: ["a@x.com"],
+      }),
+    } as Response);
+
+    const { result } = renderHook(() => useSentLeadEmails(campaignId), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data).toBeInstanceOf(Set);
+    expect(result.current.data?.has("a@x.com")).toBe(true);
+  });
+
+  it("returns empty Set when no messages sent", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [], sentLeadEmails: [] }),
+    } as Response);
+
+    const { result } = renderHook(() => useSentLeadEmails(campaignId), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data).toBeInstanceOf(Set);
+    expect(result.current.data?.size).toBe(0);
   });
 });

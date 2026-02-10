@@ -19,16 +19,28 @@ import type { LeadTracking } from "@/types/tracking";
 export const LEAD_TRACKING_QUERY_KEY = (id: string) => ["lead-tracking", id];
 
 // ==============================================
+// TYPES
+// ==============================================
+
+interface LeadTrackingResponse {
+  leads: LeadTracking[];
+  sentLeadEmails: string[];
+}
+
+// ==============================================
 // FETCH FUNCTIONS
 // ==============================================
 
-async function fetchLeadTracking(campaignId: string): Promise<LeadTracking[]> {
+async function fetchLeadTrackingData(campaignId: string): Promise<LeadTrackingResponse> {
   const response = await fetch(`/api/campaigns/${campaignId}/leads/tracking`);
   const result = await response.json();
   if (!response.ok) {
     throw new Error(result.error || "Erro ao buscar tracking de leads");
   }
-  return result.data;
+  return {
+    leads: result.data,
+    sentLeadEmails: result.sentLeadEmails ?? [],
+  };
 }
 
 // ==============================================
@@ -43,7 +55,22 @@ async function fetchLeadTracking(campaignId: string): Promise<LeadTracking[]> {
 export function useLeadTracking(campaignId: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: LEAD_TRACKING_QUERY_KEY(campaignId),
-    queryFn: () => fetchLeadTracking(campaignId),
+    queryFn: () => fetchLeadTrackingData(campaignId),
+    select: (data) => data.leads,
+    staleTime: 5 * 60 * 1000,
+    enabled: (options?.enabled ?? true) && !!campaignId,
+  });
+}
+
+/**
+ * Get set of lead emails that have been sent WhatsApp messages.
+ * Story 11.4 AC#7 — Shares cache with useLeadTracking (same queryKey).
+ */
+export function useSentLeadEmails(campaignId: string, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: LEAD_TRACKING_QUERY_KEY(campaignId),
+    queryFn: () => fetchLeadTrackingData(campaignId),
+    select: (data) => new Set(data.sentLeadEmails),
     staleTime: 5 * 60 * 1000,
     enabled: (options?.enabled ?? true) && !!campaignId,
   });

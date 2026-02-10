@@ -1,19 +1,67 @@
 /**
  * OpportunityPanel Tests
  * Story 10.7: Janela de Oportunidade — UI + Notificacoes
+ * Story 11.4: Envio Individual de WhatsApp
  *
- * AC: #1 — Lista de leads quentes com destaque visual
- * AC: #2 — Estado vazio com sugestao de ajuste
- * AC: #5 — Dados de contato (email, telefone) + WhatsApp placeholder
- * UX: Collapsible (aberto por padrao) + limite de 5 leads visiveis
+ * AC 10.7: #1 — Lista de leads quentes com destaque visual
+ * AC 10.7: #2 — Estado vazio com sugestao de ajuste
+ * AC 11.4: #4 — Botao WhatsApp habilitado/desabilitado
+ * AC 11.4: #5 — Integracao com WhatsAppComposerDialog
+ * AC 11.4: #6 — Props campaignId e productId
+ * AC 11.4: #7 — Indicador visual de "ja enviado"
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { OpportunityPanel } from "@/components/tracking/OpportunityPanel";
 import { createMockOpportunityLead } from "../../../helpers/mock-data";
+
+// ==============================================
+// MOCKS
+// ==============================================
+
+const mockSend = vi.fn();
+vi.mock("@/hooks/use-whatsapp-send", () => ({
+  useWhatsAppSend: () => ({
+    send: mockSend,
+    isSending: false,
+    error: null,
+    lastResult: null,
+  }),
+}));
+
+vi.mock("@/components/tracking/WhatsAppComposerDialog", () => ({
+  WhatsAppComposerDialog: ({
+    open,
+    onSend,
+    lead,
+  }: {
+    open: boolean;
+    onSend?: (data: { phone: string; message: string }) => void;
+    lead: { phone?: string };
+    onOpenChange: (open: boolean) => void;
+    campaignId: string;
+    campaignName?: string;
+    productId?: string | null;
+  }) =>
+    open ? (
+      <div data-testid="mock-composer-dialog">
+        <span data-testid="mock-composer-lead-phone">{lead.phone}</span>
+        <button
+          data-testid="mock-composer-send"
+          onClick={() => onSend?.({ phone: lead.phone!, message: "Test msg" })}
+        >
+          Send
+        </button>
+      </div>
+    ) : null,
+}));
+
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
+}));
 
 // ==============================================
 // MOCK DATA
@@ -38,11 +86,18 @@ const defaultLeads = [
   }),
 ];
 
+const CAMPAIGN_ID = "550e8400-e29b-41d4-a716-446655440000";
+
 // ==============================================
 // TESTS
 // ==============================================
 
 describe("OpportunityPanel", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSend.mockResolvedValue(true);
+  });
+
   describe("collapsible", () => {
     it("inicia aberto por padrao (conteudo visivel)", () => {
       render(<OpportunityPanel leads={defaultLeads} isLoading={false} />);
@@ -119,13 +174,6 @@ describe("OpportunityPanel", () => {
       render(<OpportunityPanel leads={leadsWithoutPhone} isLoading={false} />);
 
       expect(screen.queryByTestId("contact-phone-link")).not.toBeInTheDocument();
-    });
-
-    it("exibe badge WhatsApp em breve", () => {
-      render(<OpportunityPanel leads={defaultLeads} isLoading={false} />);
-
-      expect(screen.getByTestId("whatsapp-badge")).toBeInTheDocument();
-      expect(screen.getByText("(WhatsApp em breve)")).toBeInTheDocument();
     });
 
     it("exibe estado vazio quando nenhum lead qualificado", () => {
@@ -221,5 +269,194 @@ describe("OpportunityPanel", () => {
 
     expect(ref.current).toBeInstanceOf(HTMLDivElement);
     expect(ref.current).toHaveAttribute("data-testid", "opportunity-panel");
+  });
+
+  // ==============================================
+  // Story 11.4 Tests
+  // ==============================================
+
+  describe("WhatsApp button (AC #4)", () => {
+    it("exibe botao WhatsApp para cada lead quando campaignId fornecido", () => {
+      render(
+        <OpportunityPanel leads={defaultLeads} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      const buttons = screen.getAllByTestId("whatsapp-send-button");
+      expect(buttons).toHaveLength(2);
+    });
+
+    it("botao habilitado quando lead tem phone e campaignId fornecido", () => {
+      const leadsWithPhone = [
+        createMockOpportunityLead({ leadEmail: "with@test.com", phone: "+5511999999999" }),
+      ];
+      render(
+        <OpportunityPanel leads={leadsWithPhone} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      const button = screen.getByTestId("whatsapp-send-button");
+      expect(button).not.toBeDisabled();
+    });
+
+    it("botao desabilitado quando lead nao tem phone", () => {
+      const leadsWithoutPhone = [
+        createMockOpportunityLead({ leadEmail: "no@test.com", phone: undefined }),
+      ];
+      render(
+        <OpportunityPanel leads={leadsWithoutPhone} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      const button = screen.getByTestId("whatsapp-send-button");
+      expect(button).toBeDisabled();
+    });
+
+    it("botao desabilitado quando campaignId nao fornecido", () => {
+      const leadsWithPhone = [
+        createMockOpportunityLead({ leadEmail: "x@test.com", phone: "+5511999999999" }),
+      ];
+      render(
+        <OpportunityPanel leads={leadsWithPhone} isLoading={false} />
+      );
+
+      const button = screen.getByTestId("whatsapp-send-button");
+      expect(button).toBeDisabled();
+    });
+  });
+
+  describe("WhatsApp Composer Dialog (AC #5)", () => {
+    it("abre dialog ao clicar no botao WhatsApp", async () => {
+      const user = userEvent.setup();
+      const leadsWithPhone = [
+        createMockOpportunityLead({ leadEmail: "lead@test.com", phone: "+5511999999999" }),
+      ];
+      render(
+        <OpportunityPanel leads={leadsWithPhone} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      await user.click(screen.getByTestId("whatsapp-send-button"));
+
+      expect(screen.getByTestId("mock-composer-dialog")).toBeInTheDocument();
+    });
+
+    it("passa phone do lead para o dialog", async () => {
+      const user = userEvent.setup();
+      const leadsWithPhone = [
+        createMockOpportunityLead({ leadEmail: "lead@test.com", phone: "+5511888888888" }),
+      ];
+      render(
+        <OpportunityPanel leads={leadsWithPhone} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      await user.click(screen.getByTestId("whatsapp-send-button"));
+
+      expect(screen.getByTestId("mock-composer-lead-phone")).toHaveTextContent("+5511888888888");
+    });
+
+    it("fecha dialog apos envio com sucesso", async () => {
+      const user = userEvent.setup();
+      mockSend.mockResolvedValue(true);
+      const leadsWithPhone = [
+        createMockOpportunityLead({ leadEmail: "lead@test.com", phone: "+5511999999999" }),
+      ];
+      render(
+        <OpportunityPanel leads={leadsWithPhone} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      await user.click(screen.getByTestId("whatsapp-send-button"));
+      expect(screen.getByTestId("mock-composer-dialog")).toBeInTheDocument();
+
+      await user.click(screen.getByTestId("mock-composer-send"));
+
+      expect(screen.queryByTestId("mock-composer-dialog")).not.toBeInTheDocument();
+    });
+
+    it("mantem dialog aberto em caso de erro no envio", async () => {
+      const user = userEvent.setup();
+      mockSend.mockResolvedValue(false);
+      const leadsWithPhone = [
+        createMockOpportunityLead({ leadEmail: "lead@test.com", phone: "+5511999999999" }),
+      ];
+      render(
+        <OpportunityPanel leads={leadsWithPhone} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      await user.click(screen.getByTestId("whatsapp-send-button"));
+      await user.click(screen.getByTestId("mock-composer-send"));
+
+      expect(screen.getByTestId("mock-composer-dialog")).toBeInTheDocument();
+    });
+  });
+
+  describe("indicador de ja enviado (AC #7)", () => {
+    it("exibe indicador 'Enviado' para leads no sentLeadEmails", () => {
+      const sentEmails = new Set(["joao@test.com"]);
+      render(
+        <OpportunityPanel
+          leads={defaultLeads}
+          isLoading={false}
+          campaignId={CAMPAIGN_ID}
+          sentLeadEmails={sentEmails}
+        />
+      );
+
+      const indicators = screen.getAllByTestId("whatsapp-sent-indicator");
+      expect(indicators).toHaveLength(1);
+      expect(indicators[0]).toHaveTextContent("Enviado");
+    });
+
+    it("nao exibe indicador para leads nao enviados", () => {
+      render(
+        <OpportunityPanel
+          leads={defaultLeads}
+          isLoading={false}
+          campaignId={CAMPAIGN_ID}
+          sentLeadEmails={new Set()}
+        />
+      );
+
+      expect(screen.queryByTestId("whatsapp-sent-indicator")).not.toBeInTheDocument();
+    });
+
+    it("exibe indicador apos envio com sucesso via dialog", async () => {
+      const user = userEvent.setup();
+      mockSend.mockResolvedValue(true);
+      const leadsWithPhone = [
+        createMockOpportunityLead({ leadEmail: "lead@test.com", phone: "+5511999999999" }),
+      ];
+      render(
+        <OpportunityPanel leads={leadsWithPhone} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      // Open dialog and send
+      await user.click(screen.getByTestId("whatsapp-send-button"));
+      await user.click(screen.getByTestId("mock-composer-send"));
+
+      // Should now show sent indicator
+      expect(screen.getByTestId("whatsapp-sent-indicator")).toBeInTheDocument();
+    });
+  });
+
+  describe("props (AC #6)", () => {
+    it("aceita campaignId e productId opcionais", () => {
+      render(
+        <OpportunityPanel
+          leads={defaultLeads}
+          isLoading={false}
+          campaignId={CAMPAIGN_ID}
+          campaignName="Test Campaign"
+          productId="prod-1"
+        />
+      );
+
+      expect(screen.getByTestId("opportunity-panel")).toBeInTheDocument();
+    });
+
+    it("funciona sem campaignId (botoes desabilitados)", () => {
+      render(<OpportunityPanel leads={defaultLeads} isLoading={false} />);
+
+      const buttons = screen.getAllByTestId("whatsapp-send-button");
+      buttons.forEach((button) => {
+        expect(button).toBeDisabled();
+      });
+    });
   });
 });
