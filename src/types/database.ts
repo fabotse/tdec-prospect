@@ -47,6 +47,86 @@ export interface Profile {
 }
 
 // ==============================================
+// WHATSAPP MESSAGE TYPES
+// Story: 11.2 - Schema WhatsApp Messages + Tipos
+// ==============================================
+
+/**
+ * Status de entrega de mensagem WhatsApp
+ * Fluxo: pending → sent → delivered → read | pending → failed
+ */
+export type WhatsAppMessageStatus =
+  | "pending"
+  | "sent"
+  | "delivered"
+  | "read"
+  | "failed";
+
+/**
+ * WhatsApp message row — espelha tabela whatsapp_messages
+ * AC: #5 - WhatsAppMessage interface mirrors the DB row
+ */
+export interface WhatsAppMessage {
+  id: string;
+  tenant_id: string;
+  campaign_id: string;
+  lead_id: string;
+  phone: string;
+  message: string;
+  status: WhatsAppMessageStatus;
+  external_message_id: string | null;
+  external_zaap_id: string | null;
+  error_message: string | null;
+  sent_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Insert type — omit auto-generated fields
+ * AC: #5 - WhatsAppMessageInsert type following project pattern
+ */
+export type WhatsAppMessageInsert = Omit<
+  WhatsAppMessage,
+  "id" | "status" | "created_at" | "updated_at"
+> & {
+  id?: string;
+  status?: WhatsAppMessageStatus;
+  created_at?: string;
+  updated_at?: string;
+};
+
+/**
+ * Update type — partial, excluding immutable fields
+ * AC: #5 - WhatsAppMessageUpdate type following project pattern
+ */
+export type WhatsAppMessageUpdate = Partial<
+  Omit<WhatsAppMessage, "id" | "tenant_id" | "created_at">
+>;
+
+/**
+ * Constantes de status válidos para validação runtime
+ * AC: #5 - Array const para validação
+ */
+export const WHATSAPP_MESSAGE_STATUSES = [
+  "pending",
+  "sent",
+  "delivered",
+  "read",
+  "failed",
+] as const;
+
+/**
+ * Type guard para validar status de mensagem WhatsApp
+ * AC: #5 - isValidWhatsAppMessageStatus type guard
+ */
+export function isValidWhatsAppMessageStatus(
+  status: string
+): status is WhatsAppMessageStatus {
+  return (WHATSAPP_MESSAGE_STATUSES as readonly string[]).includes(status);
+}
+
+// ==============================================
 // COMPOSITE TYPES
 // ==============================================
 
@@ -95,6 +175,11 @@ export interface Database {
           role?: UserRole;
         };
         Update: Partial<Omit<Profile, "id" | "created_at" | "tenant_id">>;
+      };
+      whatsapp_messages: {
+        Row: WhatsAppMessage;
+        Insert: WhatsAppMessageInsert;
+        Update: WhatsAppMessageUpdate;
       };
     };
     Functions: {
