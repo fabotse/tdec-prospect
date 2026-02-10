@@ -18,6 +18,7 @@ export const SERVICE_NAMES = [
   "snovio",
   "instantly",
   "apify",
+  "zapi",
 ] as const;
 
 export type ServiceName = (typeof SERVICE_NAMES)[number];
@@ -31,6 +32,7 @@ export const SERVICE_LABELS: Record<ServiceName, string> = {
   snovio: "Snov.io",
   instantly: "Instantly",
   apify: "Apify",
+  zapi: "Z-API",
 };
 
 // ==============================================

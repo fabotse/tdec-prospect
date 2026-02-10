@@ -34,6 +34,7 @@ export const ERROR_MESSAGES: Record<string, string> = {
   SNOVIO_ERROR: "Erro na comunicação com Snov.io.",
   INSTANTLY_ERROR: "Erro na comunicação com Instantly.",
   APIFY_ERROR: "Erro na comunicação com Apify.",
+  ZAPI_ERROR: "Erro na comunicação com Z-API.",
 
   // Success
   SUCCESS: "Conexão estabelecida com sucesso",
@@ -120,7 +121,7 @@ const MAX_RETRIES = 1; // 1 retry on timeout
 /**
  * Abstract base class for external API services
  *
- * All external integrations (Apollo, SignalHire, Snov.io, Instantly, Apify)
+ * All external integrations (Apollo, SignalHire, Snov.io, Instantly, Apify, Z-API)
  * must extend this class and implement testConnection().
  *
  * Story 3.2: Added handleError() method for service-specific error translation

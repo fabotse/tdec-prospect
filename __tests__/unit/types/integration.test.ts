@@ -14,10 +14,11 @@ describe("integration types", () => {
       expect(SERVICE_NAMES).toContain("snovio");
       expect(SERVICE_NAMES).toContain("instantly");
       expect(SERVICE_NAMES).toContain("apify");
+      expect(SERVICE_NAMES).toContain("zapi");
     });
 
-    it("should have exactly 5 services", () => {
-      expect(SERVICE_NAMES).toHaveLength(5);
+    it("should have exactly 6 services", () => {
+      expect(SERVICE_NAMES).toHaveLength(6);
     });
   });
 
@@ -28,6 +29,7 @@ describe("integration types", () => {
       expect(SERVICE_LABELS.snovio).toBe("Snov.io");
       expect(SERVICE_LABELS.instantly).toBe("Instantly");
       expect(SERVICE_LABELS.apify).toBe("Apify");
+      expect(SERVICE_LABELS.zapi).toBe("Z-API");
     });
 
     it("should have a label for every service name", () => {
@@ -45,6 +47,7 @@ describe("integration types", () => {
       expect(isValidServiceName("snovio")).toBe(true);
       expect(isValidServiceName("instantly")).toBe(true);
       expect(isValidServiceName("apify")).toBe(true);
+      expect(isValidServiceName("zapi")).toBe(true);
     });
 
     it("should return false for invalid service names", () => {

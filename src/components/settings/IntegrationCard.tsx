@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Eye, EyeOff, Loader2, CheckCircle, XCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,16 @@ import type {
   TestConnectionResult,
 } from "@/types/integration";
 
+// ==============================================
+// TYPES
+// ==============================================
+
+export interface IntegrationField {
+  key: string;
+  label: string;
+  placeholder: string;
+}
+
 interface IntegrationCardProps {
   name: ServiceName;
   displayName: string;
@@ -24,6 +34,8 @@ interface IntegrationCardProps {
   status: IntegrationStatus;
   isSaving: boolean;
   onSave: (key: string) => Promise<boolean>;
+  // Story 11.1: multi-field support
+  fields?: IntegrationField[];
   // Story 2.3 additions
   connectionStatus?: ConnectionStatus;
   lastTestResult?: TestConnectionResult | null;
@@ -32,10 +44,10 @@ interface IntegrationCardProps {
 
 const statusConfig: Record<
   IntegrationStatus,
-  { label: string; variant: "outline" | "default" | "destructive" }
+  { label: string; variant: "outline" | "secondary" | "destructive" }
 > = {
   not_configured: { label: "Não configurado", variant: "outline" },
-  configured: { label: "Configurado", variant: "default" },
+  configured: { label: "Configurado", variant: "secondary" },
   loading: { label: "Carregando...", variant: "outline" },
   saving: { label: "Salvando...", variant: "outline" },
   error: { label: "Erro", variant: "destructive" },
@@ -62,13 +74,34 @@ function formatUpdatedAt(updatedAt: string | null): string {
 }
 
 /**
+ * Parse maskedKey JSON for multi-field display
+ * Returns per-field masks or null if parsing fails
+ */
+function parseMaskedKeyJson(
+  maskedKey: string | null
+): Record<string, string> | null {
+  if (!maskedKey) return null;
+  try {
+    const parsed = JSON.parse(maskedKey);
+    if (typeof parsed === "object" && parsed !== null) {
+      return parsed as Record<string, string>;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Reusable integration configuration card
  * Story: 2.2 - API Keys Storage & Encryption
  * Story: 2.3 - Integration Connection Testing
+ * Story: 11.1 - Multi-field support for Z-API (3 credentials)
  *
  * AC: #3 - Key never returned in plain text
  * AC: #4 - Only last 4 chars shown for verification
  * AC: 2.3#1 - Test connection with loading and result display
+ * AC: 11.1#1 - Multi-field inputs for Z-API
  */
 export function IntegrationCard({
   name,
@@ -80,30 +113,58 @@ export function IntegrationCard({
   status,
   isSaving,
   onSave,
+  fields,
   // Story 2.3 additions
   connectionStatus = "untested",
   lastTestResult = null,
   onTest,
 }: IntegrationCardProps) {
+  // Single-field state (backward compatibility)
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
 
+  // Multi-field state
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  const [fieldVisibility, setFieldVisibility] = useState<
+    Record<string, boolean>
+  >({});
+
+  const isMultiField = !!fields && fields.length > 0;
   const statusInfo = statusConfig[status] ?? statusConfig.not_configured;
   const isConfigured = status === "configured";
   const isTesting = connectionStatus === "testing";
 
-  const handleSave = async () => {
-    if (!apiKey.trim()) return;
+  // Parse maskedKey as JSON for multi-field display
+  const maskedFieldValues = isMultiField
+    ? parseMaskedKeyJson(maskedKey)
+    : null;
 
-    const success = await onSave(apiKey);
+  // Check if save is enabled
+  const canSave = isMultiField
+    ? fields!.every((f) => fieldValues[f.key]?.trim())
+    : !!apiKey.trim();
+
+  const handleSave = useCallback(async () => {
+    if (!canSave) return;
+
+    const valueToSave = isMultiField
+      ? JSON.stringify(
+          Object.fromEntries(fields!.map((f) => [f.key, fieldValues[f.key]]))
+        )
+      : apiKey;
+
+    const success = await onSave(valueToSave);
     if (success) {
-      // Clear input after successful save
-      setApiKey("");
+      if (isMultiField) {
+        setFieldValues({});
+      } else {
+        setApiKey("");
+      }
     }
-  };
+  }, [canSave, isMultiField, fields, fieldValues, apiKey, onSave]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && apiKey.trim() && !isSaving) {
+    if (e.key === "Enter" && canSave && !isSaving) {
       handleSave();
     }
   };
@@ -112,6 +173,14 @@ export function IntegrationCard({
     if (onTest && !isTesting) {
       await onTest();
     }
+  };
+
+  const updateFieldValue = (key: string, value: string) => {
+    setFieldValues((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const toggleFieldVisibility = (key: string) => {
+    setFieldVisibility((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   return (
@@ -128,38 +197,98 @@ export function IntegrationCard({
       <CardContent className="space-y-4">
         <p className="text-body-small text-foreground-muted">{description}</p>
 
-        <div className="flex flex-col gap-2">
-          <label
-            htmlFor={`api-key-${name}`}
-            className="block text-body-small font-medium text-foreground"
-          >
-            API Key
-          </label>
-          <div className="relative">
-            <Input
-              id={`api-key-${name}`}
-              type={showKey ? "text" : "password"}
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={isConfigured && maskedKey ? maskedKey : "Insira sua API key"}
-              disabled={isSaving}
-              className="pr-10 bg-background border-border"
-            />
-            <button
-              type="button"
-              onClick={() => setShowKey(!showKey)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground-muted hover:text-foreground transition-colors"
-              aria-label={showKey ? "Ocultar API key" : "Mostrar API key"}
-            >
-              {showKey ? (
-                <EyeOff className="h-4 w-4" />
-              ) : (
-                <Eye className="h-4 w-4" />
-              )}
-            </button>
+        {isMultiField ? (
+          // Multi-field mode (Story 11.1)
+          <div className="flex flex-col gap-3">
+            {fields!.map((field) => {
+              const isVisible = !!fieldVisibility[field.key];
+              const maskedValue = maskedFieldValues?.[field.key];
+
+              return (
+                <div key={field.key} className="flex flex-col gap-2">
+                  <label
+                    htmlFor={`field-${name}-${field.key}`}
+                    className="block text-body-small font-medium text-foreground"
+                  >
+                    {field.label}
+                  </label>
+                  <div className="relative">
+                    <Input
+                      id={`field-${name}-${field.key}`}
+                      type={isVisible ? "text" : "password"}
+                      value={fieldValues[field.key] ?? ""}
+                      onChange={(e) =>
+                        updateFieldValue(field.key, e.target.value)
+                      }
+                      onKeyDown={handleKeyDown}
+                      placeholder={
+                        isConfigured && maskedValue
+                          ? maskedValue
+                          : field.placeholder
+                      }
+                      disabled={isSaving}
+                      className="pr-10 bg-background border-border"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => toggleFieldVisibility(field.key)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground-muted hover:text-foreground transition-colors"
+                      aria-label={
+                        isVisible
+                          ? `Ocultar ${field.label}`
+                          : `Mostrar ${field.label}`
+                      }
+                    >
+                      {isVisible ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </div>
+        ) : (
+          // Single-field mode (backward compatibility)
+          <div className="flex flex-col gap-2">
+            <label
+              htmlFor={`api-key-${name}`}
+              className="block text-body-small font-medium text-foreground"
+            >
+              API Key
+            </label>
+            <div className="relative">
+              <Input
+                id={`api-key-${name}`}
+                type={showKey ? "text" : "password"}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  isConfigured && maskedKey
+                    ? maskedKey
+                    : "Insira sua API key"
+                }
+                disabled={isSaving}
+                className="pr-10 bg-background border-border"
+              />
+              <button
+                type="button"
+                onClick={() => setShowKey(!showKey)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground-muted hover:text-foreground transition-colors"
+                aria-label={showKey ? "Ocultar API key" : "Mostrar API key"}
+              >
+                {showKey ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center justify-between">
           <span className="text-caption text-foreground-muted">
@@ -187,7 +316,7 @@ export function IntegrationCard({
             )}
             <Button
               onClick={handleSave}
-              disabled={!apiKey.trim() || isSaving}
+              disabled={!canSave || isSaving}
               size="sm"
             >
               {isSaving ? (

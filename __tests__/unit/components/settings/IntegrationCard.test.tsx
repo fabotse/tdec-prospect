@@ -472,4 +472,213 @@ describe("IntegrationCard", () => {
       expect(screen.getByTestId("test-result-apollo")).toBeInTheDocument();
     });
   });
+
+  describe("Multi-field Mode (Story 11.1)", () => {
+    const zapiFields = [
+      { key: "instanceId", label: "Instance ID", placeholder: "Insira o Instance ID" },
+      { key: "instanceToken", label: "Instance Token", placeholder: "Insira o Instance Token" },
+      { key: "securityToken", label: "Security Token", placeholder: "Insira o Security Token" },
+    ];
+
+    const multiFieldProps = {
+      ...defaultProps,
+      name: "zapi" as const,
+      displayName: "Z-API",
+      icon: "📱",
+      description: "Envio de mensagens WhatsApp via Z-API",
+      fields: zapiFields,
+    };
+
+    it("should render N inputs when fields prop is provided", () => {
+      render(<IntegrationCard {...multiFieldProps} />);
+
+      expect(screen.getByLabelText("Instance ID")).toBeInTheDocument();
+      expect(screen.getByLabelText("Instance Token")).toBeInTheDocument();
+      expect(screen.getByLabelText("Security Token")).toBeInTheDocument();
+    });
+
+    it("should NOT render single API Key label when fields are present", () => {
+      render(<IntegrationCard {...multiFieldProps} />);
+
+      expect(screen.queryByText("API Key")).not.toBeInTheDocument();
+    });
+
+    it("should render each input with its own label", () => {
+      render(<IntegrationCard {...multiFieldProps} />);
+
+      expect(screen.getByText("Instance ID")).toBeInTheDocument();
+      expect(screen.getByText("Instance Token")).toBeInTheDocument();
+      expect(screen.getByText("Security Token")).toBeInTheDocument();
+    });
+
+    it("should have independent visibility toggle per field", async () => {
+      const user = userEvent.setup();
+      render(<IntegrationCard {...multiFieldProps} />);
+
+      // All start as password
+      const instanceIdInput = screen.getByLabelText("Instance ID");
+      const instanceTokenInput = screen.getByLabelText("Instance Token");
+      expect(instanceIdInput).toHaveAttribute("type", "password");
+      expect(instanceTokenInput).toHaveAttribute("type", "password");
+
+      // Toggle only Instance ID
+      const toggleButton = screen.getByRole("button", { name: /mostrar instance id/i });
+      await user.click(toggleButton);
+
+      expect(instanceIdInput).toHaveAttribute("type", "text");
+      expect(instanceTokenInput).toHaveAttribute("type", "password");
+    });
+
+    it("should disable save button when not all fields are filled", async () => {
+      const user = userEvent.setup();
+      render(<IntegrationCard {...multiFieldProps} />);
+
+      // Fill only one field
+      const instanceIdInput = screen.getByLabelText("Instance ID");
+      await user.type(instanceIdInput, "some-value");
+
+      expect(screen.getByRole("button", { name: /salvar/i })).toBeDisabled();
+    });
+
+    it("should enable save button when ALL fields are filled", async () => {
+      const user = userEvent.setup();
+      render(<IntegrationCard {...multiFieldProps} />);
+
+      await user.type(screen.getByLabelText("Instance ID"), "id-value");
+      await user.type(screen.getByLabelText("Instance Token"), "token-value");
+      await user.type(screen.getByLabelText("Security Token"), "sec-value");
+
+      expect(screen.getByRole("button", { name: /salvar/i })).toBeEnabled();
+    });
+
+    it("should call onSave with JSON stringify of all field values", async () => {
+      const user = userEvent.setup();
+      const onSave = vi.fn().mockResolvedValue(true);
+      render(<IntegrationCard {...multiFieldProps} onSave={onSave} />);
+
+      await user.type(screen.getByLabelText("Instance ID"), "my-id");
+      await user.type(screen.getByLabelText("Instance Token"), "my-token");
+      await user.type(screen.getByLabelText("Security Token"), "my-secret");
+      await user.click(screen.getByRole("button", { name: /salvar/i }));
+
+      await waitFor(() => {
+        expect(onSave).toHaveBeenCalledTimes(1);
+        const arg = onSave.mock.calls[0][0];
+        const parsed = JSON.parse(arg);
+        expect(parsed).toEqual({
+          instanceId: "my-id",
+          instanceToken: "my-token",
+          securityToken: "my-secret",
+        });
+      });
+    });
+
+    it("should trigger save on Enter when all fields are filled", async () => {
+      const user = userEvent.setup();
+      const onSave = vi.fn().mockResolvedValue(true);
+      render(<IntegrationCard {...multiFieldProps} onSave={onSave} />);
+
+      await user.type(screen.getByLabelText("Instance ID"), "id-1");
+      await user.type(screen.getByLabelText("Instance Token"), "tok-2");
+      await user.type(screen.getByLabelText("Security Token"), "sec-3{Enter}");
+
+      await waitFor(() => {
+        expect(onSave).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it("should display per-field masks when maskedKey is JSON", () => {
+      const maskedKeyJson = JSON.stringify({
+        instanceId: "••••••••abcd",
+        instanceToken: "••••••••efgh",
+        securityToken: "••••••••ijkl",
+      });
+
+      render(
+        <IntegrationCard
+          {...multiFieldProps}
+          status="configured"
+          maskedKey={maskedKeyJson}
+        />
+      );
+
+      expect(screen.getByLabelText("Instance ID")).toHaveAttribute(
+        "placeholder",
+        "••••••••abcd"
+      );
+      expect(screen.getByLabelText("Instance Token")).toHaveAttribute(
+        "placeholder",
+        "••••••••efgh"
+      );
+      expect(screen.getByLabelText("Security Token")).toHaveAttribute(
+        "placeholder",
+        "••••••••ijkl"
+      );
+    });
+
+    it("should show correct placeholders when not configured (no maskedKey)", () => {
+      render(<IntegrationCard {...multiFieldProps} />);
+
+      expect(screen.getByLabelText("Instance ID")).toHaveAttribute(
+        "placeholder",
+        "Insira o Instance ID"
+      );
+      expect(screen.getByLabelText("Instance Token")).toHaveAttribute(
+        "placeholder",
+        "Insira o Instance Token"
+      );
+      expect(screen.getByLabelText("Security Token")).toHaveAttribute(
+        "placeholder",
+        "Insira o Security Token"
+      );
+    });
+
+    it("should fall back to field placeholders when maskedKey is non-JSON string", () => {
+      render(
+        <IntegrationCard
+          {...multiFieldProps}
+          status="configured"
+          maskedKey="••••••••1234"
+        />
+      );
+
+      expect(screen.getByLabelText("Instance ID")).toHaveAttribute(
+        "placeholder",
+        "Insira o Instance ID"
+      );
+      expect(screen.getByLabelText("Instance Token")).toHaveAttribute(
+        "placeholder",
+        "Insira o Instance Token"
+      );
+      expect(screen.getByLabelText("Security Token")).toHaveAttribute(
+        "placeholder",
+        "Insira o Security Token"
+      );
+    });
+
+    it("should maintain backward compatibility — no fields prop renders single input", () => {
+      render(<IntegrationCard {...defaultProps} />);
+
+      expect(screen.getByText("API Key")).toBeInTheDocument();
+      expect(screen.getByLabelText("API Key")).toBeInTheDocument();
+      expect(screen.queryByText("Instance ID")).not.toBeInTheDocument();
+    });
+
+    it("should clear all fields after successful save", async () => {
+      const user = userEvent.setup();
+      const onSave = vi.fn().mockResolvedValue(true);
+      render(<IntegrationCard {...multiFieldProps} onSave={onSave} />);
+
+      await user.type(screen.getByLabelText("Instance ID"), "id-1");
+      await user.type(screen.getByLabelText("Instance Token"), "tok-2");
+      await user.type(screen.getByLabelText("Security Token"), "sec-3");
+      await user.click(screen.getByRole("button", { name: /salvar/i }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("Instance ID")).toHaveValue("");
+        expect(screen.getByLabelText("Instance Token")).toHaveValue("");
+        expect(screen.getByLabelText("Security Token")).toHaveValue("");
+      });
+    });
+  });
 });

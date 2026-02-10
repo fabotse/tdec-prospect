@@ -696,4 +696,76 @@ describe("useIntegrationConfig", () => {
       expect(result.current.configs.apollo.lastTestResult).toBeNull();
     });
   });
+
+  describe("Z-API support (Story 11.1)", () => {
+    it("should include zapi in initialConfigs", async () => {
+      const { result } = renderHook(() => useIntegrationConfig());
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      expect(result.current.configs.zapi).toBeDefined();
+      expect(result.current.configs.zapi.status).toBe("not_configured");
+    });
+
+    it("should saveConfig for zapi with JSON credentials", async () => {
+      const zapiJson = JSON.stringify({
+        instanceId: "inst-123",
+        instanceToken: "tok-456",
+        securityToken: "sec-789",
+      });
+
+      vi.mocked(saveApiConfig).mockResolvedValue({
+        success: true,
+        data: {
+          serviceName: "zapi",
+          maskedKey: JSON.stringify({
+            instanceId: "••••••••-123",
+            instanceToken: "••••••••-456",
+            securityToken: "••••••••-789",
+          }),
+          updatedAt: "2026-02-10T12:00:00Z",
+        },
+      });
+
+      const { result } = renderHook(() => useIntegrationConfig());
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      await act(async () => {
+        await result.current.saveConfig("zapi", zapiJson);
+      });
+
+      expect(saveApiConfig).toHaveBeenCalledWith("zapi", zapiJson);
+      expect(result.current.configs.zapi.status).toBe("configured");
+    });
+
+    it("should testConnection for zapi", async () => {
+      vi.mocked(testApiConnection).mockResolvedValue({
+        success: true,
+        data: {
+          success: true,
+          message: "Conexão estabelecida com sucesso",
+          testedAt: "2026-02-10T12:00:00Z",
+          latencyMs: 200,
+        },
+      });
+
+      const { result } = renderHook(() => useIntegrationConfig());
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      await act(async () => {
+        await result.current.testConnection("zapi");
+      });
+
+      expect(testApiConnection).toHaveBeenCalledWith("zapi");
+      expect(result.current.configs.zapi.connectionStatus).toBe("connected");
+    });
+  });
 });

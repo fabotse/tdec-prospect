@@ -28,7 +28,7 @@ import {
 
 const saveApiConfigSchema = z.object({
   serviceName: z.enum(SERVICE_NAMES, {
-    message: "Serviço inválido. Valores permitidos: apollo, signalhire, snovio, instantly, apify",
+    message: "Serviço inválido. Valores permitidos: apollo, signalhire, snovio, instantly, apify, zapi",
   }),
   apiKey: z
     .string()
@@ -99,9 +99,26 @@ export async function getApiConfigs(): Promise<
 
       if (config) {
         // AC #4: Show last 4 chars for verification using stored key_suffix
-        const maskedKey = config.key_suffix
-          ? `••••••••${config.key_suffix}`
-          : "••••••••••••";
+        // Story 11.1: Z-API stores key_suffix as JSON with per-field suffixes
+        let maskedKey: string;
+        if (serviceName === "zapi" && config.key_suffix) {
+          try {
+            const suffixes = JSON.parse(config.key_suffix);
+            maskedKey = JSON.stringify({
+              instanceId: `••••••••${suffixes.instanceId || ""}`,
+              instanceToken: `••••••••${suffixes.instanceToken || ""}`,
+              securityToken: `••••••••${suffixes.securityToken || ""}`,
+            });
+          } catch {
+            maskedKey = config.key_suffix
+              ? `••••••••${config.key_suffix}`
+              : "••••••••••••";
+          }
+        } else {
+          maskedKey = config.key_suffix
+            ? `••••••••${config.key_suffix}`
+            : "••••••••••••";
+        }
 
         return {
           serviceName,
@@ -177,7 +194,33 @@ export async function saveApiConfig(
     }
 
     // 5. Extract last 4 chars for verification (AC #4)
-    const keySuffix = apiKey.slice(-4);
+    // Story 11.1: Z-API stores JSON with per-field suffixes
+    let keySuffix: string;
+    if (serviceName === "zapi") {
+      try {
+        const parsed = JSON.parse(apiKey);
+        const instanceId = String(parsed.instanceId || "").trim();
+        const instanceToken = String(parsed.instanceToken || "").trim();
+        const securityToken = String(parsed.securityToken || "").trim();
+
+        if (!instanceId || !instanceToken || !securityToken) {
+          return {
+            success: false,
+            error: "Todas as credenciais Z-API devem ser preenchidas.",
+          };
+        }
+
+        keySuffix = JSON.stringify({
+          instanceId: instanceId.slice(-4),
+          instanceToken: instanceToken.slice(-4),
+          securityToken: securityToken.slice(-4),
+        });
+      } catch {
+        keySuffix = apiKey.slice(-4);
+      }
+    } else {
+      keySuffix = apiKey.slice(-4);
+    }
 
     // 6. Upsert config (insert or update)
     const supabase = await createClient();
@@ -203,7 +246,22 @@ export async function saveApiConfig(
     }
 
     // 7. Return response with masked key (last 4 chars)
-    const maskedKey = maskApiKey(apiKey, 4);
+    // Story 11.1: Z-API returns JSON maskedKey with per-field masks
+    let maskedKey: string;
+    if (serviceName === "zapi") {
+      try {
+        const parsed = JSON.parse(apiKey);
+        maskedKey = JSON.stringify({
+          instanceId: `••••••••${String(parsed.instanceId || "").slice(-4)}`,
+          instanceToken: `••••••••${String(parsed.instanceToken || "").slice(-4)}`,
+          securityToken: `••••••••${String(parsed.securityToken || "").slice(-4)}`,
+        });
+      } catch {
+        maskedKey = maskApiKey(apiKey, 4);
+      }
+    } else {
+      maskedKey = maskApiKey(apiKey, 4);
+    }
 
     return {
       success: true,

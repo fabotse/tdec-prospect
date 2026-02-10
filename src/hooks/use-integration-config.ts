@@ -90,6 +90,7 @@ const initialConfigs: IntegrationConfigs = {
   snovio: { ...initialConfig },
   instantly: { ...initialConfig },
   apify: { ...initialConfig },
+  zapi: { ...initialConfig },
 };
 
 /**

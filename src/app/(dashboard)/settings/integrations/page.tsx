@@ -2,7 +2,10 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { IntegrationCard } from "@/components/settings/IntegrationCard";
+import {
+  IntegrationCard,
+  type IntegrationField,
+} from "@/components/settings/IntegrationCard";
 import { useIntegrationConfig } from "@/hooks/use-integration-config";
 import { useUser } from "@/hooks/use-user";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -13,6 +16,7 @@ interface IntegrationMeta {
   displayName: string;
   icon: string;
   description: string;
+  fields?: IntegrationField[];
 }
 
 const integrations: IntegrationMeta[] = [
@@ -45,6 +49,29 @@ const integrations: IntegrationMeta[] = [
     displayName: "Apify",
     icon: "🔧",
     description: "Extracao de posts do LinkedIn para icebreakers personalizados",
+  },
+  {
+    name: "zapi",
+    displayName: "Z-API",
+    icon: "📱",
+    description: "Envio de mensagens WhatsApp via Z-API",
+    fields: [
+      {
+        key: "instanceId",
+        label: "Instance ID",
+        placeholder: "Insira o Instance ID",
+      },
+      {
+        key: "instanceToken",
+        label: "Instance Token",
+        placeholder: "Insira o Instance Token",
+      },
+      {
+        key: "securityToken",
+        label: "Security Token",
+        placeholder: "Insira o Security Token",
+      },
+    ],
   },
 ];
 
@@ -147,6 +174,7 @@ export default function IntegrationsPage() {
               status={config?.status ?? "not_configured"}
               isSaving={config?.isSaving ?? false}
               onSave={(key) => saveConfig(integration.name, key)}
+              fields={integration.fields}
               // Story 2.3 additions
               connectionStatus={config?.connectionStatus ?? "untested"}
               lastTestResult={config?.lastTestResult ?? null}

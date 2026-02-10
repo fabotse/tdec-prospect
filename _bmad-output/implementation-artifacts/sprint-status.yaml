@@ -41,8 +41,8 @@ story_location: _bmad-output/implementation-artifacts
 
 # GIT BRANCH TRACKING
 # ===================
-current_branch: epic/10-campaign-tracking
-base_branch: main
+current_branch: epic/11-whatsapp-integration
+base_branch: epic/10-campaign-tracking
 
 branch_strategy:
   # Branch naming convention:
@@ -67,7 +67,8 @@ branches:
   epic/9-ai-content-quality: "Epic 9 - AI Content Quality & Personalization (DONE)"
   cleanup/2-mock-resilience: "Cleanup Sprint 2 - Mock Infrastructure (DONE)"
   epic/7-campaign-deployment-export: "Epic 7 - Campaign Deployment & Export (DONE)"
-  epic/10-campaign-tracking: "Epic 10 - Campaign Tracking & Janela de Oportunidade (IN-PROGRESS)"
+  epic/10-campaign-tracking: "Epic 10 - Campaign Tracking & Janela de Oportunidade (DONE)"
+  epic/11-whatsapp-integration: "Epic 11 - WhatsApp Integration via Z-API (IN-PROGRESS)"
 
 development_status:
   # Epic 1: Foundation & Authentication
@@ -272,8 +273,8 @@ development_status:
   # Dependências: Epic 10 (OpportunityPanel, OpportunityEngine), Epic 4 (SignalHire), Epic 6 (AI generation)
   # Documento: _bmad-output/planning-artifacts/epic-11-whatsapp-integration.md
   # Sprint Change Proposal: _bmad-output/planning-artifacts/sprint-change-proposal-2026-02-10.md
-  epic-11: backlog
-  11-1-zapi-integration-service-config: backlog  # ZApiService + IntegrationCard multi-field (3 credenciais) + API key storage
+  epic-11: in-progress
+  11-1-zapi-integration-service-config: done  # ZApiService + IntegrationCard multi-field (3 credenciais) + API key storage
   11-2-schema-whatsapp-messages-tipos: backlog  # Tabela whatsapp_messages + tipos TS + RLS
   11-3-composer-mensagem-whatsapp: backlog  # UI: editor de texto + geração IA baseada no produto da campanha
   11-4-envio-individual-whatsapp: backlog  # Envio via Z-API + tracking de status + integração no OpportunityPanel
