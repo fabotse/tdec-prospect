@@ -414,10 +414,9 @@ describe("LeadDetailPanel", () => {
         <LeadDetailPanel lead={lead} isOpen={true} onClose={onClose} />
       );
 
-      // Find the copy buttons (there should be two - one for email, one for phone)
-      const copyButtons = screen.getAllByText("Copiar");
-      // Click the second one (phone)
-      await user.click(copyButtons[1]);
+      // Phone copy button is icon-only with title attribute
+      const phoneCopyButton = screen.getByTitle("Copiar telefone");
+      await user.click(phoneCopyButton);
 
       expect(mockCopyToClipboard).toHaveBeenCalledWith("+55 11 99999-1111");
     });

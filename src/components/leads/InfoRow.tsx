@@ -35,10 +35,10 @@ export function InfoRow({
   if (!value) return null;
 
   const content = (
-    <div className="flex items-center gap-2 text-sm">
-      <Icon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-      <span className="text-muted-foreground">{label}:</span>
-      <span className="font-medium truncate">{value}</span>
+    <div className="flex items-start gap-2 text-sm min-w-0">
+      <Icon className="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+      <span className="text-muted-foreground whitespace-nowrap">{label}:</span>
+      <span className="font-medium break-words min-w-0">{value}</span>
     </div>
   );
 

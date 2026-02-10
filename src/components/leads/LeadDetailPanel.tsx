@@ -217,6 +217,7 @@ function AddNoteForm({
 function PhoneSection({ lead }: { lead: Lead }) {
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [notFoundMessage, setNotFoundMessage] = useState<string | null>(null);
+  const [localPhone, setLocalPhone] = useState<string | null>(null);
 
   // Get identifier for lookup (AC #6 - LinkedIn > email)
   const identifier = getLeadIdentifier(lead);
@@ -230,12 +231,13 @@ function PhoneSection({ lead }: { lead: Lead }) {
     showErrorToast: false, // We handle error display inline
   });
 
-  // Reset error states when lead changes
+  // Reset states when lead changes
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional reset on lead change
     setLookupError(null);
-     
+
     setNotFoundMessage(null);
+    setLocalPhone(null);
     reset();
   }, [lead.id, reset]);
 
@@ -247,7 +249,11 @@ function PhoneSection({ lead }: { lead: Lead }) {
     setNotFoundMessage(null);
 
     try {
-      await lookupPhoneAsync({ identifier, leadId: lead.id });
+      const result = await lookupPhoneAsync({ identifier, leadId: lead.id });
+      // Update local state immediately for instant UI refresh
+      if (result.phone) {
+        setLocalPhone(result.phone);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erro ao buscar telefone";
 
@@ -261,46 +267,44 @@ function PhoneSection({ lead }: { lead: Lead }) {
     }
   };
 
+  // Use local phone for immediate display, fallback to lead prop
+  const displayPhone = localPhone ?? lead.phone;
+
   // If lead has phone (AC #5)
-  if (lead.phone) {
+  if (displayPhone) {
     return (
-      <div className="space-y-2">
-        {/* Phone display with copy button */}
-        <div className="flex items-center justify-between gap-2 py-2">
-          <div className="flex items-center gap-2 text-sm">
-            <Phone className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-            <span className="text-muted-foreground">Telefone:</span>
-            <span className="font-medium font-mono">{lead.phone}</span>
-          </div>
-          <div className="flex items-center gap-1">
-            {/* Copy button */}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-xs"
-              onClick={() => copyToClipboard(lead.phone!)}
-            >
-              <Copy className="h-3 w-3 mr-1" />
-              Copiar
-            </Button>
-            {/* Update button (AC #5) */}
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 px-2 text-xs"
-              onClick={handleLookup}
-              disabled={isLoading || !identifier}
-            >
-              {isLoading ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <>
-                  <RefreshCw className="h-3 w-3 mr-1" />
-                  Atualizar
-                </>
-              )}
-            </Button>
-          </div>
+      <div className="flex items-center justify-between gap-2 py-2">
+        {/* Phone number */}
+        <div className="flex items-center gap-2 text-sm min-w-0">
+          <Phone className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+          <span className="text-muted-foreground whitespace-nowrap">Telefone:</span>
+          <span className="font-medium font-mono">{displayPhone}</span>
+        </div>
+        {/* Icon-only action buttons */}
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => copyToClipboard(displayPhone)}
+            title="Copiar telefone"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={handleLookup}
+            disabled={isLoading || !identifier}
+            title="Atualizar telefone"
+          >
+            {isLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+          </Button>
         </div>
       </div>
     );

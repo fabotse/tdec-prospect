@@ -298,7 +298,11 @@ serve(async (req: Request): Promise<Response> => {
         const errorMessage = getErrorMessage(item.status, item.error, hasPhone);
 
         // AC: #2.6 - Atualizar registro na tabela signalhire_lookups
-        const { error: updateError } = await supabase
+        // NOTA: Matching apenas por request_id (sem identifier) porque o
+        // SignalHire normaliza URLs (ex: linkedin.com/in/marco-fabossi-jr-8b2...
+        // vira linkedin.com/in/marcofabossi). Como enviamos 1 item por request,
+        // o request_id é suficiente para identificar o lookup.
+        const { data: updateData, error: updateError } = await supabase
           .from("signalhire_lookups")
           .update({
             status: dbStatus,
@@ -308,7 +312,7 @@ serve(async (req: Request): Promise<Response> => {
             updated_at: new Date().toISOString(),
           })
           .eq("request_id", requestId)
-          .eq("identifier", item.item);
+          .select("id");
 
         if (updateError) {
           console.error(`Failed to update lookup for ${item.item}:`, updateError);
@@ -317,8 +321,15 @@ serve(async (req: Request): Promise<Response> => {
             updated: false,
             error: updateError.message,
           });
+        } else if (!updateData || updateData.length === 0) {
+          console.error(`No lookup found for request_id=${requestId}, item=${item.item}`);
+          results.push({
+            item: item.item,
+            updated: false,
+            error: `No matching lookup row for request_id=${requestId}`,
+          });
         } else {
-          console.log(`Updated lookup for ${item.item}: status=${dbStatus}, phone=${phone ? "found" : "not found"}`);
+          console.log(`Updated lookup ${updateData[0].id} for ${item.item}: status=${dbStatus}, phone=${phone ? "found" : "not found"}`);
           results.push({ item: item.item, updated: true });
         }
       } catch (itemError) {
