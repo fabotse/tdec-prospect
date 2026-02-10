@@ -2,27 +2,32 @@
  * Campaign Analytics Page
  * Story 10.4: Campaign Analytics Dashboard UI
  * Story 10.6: Janela de Oportunidade — Engine + Config
+ * Story 10.7: Janela de Oportunidade — UI + Notificacoes
  *
  * AC: #1 — Dashboard de metricas da campanha exportada
  * AC: #2 — Skeleton loading state
  * AC: #4 — Sync manual com toast feedback
  * AC: #5 — Estado vazio quando campanha nao exportada
  * AC 10.6 #4, #5 — ThresholdConfig integrado
+ * AC 10.7 #1-#6 — OpportunityPanel, badge header, toast, layout reordenado
  */
 
 "use client";
 
-import { use } from "react";
+import { use, useRef, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, BarChart3 } from "lucide-react";
+import { ArrowLeft, BarChart3, Flame } from "lucide-react";
 import { toast } from "sonner";
 import { useCampaign } from "@/hooks/use-campaigns";
 import { useCampaignAnalytics, useSyncAnalytics } from "@/hooks/use-campaign-analytics";
 import { useLeadTracking } from "@/hooks/use-lead-tracking";
-import { useOpportunityConfig, useSaveOpportunityConfig } from "@/hooks/use-opportunity-window";
+import { useOpportunityConfig, useSaveOpportunityConfig, useOpportunityLeads } from "@/hooks/use-opportunity-window";
+import { DEFAULT_MIN_OPENS } from "@/lib/services/opportunity-engine";
 import { AnalyticsDashboard } from "@/components/tracking/AnalyticsDashboard";
 import { LeadTrackingTable } from "@/components/tracking/LeadTrackingTable";
 import { ThresholdConfig } from "@/components/tracking/ThresholdConfig";
+import { OpportunityPanel } from "@/components/tracking/OpportunityPanel";
+import { Badge } from "@/components/ui/badge";
 import type { CampaignAnalytics } from "@/types/tracking";
 
 interface PageProps {
@@ -65,6 +70,40 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
   const { data: opportunityConfig } = useOpportunityConfig(campaignId, { enabled: hasExternalId });
   const { mutate: saveConfig, isPending: isSavingConfig } = useSaveOpportunityConfig(campaignId);
 
+  const opportunityLeads = useOpportunityLeads(leads, opportunityConfig);
+  const opportunityPanelRef = useRef<HTMLDivElement>(null);
+
+  const scrollToOpportunity = () => {
+    opportunityPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  // Toast de notificacao para novos leads qualificados (AC 10.7 #3)
+  useEffect(() => {
+    if (!opportunityLeads || opportunityLeads.length === 0) return;
+
+    const storageKey = `opportunity-seen-${campaignId}`;
+    const lastSeen = localStorage.getItem(storageKey);
+
+    if (lastSeen === null) {
+      // Primeiro acesso — apenas salvar contagem, sem toast
+      localStorage.setItem(storageKey, String(opportunityLeads.length));
+      return;
+    }
+
+    const previousCount = parseInt(lastSeen, 10);
+    const currentCount = opportunityLeads.length;
+
+    if (currentCount > previousCount) {
+      const newLeads = currentCount - previousCount;
+      toast.info(
+        `${newLeads} novo(s) lead(s) na Janela de Oportunidade`,
+        { duration: 5000 }
+      );
+    }
+
+    localStorage.setItem(storageKey, String(currentCount));
+  }, [opportunityLeads, campaignId]);
+
   const handleSaveConfig = (config: { minOpens: number; periodDays: number }) => {
     saveConfig(config, {
       onSuccess: () => {
@@ -99,6 +138,16 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
         <span>Voltar para campanha</span>
       </Link>
 
+      {/* Badge de leads quentes (AC 10.7 #3) */}
+      {!isLoadingCampaign && hasExternalId && opportunityLeads.length > 0 && (
+        <div className="flex items-center gap-2" data-testid="hot-leads-badge">
+          <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30">
+            <Flame className="h-3 w-3 mr-1" />
+            {opportunityLeads.length} lead{opportunityLeads.length > 1 ? "s" : ""} quente{opportunityLeads.length > 1 ? "s" : ""}
+          </Badge>
+        </div>
+      )}
+
       {/* Campaign loading */}
       {isLoadingCampaign && (
         <AnalyticsDashboard
@@ -114,7 +163,8 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
       {/* Empty state: campanha nao exportada */}
       {!isLoadingCampaign && !hasExternalId && <EmptyState />}
 
-      {/* Dashboard + Lead Tracking: campanha exportada */}
+      {/* Dashboard + Opportunity + Lead Tracking: campanha exportada */}
+      {/* Layout order (AC 10.7 #6): AnalyticsDashboard → ThresholdConfig → OpportunityPanel → LeadTrackingTable */}
       {!isLoadingCampaign && hasExternalId && (
         <>
           <AnalyticsDashboard
@@ -131,10 +181,17 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
             onSave={handleSaveConfig}
             isSaving={isSavingConfig}
           />
+          <OpportunityPanel
+            ref={opportunityPanelRef}
+            leads={opportunityLeads}
+            isLoading={isLoadingLeads}
+          />
           <LeadTrackingTable
             leads={leads ?? []}
             isLoading={isLoadingLeads}
             isError={isLeadTrackingError}
+            highInterestThreshold={opportunityConfig?.minOpens ?? DEFAULT_MIN_OPENS}
+            onHighInterestClick={scrollToOpportunity}
           />
         </>
       )}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import {
   Card,
   CardHeader,
@@ -32,6 +33,7 @@ export function ThresholdConfig({
   onSave,
   isSaving,
 }: ThresholdConfigProps) {
+  const [isOpen, setIsOpen] = useState(false);
   const [minOpens, setMinOpens] = useState(
     config?.minOpens ?? DEFAULT_MIN_OPENS
   );
@@ -68,57 +70,72 @@ export function ThresholdConfig({
 
   return (
     <Card data-testid="threshold-config">
-      <CardHeader>
-        <CardTitle>Janela de Oportunidade</CardTitle>
+      <CardHeader
+        className="cursor-pointer select-none"
+        onClick={() => setIsOpen((prev) => !prev)}
+        data-testid="threshold-header-toggle"
+      >
+        <div className="flex items-center gap-2">
+          <CardTitle>Janela de Oportunidade</CardTitle>
+          <span className="ml-auto">
+            {isOpen ? (
+              <ChevronUp className="h-5 w-5 text-muted-foreground" data-testid="threshold-chevron-up" />
+            ) : (
+              <ChevronDown className="h-5 w-5 text-muted-foreground" data-testid="threshold-chevron-down" />
+            )}
+          </span>
+        </div>
         <CardDescription>
           Configure o threshold para identificar leads de alto interesse
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <div className="flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="min-opens">Minimo de aberturas</Label>
-              <Input
-                id="min-opens"
-                type="number"
-                min={1}
-                value={minOpens}
-                onChange={(e) =>
-                  setMinOpens(Math.max(1, parseInt(e.target.value) || 1))
-                }
-                data-testid="min-opens-input"
-              />
+      {isOpen && (
+        <CardContent data-testid="threshold-content">
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="min-opens">Minimo de aberturas</Label>
+                <Input
+                  id="min-opens"
+                  type="number"
+                  min={1}
+                  value={minOpens}
+                  onChange={(e) =>
+                    setMinOpens(Math.max(1, parseInt(e.target.value) || 1))
+                  }
+                  data-testid="min-opens-input"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="period-days">Periodo em dias</Label>
+                <Input
+                  id="period-days"
+                  type="number"
+                  min={1}
+                  value={periodDays}
+                  onChange={(e) =>
+                    setPeriodDays(Math.max(1, parseInt(e.target.value) || 1))
+                  }
+                  data-testid="period-days-input"
+                />
+              </div>
             </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="period-days">Periodo em dias</Label>
-              <Input
-                id="period-days"
-                type="number"
-                min={1}
-                value={periodDays}
-                onChange={(e) =>
-                  setPeriodDays(Math.max(1, parseInt(e.target.value) || 1))
-                }
-                data-testid="period-days-input"
-              />
-            </div>
+
+            <p className="text-sm text-muted-foreground" data-testid="preview-count">
+              {previewCount} de {leads.length} leads se qualificam
+            </p>
+
+            <Button
+              onClick={handleSave}
+              disabled={isSaving || !hasChanges}
+              data-testid="save-config-button"
+              className="w-fit"
+            >
+              {isSaving ? "Salvando..." : "Salvar"}
+            </Button>
           </div>
-
-          <p className="text-sm text-muted-foreground" data-testid="preview-count">
-            {previewCount} de {leads.length} leads se qualificam
-          </p>
-
-          <Button
-            onClick={handleSave}
-            disabled={isSaving || !hasChanges}
-            data-testid="save-config-button"
-            className="w-fit"
-          >
-            {isSaving ? "Salvando..." : "Salvar"}
-          </Button>
-        </div>
-      </CardContent>
+        </CardContent>
+      )}
     </Card>
   );
 }

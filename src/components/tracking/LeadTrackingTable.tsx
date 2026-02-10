@@ -32,7 +32,7 @@ import { formatRelativeTime } from "@/components/tracking/SyncIndicator";
 // CONSTANTS
 // ==============================================
 
-const DEFAULT_HIGH_INTEREST_THRESHOLD = 3;
+export const DEFAULT_HIGH_INTEREST_THRESHOLD = 3;
 const LEADS_PER_PAGE = 20;
 
 // ==============================================
@@ -51,6 +51,8 @@ interface LeadTrackingTableProps {
   leads: LeadTracking[];
   isLoading: boolean;
   isError?: boolean;
+  highInterestThreshold?: number;
+  onHighInterestClick?: () => void;
 }
 
 // ==============================================
@@ -192,7 +194,7 @@ function ErrorState() {
 // LEAD TRACKING TABLE
 // ==============================================
 
-export function LeadTrackingTable({ leads, isLoading, isError }: LeadTrackingTableProps) {
+export function LeadTrackingTable({ leads, isLoading, isError, highInterestThreshold, onHighInterestClick }: LeadTrackingTableProps) {
   const [sort, setSort] = useState<SortState>({ column: null, direction: null });
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -251,11 +253,15 @@ export function LeadTrackingTable({ leads, isLoading, isError }: LeadTrackingTab
                 <TableCell>
                   <span className="flex items-center gap-2">
                     {lead.openCount}
-                    {lead.openCount >= DEFAULT_HIGH_INTEREST_THRESHOLD && (
+                    {lead.openCount >= (highInterestThreshold ?? DEFAULT_HIGH_INTEREST_THRESHOLD) && (
                       <Badge
                         variant="outline"
-                        className="border-primary/50 text-primary text-[10px]"
+                        className="border-primary/50 text-primary text-[10px] cursor-pointer hover:bg-primary/10"
                         data-testid="high-interest-badge"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onHighInterestClick?.();
+                        }}
                       >
                         Alto Interesse
                       </Badge>

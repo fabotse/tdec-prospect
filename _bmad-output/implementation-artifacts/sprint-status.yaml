@@ -260,5 +260,5 @@ development_status:
   10-4-campaign-analytics-dashboard-ui: done  # Code review 2026-02-10: 1 HIGH, 3 MEDIUM, 2 LOW fixes (dead import, enabled option, skeleton flash, redundant wrapper, inline fallback). 42 tests, all ACs satisfied
   10-5-lead-tracking-detail: done  # Code review 2026-02-10: 3 MEDIUM fixes (stale currentPage, error state, pagination AC #5). 42 tests, 3986 total
   10-6-janela-de-oportunidade-engine-config: done  # Code review 2026-02-10: 2 HIGH, 4 MEDIUM fixes (UUID validation, useMemo estabilização, timer cleanup, toast tests). 55 tests, 4028 total
-  10-7-janela-de-oportunidade-ui-notificacoes: backlog
+  10-7-janela-de-oportunidade-ui-notificacoes: done  # Code review 2026-02-10: 3 MEDIUM fixes (unused config prop, open-by-default AC#1, ThresholdConfig File List). 30 tests, 4061 total
   10-8-preparacao-arquitetural-whatsapp: backlog

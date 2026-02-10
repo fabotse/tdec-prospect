@@ -4,6 +4,7 @@
  *
  * AC: #4 — Inputs para "Minimo de aberturas" e "Periodo em dias", preview de leads qualificados
  * AC: #5 — Salvar config com toast, preview atualiza
+ * UX: Collapsible (fechado por padrao)
  */
 
 import React from "react";
@@ -53,194 +54,186 @@ describe("ThresholdConfig (AC: #4, #5)", () => {
   ];
   const onSave = vi.fn();
 
+  // Helper: renders and opens the panel
+  async function renderAndOpen(
+    config: OpportunityConfig | null = defaultConfig,
+    leads: LeadTracking[] = defaultLeads,
+    isSaving = false
+  ) {
+    const user = userEvent.setup();
+    render(
+      <ThresholdConfig
+        config={config}
+        leads={leads}
+        onSave={onSave}
+        isSaving={isSaving}
+      />
+    );
+    await user.click(screen.getByTestId("threshold-header-toggle"));
+    return user;
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("renderiza inputs com valores da config", () => {
-    render(
-      <ThresholdConfig
-        config={defaultConfig}
-        leads={defaultLeads}
-        onSave={onSave}
-        isSaving={false}
-      />
-    );
+  describe("collapsible", () => {
+    it("inicia fechado por padrao (conteudo nao visivel)", () => {
+      render(
+        <ThresholdConfig
+          config={defaultConfig}
+          leads={defaultLeads}
+          onSave={onSave}
+          isSaving={false}
+        />
+      );
 
-    const minOpensInput = screen.getByTestId("min-opens-input") as HTMLInputElement;
-    const periodDaysInput = screen.getByTestId("period-days-input") as HTMLInputElement;
+      expect(screen.queryByTestId("threshold-content")).not.toBeInTheDocument();
+      expect(screen.getByTestId("threshold-chevron-down")).toBeInTheDocument();
+    });
 
-    expect(minOpensInput.value).toBe("3");
-    expect(periodDaysInput.value).toBe("7");
+    it("abre ao clicar no header", async () => {
+      await renderAndOpen();
+
+      expect(screen.getByTestId("threshold-content")).toBeInTheDocument();
+      expect(screen.getByTestId("threshold-chevron-up")).toBeInTheDocument();
+    });
+
+    it("fecha ao clicar no header novamente", async () => {
+      const user = await renderAndOpen();
+
+      await user.click(screen.getByTestId("threshold-header-toggle"));
+
+      expect(screen.queryByTestId("threshold-content")).not.toBeInTheDocument();
+      expect(screen.getByTestId("threshold-chevron-down")).toBeInTheDocument();
+    });
   });
 
-  it("renderiza inputs com defaults quando config e null", () => {
-    render(
-      <ThresholdConfig
-        config={null}
-        leads={defaultLeads}
-        onSave={onSave}
-        isSaving={false}
-      />
-    );
+  describe("header (sempre visivel)", () => {
+    it("renderiza titulo e descricao do card", () => {
+      render(
+        <ThresholdConfig
+          config={defaultConfig}
+          leads={defaultLeads}
+          onSave={onSave}
+          isSaving={false}
+        />
+      );
 
-    const minOpensInput = screen.getByTestId("min-opens-input") as HTMLInputElement;
-    const periodDaysInput = screen.getByTestId("period-days-input") as HTMLInputElement;
-
-    expect(minOpensInput.value).toBe("3");
-    expect(periodDaysInput.value).toBe("7");
+      expect(screen.getByText("Janela de Oportunidade")).toBeInTheDocument();
+      expect(
+        screen.getByText("Configure o threshold para identificar leads de alto interesse")
+      ).toBeInTheDocument();
+    });
   });
 
-  it("exibe preview de leads qualificados", () => {
-    render(
-      <ThresholdConfig
-        config={defaultConfig}
-        leads={defaultLeads}
-        onSave={onSave}
-        isSaving={false}
-      />
-    );
+  describe("conteudo (quando aberto)", () => {
+    it("renderiza inputs com valores da config", async () => {
+      await renderAndOpen();
 
-    // With minOpens=3: only "qualificado@test.com" qualifies (openCount=5 >= 3, recent lastOpenAt)
-    expect(screen.getByTestId("preview-count")).toHaveTextContent(
-      "1 de 3 leads se qualificam"
-    );
+      const minOpensInput = screen.getByTestId("min-opens-input") as HTMLInputElement;
+      const periodDaysInput = screen.getByTestId("period-days-input") as HTMLInputElement;
+
+      expect(minOpensInput.value).toBe("3");
+      expect(periodDaysInput.value).toBe("7");
+    });
+
+    it("renderiza inputs com defaults quando config e null", async () => {
+      await renderAndOpen(null);
+
+      const minOpensInput = screen.getByTestId("min-opens-input") as HTMLInputElement;
+      const periodDaysInput = screen.getByTestId("period-days-input") as HTMLInputElement;
+
+      expect(minOpensInput.value).toBe("3");
+      expect(periodDaysInput.value).toBe("7");
+    });
+
+    it("exibe preview de leads qualificados", async () => {
+      await renderAndOpen();
+
+      // With minOpens=3: only "qualificado@test.com" qualifies (openCount=5 >= 3, recent lastOpenAt)
+      expect(screen.getByTestId("preview-count")).toHaveTextContent(
+        "1 de 3 leads se qualificam"
+      );
+    });
+
+    it("atualiza preview ao mudar input de minOpens", async () => {
+      await renderAndOpen();
+
+      const minOpensInput = screen.getByTestId("min-opens-input");
+      fireEvent.change(minOpensInput, { target: { value: "1" } });
+
+      // With minOpens=1: "qualificado@test.com" (5>=1) and "nao-qualificado@test.com" (1>=1) qualify
+      expect(screen.getByTestId("preview-count")).toHaveTextContent(
+        "2 de 3 leads se qualificam"
+      );
+    });
+
+    it("chama onSave com valores corretos", async () => {
+      const user = await renderAndOpen();
+
+      const minOpensInput = screen.getByTestId("min-opens-input");
+      fireEvent.change(minOpensInput, { target: { value: "5" } });
+
+      const saveButton = screen.getByTestId("save-config-button");
+      await user.click(saveButton);
+
+      expect(onSave).toHaveBeenCalledWith({ minOpens: 5, periodDays: 7 });
+    });
+
+    it("desabilita botao durante saving", async () => {
+      await renderAndOpen(defaultConfig, defaultLeads, true);
+
+      const saveButton = screen.getByTestId("save-config-button");
+      expect(saveButton).toBeDisabled();
+      expect(saveButton).toHaveTextContent("Salvando...");
+    });
+
+    it("desabilita botao quando valores nao mudaram", async () => {
+      await renderAndOpen();
+
+      const saveButton = screen.getByTestId("save-config-button");
+      expect(saveButton).toBeDisabled();
+    });
+
+    it("habilita botao quando valores mudaram", async () => {
+      await renderAndOpen();
+
+      const periodDaysInput = screen.getByTestId("period-days-input");
+      fireEvent.change(periodDaysInput, { target: { value: "14" } });
+
+      const saveButton = screen.getByTestId("save-config-button");
+      expect(saveButton).not.toBeDisabled();
+    });
+
+    it("nao permite valores menores que 1 — clamps para 1", async () => {
+      await renderAndOpen();
+
+      const minOpensInput = screen.getByTestId("min-opens-input") as HTMLInputElement;
+      fireEvent.change(minOpensInput, { target: { value: "0" } });
+
+      // Should clamp to 1
+      expect(minOpensInput.value).toBe("1");
+    });
+
+    it("renderiza labels em portugues", async () => {
+      await renderAndOpen();
+
+      expect(screen.getByText("Minimo de aberturas")).toBeInTheDocument();
+      expect(screen.getByText("Periodo em dias")).toBeInTheDocument();
+    });
+
+    it("exibe 0 leads quando lista e vazia", async () => {
+      await renderAndOpen(defaultConfig, []);
+
+      expect(screen.getByTestId("preview-count")).toHaveTextContent(
+        "0 de 0 leads se qualificam"
+      );
+    });
   });
 
-  it("atualiza preview ao mudar input de minOpens", () => {
-    render(
-      <ThresholdConfig
-        config={defaultConfig}
-        leads={defaultLeads}
-        onSave={onSave}
-        isSaving={false}
-      />
-    );
-
-    const minOpensInput = screen.getByTestId("min-opens-input");
-    fireEvent.change(minOpensInput, { target: { value: "1" } });
-
-    // With minOpens=1: "qualificado@test.com" (5>=1) and "nao-qualificado@test.com" (1>=1) qualify
-    expect(screen.getByTestId("preview-count")).toHaveTextContent(
-      "2 de 3 leads se qualificam"
-    );
-  });
-
-  it("chama onSave com valores corretos", async () => {
+  it("reinicializa valores quando config muda", async () => {
     const user = userEvent.setup();
-
-    render(
-      <ThresholdConfig
-        config={defaultConfig}
-        leads={defaultLeads}
-        onSave={onSave}
-        isSaving={false}
-      />
-    );
-
-    const minOpensInput = screen.getByTestId("min-opens-input");
-    fireEvent.change(minOpensInput, { target: { value: "5" } });
-
-    const saveButton = screen.getByTestId("save-config-button");
-    await user.click(saveButton);
-
-    expect(onSave).toHaveBeenCalledWith({ minOpens: 5, periodDays: 7 });
-  });
-
-  it("desabilita botao durante saving", () => {
-    render(
-      <ThresholdConfig
-        config={defaultConfig}
-        leads={defaultLeads}
-        onSave={onSave}
-        isSaving={true}
-      />
-    );
-
-    const saveButton = screen.getByTestId("save-config-button");
-    expect(saveButton).toBeDisabled();
-    expect(saveButton).toHaveTextContent("Salvando...");
-  });
-
-  it("desabilita botao quando valores nao mudaram", () => {
-    render(
-      <ThresholdConfig
-        config={defaultConfig}
-        leads={defaultLeads}
-        onSave={onSave}
-        isSaving={false}
-      />
-    );
-
-    const saveButton = screen.getByTestId("save-config-button");
-    expect(saveButton).toBeDisabled();
-  });
-
-  it("habilita botao quando valores mudaram", () => {
-    render(
-      <ThresholdConfig
-        config={defaultConfig}
-        leads={defaultLeads}
-        onSave={onSave}
-        isSaving={false}
-      />
-    );
-
-    const periodDaysInput = screen.getByTestId("period-days-input");
-    fireEvent.change(periodDaysInput, { target: { value: "14" } });
-
-    const saveButton = screen.getByTestId("save-config-button");
-    expect(saveButton).not.toBeDisabled();
-  });
-
-  it("nao permite valores menores que 1 — clamps para 1", () => {
-    render(
-      <ThresholdConfig
-        config={defaultConfig}
-        leads={defaultLeads}
-        onSave={onSave}
-        isSaving={false}
-      />
-    );
-
-    const minOpensInput = screen.getByTestId("min-opens-input") as HTMLInputElement;
-    fireEvent.change(minOpensInput, { target: { value: "0" } });
-
-    // Should clamp to 1
-    expect(minOpensInput.value).toBe("1");
-  });
-
-  it("renderiza titulo e descricao do card", () => {
-    render(
-      <ThresholdConfig
-        config={defaultConfig}
-        leads={defaultLeads}
-        onSave={onSave}
-        isSaving={false}
-      />
-    );
-
-    expect(screen.getByText("Janela de Oportunidade")).toBeInTheDocument();
-    expect(
-      screen.getByText("Configure o threshold para identificar leads de alto interesse")
-    ).toBeInTheDocument();
-  });
-
-  it("renderiza labels em portugues", () => {
-    render(
-      <ThresholdConfig
-        config={defaultConfig}
-        leads={defaultLeads}
-        onSave={onSave}
-        isSaving={false}
-      />
-    );
-
-    expect(screen.getByText("Minimo de aberturas")).toBeInTheDocument();
-    expect(screen.getByText("Periodo em dias")).toBeInTheDocument();
-  });
-
-  it("reinicializa valores quando config muda", () => {
     const { rerender } = render(
       <ThresholdConfig
         config={defaultConfig}
@@ -249,6 +242,9 @@ describe("ThresholdConfig (AC: #4, #5)", () => {
         isSaving={false}
       />
     );
+
+    // Open the panel first
+    await user.click(screen.getByTestId("threshold-header-toggle"));
 
     const updatedConfig: OpportunityConfig = {
       ...defaultConfig,
@@ -270,20 +266,5 @@ describe("ThresholdConfig (AC: #4, #5)", () => {
 
     expect(minOpensInput.value).toBe("10");
     expect(periodDaysInput.value).toBe("30");
-  });
-
-  it("exibe 0 leads quando lista e vazia", () => {
-    render(
-      <ThresholdConfig
-        config={defaultConfig}
-        leads={[]}
-        onSave={onSave}
-        isSaving={false}
-      />
-    );
-
-    expect(screen.getByTestId("preview-count")).toHaveTextContent(
-      "0 de 0 leads se qualificam"
-    );
   });
 });

@@ -314,6 +314,7 @@ export function createMockLeadTracking(
     events: [],
     firstName: "João",
     lastName: "Silva",
+    phone: undefined,
     ...overrides,
   };
 }

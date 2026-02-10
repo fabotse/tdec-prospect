@@ -15,7 +15,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, act, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import CampaignAnalyticsPage from "@/app/(dashboard)/campaigns/[campaignId]/analytics/page";
-import { createMockCampaignAnalytics, createMockLeadTracking, createMockOpportunityConfig } from "../../../helpers/mock-data";
+import { createMockCampaignAnalytics, createMockLeadTracking, createMockOpportunityConfig, createMockOpportunityLead } from "../../../helpers/mock-data";
 
 // Mock hooks
 const mockUseCampaign = vi.fn();
@@ -38,16 +38,27 @@ vi.mock("@/hooks/use-lead-tracking", () => ({
   useLeadTracking: (...args: unknown[]) => mockUseLeadTracking(...args),
 }));
 
+const mockUseOpportunityLeads = vi.fn();
+
 vi.mock("@/hooks/use-opportunity-window", () => ({
   useOpportunityConfig: (...args: unknown[]) => mockUseOpportunityConfig(...args),
   useSaveOpportunityConfig: (...args: unknown[]) => mockUseSaveOpportunityConfig(...args),
+  useOpportunityLeads: (...args: unknown[]) => mockUseOpportunityLeads(...args),
 }));
+
+vi.mock("@/lib/services/opportunity-engine", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/services/opportunity-engine")>();
+  return {
+    ...actual,
+  };
+});
 
 vi.mock("sonner", () => ({
   toast: {
     success: vi.fn(),
     error: vi.fn(),
     loading: vi.fn(),
+    info: vi.fn(),
   },
 }));
 
@@ -91,6 +102,11 @@ describe("CampaignAnalyticsPage (AC: #1, #2, #4, #5)", () => {
       mutate: vi.fn(),
       isPending: false,
     });
+
+    mockUseOpportunityLeads.mockReturnValue([]);
+
+    // Clear localStorage for toast tests
+    localStorage.clear();
   });
 
   it("exibe skeleton loading state (AC: #2) (7.4)", async () => {
@@ -464,11 +480,15 @@ describe("CampaignAnalyticsPage (AC: #1, #2, #4, #5)", () => {
 
     await renderPage();
 
+    // Open ThresholdConfig (collapsible, closed by default)
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("threshold-header-toggle"));
+
     const minOpensInput = screen.getByTestId("min-opens-input");
     fireEvent.change(minOpensInput, { target: { value: "5" } });
 
     const saveButton = screen.getByTestId("save-config-button");
-    await userEvent.setup().click(saveButton);
+    await user.click(saveButton);
 
     // Verify mutate was called and simulate onSuccess callback
     expect(saveMutate).toHaveBeenCalledOnce();
@@ -505,16 +525,223 @@ describe("CampaignAnalyticsPage (AC: #1, #2, #4, #5)", () => {
 
     await renderPage();
 
+    // Open ThresholdConfig (collapsible, closed by default)
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("threshold-header-toggle"));
+
     const minOpensInput = screen.getByTestId("min-opens-input");
     fireEvent.change(minOpensInput, { target: { value: "5" } });
 
     const saveButton = screen.getByTestId("save-config-button");
-    await userEvent.setup().click(saveButton);
+    await user.click(saveButton);
 
     // Simulate onError callback
     const [, callbacks] = saveMutate.mock.calls[0];
     callbacks.onError(new Error("Erro ao salvar configuracao"));
 
     expect(toast.error).toHaveBeenCalledWith("Erro ao salvar configuracao");
+  });
+
+  // ==============================================
+  // Story 10.7 — OpportunityPanel, badge, toast
+  // ==============================================
+
+  it("renderiza OpportunityPanel com leads qualificados (10.7 AC: #1)", async () => {
+    const mockOpportunityLeads = [
+      createMockOpportunityLead({ leadEmail: "hot@test.com", openCount: 5 }),
+    ];
+
+    mockUseCampaign.mockReturnValue({
+      data: { name: "Outbound", externalCampaignId: "ext-123" },
+      isLoading: false,
+    });
+    mockUseCampaignAnalytics.mockReturnValue({
+      data: mockAnalytics,
+      isLoading: false,
+    });
+    mockUseLeadTracking.mockReturnValue({
+      data: [createMockLeadTracking()],
+      isLoading: false,
+    });
+    mockUseOpportunityConfig.mockReturnValue({
+      data: createMockOpportunityConfig(),
+      isLoading: false,
+    });
+    mockUseOpportunityLeads.mockReturnValue(mockOpportunityLeads);
+
+    await renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("opportunity-panel")).toBeInTheDocument();
+    });
+  });
+
+  it("exibe badge de leads quentes no header quando ha leads (10.7 AC: #3)", async () => {
+    const mockOpportunityLeads = [
+      createMockOpportunityLead({ leadEmail: "hot1@test.com" }),
+      createMockOpportunityLead({ leadEmail: "hot2@test.com" }),
+    ];
+
+    mockUseCampaign.mockReturnValue({
+      data: { name: "Outbound", externalCampaignId: "ext-123" },
+      isLoading: false,
+    });
+    mockUseCampaignAnalytics.mockReturnValue({
+      data: mockAnalytics,
+      isLoading: false,
+    });
+    mockUseLeadTracking.mockReturnValue({
+      data: [createMockLeadTracking()],
+      isLoading: false,
+    });
+    mockUseOpportunityConfig.mockReturnValue({
+      data: createMockOpportunityConfig(),
+      isLoading: false,
+    });
+    mockUseOpportunityLeads.mockReturnValue(mockOpportunityLeads);
+
+    await renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("hot-leads-badge")).toBeInTheDocument();
+      expect(screen.getByText("2 leads quentes")).toBeInTheDocument();
+    });
+  });
+
+  it("nao exibe badge quando nao ha leads quentes (10.7 AC: #3)", async () => {
+    mockUseCampaign.mockReturnValue({
+      data: { name: "Outbound", externalCampaignId: "ext-123" },
+      isLoading: false,
+    });
+    mockUseCampaignAnalytics.mockReturnValue({
+      data: mockAnalytics,
+      isLoading: false,
+    });
+    mockUseLeadTracking.mockReturnValue({
+      data: [createMockLeadTracking()],
+      isLoading: false,
+    });
+    mockUseOpportunityConfig.mockReturnValue({
+      data: createMockOpportunityConfig(),
+      isLoading: false,
+    });
+    mockUseOpportunityLeads.mockReturnValue([]);
+
+    await renderPage();
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("hot-leads-badge")).not.toBeInTheDocument();
+    });
+  });
+
+  it("dispara toast quando ha novos leads qualificados (10.7 AC: #3)", async () => {
+    const { toast } = await import("sonner");
+
+    // Simulate previous visit with 1 lead
+    localStorage.setItem(`opportunity-seen-${campaignId}`, "1");
+
+    const mockOpportunityLeads = [
+      createMockOpportunityLead({ leadEmail: "hot1@test.com" }),
+      createMockOpportunityLead({ leadEmail: "hot2@test.com" }),
+      createMockOpportunityLead({ leadEmail: "hot3@test.com" }),
+    ];
+
+    mockUseCampaign.mockReturnValue({
+      data: { name: "Outbound", externalCampaignId: "ext-123" },
+      isLoading: false,
+    });
+    mockUseCampaignAnalytics.mockReturnValue({
+      data: mockAnalytics,
+      isLoading: false,
+    });
+    mockUseLeadTracking.mockReturnValue({
+      data: [createMockLeadTracking()],
+      isLoading: false,
+    });
+    mockUseOpportunityConfig.mockReturnValue({
+      data: createMockOpportunityConfig(),
+      isLoading: false,
+    });
+    mockUseOpportunityLeads.mockReturnValue(mockOpportunityLeads);
+
+    await renderPage();
+
+    await waitFor(() => {
+      expect(toast.info).toHaveBeenCalledWith(
+        "2 novo(s) lead(s) na Janela de Oportunidade",
+        { duration: 5000 }
+      );
+    });
+  });
+
+  it("nao dispara toast no primeiro acesso (10.7 AC: #3)", async () => {
+    const { toast } = await import("sonner");
+
+    const mockOpportunityLeads = [
+      createMockOpportunityLead({ leadEmail: "hot1@test.com" }),
+    ];
+
+    mockUseCampaign.mockReturnValue({
+      data: { name: "Outbound", externalCampaignId: "ext-123" },
+      isLoading: false,
+    });
+    mockUseCampaignAnalytics.mockReturnValue({
+      data: mockAnalytics,
+      isLoading: false,
+    });
+    mockUseLeadTracking.mockReturnValue({
+      data: [createMockLeadTracking()],
+      isLoading: false,
+    });
+    mockUseOpportunityConfig.mockReturnValue({
+      data: createMockOpportunityConfig(),
+      isLoading: false,
+    });
+    mockUseOpportunityLeads.mockReturnValue(mockOpportunityLeads);
+
+    await renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("opportunity-panel")).toBeInTheDocument();
+    });
+
+    // No toast on first access
+    expect(toast.info).not.toHaveBeenCalled();
+    // But localStorage should be set
+    expect(localStorage.getItem(`opportunity-seen-${campaignId}`)).toBe("1");
+  });
+
+  it("passa threshold dinamico para LeadTrackingTable (10.7 AC: #4)", async () => {
+    const config = createMockOpportunityConfig({ minOpens: 5 });
+
+    mockUseCampaign.mockReturnValue({
+      data: { name: "Outbound", externalCampaignId: "ext-123" },
+      isLoading: false,
+    });
+    mockUseCampaignAnalytics.mockReturnValue({
+      data: mockAnalytics,
+      isLoading: false,
+    });
+    mockUseLeadTracking.mockReturnValue({
+      data: [
+        createMockLeadTracking({ leadEmail: "a@x.com", openCount: 5 }),
+        createMockLeadTracking({ leadEmail: "b@x.com", openCount: 4 }),
+        createMockLeadTracking({ leadEmail: "c@x.com", openCount: 3 }),
+      ],
+      isLoading: false,
+    });
+    mockUseOpportunityConfig.mockReturnValue({
+      data: config,
+      isLoading: false,
+    });
+    mockUseOpportunityLeads.mockReturnValue([]);
+
+    await renderPage();
+
+    await waitFor(() => {
+      // With threshold=5 from config, only openCount=5 should have badge
+      const badges = screen.getAllByTestId("high-interest-badge");
+      expect(badges).toHaveLength(1);
+    });
   });
 });

@@ -10,7 +10,7 @@
  * AC: #6 — Estado vazio
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { LeadTrackingTable } from "@/components/tracking/LeadTrackingTable";
@@ -457,6 +457,58 @@ describe("LeadTrackingTable", () => {
 
       expect(screen.queryByTestId("lead-tracking-error")).not.toBeInTheDocument();
       expect(screen.getByTestId("lead-tracking-empty")).toBeInTheDocument();
+    });
+  });
+
+  // ==============================================
+  // Story 10.7 — Dynamic threshold + clickable badge
+  // ==============================================
+
+  describe("badge dinamico com threshold (10.7 AC #4)", () => {
+    it("usa highInterestThreshold prop para badge", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "a@x.com", openCount: 5 }),
+        createMockLeadTracking({ leadEmail: "b@x.com", openCount: 4 }),
+        createMockLeadTracking({ leadEmail: "c@x.com", openCount: 3 }),
+      ];
+
+      render(<LeadTrackingTable leads={leads} isLoading={false} highInterestThreshold={5} />);
+
+      // Only lead with openCount=5 should have badge (threshold=5)
+      const badges = screen.getAllByTestId("high-interest-badge");
+      expect(badges).toHaveLength(1);
+    });
+
+    it("usa fallback DEFAULT_HIGH_INTEREST_THRESHOLD quando prop ausente", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "a@x.com", openCount: 3 }),
+        createMockLeadTracking({ leadEmail: "b@x.com", openCount: 2 }),
+      ];
+
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      // Default threshold is 3, so openCount=3 gets badge
+      expect(screen.getAllByTestId("high-interest-badge")).toHaveLength(1);
+    });
+
+    it("badge e clicavel e chama onHighInterestClick", async () => {
+      const user = userEvent.setup();
+      const onClick = vi.fn();
+      const leads = [createMockLeadTracking({ openCount: 5 })];
+
+      render(<LeadTrackingTable leads={leads} isLoading={false} onHighInterestClick={onClick} />);
+
+      await user.click(screen.getByTestId("high-interest-badge"));
+      expect(onClick).toHaveBeenCalledOnce();
+    });
+
+    it("badge tem cursor-pointer", () => {
+      const leads = [createMockLeadTracking({ openCount: 5 })];
+
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const badge = screen.getByTestId("high-interest-badge");
+      expect(badge.className).toContain("cursor-pointer");
     });
   });
 });

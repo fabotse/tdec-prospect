@@ -144,6 +144,7 @@ export interface LeadTracking {
   events: CampaignEvent[];
   firstName?: string;
   lastName?: string;
+  phone?: string;
 }
 
 // ==============================================
