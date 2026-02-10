@@ -9,6 +9,8 @@ import type { CampaignTemplate } from "@/types/campaign-template";
 import type { SegmentWithCount } from "@/types/segment";
 import type { FilterValues } from "@/stores/use-filter-store";
 import type { Product } from "@/types/product";
+import type { CampaignEventRow } from "@/types/tracking";
+import type { InstantlyWebhookPayload } from "@/lib/webhook/instantly-webhook-utils";
 
 // ==============================================
 // LEAD MOCKS
@@ -208,6 +210,54 @@ export function createMockProduct(overrides: Partial<Product> = {}): Product {
     campaignCount: 0,
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+// ==============================================
+// INSTANTLY WEBHOOK MOCKS (Story 10.2)
+// ==============================================
+
+/**
+ * Creates a complete Instantly webhook payload mock
+ * Task 4.1 — payload completo do Instantly
+ */
+export function createMockInstantlyWebhookPayload(
+  overrides: Partial<InstantlyWebhookPayload> = {}
+): InstantlyWebhookPayload {
+  return {
+    event_type: "email_opened",
+    lead_email: "joao@empresa.com.br",
+    campaign_id: "instantly-campaign-abc-123",
+    timestamp: "2026-02-09T15:30:00.000Z",
+    campaign_name: "Q1 Prospecção B2B",
+    workspace: "workspace-uuid",
+    email_account: "vendas@minha-empresa.com",
+    step: 1,
+    variant: 0,
+    is_first: true,
+    ...overrides,
+  };
+}
+
+/**
+ * Creates a complete CampaignEventRow mock (persisted event)
+ * Task 4.2 — evento persistido no banco
+ */
+export function createMockCampaignEvent(
+  overrides: Partial<CampaignEventRow> = {}
+): CampaignEventRow {
+  return {
+    id: "event-1",
+    tenant_id: "tenant-1",
+    campaign_id: "campaign-1",
+    event_type: "email_opened",
+    lead_email: "joao@empresa.com.br",
+    event_timestamp: "2026-02-09T15:30:00.000Z",
+    payload: {},
+    source: "webhook",
+    processed_at: "2026-02-09T15:30:01.000Z",
+    created_at: "2026-02-09T15:30:01.000Z",
     ...overrides,
   };
 }
