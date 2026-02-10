@@ -5,3 +5,4 @@ export { LeadTrackingTable } from "./LeadTrackingTable";
 export { ThresholdConfig } from "./ThresholdConfig";
 export { OpportunityPanel } from "./OpportunityPanel";
 export { WhatsAppComposerDialog } from "./WhatsAppComposerDialog";
+export { PhoneLookupDialog } from "./PhoneLookupDialog";

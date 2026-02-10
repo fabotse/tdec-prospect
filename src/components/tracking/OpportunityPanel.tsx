@@ -2,6 +2,7 @@
  * OpportunityPanel Component
  * Story 10.7: Janela de Oportunidade — UI + Notificacoes
  * Story 11.4: Envio Individual de WhatsApp
+ * Story 11.5: Busca de Telefone no Fluxo de Leads Quentes
  *
  * AC 10.7: #1 — Lista focada de leads quentes com destaque visual
  * AC 10.7: #2 — Estado vazio com sugestao de ajuste
@@ -9,6 +10,8 @@
  * AC 11.4: #5 — Integracao OpportunityPanel + WhatsAppComposerDialog
  * AC 11.4: #6 — Props campaignId e productId
  * AC 11.4: #7 — Indicador visual de "já enviado"
+ * AC 11.5: #1 — Botao "Buscar Telefone" quando sem phone
+ * AC 11.5: #5 — Apos telefone obtido, habilitar WhatsApp
  *
  * UX: Collapsible (aberto por padrao) + limite de 5 leads visiveis
  */
@@ -16,7 +19,7 @@
 "use client";
 
 import { forwardRef, useState, useCallback, useMemo } from "react";
-import { Flame, Mail, Phone, ChevronDown, ChevronUp, MessageSquare, Check, Loader2 } from "lucide-react";
+import { Flame, Mail, Phone, ChevronDown, ChevronUp, MessageSquare, Check, Loader2, Search } from "lucide-react";
 import {
   Card,
   CardHeader,
@@ -34,7 +37,9 @@ import {
 } from "@/components/ui/tooltip";
 import { formatRelativeTime } from "@/components/tracking/SyncIndicator";
 import { WhatsAppComposerDialog } from "@/components/tracking/WhatsAppComposerDialog";
+import { PhoneLookupDialog } from "@/components/tracking/PhoneLookupDialog";
 import { useWhatsAppSend } from "@/hooks/use-whatsapp-send";
+import { useQueryClient } from "@tanstack/react-query";
 import type { OpportunityLead } from "@/types/tracking";
 
 interface OpportunityPanelProps {
@@ -82,8 +87,11 @@ export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps
     const [showAll, setShowAll] = useState(false);
     const [composerLead, setComposerLead] = useState<OpportunityLead | null>(null);
     const [recentlySentEmails, setRecentlySentEmails] = useState<Set<string>>(new Set());
+    const [phoneLookupLead, setPhoneLookupLead] = useState<OpportunityLead | null>(null);
+    const [localPhones, setLocalPhones] = useState<Map<string, string>>(new Map());
 
     const { send, isSending } = useWhatsAppSend();
+    const queryClient = useQueryClient();
 
     // Combine prop-based sent emails with locally-tracked sends (no useEffect needed)
     const allSentEmails = useMemo(() => {
@@ -116,6 +124,16 @@ export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps
       },
       [campaignId, composerLead, send]
     );
+
+    const handlePhoneFound = useCallback((phone: string) => {
+      if (!phoneLookupLead) return;
+      setLocalPhones((prev) => new Map(prev).set(phoneLookupLead.leadEmail, phone));
+      setPhoneLookupLead(null);
+      // Invalidate tracking query so phone persists on next refresh
+      if (campaignId) {
+        queryClient.invalidateQueries({ queryKey: ["leadTracking", campaignId] });
+      }
+    }, [phoneLookupLead, campaignId, queryClient]);
 
     const isLeadSent = (leadEmail: string) => allSentEmails.has(leadEmail);
 
@@ -155,7 +173,8 @@ export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps
               ) : (
                 <div className="flex flex-col gap-3">
                   {visibleLeads.map((lead) => {
-                    const hasPhone = Boolean(lead.phone);
+                    const effectivePhone = lead.phone || localPhones.get(lead.leadEmail);
+                    const hasPhone = Boolean(effectivePhone);
                     const sent = isLeadSent(lead.leadEmail);
 
                     return (
@@ -186,14 +205,14 @@ export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps
                             <Mail className="h-3 w-3" />
                             {lead.leadEmail}
                           </a>
-                          {lead.phone && (
+                          {effectivePhone && (
                             <a
-                              href={`tel:${lead.phone}`}
+                              href={`tel:${effectivePhone}`}
                               className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                               data-testid="contact-phone-link"
                             >
                               <Phone className="h-3 w-3" />
-                              {lead.phone}
+                              {effectivePhone}
                             </a>
                           )}
                           <div className="ml-auto flex items-center gap-1">
@@ -203,34 +222,56 @@ export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps
                                 Enviado
                               </span>
                             )}
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  data-testid="whatsapp-send-button"
-                                  disabled={!hasPhone || !campaignId || (isSending && composerLead?.leadEmail === lead.leadEmail)}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setComposerLead(lead);
-                                  }}
-                                  className="h-7 w-7 p-0"
-                                >
-                                  {isSending && composerLead?.leadEmail === lead.leadEmail ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" data-testid="whatsapp-sending-spinner" />
-                                  ) : (
-                                    <MessageSquare className="h-4 w-4" />
-                                  )}
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {!hasPhone
-                                  ? "Telefone não disponível"
-                                  : !campaignId
+                            {hasPhone ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    data-testid="whatsapp-send-button"
+                                    aria-label="Enviar WhatsApp"
+                                    disabled={!campaignId || (isSending && composerLead?.leadEmail === lead.leadEmail)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setComposerLead(lead);
+                                    }}
+                                    className="h-7 w-7 p-0"
+                                  >
+                                    {isSending && composerLead?.leadEmail === lead.leadEmail ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" data-testid="whatsapp-sending-spinner" />
+                                    ) : (
+                                      <MessageSquare className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {!campaignId
                                     ? "Campanha não identificada"
                                     : "Enviar WhatsApp"}
-                              </TooltipContent>
-                            </Tooltip>
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    data-testid="phone-lookup-button"
+                                    aria-label="Buscar telefone"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setPhoneLookupLead(lead);
+                                    }}
+                                    className="h-7 w-7 p-0"
+                                  >
+                                    <Search className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  Buscar telefone para enviar WhatsApp
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -253,7 +294,7 @@ export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps
           )}
         </Card>
 
-        {/* WhatsApp Composer Dialog — AC #5 */}
+        {/* WhatsApp Composer Dialog — AC 11.4 #5 */}
         {composerLead && campaignId && (
           <WhatsAppComposerDialog
             open={!!composerLead}
@@ -263,13 +304,30 @@ export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps
             lead={{
               firstName: composerLead.firstName,
               lastName: composerLead.lastName,
-              phone: composerLead.phone,
+              phone: composerLead.phone || localPhones.get(composerLead.leadEmail),
               leadEmail: composerLead.leadEmail,
             }}
             campaignId={campaignId}
             campaignName={campaignName}
             productId={productId}
             onSend={handleSend}
+          />
+        )}
+
+        {/* Phone Lookup Dialog — AC 11.5 #1 */}
+        {phoneLookupLead && (
+          <PhoneLookupDialog
+            open={!!phoneLookupLead}
+            onOpenChange={(open) => {
+              if (!open) setPhoneLookupLead(null);
+            }}
+            lead={{
+              leadEmail: phoneLookupLead.leadEmail,
+              firstName: phoneLookupLead.firstName,
+              lastName: phoneLookupLead.lastName,
+              leadId: phoneLookupLead.leadId,
+            }}
+            onPhoneFound={handlePhoneFound}
           />
         )}
       </TooltipProvider>

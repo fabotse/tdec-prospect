@@ -55,6 +55,16 @@ vi.mock("@/lib/services/opportunity-engine", async (importOriginal) => {
   };
 });
 
+vi.mock("@tanstack/react-query", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-query")>();
+  return {
+    ...actual,
+    useQueryClient: () => ({
+      invalidateQueries: vi.fn(),
+    }),
+  };
+});
+
 vi.mock("sonner", () => ({
   toast: {
     success: vi.fn(),

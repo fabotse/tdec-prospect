@@ -278,6 +278,6 @@ development_status:
   11-2-schema-whatsapp-messages-tipos: done  # Code review: 1 HIGH, 3 MEDIUM, 1 LOW fixes (Insert type bug, no-op test, code org, redundant index, comment tests). 53 testes, 4150 total
   11-3-composer-mensagem-whatsapp: done  # Code review: 3 HIGH, 2 MEDIUM fixes (AC#5 text preservation, test rewrite, array sync, abort-on-close, type drift). 60 tests, 233 files, 4210 total
   11-4-envio-individual-whatsapp: done  # Envio via Z-API + tracking de status + integração no OpportunityPanel. Code review: 2 HIGH, 3 MEDIUM fixes (AC7 DB query, tenant_id filter, phone regex, File List). 102 story tests, 4271 total
-  11-5-busca-telefone-fluxo-leads-quentes: backlog  # Integrar SignalHire lookup no OpportunityPanel + input manual
+  11-5-busca-telefone-fluxo-leads-quentes: done  # Code review: 3 MEDIUM, 3 LOW fixes (dead abort code, PATCH feedback, spinner test, dead branch, AC7 text, aria-labels). 25 testes PhoneLookupDialog, 104 story tests total
   11-6-envio-em-massa-com-intervalos: backlog  # Seleção de leads + config intervalo + fila humanizada
   11-7-tracking-historico-mensagens: backlog  # Marcar leads contactados + histórico por campanha + indicadores visuais

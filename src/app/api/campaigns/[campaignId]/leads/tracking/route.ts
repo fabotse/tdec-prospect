@@ -84,11 +84,12 @@ export async function GET(_request: Request, { params }: RouteParams) {
       externalCampaignId: campaign.external_campaign_id,
     });
 
-    // Enrich tracking leads with phone from local leads table (Story 11.4)
+    // Enrich tracking leads with phone + leadId from local leads table (Story 11.4, 11.5)
     // Instantly API doesn't return phone — fetch from DB by email match
     const emails = leads.map((l) => l.leadEmail).filter(Boolean);
     const phoneMap = new Map<string, string>();
     const emailByLeadId = new Map<string, string>();
+    const leadIdMap = new Map<string, string>();
 
     if (emails.length > 0) {
       const { data: dbLeads } = await supabase
@@ -104,6 +105,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
           }
           if (row.id && row.email) {
             emailByLeadId.set(row.id, row.email);
+            leadIdMap.set(row.email, row.id);
           }
         }
       }
@@ -127,11 +129,12 @@ export async function GET(_request: Request, { params }: RouteParams) {
       }
     }
 
-    // Map campaignId to local ID + merge phone from DB
+    // Map campaignId to local ID + merge phone + leadId from DB
     const mappedLeads = leads.map((lead) => ({
       ...lead,
       campaignId,
       phone: lead.phone || phoneMap.get(lead.leadEmail) || undefined,
+      leadId: leadIdMap.get(lead.leadEmail) || undefined,
     }));
 
     return NextResponse.json({ data: mappedLeads, sentLeadEmails });

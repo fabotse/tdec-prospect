@@ -145,6 +145,7 @@ export interface LeadTracking {
   firstName?: string;
   lastName?: string;
   phone?: string;
+  leadId?: string;
 }
 
 // ==============================================

@@ -2,6 +2,7 @@
  * OpportunityPanel Tests
  * Story 10.7: Janela de Oportunidade — UI + Notificacoes
  * Story 11.4: Envio Individual de WhatsApp
+ * Story 11.5: Busca de Telefone no Fluxo de Leads Quentes
  *
  * AC 10.7: #1 — Lista de leads quentes com destaque visual
  * AC 10.7: #2 — Estado vazio com sugestao de ajuste
@@ -9,6 +10,8 @@
  * AC 11.4: #5 — Integracao com WhatsAppComposerDialog
  * AC 11.4: #6 — Props campaignId e productId
  * AC 11.4: #7 — Indicador visual de "ja enviado"
+ * AC 11.5: #1 — Botao "Buscar Telefone" quando sem phone
+ * AC 11.5: #5 — Apos telefone obtido, habilitar WhatsApp
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -29,6 +32,13 @@ vi.mock("@/hooks/use-whatsapp-send", () => ({
     isSending: false,
     error: null,
     lastResult: null,
+  }),
+}));
+
+const mockInvalidateQueries = vi.fn();
+vi.mock("@tanstack/react-query", () => ({
+  useQueryClient: () => ({
+    invalidateQueries: mockInvalidateQueries,
   }),
 }));
 
@@ -57,6 +67,37 @@ vi.mock("@/components/tracking/WhatsAppComposerDialog", () => ({
         </button>
       </div>
     ) : null,
+}));
+
+let mockPhoneLookupOnPhoneFound: ((phone: string) => void) | undefined;
+vi.mock("@/components/tracking/PhoneLookupDialog", () => ({
+  PhoneLookupDialog: ({
+    open,
+    onPhoneFound,
+    lead,
+  }: {
+    open: boolean;
+    onPhoneFound: (phone: string) => void;
+    lead: { leadEmail: string; firstName?: string; lastName?: string; leadId?: string };
+    onOpenChange: (open: boolean) => void;
+  }) => {
+    if (open) {
+      mockPhoneLookupOnPhoneFound = onPhoneFound;
+      return (
+        <div data-testid="mock-phone-lookup-dialog">
+          <span data-testid="mock-phone-lookup-lead-email">{lead.leadEmail}</span>
+          <span data-testid="mock-phone-lookup-lead-id">{lead.leadId || "none"}</span>
+          <button
+            data-testid="mock-phone-lookup-found"
+            onClick={() => onPhoneFound("+5511777777777")}
+          >
+            Phone Found
+          </button>
+        </div>
+      );
+    }
+    return null;
+  },
 }));
 
 vi.mock("sonner", () => ({
@@ -96,6 +137,7 @@ describe("OpportunityPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockResolvedValue(true);
+    mockPhoneLookupOnPhoneFound = undefined;
   });
 
   describe("collapsible", () => {
@@ -275,17 +317,8 @@ describe("OpportunityPanel", () => {
   // Story 11.4 Tests
   // ==============================================
 
-  describe("WhatsApp button (AC #4)", () => {
-    it("exibe botao WhatsApp para cada lead quando campaignId fornecido", () => {
-      render(
-        <OpportunityPanel leads={defaultLeads} isLoading={false} campaignId={CAMPAIGN_ID} />
-      );
-
-      const buttons = screen.getAllByTestId("whatsapp-send-button");
-      expect(buttons).toHaveLength(2);
-    });
-
-    it("botao habilitado quando lead tem phone e campaignId fornecido", () => {
+  describe("WhatsApp button (AC 11.4 #4)", () => {
+    it("exibe botao WhatsApp para lead com phone", () => {
       const leadsWithPhone = [
         createMockOpportunityLead({ leadEmail: "with@test.com", phone: "+5511999999999" }),
       ];
@@ -297,7 +330,7 @@ describe("OpportunityPanel", () => {
       expect(button).not.toBeDisabled();
     });
 
-    it("botao desabilitado quando lead nao tem phone", () => {
+    it("exibe botao 'Buscar Telefone' quando lead nao tem phone (AC 11.5 #1)", () => {
       const leadsWithoutPhone = [
         createMockOpportunityLead({ leadEmail: "no@test.com", phone: undefined }),
       ];
@@ -305,11 +338,11 @@ describe("OpportunityPanel", () => {
         <OpportunityPanel leads={leadsWithoutPhone} isLoading={false} campaignId={CAMPAIGN_ID} />
       );
 
-      const button = screen.getByTestId("whatsapp-send-button");
-      expect(button).toBeDisabled();
+      expect(screen.getByTestId("phone-lookup-button")).toBeInTheDocument();
+      expect(screen.queryByTestId("whatsapp-send-button")).not.toBeInTheDocument();
     });
 
-    it("botao desabilitado quando campaignId nao fornecido", () => {
+    it("botao WhatsApp desabilitado quando campaignId nao fornecido", () => {
       const leadsWithPhone = [
         createMockOpportunityLead({ leadEmail: "x@test.com", phone: "+5511999999999" }),
       ];
@@ -320,9 +353,20 @@ describe("OpportunityPanel", () => {
       const button = screen.getByTestId("whatsapp-send-button");
       expect(button).toBeDisabled();
     });
+
+    it("exibe mix correto de botoes para leads com e sem phone", () => {
+      render(
+        <OpportunityPanel leads={defaultLeads} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      // joao has phone → WhatsApp button
+      expect(screen.getAllByTestId("whatsapp-send-button")).toHaveLength(1);
+      // maria has no phone → Phone lookup button
+      expect(screen.getAllByTestId("phone-lookup-button")).toHaveLength(1);
+    });
   });
 
-  describe("WhatsApp Composer Dialog (AC #5)", () => {
+  describe("WhatsApp Composer Dialog (AC 11.4 #5)", () => {
     it("abre dialog ao clicar no botao WhatsApp", async () => {
       const user = userEvent.setup();
       const leadsWithPhone = [
@@ -386,7 +430,7 @@ describe("OpportunityPanel", () => {
     });
   });
 
-  describe("indicador de ja enviado (AC #7)", () => {
+  describe("indicador de ja enviado (AC 11.4 #7)", () => {
     it("exibe indicador 'Enviado' para leads no sentLeadEmails", () => {
       const sentEmails = new Set(["joao@test.com"]);
       render(
@@ -435,7 +479,7 @@ describe("OpportunityPanel", () => {
     });
   });
 
-  describe("props (AC #6)", () => {
+  describe("props (AC 11.4 #6)", () => {
     it("aceita campaignId e productId opcionais", () => {
       render(
         <OpportunityPanel
@@ -450,13 +494,145 @@ describe("OpportunityPanel", () => {
       expect(screen.getByTestId("opportunity-panel")).toBeInTheDocument();
     });
 
-    it("funciona sem campaignId (botoes desabilitados)", () => {
-      render(<OpportunityPanel leads={defaultLeads} isLoading={false} />);
+    it("funciona sem campaignId (botoes WhatsApp desabilitados)", () => {
+      const leadsWithPhone = [
+        createMockOpportunityLead({ leadEmail: "x@test.com", phone: "+5511999999999" }),
+      ];
+      render(<OpportunityPanel leads={leadsWithPhone} isLoading={false} />);
 
       const buttons = screen.getAllByTestId("whatsapp-send-button");
       buttons.forEach((button) => {
         expect(button).toBeDisabled();
       });
+    });
+  });
+
+  // ==============================================
+  // Story 11.5 Tests
+  // ==============================================
+
+  describe("Botao Buscar Telefone (AC 11.5 #1)", () => {
+    it("exibe botao 'Buscar Telefone' quando lead sem phone", () => {
+      const leadsWithoutPhone = [
+        createMockOpportunityLead({ leadEmail: "no-phone@test.com", phone: undefined }),
+      ];
+      render(
+        <OpportunityPanel leads={leadsWithoutPhone} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      expect(screen.getByTestId("phone-lookup-button")).toBeInTheDocument();
+    });
+
+    it("nao exibe botao 'Buscar Telefone' quando lead tem phone", () => {
+      const leadsWithPhone = [
+        createMockOpportunityLead({ leadEmail: "has-phone@test.com", phone: "+5511999999999" }),
+      ];
+      render(
+        <OpportunityPanel leads={leadsWithPhone} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      expect(screen.queryByTestId("phone-lookup-button")).not.toBeInTheDocument();
+    });
+
+    it("abre PhoneLookupDialog ao clicar 'Buscar Telefone'", async () => {
+      const user = userEvent.setup();
+      const leadsWithoutPhone = [
+        createMockOpportunityLead({
+          leadEmail: "no-phone@test.com",
+          firstName: "Carlos",
+          phone: undefined,
+          leadId: "lead-uuid-2",
+        }),
+      ];
+      render(
+        <OpportunityPanel leads={leadsWithoutPhone} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      await user.click(screen.getByTestId("phone-lookup-button"));
+
+      expect(screen.getByTestId("mock-phone-lookup-dialog")).toBeInTheDocument();
+      expect(screen.getByTestId("mock-phone-lookup-lead-email")).toHaveTextContent("no-phone@test.com");
+      expect(screen.getByTestId("mock-phone-lookup-lead-id")).toHaveTextContent("lead-uuid-2");
+    });
+  });
+
+  describe("Apos telefone obtido (AC 11.5 #5)", () => {
+    it("atualiza lead para mostrar phone apos PhoneLookup", async () => {
+      const user = userEvent.setup();
+      const leadsWithoutPhone = [
+        createMockOpportunityLead({ leadEmail: "no-phone@test.com", phone: undefined }),
+      ];
+      render(
+        <OpportunityPanel leads={leadsWithoutPhone} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      // Open PhoneLookupDialog
+      await user.click(screen.getByTestId("phone-lookup-button"));
+
+      // Simulate phone found
+      await user.click(screen.getByTestId("mock-phone-lookup-found"));
+
+      // Dialog should close and phone link should appear
+      expect(screen.queryByTestId("mock-phone-lookup-dialog")).not.toBeInTheDocument();
+      expect(screen.getByTestId("contact-phone-link")).toHaveTextContent("+5511777777777");
+    });
+
+    it("habilita botao WhatsApp apos phone obtido", async () => {
+      const user = userEvent.setup();
+      const leadsWithoutPhone = [
+        createMockOpportunityLead({ leadEmail: "no-phone@test.com", phone: undefined }),
+      ];
+      render(
+        <OpportunityPanel leads={leadsWithoutPhone} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      // Initially shows phone lookup button (no whatsapp button)
+      expect(screen.getByTestId("phone-lookup-button")).toBeInTheDocument();
+      expect(screen.queryByTestId("whatsapp-send-button")).not.toBeInTheDocument();
+
+      // Get phone
+      await user.click(screen.getByTestId("phone-lookup-button"));
+      await user.click(screen.getByTestId("mock-phone-lookup-found"));
+
+      // Now shows WhatsApp button instead of lookup
+      expect(screen.getByTestId("whatsapp-send-button")).toBeInTheDocument();
+      expect(screen.queryByTestId("phone-lookup-button")).not.toBeInTheDocument();
+    });
+
+    it("invalida tracking query apos phone obtido", async () => {
+      const user = userEvent.setup();
+      const leadsWithoutPhone = [
+        createMockOpportunityLead({ leadEmail: "no-phone@test.com", phone: undefined }),
+      ];
+      render(
+        <OpportunityPanel leads={leadsWithoutPhone} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      await user.click(screen.getByTestId("phone-lookup-button"));
+      await user.click(screen.getByTestId("mock-phone-lookup-found"));
+
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({
+        queryKey: ["leadTracking", CAMPAIGN_ID],
+      });
+    });
+
+    it("passa effectivePhone para WhatsAppComposerDialog apos phone obtido", async () => {
+      const user = userEvent.setup();
+      const leadsWithoutPhone = [
+        createMockOpportunityLead({ leadEmail: "no-phone@test.com", phone: undefined }),
+      ];
+      render(
+        <OpportunityPanel leads={leadsWithoutPhone} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      // Get phone via lookup
+      await user.click(screen.getByTestId("phone-lookup-button"));
+      await user.click(screen.getByTestId("mock-phone-lookup-found"));
+
+      // Now click WhatsApp button
+      await user.click(screen.getByTestId("whatsapp-send-button"));
+
+      expect(screen.getByTestId("mock-composer-lead-phone")).toHaveTextContent("+5511777777777");
     });
   });
 });

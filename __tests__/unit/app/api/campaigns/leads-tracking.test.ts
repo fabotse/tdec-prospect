@@ -1,8 +1,9 @@
 /**
  * Unit Tests for GET /api/campaigns/[campaignId]/leads/tracking
  * Story 11.4: Phone enrichment from leads table
+ * Story 11.5: leadId enrichment from leads table (AC#6)
  *
- * Tests: phone enrichment from DB, Instantly phone preserved,
+ * Tests: phone enrichment from DB, leadId enrichment, Instantly phone preserved,
  *        empty leads, auth, invalid UUID, missing campaign
  */
 
@@ -223,6 +224,58 @@ describe("GET /api/campaigns/[campaignId]/leads/tracking", () => {
         (c: unknown[]) => c[0]
       );
       expect(fromCalls).not.toContain("leads");
+    });
+  });
+
+  describe("leadId enrichment (Story 11.5 AC#6)", () => {
+    it("includes leadId for leads that exist in DB", async () => {
+      const trackingLeads = [
+        makeTrackingLead({ leadEmail: "lead1@test.com" }),
+        makeTrackingLead({ leadEmail: "lead2@test.com" }),
+      ];
+      const dbLeads = [
+        { id: "uuid-lead-1", email: "lead1@test.com", phone: "+5511999999999" },
+        { id: "uuid-lead-2", email: "lead2@test.com", phone: null },
+      ];
+
+      setupHappyPath(trackingLeads, dbLeads);
+
+      const response = await GET(dummyRequest, makeParams());
+      const body = await response.json();
+
+      expect(body.data[0].leadId).toBe("uuid-lead-1");
+      expect(body.data[1].leadId).toBe("uuid-lead-2");
+    });
+
+    it("returns undefined leadId for leads not in DB", async () => {
+      const trackingLeads = [
+        makeTrackingLead({ leadEmail: "external@test.com" }),
+      ];
+
+      setupHappyPath(trackingLeads, []);
+
+      const response = await GET(dummyRequest, makeParams());
+      const body = await response.json();
+
+      expect(body.data[0].leadId).toBeUndefined();
+    });
+
+    it("handles mixed leads — some in DB, some not", async () => {
+      const trackingLeads = [
+        makeTrackingLead({ leadEmail: "in-db@test.com" }),
+        makeTrackingLead({ leadEmail: "not-in-db@test.com" }),
+      ];
+      const dbLeads = [
+        { id: "uuid-in-db", email: "in-db@test.com", phone: null },
+      ];
+
+      setupHappyPath(trackingLeads, dbLeads);
+
+      const response = await GET(dummyRequest, makeParams());
+      const body = await response.json();
+
+      expect(body.data[0].leadId).toBe("uuid-in-db");
+      expect(body.data[1].leadId).toBeUndefined();
     });
   });
 
