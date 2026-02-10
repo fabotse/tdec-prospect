@@ -142,6 +142,8 @@ export interface LeadTracking {
   hasReplied: boolean;
   lastOpenAt: string | null;
   events: CampaignEvent[];
+  firstName?: string;
+  lastName?: string;
 }
 
 // ==============================================

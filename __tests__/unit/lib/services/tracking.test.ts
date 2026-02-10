@@ -92,6 +92,8 @@ describe("TrackingService", () => {
       expect(result.hasReplied).toBe(false);
       expect(result.lastOpenAt).toBe("2026-02-08T14:30:00.000Z");
       expect(result.events).toEqual([]);
+      expect(result.firstName).toBe("João");
+      expect(result.lastName).toBe("Silva");
     });
 
     it("handles null/missing fields with defaults", () => {
@@ -104,6 +106,8 @@ describe("TrackingService", () => {
       expect(result.clickCount).toBe(0);
       expect(result.hasReplied).toBe(false);
       expect(result.lastOpenAt).toBeNull();
+      expect(result.firstName).toBeUndefined();
+      expect(result.lastName).toBeUndefined();
     });
 
     it("sets hasReplied true when reply_count > 0", () => {

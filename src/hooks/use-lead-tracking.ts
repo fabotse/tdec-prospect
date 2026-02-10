@@ -40,11 +40,11 @@ async function fetchLeadTracking(campaignId: string): Promise<LeadTracking[]> {
  * AC: #3 — LeadTracking[] with openCount, clickCount, hasReplied, lastOpenAt
  * AC: #6 — Data from polling, not persisted
  */
-export function useLeadTracking(campaignId: string) {
+export function useLeadTracking(campaignId: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: LEAD_TRACKING_QUERY_KEY(campaignId),
     queryFn: () => fetchLeadTracking(campaignId),
     staleTime: 5 * 60 * 1000,
-    enabled: !!campaignId,
+    enabled: (options?.enabled ?? true) && !!campaignId,
   });
 }

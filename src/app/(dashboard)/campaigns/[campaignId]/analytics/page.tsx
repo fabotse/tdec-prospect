@@ -16,7 +16,9 @@ import { ArrowLeft, BarChart3 } from "lucide-react";
 import { toast } from "sonner";
 import { useCampaign } from "@/hooks/use-campaigns";
 import { useCampaignAnalytics, useSyncAnalytics } from "@/hooks/use-campaign-analytics";
+import { useLeadTracking } from "@/hooks/use-lead-tracking";
 import { AnalyticsDashboard } from "@/components/tracking/AnalyticsDashboard";
+import { LeadTrackingTable } from "@/components/tracking/LeadTrackingTable";
 import type { CampaignAnalytics } from "@/types/tracking";
 
 interface PageProps {
@@ -54,6 +56,7 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
   const { data: campaign, isLoading: isLoadingCampaign } = useCampaign(campaignId);
   const hasExternalId = !!campaign?.externalCampaignId;
   const { data: analytics, isLoading: isLoadingAnalytics } = useCampaignAnalytics(campaignId, { enabled: hasExternalId });
+  const { data: leads, isLoading: isLoadingLeads, isError: isLeadTrackingError } = useLeadTracking(campaignId, { enabled: hasExternalId });
   const { mutate: syncAnalytics, isPending: isSyncing } = useSyncAnalytics(campaignId);
 
   const handleSync = () => {
@@ -94,16 +97,23 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
       {/* Empty state: campanha nao exportada */}
       {!isLoadingCampaign && !hasExternalId && <EmptyState />}
 
-      {/* Dashboard: campanha exportada */}
+      {/* Dashboard + Lead Tracking: campanha exportada */}
       {!isLoadingCampaign && hasExternalId && (
-        <AnalyticsDashboard
-          analytics={analytics ?? EMPTY_ANALYTICS}
-          isLoading={isLoadingAnalytics}
-          lastSyncAt={analytics?.lastSyncAt ?? null}
-          onSync={handleSync}
-          isSyncing={isSyncing}
-          campaignName={campaign?.name ?? ""}
-        />
+        <>
+          <AnalyticsDashboard
+            analytics={analytics ?? EMPTY_ANALYTICS}
+            isLoading={isLoadingAnalytics}
+            lastSyncAt={analytics?.lastSyncAt ?? null}
+            onSync={handleSync}
+            isSyncing={isSyncing}
+            campaignName={campaign?.name ?? ""}
+          />
+          <LeadTrackingTable
+            leads={leads ?? []}
+            isLoading={isLoadingLeads}
+            isError={isLeadTrackingError}
+          />
+        </>
       )}
     </div>
   );

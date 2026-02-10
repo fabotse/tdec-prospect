@@ -310,6 +310,8 @@ export function createMockLeadTracking(
     hasReplied: false,
     lastOpenAt: "2026-02-08T14:30:00.000Z",
     events: [],
+    firstName: "João",
+    lastName: "Silva",
     ...overrides,
   };
 }

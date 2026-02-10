@@ -84,7 +84,7 @@ export function mapToCampaignAnalytics(
  * Accepts partial lead data defensively — fields default to 0/false/null when missing.
  */
 export function mapToLeadTracking(
-  item: { email: string; email_open_count?: number; email_click_count?: number; email_reply_count?: number; timestamp_last_open?: string | null },
+  item: { email: string; first_name?: string; last_name?: string; email_open_count?: number; email_click_count?: number; email_reply_count?: number; timestamp_last_open?: string | null },
   campaignId: string
 ): LeadTracking {
   return {
@@ -95,6 +95,8 @@ export function mapToLeadTracking(
     hasReplied: (item.email_reply_count ?? 0) > 0,
     lastOpenAt: item.timestamp_last_open ?? null,
     events: [],
+    firstName: item.first_name,
+    lastName: item.last_name,
   };
 }
 

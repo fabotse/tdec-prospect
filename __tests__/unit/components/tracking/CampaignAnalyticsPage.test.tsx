@@ -13,12 +13,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import CampaignAnalyticsPage from "@/app/(dashboard)/campaigns/[campaignId]/analytics/page";
-import { createMockCampaignAnalytics } from "../../../helpers/mock-data";
+import { createMockCampaignAnalytics, createMockLeadTracking } from "../../../helpers/mock-data";
 
 // Mock hooks
 const mockUseCampaign = vi.fn();
 const mockUseCampaignAnalytics = vi.fn();
 const mockUseSyncAnalytics = vi.fn();
+const mockUseLeadTracking = vi.fn();
 
 vi.mock("@/hooks/use-campaigns", () => ({
   useCampaign: (...args: unknown[]) => mockUseCampaign(...args),
@@ -27,6 +28,10 @@ vi.mock("@/hooks/use-campaigns", () => ({
 vi.mock("@/hooks/use-campaign-analytics", () => ({
   useCampaignAnalytics: (...args: unknown[]) => mockUseCampaignAnalytics(...args),
   useSyncAnalytics: (...args: unknown[]) => mockUseSyncAnalytics(...args),
+}));
+
+vi.mock("@/hooks/use-lead-tracking", () => ({
+  useLeadTracking: (...args: unknown[]) => mockUseLeadTracking(...args),
 }));
 
 vi.mock("sonner", () => ({
@@ -61,6 +66,11 @@ describe("CampaignAnalyticsPage (AC: #1, #2, #4, #5)", () => {
     mockUseSyncAnalytics.mockReturnValue({
       mutate: mockMutate,
       isPending: false,
+    });
+
+    mockUseLeadTracking.mockReturnValue({
+      data: undefined,
+      isLoading: false,
     });
   });
 
@@ -220,6 +230,114 @@ describe("CampaignAnalyticsPage (AC: #1, #2, #4, #5)", () => {
       expect(screen.getByText("1000")).toBeInTheDocument();
       expect(screen.getByText("250")).toBeInTheDocument();
       expect(screen.getByText("25.0%")).toBeInTheDocument();
+    });
+  });
+
+  // ==============================================
+  // Story 10.5 — LeadTrackingTable integration
+  // ==============================================
+
+  it("renderiza LeadTrackingTable abaixo do dashboard quando campanha exportada (10.5)", async () => {
+    const mockLeads = [
+      createMockLeadTracking({ leadEmail: "maria@empresa.com", openCount: 5 }),
+      createMockLeadTracking({ leadEmail: "joao@empresa.com", openCount: 1 }),
+    ];
+
+    mockUseCampaign.mockReturnValue({
+      data: { name: "Outbound", externalCampaignId: "ext-123" },
+      isLoading: false,
+    });
+    mockUseCampaignAnalytics.mockReturnValue({
+      data: mockAnalytics,
+      isLoading: false,
+    });
+    mockUseLeadTracking.mockReturnValue({
+      data: mockLeads,
+      isLoading: false,
+    });
+
+    await renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("analytics-dashboard")).toBeInTheDocument();
+      expect(screen.getByTestId("lead-tracking-table")).toBeInTheDocument();
+      expect(screen.getByText("maria@empresa.com")).toBeInTheDocument();
+      expect(screen.getByText("joao@empresa.com")).toBeInTheDocument();
+    });
+  });
+
+  it("nao renderiza LeadTrackingTable quando campanha nao exportada (10.5)", async () => {
+    mockUseCampaign.mockReturnValue({
+      data: { name: "Teste", externalCampaignId: null },
+      isLoading: false,
+    });
+    mockUseCampaignAnalytics.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+    });
+
+    await renderPage();
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("lead-tracking-table")).not.toBeInTheDocument();
+    });
+  });
+
+  it("passa enabled: hasExternalId para useLeadTracking (10.5)", async () => {
+    mockUseCampaign.mockReturnValue({
+      data: { name: "Teste", externalCampaignId: "ext-1" },
+      isLoading: false,
+    });
+    mockUseCampaignAnalytics.mockReturnValue({
+      data: mockAnalytics,
+      isLoading: false,
+    });
+
+    await renderPage();
+
+    expect(mockUseLeadTracking).toHaveBeenCalledWith(campaignId, { enabled: true });
+  });
+
+  it("exibe skeleton na LeadTrackingTable enquanto leads carregam (10.5)", async () => {
+    mockUseCampaign.mockReturnValue({
+      data: { name: "Teste", externalCampaignId: "ext-1" },
+      isLoading: false,
+    });
+    mockUseCampaignAnalytics.mockReturnValue({
+      data: mockAnalytics,
+      isLoading: false,
+    });
+    mockUseLeadTracking.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+    });
+
+    await renderPage();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("skeleton-row")).toHaveLength(5);
+    });
+  });
+
+  it("exibe estado de erro quando useLeadTracking falha (10.5 CR)", async () => {
+    mockUseCampaign.mockReturnValue({
+      data: { name: "Teste", externalCampaignId: "ext-1" },
+      isLoading: false,
+    });
+    mockUseCampaignAnalytics.mockReturnValue({
+      data: mockAnalytics,
+      isLoading: false,
+    });
+    mockUseLeadTracking.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+    });
+
+    await renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("lead-tracking-error")).toBeInTheDocument();
     });
   });
 });
