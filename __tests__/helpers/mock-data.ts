@@ -15,6 +15,8 @@ import type {
   LeadTracking,
   InstantlyAnalyticsResponse,
   InstantlyLeadEntry,
+  OpportunityConfig,
+  OpportunityLead,
 } from "@/types/tracking";
 import type { InstantlyWebhookPayload } from "@/lib/webhook/instantly-webhook-utils";
 
@@ -338,6 +340,41 @@ export function createMockInstantlyAnalyticsResponse(
     link_click_count_unique: 45,
     bounced_count: 8,
     unsubscribed_count: 3,
+    ...overrides,
+  };
+}
+
+/**
+ * Creates an OpportunityConfig mock
+ * Story 10.6 Task 7.1
+ */
+export function createMockOpportunityConfig(
+  overrides: Partial<OpportunityConfig> = {}
+): OpportunityConfig {
+  return {
+    id: "opp-config-1",
+    tenantId: "tenant-1",
+    campaignId: "campaign-1",
+    minOpens: 3,
+    periodDays: 7,
+    isActive: true,
+    createdAt: "2026-02-10T10:00:00.000Z",
+    updatedAt: "2026-02-10T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/**
+ * Creates an OpportunityLead mock
+ * Story 10.6 Task 7.2
+ */
+export function createMockOpportunityLead(
+  overrides: Partial<OpportunityLead> = {}
+): OpportunityLead {
+  return {
+    ...createMockLeadTracking(),
+    qualifiedAt: "2026-02-10T12:00:00.000Z",
+    isInOpportunityWindow: true,
     ...overrides,
   };
 }

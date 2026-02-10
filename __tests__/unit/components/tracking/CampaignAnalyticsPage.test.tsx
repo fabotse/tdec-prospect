@@ -1,25 +1,29 @@
 /**
  * Integration Tests for CampaignAnalyticsPage
  * Story 10.4: Campaign Analytics Dashboard UI
+ * Story 10.6: Janela de Oportunidade — Engine + Config
  *
  * AC: #1 — Dashboard com cards de metricas
  * AC: #2 — Skeleton loading state
  * AC: #4 — Sync manual com toast
  * AC: #5 — Estado vazio quando campanha nao exportada
+ * AC 10.6 #4, #5 — ThresholdConfig integrado na pagina
  */
 
 import React, { Suspense } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { render, screen, waitFor, act, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import CampaignAnalyticsPage from "@/app/(dashboard)/campaigns/[campaignId]/analytics/page";
-import { createMockCampaignAnalytics, createMockLeadTracking } from "../../../helpers/mock-data";
+import { createMockCampaignAnalytics, createMockLeadTracking, createMockOpportunityConfig } from "../../../helpers/mock-data";
 
 // Mock hooks
 const mockUseCampaign = vi.fn();
 const mockUseCampaignAnalytics = vi.fn();
 const mockUseSyncAnalytics = vi.fn();
 const mockUseLeadTracking = vi.fn();
+const mockUseOpportunityConfig = vi.fn();
+const mockUseSaveOpportunityConfig = vi.fn();
 
 vi.mock("@/hooks/use-campaigns", () => ({
   useCampaign: (...args: unknown[]) => mockUseCampaign(...args),
@@ -32,6 +36,11 @@ vi.mock("@/hooks/use-campaign-analytics", () => ({
 
 vi.mock("@/hooks/use-lead-tracking", () => ({
   useLeadTracking: (...args: unknown[]) => mockUseLeadTracking(...args),
+}));
+
+vi.mock("@/hooks/use-opportunity-window", () => ({
+  useOpportunityConfig: (...args: unknown[]) => mockUseOpportunityConfig(...args),
+  useSaveOpportunityConfig: (...args: unknown[]) => mockUseSaveOpportunityConfig(...args),
 }));
 
 vi.mock("sonner", () => ({
@@ -71,6 +80,16 @@ describe("CampaignAnalyticsPage (AC: #1, #2, #4, #5)", () => {
     mockUseLeadTracking.mockReturnValue({
       data: undefined,
       isLoading: false,
+    });
+
+    mockUseOpportunityConfig.mockReturnValue({
+      data: null,
+      isLoading: false,
+    });
+
+    mockUseSaveOpportunityConfig.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
     });
   });
 
@@ -339,5 +358,163 @@ describe("CampaignAnalyticsPage (AC: #1, #2, #4, #5)", () => {
     await waitFor(() => {
       expect(screen.getByTestId("lead-tracking-error")).toBeInTheDocument();
     });
+  });
+
+  // ==============================================
+  // Story 10.6 — ThresholdConfig integration
+  // ==============================================
+
+  it("renderiza ThresholdConfig quando campanha exportada (10.6 AC: #4)", async () => {
+    mockUseCampaign.mockReturnValue({
+      data: { name: "Outbound", externalCampaignId: "ext-123" },
+      isLoading: false,
+    });
+    mockUseCampaignAnalytics.mockReturnValue({
+      data: mockAnalytics,
+      isLoading: false,
+    });
+    mockUseLeadTracking.mockReturnValue({
+      data: [createMockLeadTracking()],
+      isLoading: false,
+    });
+    mockUseOpportunityConfig.mockReturnValue({
+      data: createMockOpportunityConfig(),
+      isLoading: false,
+    });
+
+    await renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("threshold-config")).toBeInTheDocument();
+      expect(screen.getByText("Janela de Oportunidade")).toBeInTheDocument();
+    });
+  });
+
+  it("nao renderiza ThresholdConfig quando campanha nao exportada (10.6)", async () => {
+    mockUseCampaign.mockReturnValue({
+      data: { name: "Teste", externalCampaignId: null },
+      isLoading: false,
+    });
+    mockUseCampaignAnalytics.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+    });
+
+    await renderPage();
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("threshold-config")).not.toBeInTheDocument();
+    });
+  });
+
+  it("passa enabled: hasExternalId para useOpportunityConfig (10.6)", async () => {
+    mockUseCampaign.mockReturnValue({
+      data: { name: "Teste", externalCampaignId: "ext-1" },
+      isLoading: false,
+    });
+    mockUseCampaignAnalytics.mockReturnValue({
+      data: mockAnalytics,
+      isLoading: false,
+    });
+
+    await renderPage();
+
+    expect(mockUseOpportunityConfig).toHaveBeenCalledWith(campaignId, { enabled: true });
+  });
+
+  it("chama useSaveOpportunityConfig com campaignId (10.6)", async () => {
+    mockUseCampaign.mockReturnValue({
+      data: { name: "Teste", externalCampaignId: "ext-1" },
+      isLoading: false,
+    });
+    mockUseCampaignAnalytics.mockReturnValue({
+      data: mockAnalytics,
+      isLoading: false,
+    });
+
+    await renderPage();
+
+    expect(mockUseSaveOpportunityConfig).toHaveBeenCalledWith(campaignId);
+  });
+
+  it("chama toast.success ao salvar config com sucesso (10.6 AC: #5)", async () => {
+    const { toast } = await import("sonner");
+    const saveMutate = vi.fn();
+
+    mockUseCampaign.mockReturnValue({
+      data: { name: "Teste", externalCampaignId: "ext-1" },
+      isLoading: false,
+    });
+    mockUseCampaignAnalytics.mockReturnValue({
+      data: mockAnalytics,
+      isLoading: false,
+    });
+    mockUseLeadTracking.mockReturnValue({
+      data: [createMockLeadTracking({ openCount: 5, lastOpenAt: "2026-02-09T10:00:00.000Z" })],
+      isLoading: false,
+    });
+    mockUseOpportunityConfig.mockReturnValue({
+      data: createMockOpportunityConfig(),
+      isLoading: false,
+    });
+    mockUseSaveOpportunityConfig.mockReturnValue({
+      mutate: saveMutate,
+      isPending: false,
+    });
+
+    await renderPage();
+
+    const minOpensInput = screen.getByTestId("min-opens-input");
+    fireEvent.change(minOpensInput, { target: { value: "5" } });
+
+    const saveButton = screen.getByTestId("save-config-button");
+    await userEvent.setup().click(saveButton);
+
+    // Verify mutate was called and simulate onSuccess callback
+    expect(saveMutate).toHaveBeenCalledOnce();
+    const [, callbacks] = saveMutate.mock.calls[0];
+    callbacks.onSuccess();
+
+    expect(toast.success).toHaveBeenCalledWith("Configuracao salva");
+  });
+
+  it("chama toast.error ao falhar ao salvar config (10.6 AC: #5)", async () => {
+    const { toast } = await import("sonner");
+    const saveMutate = vi.fn();
+
+    mockUseCampaign.mockReturnValue({
+      data: { name: "Teste", externalCampaignId: "ext-1" },
+      isLoading: false,
+    });
+    mockUseCampaignAnalytics.mockReturnValue({
+      data: mockAnalytics,
+      isLoading: false,
+    });
+    mockUseLeadTracking.mockReturnValue({
+      data: [createMockLeadTracking({ openCount: 5, lastOpenAt: "2026-02-09T10:00:00.000Z" })],
+      isLoading: false,
+    });
+    mockUseOpportunityConfig.mockReturnValue({
+      data: createMockOpportunityConfig(),
+      isLoading: false,
+    });
+    mockUseSaveOpportunityConfig.mockReturnValue({
+      mutate: saveMutate,
+      isPending: false,
+    });
+
+    await renderPage();
+
+    const minOpensInput = screen.getByTestId("min-opens-input");
+    fireEvent.change(minOpensInput, { target: { value: "5" } });
+
+    const saveButton = screen.getByTestId("save-config-button");
+    await userEvent.setup().click(saveButton);
+
+    // Simulate onError callback
+    const [, callbacks] = saveMutate.mock.calls[0];
+    callbacks.onError(new Error("Erro ao salvar configuracao"));
+
+    expect(toast.error).toHaveBeenCalledWith("Erro ao salvar configuracao");
   });
 });

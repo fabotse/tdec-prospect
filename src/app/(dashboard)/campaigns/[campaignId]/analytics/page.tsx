@@ -1,11 +1,13 @@
 /**
  * Campaign Analytics Page
  * Story 10.4: Campaign Analytics Dashboard UI
+ * Story 10.6: Janela de Oportunidade — Engine + Config
  *
  * AC: #1 — Dashboard de metricas da campanha exportada
  * AC: #2 — Skeleton loading state
  * AC: #4 — Sync manual com toast feedback
  * AC: #5 — Estado vazio quando campanha nao exportada
+ * AC 10.6 #4, #5 — ThresholdConfig integrado
  */
 
 "use client";
@@ -17,8 +19,10 @@ import { toast } from "sonner";
 import { useCampaign } from "@/hooks/use-campaigns";
 import { useCampaignAnalytics, useSyncAnalytics } from "@/hooks/use-campaign-analytics";
 import { useLeadTracking } from "@/hooks/use-lead-tracking";
+import { useOpportunityConfig, useSaveOpportunityConfig } from "@/hooks/use-opportunity-window";
 import { AnalyticsDashboard } from "@/components/tracking/AnalyticsDashboard";
 import { LeadTrackingTable } from "@/components/tracking/LeadTrackingTable";
+import { ThresholdConfig } from "@/components/tracking/ThresholdConfig";
 import type { CampaignAnalytics } from "@/types/tracking";
 
 interface PageProps {
@@ -58,6 +62,19 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
   const { data: analytics, isLoading: isLoadingAnalytics } = useCampaignAnalytics(campaignId, { enabled: hasExternalId });
   const { data: leads, isLoading: isLoadingLeads, isError: isLeadTrackingError } = useLeadTracking(campaignId, { enabled: hasExternalId });
   const { mutate: syncAnalytics, isPending: isSyncing } = useSyncAnalytics(campaignId);
+  const { data: opportunityConfig } = useOpportunityConfig(campaignId, { enabled: hasExternalId });
+  const { mutate: saveConfig, isPending: isSavingConfig } = useSaveOpportunityConfig(campaignId);
+
+  const handleSaveConfig = (config: { minOpens: number; periodDays: number }) => {
+    saveConfig(config, {
+      onSuccess: () => {
+        toast.success("Configuracao salva");
+      },
+      onError: (error) => {
+        toast.error(error.message || "Erro ao salvar configuracao");
+      },
+    });
+  };
 
   const handleSync = () => {
     syncAnalytics(undefined, {
@@ -107,6 +124,12 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
             onSync={handleSync}
             isSyncing={isSyncing}
             campaignName={campaign?.name ?? ""}
+          />
+          <ThresholdConfig
+            config={opportunityConfig ?? null}
+            leads={leads ?? []}
+            onSave={handleSaveConfig}
+            isSaving={isSavingConfig}
           />
           <LeadTrackingTable
             leads={leads ?? []}
