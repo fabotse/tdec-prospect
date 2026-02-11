@@ -326,7 +326,8 @@ export class InstantlyService extends ExternalService {
 
       const requestBody: BulkAddLeadsRequest = {
         campaign_id: campaignId,
-        skip_if_in_campaign: true,
+        skip_if_in_campaign: false,
+        skip_if_in_workspace: false,
         verify_leads_on_import: false,
         leads: batches[i],
       };

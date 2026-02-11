@@ -178,6 +178,42 @@ describe("MyLeadsPageContent", () => {
     expect(screen.getByLabelText("Página anterior")).toBeInTheDocument();
   });
 
+  it("should show 'Criar Lead' button when leads exist", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: mockLeads,
+          meta: { total: 2, page: 1, limit: 25, totalPages: 1 },
+        }),
+    });
+
+    render(<MyLeadsPageContent />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-lead-button")).toBeInTheDocument();
+    });
+  });
+
+  it("should show 'Criar Manualmente' button in empty state", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: [],
+          meta: { total: 0, page: 1, limit: 25, totalPages: 0 },
+        }),
+    });
+
+    render(<MyLeadsPageContent />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("empty-state-create-lead-button")
+      ).toBeInTheDocument();
+    });
+  });
+
   it("should show error state on API error", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,

@@ -600,7 +600,7 @@ describe("InstantlyService", () => {
       expect(leads[0].custom_variables).toBeUndefined();
     });
 
-    it("sets skip_if_in_campaign=true and verify_leads_on_import=false", async () => {
+    it("sets skip_if_in_campaign=false, skip_if_in_workspace=false, verify_leads_on_import=false", async () => {
       const { calls } = createMockFetch([
         {
           url: /\/api\/v2\/leads\/add/,
@@ -616,7 +616,8 @@ describe("InstantlyService", () => {
       });
 
       const body = calls()[0].body as Record<string, unknown>;
-      expect(body.skip_if_in_campaign).toBe(true);
+      expect(body.skip_if_in_campaign).toBe(false);
+      expect(body.skip_if_in_workspace).toBe(false);
       expect(body.verify_leads_on_import).toBe(false);
     });
 

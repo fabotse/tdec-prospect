@@ -191,12 +191,14 @@ describe("instantly types", () => {
       const request: BulkAddLeadsRequest = {
         campaign_id: "camp-123",
         skip_if_in_campaign: true,
+        skip_if_in_workspace: false,
         verify_leads_on_import: false,
         leads: [{ email: "a@b.com" }, { email: "c@d.com" }],
       };
 
       expect(request.campaign_id).toBe("camp-123");
       expect(request.skip_if_in_campaign).toBe(true);
+      expect(request.skip_if_in_workspace).toBe(false);
       expect(request.verify_leads_on_import).toBe(false);
       expect(request.leads).toHaveLength(2);
     });

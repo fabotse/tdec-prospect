@@ -36,8 +36,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Upload,
+  Plus,
 } from "lucide-react";
 import { ImportCampaignResultsDialog } from "@/components/leads/ImportCampaignResultsDialog";
+import { CreateLeadDialog } from "@/components/leads/CreateLeadDialog";
 import {
   Select,
   SelectContent,
@@ -79,6 +81,9 @@ export function MyLeadsPageContent() {
 
   // Story 4.7: AC #1 - State for import campaign results dialog
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+
+  // Quick Dev: State for manual lead creation dialog
+  const [isCreateLeadDialogOpen, setIsCreateLeadDialogOpen] = useState(false);
 
   // Story 6.5.6: AC #4 - Track leads currently generating icebreakers
   const [generatingIcebreakerIds, setGeneratingIcebreakerIds] = useState<Set<string>>(new Set());
@@ -160,7 +165,9 @@ export function MyLeadsPageContent() {
       )}
 
       {/* AC: #6 - Empty state when no imported leads */}
-      {showEmptyState && <MyLeadsEmptyState />}
+      {showEmptyState && (
+        <MyLeadsEmptyState onCreateLead={() => setIsCreateLeadDialogOpen(true)} />
+      )}
 
       {/* Empty state when filters yield no results */}
       {!isLoading && !error && leads.length === 0 && hasActiveFilters() && (
@@ -203,16 +210,28 @@ export function MyLeadsPageContent() {
                 </span>
               )}
             </div>
-            {/* Story 4.7: AC #1 - Import campaign results button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsImportDialogOpen(true)}
-              data-testid="import-campaign-results-button"
-            >
-              <Upload className="h-4 w-4 mr-2" />
-              Importar Resultados
-            </Button>
+            <div className="flex items-center gap-2">
+              {/* Quick Dev: Manual lead creation button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsCreateLeadDialogOpen(true)}
+                data-testid="create-lead-button"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Criar Lead
+              </Button>
+              {/* Story 4.7: AC #1 - Import campaign results button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsImportDialogOpen(true)}
+                data-testid="import-campaign-results-button"
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Importar Resultados
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {/* AC: #2 - LeadTable with showCreatedAt for "Importado em" column */}
@@ -329,6 +348,12 @@ export function MyLeadsPageContent() {
       <ImportCampaignResultsDialog
         open={isImportDialogOpen}
         onOpenChange={setIsImportDialogOpen}
+      />
+
+      {/* Quick Dev: Manual lead creation dialog */}
+      <CreateLeadDialog
+        open={isCreateLeadDialogOpen}
+        onOpenChange={setIsCreateLeadDialogOpen}
       />
     </div>
   );

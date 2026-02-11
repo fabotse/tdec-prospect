@@ -108,6 +108,7 @@ export interface InstantlyLead {
 export interface BulkAddLeadsRequest {
   campaign_id: string;
   skip_if_in_campaign: boolean;
+  skip_if_in_workspace: boolean;
   verify_leads_on_import: boolean;
   leads: InstantlyLead[];
 }
