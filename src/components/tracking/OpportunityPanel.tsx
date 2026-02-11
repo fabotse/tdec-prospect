@@ -3,6 +3,7 @@
  * Story 10.7: Janela de Oportunidade — UI + Notificacoes
  * Story 11.4: Envio Individual de WhatsApp
  * Story 11.5: Busca de Telefone no Fluxo de Leads Quentes
+ * Story 11.6: Envio em Massa de WhatsApp com Intervalos Humanizados
  *
  * AC 10.7: #1 — Lista focada de leads quentes com destaque visual
  * AC 10.7: #2 — Estado vazio com sugestao de ajuste
@@ -12,6 +13,9 @@
  * AC 11.4: #7 — Indicador visual de "já enviado"
  * AC 11.5: #1 — Botao "Buscar Telefone" quando sem phone
  * AC 11.5: #5 — Apos telefone obtido, habilitar WhatsApp
+ * AC 11.6: #1 — Modo de selecao no OpportunityPanel
+ * AC 11.6: #8 — Marcacao de leads contactados
+ * AC 11.6: #9 — Protecoes e edge cases
  *
  * UX: Collapsible (aberto por padrao) + limite de 5 leads visiveis
  */
@@ -19,7 +23,7 @@
 "use client";
 
 import { forwardRef, useState, useCallback, useMemo } from "react";
-import { Flame, Mail, Phone, ChevronDown, ChevronUp, MessageSquare, Check, Loader2, Search } from "lucide-react";
+import { Flame, Mail, Phone, ChevronDown, ChevronUp, MessageSquare, Check, Loader2, Search, Users, X as XIcon } from "lucide-react";
 import {
   Card,
   CardHeader,
@@ -29,6 +33,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Tooltip,
   TooltipContent,
@@ -38,9 +43,11 @@ import {
 import { formatRelativeTime } from "@/components/tracking/SyncIndicator";
 import { WhatsAppComposerDialog } from "@/components/tracking/WhatsAppComposerDialog";
 import { PhoneLookupDialog } from "@/components/tracking/PhoneLookupDialog";
+import { BulkWhatsAppDialog } from "@/components/tracking/BulkWhatsAppDialog";
 import { useWhatsAppSend } from "@/hooks/use-whatsapp-send";
 import { useQueryClient } from "@tanstack/react-query";
 import type { OpportunityLead } from "@/types/tracking";
+import type { BulkSendLead } from "@/hooks/use-whatsapp-bulk-send";
 
 interface OpportunityPanelProps {
   leads: OpportunityLead[];
@@ -90,6 +97,11 @@ export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps
     const [phoneLookupLead, setPhoneLookupLead] = useState<OpportunityLead | null>(null);
     const [localPhones, setLocalPhones] = useState<Map<string, string>>(new Map());
 
+    // Story 11.6: Selection mode state
+    const [selectionMode, setSelectionMode] = useState(false);
+    const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
+    const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
+
     const { send, isSending } = useWhatsAppSend();
     const queryClient = useQueryClient();
 
@@ -100,9 +112,20 @@ export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps
       return merged;
     }, [sentLeadEmails, recentlySentEmails]);
 
+    // AC 11.6 #1: Leads with phone AND not already sent (selectable for bulk)
+    const selectableLeads = useMemo(() => {
+      return leads.filter((lead) => {
+        const effectivePhone = lead.phone || localPhones.get(lead.leadEmail);
+        return Boolean(effectivePhone) && !allSentEmails.has(lead.leadEmail);
+      });
+    }, [leads, localPhones, allSentEmails]);
+
     const hasLeads = leads.length > 0;
     const hasHiddenLeads = leads.length > VISIBLE_LIMIT;
     const visibleLeads = showAll ? leads : leads.slice(0, VISIBLE_LIMIT);
+
+    // AC 11.6 #1: Show bulk button when ≥2 selectable leads AND campaignId exists
+    const showBulkButton = selectableLeads.length >= 2 && Boolean(campaignId);
 
     const handleSend = useCallback(
       async (data: { phone: string; message: string }) => {
@@ -137,6 +160,83 @@ export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps
 
     const isLeadSent = (leadEmail: string) => allSentEmails.has(leadEmail);
 
+    // AC 11.6 #1: Enter selection mode
+    const handleEnterSelectionMode = useCallback(() => {
+      setSelectionMode(true);
+      setShowAll(true); // Expand list
+      setSelectedEmails(new Set());
+    }, []);
+
+    // AC 11.6 #1: Exit selection mode
+    const handleExitSelectionMode = useCallback(() => {
+      setSelectionMode(false);
+      setSelectedEmails(new Set());
+    }, []);
+
+    // AC 11.6: Toggle individual lead selection
+    const toggleSelection = useCallback((leadEmail: string) => {
+      setSelectedEmails((prev) => {
+        const next = new Set(prev);
+        if (next.has(leadEmail)) {
+          next.delete(leadEmail);
+        } else {
+          next.add(leadEmail);
+        }
+        return next;
+      });
+    }, []);
+
+    // AC 11.6: Select all / Deselect all
+    const handleSelectAll = useCallback((checked: boolean) => {
+      if (checked) {
+        setSelectedEmails(new Set(selectableLeads.map((l) => l.leadEmail)));
+      } else {
+        setSelectedEmails(new Set());
+      }
+    }, [selectableLeads]);
+
+    // AC 11.6: Open bulk dialog with selected leads
+    const handleOpenBulkDialog = useCallback(() => {
+      setBulkDialogOpen(true);
+    }, []);
+
+    // AC 11.6 #8: Handle individual lead sent during bulk
+    const handleBulkLeadSent = useCallback((email: string) => {
+      setRecentlySentEmails((prev) => new Set(prev).add(email));
+      setSelectedEmails((prev) => {
+        const next = new Set(prev);
+        next.delete(email);
+        return next;
+      });
+    }, []);
+
+    // AC 11.6 #8: Handle bulk complete
+    const handleBulkComplete = useCallback(() => {
+      setSelectionMode(false);
+      setSelectedEmails(new Set());
+      setBulkDialogOpen(false);
+      if (campaignId) {
+        queryClient.invalidateQueries({ queryKey: ["sentLeadEmails", campaignId] });
+      }
+    }, [campaignId, queryClient]);
+
+    // Build BulkSendLead[] from selected emails
+    const bulkSendLeads = useMemo((): BulkSendLead[] => {
+      return leads
+        .filter((lead) => selectedEmails.has(lead.leadEmail))
+        .map((lead) => ({
+          leadEmail: lead.leadEmail,
+          phone: (lead.phone || localPhones.get(lead.leadEmail))!,
+          firstName: lead.firstName,
+          lastName: lead.lastName,
+        }));
+    }, [leads, selectedEmails, localPhones]);
+
+    const isLeadSelectable = (lead: OpportunityLead): boolean => {
+      const effectivePhone = lead.phone || localPhones.get(lead.leadEmail);
+      return Boolean(effectivePhone) && !allSentEmails.has(lead.leadEmail);
+    };
+
     return (
       <TooltipProvider>
         <Card ref={ref} data-testid="opportunity-panel">
@@ -148,6 +248,27 @@ export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps
             <div className="flex items-center gap-2">
               <Flame className="h-5 w-5 text-primary" data-testid="opportunity-flame-icon" />
               <CardTitle>Leads Quentes</CardTitle>
+              {/* AC 11.6 #1: Bulk send button in header */}
+              {showBulkButton && !selectionMode && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      data-testid="bulk-send-mode-button"
+                      aria-label="Enviar em massa"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEnterSelectionMode();
+                      }}
+                      className="h-7 w-7 p-0"
+                    >
+                      <Users className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Enviar em Massa</TooltipContent>
+                </Tooltip>
+              )}
               <span className="ml-auto">
                 {isOpen ? (
                   <ChevronUp className="h-5 w-5 text-muted-foreground" data-testid="chevron-up" />
@@ -172,10 +293,40 @@ export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps
                 <EmptyState />
               ) : (
                 <div className="flex flex-col gap-3">
+                  {/* AC 11.6 #1: Selection mode header */}
+                  {selectionMode && (
+                    <div
+                      data-testid="selection-mode-header"
+                      className="flex items-center gap-3 p-2 rounded-md border border-border bg-muted/50"
+                    >
+                      <Checkbox
+                        data-testid="select-all-checkbox"
+                        checked={selectedEmails.size === selectableLeads.length && selectableLeads.length > 0}
+                        onCheckedChange={(checked) => handleSelectAll(Boolean(checked))}
+                        aria-label="Selecionar todos"
+                      />
+                      <span className="text-sm text-muted-foreground" data-testid="selection-counter">
+                        {selectedEmails.size} de {selectableLeads.length} selecionados
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        data-testid="cancel-selection-button"
+                        onClick={handleExitSelectionMode}
+                        className="ml-auto h-7"
+                      >
+                        <XIcon className="h-4 w-4 mr-1" />
+                        Cancelar
+                      </Button>
+                    </div>
+                  )}
+
                   {visibleLeads.map((lead) => {
                     const effectivePhone = lead.phone || localPhones.get(lead.leadEmail);
                     const hasPhone = Boolean(effectivePhone);
                     const sent = isLeadSent(lead.leadEmail);
+                    const selectable = isLeadSelectable(lead);
+                    const isSelected = selectedEmails.has(lead.leadEmail);
 
                     return (
                       <div
@@ -184,6 +335,15 @@ export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps
                         className="flex flex-col gap-2 p-3 rounded-md border border-primary/30 bg-primary/5"
                       >
                         <div className="flex items-center gap-3">
+                          {/* AC 11.6 #1: Checkbox in selection mode */}
+                          {selectionMode && selectable && (
+                            <Checkbox
+                              data-testid="lead-selection-checkbox"
+                              checked={isSelected}
+                              onCheckedChange={() => toggleSelection(lead.leadEmail)}
+                              aria-label={`Selecionar ${lead.leadEmail}`}
+                            />
+                          )}
                           <Flame className="h-4 w-4 text-primary shrink-0" />
                           <span className="font-medium text-sm truncate">{lead.leadEmail}</span>
                           <span className="text-sm text-muted-foreground truncate">
@@ -277,6 +437,19 @@ export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps
                       </div>
                     );
                   })}
+
+                  {/* AC 11.6 #1: "Enviar WhatsApp (X)" button when ≥2 selected */}
+                  {selectionMode && selectedEmails.size >= 2 && (
+                    <Button
+                      data-testid="bulk-send-button"
+                      onClick={handleOpenBulkDialog}
+                      className="self-center"
+                    >
+                      <Users className="h-4 w-4 mr-2" />
+                      Enviar WhatsApp ({selectedEmails.size})
+                    </Button>
+                  )}
+
                   {hasHiddenLeads && !showAll && (
                     <Button
                       variant="ghost"
@@ -328,6 +501,22 @@ export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps
               leadId: phoneLookupLead.leadId,
             }}
             onPhoneFound={handlePhoneFound}
+          />
+        )}
+
+        {/* Bulk WhatsApp Dialog — AC 11.6 #2 */}
+        {bulkDialogOpen && campaignId && (
+          <BulkWhatsAppDialog
+            open={bulkDialogOpen}
+            onOpenChange={(open) => {
+              if (!open) setBulkDialogOpen(false);
+            }}
+            leads={bulkSendLeads}
+            campaignId={campaignId}
+            campaignName={campaignName}
+            productId={productId}
+            onLeadSent={handleBulkLeadSent}
+            onComplete={handleBulkComplete}
           />
         )}
       </TooltipProvider>

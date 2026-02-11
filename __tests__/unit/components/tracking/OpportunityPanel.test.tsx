@@ -3,6 +3,7 @@
  * Story 10.7: Janela de Oportunidade — UI + Notificacoes
  * Story 11.4: Envio Individual de WhatsApp
  * Story 11.5: Busca de Telefone no Fluxo de Leads Quentes
+ * Story 11.6: Envio em Massa de WhatsApp
  *
  * AC 10.7: #1 — Lista de leads quentes com destaque visual
  * AC 10.7: #2 — Estado vazio com sugestao de ajuste
@@ -12,6 +13,9 @@
  * AC 11.4: #7 — Indicador visual de "ja enviado"
  * AC 11.5: #1 — Botao "Buscar Telefone" quando sem phone
  * AC 11.5: #5 — Apos telefone obtido, habilitar WhatsApp
+ * AC 11.6: #1 — Modo de selecao + botao Enviar em Massa
+ * AC 11.6: #8 — Marcacao de leads contactados
+ * AC 11.6: #9 — Protecoes e edge cases
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -102,6 +106,41 @@ vi.mock("@/components/tracking/PhoneLookupDialog", () => ({
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
+}));
+
+vi.mock("@/components/tracking/BulkWhatsAppDialog", () => ({
+  BulkWhatsAppDialog: ({
+    open,
+    leads,
+    onLeadSent,
+    onComplete,
+  }: {
+    open: boolean;
+    leads: Array<{ leadEmail: string; phone: string }>;
+    onLeadSent?: (email: string) => void;
+    onComplete?: () => void;
+    onOpenChange: (open: boolean) => void;
+    campaignId: string;
+    campaignName?: string;
+    productId?: string | null;
+  }) =>
+    open ? (
+      <div data-testid="mock-bulk-dialog">
+        <span data-testid="mock-bulk-lead-count">{leads.length}</span>
+        <button
+          data-testid="mock-bulk-send-one"
+          onClick={() => onLeadSent?.(leads[0]?.leadEmail)}
+        >
+          Send One
+        </button>
+        <button
+          data-testid="mock-bulk-complete"
+          onClick={() => onComplete?.()}
+        >
+          Complete
+        </button>
+      </div>
+    ) : null,
 }));
 
 // ==============================================
@@ -633,6 +672,291 @@ describe("OpportunityPanel", () => {
       await user.click(screen.getByTestId("whatsapp-send-button"));
 
       expect(screen.getByTestId("mock-composer-lead-phone")).toHaveTextContent("+5511777777777");
+    });
+  });
+
+  // ==============================================
+  // Story 11.6 Tests — Selection Mode & Bulk Send
+  // ==============================================
+
+  describe("Botao Enviar em Massa (AC 11.6 #1)", () => {
+    const leadsWithPhones = [
+      createMockOpportunityLead({ leadEmail: "a@test.com", phone: "+5511111111111", firstName: "A" }),
+      createMockOpportunityLead({ leadEmail: "b@test.com", phone: "+5511222222222", firstName: "B" }),
+      createMockOpportunityLead({ leadEmail: "c@test.com", phone: "+5511333333333", firstName: "C" }),
+    ];
+
+    it("exibe botao 'Enviar em Massa' quando >=2 leads com phone e campaignId", () => {
+      render(
+        <OpportunityPanel leads={leadsWithPhones} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      expect(screen.getByTestId("bulk-send-mode-button")).toBeInTheDocument();
+    });
+
+    it("nao exibe botao quando <2 leads com phone", () => {
+      const singleLead = [leadsWithPhones[0]];
+      render(
+        <OpportunityPanel leads={singleLead} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      expect(screen.queryByTestId("bulk-send-mode-button")).not.toBeInTheDocument();
+    });
+
+    it("nao exibe botao quando sem campaignId", () => {
+      render(
+        <OpportunityPanel leads={leadsWithPhones} isLoading={false} />
+      );
+
+      expect(screen.queryByTestId("bulk-send-mode-button")).not.toBeInTheDocument();
+    });
+
+    it("nao exibe botao quando leads ja foram enviados", () => {
+      const sentEmails = new Set(["a@test.com", "b@test.com", "c@test.com"]);
+      render(
+        <OpportunityPanel
+          leads={leadsWithPhones}
+          isLoading={false}
+          campaignId={CAMPAIGN_ID}
+          sentLeadEmails={sentEmails}
+        />
+      );
+
+      expect(screen.queryByTestId("bulk-send-mode-button")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Modo de selecao (AC 11.6 #1)", () => {
+    const leadsWithPhones = [
+      createMockOpportunityLead({ leadEmail: "a@test.com", phone: "+5511111111111", firstName: "A" }),
+      createMockOpportunityLead({ leadEmail: "b@test.com", phone: "+5511222222222", firstName: "B" }),
+      createMockOpportunityLead({ leadEmail: "c@test.com", phone: undefined, firstName: "C" }),
+    ];
+
+    it("ativa modo de selecao ao clicar no botao", async () => {
+      const user = userEvent.setup();
+      render(
+        <OpportunityPanel leads={leadsWithPhones} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      await user.click(screen.getByTestId("bulk-send-mode-button"));
+
+      expect(screen.getByTestId("selection-mode-header")).toBeInTheDocument();
+      expect(screen.getByTestId("select-all-checkbox")).toBeInTheDocument();
+      expect(screen.getByTestId("selection-counter")).toHaveTextContent("0 de 2 selecionados");
+    });
+
+    it("exibe checkboxes apenas para leads com phone e nao enviados", async () => {
+      const user = userEvent.setup();
+      render(
+        <OpportunityPanel leads={leadsWithPhones} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      await user.click(screen.getByTestId("bulk-send-mode-button"));
+
+      // 2 leads with phone → 2 checkboxes
+      const checkboxes = screen.getAllByTestId("lead-selection-checkbox");
+      expect(checkboxes).toHaveLength(2);
+    });
+
+    it("nao exibe checkbox para lead sem phone", async () => {
+      const user = userEvent.setup();
+      const leadsNoPhone = [
+        createMockOpportunityLead({ leadEmail: "x@test.com", phone: undefined }),
+        createMockOpportunityLead({ leadEmail: "a@test.com", phone: "+5511111111111" }),
+        createMockOpportunityLead({ leadEmail: "b@test.com", phone: "+5511222222222" }),
+      ];
+      render(
+        <OpportunityPanel leads={leadsNoPhone} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      await user.click(screen.getByTestId("bulk-send-mode-button"));
+
+      const checkboxes = screen.getAllByTestId("lead-selection-checkbox");
+      expect(checkboxes).toHaveLength(2); // only leads with phone
+    });
+
+    it("nao exibe checkbox para lead ja enviado", async () => {
+      const user = userEvent.setup();
+      // Need ≥2 selectable (phone + not sent) for the bulk button to appear
+      const fourLeads = [
+        createMockOpportunityLead({ leadEmail: "a@test.com", phone: "+5511111111111", firstName: "A" }),
+        createMockOpportunityLead({ leadEmail: "b@test.com", phone: "+5511222222222", firstName: "B" }),
+        createMockOpportunityLead({ leadEmail: "d@test.com", phone: "+5511444444444", firstName: "D" }),
+        createMockOpportunityLead({ leadEmail: "c@test.com", phone: undefined, firstName: "C" }),
+      ];
+      const sentEmails = new Set(["a@test.com"]);
+      render(
+        <OpportunityPanel
+          leads={fourLeads}
+          isLoading={false}
+          campaignId={CAMPAIGN_ID}
+          sentLeadEmails={sentEmails}
+        />
+      );
+
+      await user.click(screen.getByTestId("bulk-send-mode-button"));
+
+      // b and d have phone + not sent = 2 checkboxes. a is sent, c has no phone
+      const checkboxes = screen.getAllByTestId("lead-selection-checkbox");
+      expect(checkboxes).toHaveLength(2);
+    });
+
+    it("toggle selecao individual atualiza contador", async () => {
+      const user = userEvent.setup();
+      render(
+        <OpportunityPanel leads={leadsWithPhones} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      await user.click(screen.getByTestId("bulk-send-mode-button"));
+
+      const checkboxes = screen.getAllByTestId("lead-selection-checkbox");
+      await user.click(checkboxes[0]);
+
+      expect(screen.getByTestId("selection-counter")).toHaveTextContent("1 de 2 selecionados");
+    });
+
+    it("selecionar todos marca todos os leads selecionaveis", async () => {
+      const user = userEvent.setup();
+      render(
+        <OpportunityPanel leads={leadsWithPhones} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      await user.click(screen.getByTestId("bulk-send-mode-button"));
+      await user.click(screen.getByTestId("select-all-checkbox"));
+
+      expect(screen.getByTestId("selection-counter")).toHaveTextContent("2 de 2 selecionados");
+    });
+
+    it("desmarcar todos limpa selecao", async () => {
+      const user = userEvent.setup();
+      render(
+        <OpportunityPanel leads={leadsWithPhones} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      await user.click(screen.getByTestId("bulk-send-mode-button"));
+      await user.click(screen.getByTestId("select-all-checkbox")); // select all
+      await user.click(screen.getByTestId("select-all-checkbox")); // deselect all
+
+      expect(screen.getByTestId("selection-counter")).toHaveTextContent("0 de 2 selecionados");
+    });
+
+    it("sai do modo de selecao ao clicar Cancelar", async () => {
+      const user = userEvent.setup();
+      render(
+        <OpportunityPanel leads={leadsWithPhones} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      await user.click(screen.getByTestId("bulk-send-mode-button"));
+      expect(screen.getByTestId("selection-mode-header")).toBeInTheDocument();
+
+      await user.click(screen.getByTestId("cancel-selection-button"));
+
+      expect(screen.queryByTestId("selection-mode-header")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Botao Enviar WhatsApp (X) (AC 11.6 #1)", () => {
+    const leadsWithPhones = [
+      createMockOpportunityLead({ leadEmail: "a@test.com", phone: "+5511111111111", firstName: "A" }),
+      createMockOpportunityLead({ leadEmail: "b@test.com", phone: "+5511222222222", firstName: "B" }),
+      createMockOpportunityLead({ leadEmail: "c@test.com", phone: "+5511333333333", firstName: "C" }),
+    ];
+
+    it("exibe botao 'Enviar WhatsApp (X)' quando >=2 selecionados", async () => {
+      const user = userEvent.setup();
+      render(
+        <OpportunityPanel leads={leadsWithPhones} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      await user.click(screen.getByTestId("bulk-send-mode-button"));
+
+      const checkboxes = screen.getAllByTestId("lead-selection-checkbox");
+      await user.click(checkboxes[0]);
+      await user.click(checkboxes[1]);
+
+      const bulkButton = screen.getByTestId("bulk-send-button");
+      expect(bulkButton).toHaveTextContent("Enviar WhatsApp (2)");
+    });
+
+    it("nao exibe botao quando <2 selecionados", async () => {
+      const user = userEvent.setup();
+      render(
+        <OpportunityPanel leads={leadsWithPhones} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      await user.click(screen.getByTestId("bulk-send-mode-button"));
+
+      const checkboxes = screen.getAllByTestId("lead-selection-checkbox");
+      await user.click(checkboxes[0]); // only 1 selected
+
+      expect(screen.queryByTestId("bulk-send-button")).not.toBeInTheDocument();
+    });
+
+    it("abre BulkWhatsAppDialog ao clicar enviar", async () => {
+      const user = userEvent.setup();
+      render(
+        <OpportunityPanel leads={leadsWithPhones} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      await user.click(screen.getByTestId("bulk-send-mode-button"));
+
+      const checkboxes = screen.getAllByTestId("lead-selection-checkbox");
+      await user.click(checkboxes[0]);
+      await user.click(checkboxes[1]);
+      await user.click(screen.getByTestId("bulk-send-button"));
+
+      expect(screen.getByTestId("mock-bulk-dialog")).toBeInTheDocument();
+      expect(screen.getByTestId("mock-bulk-lead-count")).toHaveTextContent("2");
+    });
+  });
+
+  describe("Marcacao de leads contactados (AC 11.6 #8)", () => {
+    const leadsWithPhones = [
+      createMockOpportunityLead({ leadEmail: "a@test.com", phone: "+5511111111111", firstName: "A" }),
+      createMockOpportunityLead({ leadEmail: "b@test.com", phone: "+5511222222222", firstName: "B" }),
+      createMockOpportunityLead({ leadEmail: "c@test.com", phone: "+5511333333333", firstName: "C" }),
+    ];
+
+    it("marca lead como enviado apos onLeadSent callback", async () => {
+      const user = userEvent.setup();
+      render(
+        <OpportunityPanel leads={leadsWithPhones} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      // Enter selection mode and select 2 leads
+      await user.click(screen.getByTestId("bulk-send-mode-button"));
+      const checkboxes = screen.getAllByTestId("lead-selection-checkbox");
+      await user.click(checkboxes[0]);
+      await user.click(checkboxes[1]);
+      await user.click(screen.getByTestId("bulk-send-button"));
+
+      // Simulate one lead sent
+      await user.click(screen.getByTestId("mock-bulk-send-one"));
+
+      // Should show sent indicator for first lead
+      const sentIndicators = screen.getAllByTestId("whatsapp-sent-indicator");
+      expect(sentIndicators.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("sai do modo de selecao apos bulk complete", async () => {
+      const user = userEvent.setup();
+      render(
+        <OpportunityPanel leads={leadsWithPhones} isLoading={false} campaignId={CAMPAIGN_ID} />
+      );
+
+      await user.click(screen.getByTestId("bulk-send-mode-button"));
+      const checkboxes = screen.getAllByTestId("lead-selection-checkbox");
+      await user.click(checkboxes[0]);
+      await user.click(checkboxes[1]);
+      await user.click(screen.getByTestId("bulk-send-button"));
+
+      // Simulate complete
+      await user.click(screen.getByTestId("mock-bulk-complete"));
+
+      // Selection mode should be off
+      expect(screen.queryByTestId("selection-mode-header")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("mock-bulk-dialog")).not.toBeInTheDocument();
     });
   });
 });
