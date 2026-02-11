@@ -41,8 +41,8 @@ story_location: _bmad-output/implementation-artifacts
 
 # GIT BRANCH TRACKING
 # ===================
-current_branch: epic/11-whatsapp-integration
-base_branch: epic/10-campaign-tracking
+current_branch: epic/12-melhorias-ux-produtividade
+base_branch: epic/11-whatsapp-integration
 
 branch_strategy:
   # Branch naming convention:
@@ -68,7 +68,8 @@ branches:
   cleanup/2-mock-resilience: "Cleanup Sprint 2 - Mock Infrastructure (DONE)"
   epic/7-campaign-deployment-export: "Epic 7 - Campaign Deployment & Export (DONE)"
   epic/10-campaign-tracking: "Epic 10 - Campaign Tracking & Janela de Oportunidade (DONE)"
-  epic/11-whatsapp-integration: "Epic 11 - WhatsApp Integration via Z-API (IN-PROGRESS)"
+  epic/11-whatsapp-integration: "Epic 11 - WhatsApp Integration via Z-API (DONE)"
+  epic/12-melhorias-ux-produtividade: "Epic 12 - Melhorias Avulsas — UX & Produtividade (IN-PROGRESS)"
 
 development_status:
   # Epic 1: Foundation & Authentication
@@ -273,7 +274,7 @@ development_status:
   # Dependências: Epic 10 (OpportunityPanel, OpportunityEngine), Epic 4 (SignalHire), Epic 6 (AI generation)
   # Documento: _bmad-output/planning-artifacts/epic-11-whatsapp-integration.md
   # Sprint Change Proposal: _bmad-output/planning-artifacts/sprint-change-proposal-2026-02-10.md
-  epic-11: in-progress
+  epic-11: done
   11-1-zapi-integration-service-config: done  # ZApiService + IntegrationCard multi-field (3 credenciais) + API key storage
   11-2-schema-whatsapp-messages-tipos: done  # Code review: 1 HIGH, 3 MEDIUM, 1 LOW fixes (Insert type bug, no-op test, code org, redundant index, comment tests). 53 testes, 4150 total
   11-3-composer-mensagem-whatsapp: done  # Code review: 3 HIGH, 2 MEDIUM fixes (AC#5 text preservation, test rewrite, array sync, abort-on-close, type drift). 60 tests, 233 files, 4210 total
@@ -285,3 +286,13 @@ development_status:
   # Objetivo: Configurar projeto para deploy na Vercel sem quebrar funcionalidades existentes
   # Escopo: vercel.json, .env.example update, auditoria localhost, validação build
   11-8-deploy-vercel-preparation: done  # Code review: 1 CRITICAL fix (.gitignore !.env.example), 5 acknowledged. Build fixes (6 TS errors), vercel.json, .env.example, security audit. 245 files, 4464 tests, 0 failures
+  epic-11-retrospective: done  # Completed 2026-02-11 — 8/8 stories (100%), +358 new tests, ~44 code review fixes, 0 blockers. Key insight: npm run build as mandatory quality gate.
+
+  # Epic 12: Melhorias Avulsas — UX & Produtividade
+  # Stories independentes de melhorias pontuais na experiência do usuário
+  # Não requerem planejamento arquitetural — reutilizam infraestrutura existente
+  epic-12: in-progress
+  12-1-filtro-segmento-dialog-adicionar-leads: done  # Code review: 2 HIGH, 4 MEDIUM fixes (search reactivity, SegmentFilter position, AC#3/5/7 tests, AC#6 test strengthened). 28 story tests, 245 files, 4469 total
+  12-2-importacao-leads-csv: ready-for-dev  # Dialog multi-step (upload/paste CSV, mapeamento de colunas, seleção de segmento, criação de leads). Reutiliza padrão ImportCampaignResultsDialog + csv-parser.
+  12-3-enriquecimento-apollo-leads-importados: backlog  # Enriquecimento batch Apollo para leads importados via CSV (email, LinkedIn, foto). Depende de 12-2.
+  12-4-suporte-importacao-excel: backlog  # Suporte a importação de arquivos .xlsx (requer lib xlsx). Opcional. Depende de 12-2.

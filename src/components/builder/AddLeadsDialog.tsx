@@ -12,7 +12,7 @@
 
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { Search, Loader2, Users, X } from "lucide-react";
 import {
   Dialog,
@@ -30,6 +30,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useMyLeads } from "@/hooks/use-my-leads";
 import { useCampaignLeads } from "@/hooks/use-campaign-leads";
+import { SegmentFilter } from "@/components/leads/SegmentFilter";
 import type { Lead } from "@/types/lead";
 
 interface AddLeadsDialogProps {
@@ -51,10 +52,16 @@ export function AddLeadsDialog({
 }: AddLeadsDialogProps) {
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const debouncedSearch = useDebounce(search, 300);
 
-  // Fetch available leads with search filter
-  const { leads, isLoading } = useMyLeads({ search: debouncedSearch });
+  // Fetch available leads with search and segment filter
+  const { leads, isLoading, updateFilters } = useMyLeads({ search: debouncedSearch });
+
+  // Sync filters to hook's internal state when they change
+  useEffect(() => {
+    updateFilters({ segmentId: selectedSegmentId, search: debouncedSearch });
+  }, [selectedSegmentId, debouncedSearch, updateFilters]);
 
   // Fetch leads already in campaign and mutations
   const {
@@ -137,6 +144,7 @@ export function AddLeadsDialog({
       if (!newOpen) {
         setSearch("");
         setSelectedIds(new Set());
+        setSelectedSegmentId(null);
       }
       onOpenChange(newOpen);
     },
@@ -171,6 +179,15 @@ export function AddLeadsDialog({
             aria-label="Buscar leads"
           />
         </div>
+
+        {/* Segment Filter - Story 12.1 AC #1 */}
+        <SegmentFilter
+          selectedSegmentId={selectedSegmentId}
+          onSegmentChange={(segmentId) => {
+            setSelectedSegmentId(segmentId);
+            setSelectedIds(new Set());
+          }}
+        />
 
         {/* Leads already in campaign - AC #7 */}
         {campaignLeads.length > 0 && (

@@ -81,10 +81,35 @@ const mockCampaignLeads = [
   },
 ];
 
+// Mock SegmentFilter
+let capturedSegmentFilterProps: { selectedSegmentId: string | null; onSegmentChange: (id: string | null) => void } | null = null;
+vi.mock("@/components/leads/SegmentFilter", () => ({
+  SegmentFilter: (props: { selectedSegmentId: string | null; onSegmentChange: (id: string | null) => void }) => {
+    capturedSegmentFilterProps = props;
+    return (
+      <div data-testid="segment-filter">
+        <button
+          data-testid="segment-filter-select"
+          onClick={() => props.onSegmentChange("seg-1")}
+        >
+          {props.selectedSegmentId ? `Segmento: ${props.selectedSegmentId}` : "Todos os Leads"}
+        </button>
+        <button
+          data-testid="segment-filter-clear"
+          onClick={() => props.onSegmentChange(null)}
+        >
+          Limpar
+        </button>
+      </div>
+    );
+  },
+}));
+
 // Mock useMyLeads
+const mockUpdateFilters = vi.fn();
 const mockUseMyLeads = vi.fn();
 vi.mock("@/hooks/use-my-leads", () => ({
-  useMyLeads: () => mockUseMyLeads(),
+  useMyLeads: (filters?: Record<string, unknown>) => mockUseMyLeads(filters),
 }));
 
 // Mock useCampaignLeads
@@ -126,6 +151,7 @@ describe("AddLeadsDialog (Story 5.7)", () => {
     mockUseMyLeads.mockReturnValue({
       leads: mockLeads,
       isLoading: false,
+      updateFilters: mockUpdateFilters,
     });
     mockUseCampaignLeads.mockReturnValue({
       leads: mockCampaignLeads,
@@ -177,6 +203,7 @@ describe("AddLeadsDialog (Story 5.7)", () => {
       mockUseMyLeads.mockReturnValue({
         leads: mockLeads,
         isLoading: false,
+        updateFilters: mockUpdateFilters,
       });
 
       render(<AddLeadsDialog {...defaultProps} />, { wrapper: createWrapper() });
@@ -192,6 +219,7 @@ describe("AddLeadsDialog (Story 5.7)", () => {
       mockUseMyLeads.mockReturnValue({
         leads: [],
         isLoading: false,
+        updateFilters: mockUpdateFilters,
       });
 
       render(<AddLeadsDialog {...defaultProps} />, { wrapper: createWrapper() });
@@ -203,6 +231,7 @@ describe("AddLeadsDialog (Story 5.7)", () => {
       mockUseMyLeads.mockReturnValue({
         leads: [],
         isLoading: true,
+        updateFilters: mockUpdateFilters,
       });
 
       render(<AddLeadsDialog {...defaultProps} />, { wrapper: createWrapper() });
@@ -365,12 +394,122 @@ describe("AddLeadsDialog (Story 5.7)", () => {
           },
         ],
         isLoading: false,
+        updateFilters: mockUpdateFilters,
       });
 
       render(<AddLeadsDialog {...defaultProps} />, { wrapper: createWrapper() });
 
       // Bob should only appear in campaign leads, not available leads
       expect(screen.getByText(/Leads disponiveis \(2\)/)).toBeInTheDocument();
+    });
+  });
+
+  describe("Segment Filter (Story 12.1)", () => {
+    beforeEach(() => {
+      capturedSegmentFilterProps = null;
+    });
+
+    it("renders SegmentFilter in the dialog (AC #1)", () => {
+      render(<AddLeadsDialog {...defaultProps} />, { wrapper: createWrapper() });
+
+      expect(screen.getByTestId("segment-filter")).toBeInTheDocument();
+    });
+
+    it("calls updateFilters with segmentId when segment is selected (AC #2)", () => {
+      render(<AddLeadsDialog {...defaultProps} />, { wrapper: createWrapper() });
+
+      // Initial useEffect syncs null segmentId
+      expect(mockUpdateFilters).toHaveBeenCalledWith(
+        expect.objectContaining({ segmentId: null })
+      );
+
+      mockUpdateFilters.mockClear();
+
+      // Select a segment
+      fireEvent.click(screen.getByTestId("segment-filter-select"));
+
+      // updateFilters called with new segmentId
+      expect(mockUpdateFilters).toHaveBeenCalledWith(
+        expect.objectContaining({ segmentId: "seg-1" })
+      );
+    });
+
+    it("combines search and segment filter simultaneously (AC #6)", () => {
+      render(<AddLeadsDialog {...defaultProps} />, { wrapper: createWrapper() });
+
+      // Type in search
+      const searchInput = screen.getByTestId("lead-search-input");
+      fireEvent.change(searchInput, { target: { value: "John" } });
+
+      // Select segment
+      fireEvent.click(screen.getByTestId("segment-filter-select"));
+
+      // Both filters are synced via updateFilters simultaneously
+      expect(mockUpdateFilters).toHaveBeenCalledWith(
+        expect.objectContaining({ segmentId: "seg-1", search: "John" })
+      );
+    });
+
+    it("resets segment filter when dialog closes (AC #7)", () => {
+      render(<AddLeadsDialog {...defaultProps} />, { wrapper: createWrapper() });
+
+      // Select a segment
+      fireEvent.click(screen.getByTestId("segment-filter-select"));
+      expect(screen.getByText("Segmento: seg-1")).toBeInTheDocument();
+
+      // Close dialog
+      fireEvent.click(screen.getByText("Cancelar"));
+
+      expect(defaultProps.onOpenChange).toHaveBeenCalledWith(false);
+      // Verify segment was actually reset to null
+      expect(screen.getByText("Todos os Leads")).toBeInTheDocument();
+    });
+
+    it("clears lead selection when segment changes (AC #4)", () => {
+      render(<AddLeadsDialog {...defaultProps} />, { wrapper: createWrapper() });
+
+      // Select leads
+      fireEvent.click(screen.getByTestId("lead-row-lead-1"));
+      fireEvent.click(screen.getByTestId("lead-row-lead-2"));
+      expect(screen.getByText("2 selecionados")).toBeInTheDocument();
+
+      // Change segment — should clear selection
+      fireEvent.click(screen.getByTestId("segment-filter-select"));
+      expect(screen.queryByText("2 selecionados")).not.toBeInTheDocument();
+      expect(screen.queryByText("1 selecionado")).not.toBeInTheDocument();
+    });
+
+    it("removes segment filter when 'Todos os Leads' is selected (AC #3)", () => {
+      render(<AddLeadsDialog {...defaultProps} />, { wrapper: createWrapper() });
+
+      // Select a segment
+      fireEvent.click(screen.getByTestId("segment-filter-select"));
+      expect(screen.getByText("Segmento: seg-1")).toBeInTheDocument();
+
+      mockUpdateFilters.mockClear();
+
+      // Clear segment (select "Todos os Leads")
+      fireEvent.click(screen.getByTestId("segment-filter-clear"));
+
+      // Verify segment was cleared
+      expect(screen.getByText("Todos os Leads")).toBeInTheDocument();
+      // Verify updateFilters was called with null segmentId
+      expect(mockUpdateFilters).toHaveBeenCalledWith(
+        expect.objectContaining({ segmentId: null })
+      );
+    });
+
+    it("updates available leads count when segment filter changes data (AC #5)", () => {
+      // Simulate filtered data (only 1 lead in the selected segment)
+      mockUseMyLeads.mockReturnValue({
+        leads: [mockLeads[0]],
+        isLoading: false,
+        updateFilters: mockUpdateFilters,
+      });
+
+      render(<AddLeadsDialog {...defaultProps} />, { wrapper: createWrapper() });
+
+      expect(screen.getByText(/Leads disponiveis \(1\)/)).toBeInTheDocument();
     });
   });
 });
