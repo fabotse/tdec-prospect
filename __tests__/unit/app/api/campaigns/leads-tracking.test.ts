@@ -2,9 +2,10 @@
  * Unit Tests for GET /api/campaigns/[campaignId]/leads/tracking
  * Story 11.4: Phone enrichment from leads table
  * Story 11.5: leadId enrichment from leads table (AC#6)
+ * Story 11.7: WhatsApp message stats per lead (AC#8)
  *
  * Tests: phone enrichment from DB, leadId enrichment, Instantly phone preserved,
- *        empty leads, auth, invalid UUID, missing campaign
+ *        empty leads, auth, invalid UUID, missing campaign, WhatsApp aggregate stats
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -97,7 +98,7 @@ const dummyRequest = new Request("http://localhost/api/campaigns/x/leads/trackin
 function setupHappyPath(
   trackingLeads: LeadTracking[],
   dbLeads: Array<{ id?: string; email: string; phone: string | null }> = [],
-  sentMessages: Array<{ lead_id: string }> = []
+  sentMessages: Array<{ lead_id: string; status: string; sent_at: string | null }> = []
 ) {
   mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
 
@@ -289,7 +290,7 @@ describe("GET /api/campaigns/[campaignId]/leads/tracking", () => {
         { id: "lid-1", email: "sent@test.com", phone: "+5511999999999" },
         { id: "lid-2", email: "unsent@test.com", phone: "+5511888888888" },
       ];
-      const sentMessages = [{ lead_id: "lid-1" }];
+      const sentMessages = [{ lead_id: "lid-1", status: "sent", sent_at: "2026-02-10T14:00:00Z" }];
 
       setupHappyPath(trackingLeads, dbLeads, sentMessages);
 
@@ -371,6 +372,97 @@ describe("GET /api/campaigns/[campaignId]/leads/tracking", () => {
       const body = await response.json();
 
       expect(body.data[0].campaignId).toBe(CAMPAIGN_ID);
+    });
+  });
+
+  describe("WhatsApp stats per lead (Story 11.7 AC#8)", () => {
+    it("returns whatsappMessageCount, lastWhatsAppSentAt, lastWhatsAppStatus", async () => {
+      const trackingLeads = [
+        makeTrackingLead({ leadEmail: "lead1@test.com" }),
+      ];
+      const dbLeads = [
+        { id: "lid-1", email: "lead1@test.com", phone: "+5511999999999" },
+      ];
+      const sentMessages = [
+        { lead_id: "lid-1", status: "sent", sent_at: "2026-02-10T14:00:00Z" },
+        { lead_id: "lid-1", status: "sent", sent_at: "2026-02-10T16:00:00Z" },
+      ];
+
+      setupHappyPath(trackingLeads, dbLeads, sentMessages);
+
+      const response = await GET(dummyRequest, makeParams());
+      const body = await response.json();
+
+      expect(body.data[0].whatsappMessageCount).toBe(2);
+      expect(body.data[0].lastWhatsAppSentAt).toBe("2026-02-10T16:00:00Z");
+      expect(body.data[0].lastWhatsAppStatus).toBe("sent");
+    });
+
+    it("returns 0 count when lead has no WhatsApp messages", async () => {
+      const trackingLeads = [
+        makeTrackingLead({ leadEmail: "no-wa@test.com" }),
+      ];
+      const dbLeads = [
+        { id: "lid-1", email: "no-wa@test.com", phone: "+5511999999999" },
+      ];
+
+      setupHappyPath(trackingLeads, dbLeads, []);
+
+      const response = await GET(dummyRequest, makeParams());
+      const body = await response.json();
+
+      expect(body.data[0].whatsappMessageCount).toBe(0);
+      expect(body.data[0].lastWhatsAppSentAt).toBeNull();
+      expect(body.data[0].lastWhatsAppStatus).toBeNull();
+    });
+
+    it("tracks latest status based on sent_at", async () => {
+      const trackingLeads = [
+        makeTrackingLead({ leadEmail: "lead1@test.com" }),
+      ];
+      const dbLeads = [
+        { id: "lid-1", email: "lead1@test.com", phone: "+5511999999999" },
+      ];
+      const sentMessages = [
+        { lead_id: "lid-1", status: "sent", sent_at: "2026-02-10T10:00:00Z" },
+        { lead_id: "lid-1", status: "failed", sent_at: null },
+      ];
+
+      setupHappyPath(trackingLeads, dbLeads, sentMessages);
+
+      const response = await GET(dummyRequest, makeParams());
+      const body = await response.json();
+
+      expect(body.data[0].whatsappMessageCount).toBe(2);
+      // Last by sent_at is the first one (the failed one has null sent_at)
+      expect(body.data[0].lastWhatsAppSentAt).toBe("2026-02-10T10:00:00Z");
+      expect(body.data[0].lastWhatsAppStatus).toBe("sent");
+    });
+
+    it("handles multiple leads with different WhatsApp stats", async () => {
+      const trackingLeads = [
+        makeTrackingLead({ leadEmail: "lead1@test.com" }),
+        makeTrackingLead({ leadEmail: "lead2@test.com" }),
+      ];
+      const dbLeads = [
+        { id: "lid-1", email: "lead1@test.com", phone: "+5511999999999" },
+        { id: "lid-2", email: "lead2@test.com", phone: "+5511888888888" },
+      ];
+      const sentMessages = [
+        { lead_id: "lid-1", status: "sent", sent_at: "2026-02-10T14:00:00Z" },
+        { lead_id: "lid-1", status: "sent", sent_at: "2026-02-10T16:00:00Z" },
+        { lead_id: "lid-2", status: "failed", sent_at: null },
+      ];
+
+      setupHappyPath(trackingLeads, dbLeads, sentMessages);
+
+      const response = await GET(dummyRequest, makeParams());
+      const body = await response.json();
+
+      expect(body.data[0].whatsappMessageCount).toBe(2);
+      expect(body.data[0].lastWhatsAppSentAt).toBe("2026-02-10T16:00:00Z");
+      expect(body.data[1].whatsappMessageCount).toBe(1);
+      expect(body.data[1].lastWhatsAppStatus).toBe("failed");
     });
   });
 });

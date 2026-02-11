@@ -1,6 +1,7 @@
 /**
  * LeadTrackingTable Tests
  * Story 10.5: Lead Tracking Detail
+ * Story 11.7: WhatsApp indicator column (AC #3, #7)
  *
  * AC: #1 — Tabela com 6 colunas, valores corretos, nomes formatados
  * AC: #2 — Ordenacao client-side
@@ -8,6 +9,7 @@
  * AC: #4 — Skeleton loading state
  * AC: #5 — Paginacao client-side
  * AC: #6 — Estado vazio
+ * AC 11.7 #3 — WhatsApp icon for leads with messages + tooltip
  */
 
 import { describe, it, expect, vi } from "vitest";
@@ -509,6 +511,97 @@ describe("LeadTrackingTable", () => {
 
       const badge = screen.getByTestId("high-interest-badge");
       expect(badge.className).toContain("cursor-pointer");
+    });
+  });
+
+  // ==============================================
+  // Story 11.7 — WhatsApp indicator column (AC #3, #7)
+  // ==============================================
+
+  describe("coluna WhatsApp (Story 11.7 AC #3)", () => {
+    it("renderiza header WA", () => {
+      render(<LeadTrackingTable leads={mockLeads} isLoading={false} />);
+
+      expect(screen.getByText("WA")).toBeInTheDocument();
+    });
+
+    it("exibe icone MessageCircle para leads com mensagens WhatsApp", () => {
+      const leads = [
+        createMockLeadTracking({
+          leadEmail: "sent@test.com",
+          whatsappMessageCount: 2,
+          lastWhatsAppSentAt: "2026-02-10T14:00:00Z",
+          lastWhatsAppStatus: "sent",
+        }),
+      ];
+
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      expect(screen.getByTestId("whatsapp-indicator")).toBeInTheDocument();
+    });
+
+    it("nao exibe icone para leads sem mensagens WhatsApp (AC #3)", () => {
+      const leads = [
+        createMockLeadTracking({
+          leadEmail: "unsent@test.com",
+          whatsappMessageCount: 0,
+        }),
+      ];
+
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      expect(screen.queryByTestId("whatsapp-indicator")).not.toBeInTheDocument();
+    });
+
+    it("nao exibe icone quando whatsappMessageCount e undefined", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "no-data@test.com" }),
+      ];
+
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      expect(screen.queryByTestId("whatsapp-indicator")).not.toBeInTheDocument();
+    });
+
+    it("tooltip mostra contagem e data para multiplas mensagens", async () => {
+      const user = userEvent.setup();
+      const leads = [
+        createMockLeadTracking({
+          leadEmail: "multi@test.com",
+          whatsappMessageCount: 3,
+          lastWhatsAppSentAt: "2026-02-10T14:00:00Z",
+          lastWhatsAppStatus: "sent",
+        }),
+      ];
+
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const indicator = screen.getByTestId("whatsapp-indicator");
+      await user.hover(indicator);
+
+      // Tooltip should mention "3 mensagens WhatsApp"
+      const tooltip = await screen.findByRole("tooltip");
+      expect(tooltip.textContent).toContain("3 mensagens WhatsApp");
+    });
+
+    it("tooltip mostra 'WhatsApp enviado em' para mensagem unica", async () => {
+      const user = userEvent.setup();
+      const leads = [
+        createMockLeadTracking({
+          leadEmail: "single@test.com",
+          whatsappMessageCount: 1,
+          lastWhatsAppSentAt: "2026-02-10T14:00:00Z",
+          lastWhatsAppStatus: "sent",
+        }),
+      ];
+
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const indicator = screen.getByTestId("whatsapp-indicator");
+      await user.hover(indicator);
+
+      const tooltip = await screen.findByRole("tooltip");
+      expect(tooltip.textContent).toContain("WhatsApp enviado em");
     });
   });
 });

@@ -48,6 +48,32 @@ vi.mock("@/hooks/use-lead-interactions", () => ({
   })),
 }));
 
+// Mock useWhatsAppMessages hook (Story 11.7)
+const mockUseWhatsAppMessages = vi.fn(() => ({
+  messages: [],
+  isLoading: false,
+  error: null,
+  refetch: vi.fn(),
+}));
+vi.mock("@/hooks/use-whatsapp-messages", () => ({
+  useWhatsAppMessages: (...args: unknown[]) => mockUseWhatsAppMessages(...args),
+  WHATSAPP_MESSAGES_QUERY_KEY: vi.fn(),
+}));
+
+// Mock getWhatsAppStatusIcon (Story 11.7)
+vi.mock("@/components/tracking/LeadTrackingTable", () => ({
+  getWhatsAppStatusIcon: vi.fn((status: string) => {
+    const map: Record<string, { icon: React.FC<{ className?: string }>, color: string, label: string }> = {
+      pending: { icon: ({ className }: { className?: string }) => <span data-testid="icon-clock" className={className}>clock</span>, color: "text-muted-foreground", label: "Pendente" },
+      sent: { icon: ({ className }: { className?: string }) => <span data-testid="icon-check" className={className}>check</span>, color: "text-green-600", label: "Enviado" },
+      delivered: { icon: ({ className }: { className?: string }) => <span data-testid="icon-checkcheck" className={className}>checkcheck</span>, color: "text-blue-500", label: "Entregue" },
+      read: { icon: ({ className }: { className?: string }) => <span data-testid="icon-checkcheck-read" className={className}>checkcheck</span>, color: "text-blue-700", label: "Lido" },
+      failed: { icon: ({ className }: { className?: string }) => <span data-testid="icon-x" className={className}>x</span>, color: "text-red-500", label: "Falhou" },
+    };
+    return map[status] ?? map["pending"];
+  }),
+}));
+
 // Mock useIcebreakerEnrichment hook (Story 6.5.6)
 const mockGenerateForLead = vi.fn();
 vi.mock("@/hooks/use-icebreaker-enrichment", () => ({
@@ -555,6 +581,230 @@ describe("LeadDetailPanel", () => {
       );
 
       expect(screen.queryByText(/Gerado em/)).not.toBeInTheDocument();
+    });
+  });
+
+  // ==============================================
+  // STORY 11.7: WHATSAPP MESSAGES SECTION
+  // ==============================================
+
+  describe("WhatsApp Messages Section (Story 11.7)", () => {
+    beforeEach(() => {
+      mockUseWhatsAppMessages.mockReturnValue({
+        messages: [],
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      });
+    });
+
+    it("AC#4: displays 'Mensagens WhatsApp' section header", () => {
+      const lead = createMockLead();
+      renderWithProviders(
+        <LeadDetailPanel lead={lead} isOpen={true} onClose={vi.fn()} />
+      );
+
+      expect(screen.getByText("Mensagens WhatsApp")).toBeInTheDocument();
+    });
+
+    it("AC#5: shows empty state when no WhatsApp messages", () => {
+      const lead = createMockLead();
+      renderWithProviders(
+        <LeadDetailPanel lead={lead} isOpen={true} onClose={vi.fn()} />
+      );
+
+      expect(screen.getByText("Nenhuma mensagem WhatsApp enviada")).toBeInTheDocument();
+    });
+
+    it("AC#4: calls useWhatsAppMessages with lead email", () => {
+      const lead = createMockLead();
+      renderWithProviders(
+        <LeadDetailPanel lead={lead} isOpen={true} onClose={vi.fn()} />
+      );
+
+      expect(mockUseWhatsAppMessages).toHaveBeenCalledWith(
+        undefined,
+        "joao@empresa.com",
+        { enabled: true }
+      );
+    });
+
+    it("AC#4: displays messages grouped by campaign name", () => {
+      mockUseWhatsAppMessages.mockReturnValue({
+        messages: [
+          {
+            id: "msg-1",
+            tenant_id: "t1",
+            campaign_id: "c1",
+            lead_id: "l1",
+            phone: "+5511999991111",
+            message: "Olá, tudo bem? Gostaria de conversar sobre nossos serviços.",
+            status: "sent",
+            external_message_id: null,
+            external_zaap_id: null,
+            error_message: null,
+            sent_at: "2026-02-10T14:00:00Z",
+            created_at: "2026-02-10T14:00:00Z",
+            lead_email: "joao@empresa.com",
+            lead_name: "João Silva",
+            campaign_name: "Campanha Fevereiro",
+          },
+          {
+            id: "msg-2",
+            tenant_id: "t1",
+            campaign_id: "c2",
+            lead_id: "l1",
+            phone: "+5511999991111",
+            message: "Seguimento da proposta enviada.",
+            status: "delivered",
+            external_message_id: null,
+            external_zaap_id: null,
+            error_message: null,
+            sent_at: "2026-02-09T10:00:00Z",
+            created_at: "2026-02-09T10:00:00Z",
+            lead_email: "joao@empresa.com",
+            lead_name: "João Silva",
+            campaign_name: "Campanha Janeiro",
+          },
+        ],
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      });
+
+      const lead = createMockLead();
+      renderWithProviders(
+        <LeadDetailPanel lead={lead} isOpen={true} onClose={vi.fn()} />
+      );
+
+      // Campaign headings
+      expect(screen.getByText("Campanha Fevereiro")).toBeInTheDocument();
+      expect(screen.getByText("Campanha Janeiro")).toBeInTheDocument();
+
+      // Message previews
+      expect(screen.getByText(/Olá, tudo bem/)).toBeInTheDocument();
+      expect(screen.getByText(/Seguimento da proposta/)).toBeInTheDocument();
+    });
+
+    it("AC#7: displays status icon for each message", () => {
+      mockUseWhatsAppMessages.mockReturnValue({
+        messages: [
+          {
+            id: "msg-1",
+            tenant_id: "t1",
+            campaign_id: "c1",
+            lead_id: "l1",
+            phone: "+5511999991111",
+            message: "Mensagem de teste",
+            status: "sent",
+            external_message_id: null,
+            external_zaap_id: null,
+            error_message: null,
+            sent_at: "2026-02-10T14:00:00Z",
+            created_at: "2026-02-10T14:00:00Z",
+            lead_email: "joao@empresa.com",
+            lead_name: "João Silva",
+            campaign_name: "Campanha Teste",
+          },
+        ],
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      });
+
+      const lead = createMockLead();
+      renderWithProviders(
+        <LeadDetailPanel lead={lead} isOpen={true} onClose={vi.fn()} />
+      );
+
+      // Status label from getWhatsAppStatusIcon mock
+      expect(screen.getByText("Enviado")).toBeInTheDocument();
+      // Phone number
+      expect(screen.getByText("+5511999991111")).toBeInTheDocument();
+    });
+
+    it("AC#5: truncates long messages to ~100 characters", () => {
+      const longMessage = "A".repeat(150);
+      mockUseWhatsAppMessages.mockReturnValue({
+        messages: [
+          {
+            id: "msg-1",
+            tenant_id: "t1",
+            campaign_id: "c1",
+            lead_id: "l1",
+            phone: "+5511999991111",
+            message: longMessage,
+            status: "sent",
+            external_message_id: null,
+            external_zaap_id: null,
+            error_message: null,
+            sent_at: "2026-02-10T14:00:00Z",
+            created_at: "2026-02-10T14:00:00Z",
+            lead_email: "joao@empresa.com",
+            lead_name: "João Silva",
+            campaign_name: "Campanha Teste",
+          },
+        ],
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      });
+
+      const lead = createMockLead();
+      renderWithProviders(
+        <LeadDetailPanel lead={lead} isOpen={true} onClose={vi.fn()} />
+      );
+
+      // Should show truncated text (100 chars + "...")
+      const truncated = "A".repeat(100) + "...";
+      expect(screen.getByText(truncated)).toBeInTheDocument();
+    });
+
+    it("AC#4: shows loading state", () => {
+      mockUseWhatsAppMessages.mockReturnValue({
+        messages: [],
+        isLoading: true,
+        error: null,
+        refetch: vi.fn(),
+      });
+
+      const lead = createMockLead();
+      renderWithProviders(
+        <LeadDetailPanel lead={lead} isOpen={true} onClose={vi.fn()} />
+      );
+
+      // Should NOT show empty state while loading
+      expect(screen.queryByText("Nenhuma mensagem WhatsApp enviada")).not.toBeInTheDocument();
+    });
+
+    it("AC#7: renders whatsapp_sent interaction with green MessageCircle icon", async () => {
+      const { useLeadInteractions } = await import(
+        "@/hooks/use-lead-interactions"
+      );
+      vi.mocked(useLeadInteractions).mockReturnValue({
+        data: [
+          {
+            id: "int-wa-1",
+            leadId: "lead-123",
+            tenantId: "tenant-1",
+            type: "whatsapp_sent",
+            content: "Mensagem WhatsApp enviada para +5511999991111",
+            createdAt: "2026-02-10T14:00:00Z",
+            createdBy: "user-1",
+          },
+        ],
+        isLoading: false,
+        isFetching: false,
+        error: null,
+        refetch: vi.fn(),
+      });
+
+      const lead = createMockLead();
+      renderWithProviders(
+        <LeadDetailPanel lead={lead} isOpen={true} onClose={vi.fn()} />
+      );
+
+      expect(screen.getByText("Mensagem WhatsApp enviada para +5511999991111")).toBeInTheDocument();
     });
   });
 });

@@ -127,6 +127,19 @@ export function isValidWhatsAppMessageStatus(
 }
 
 // ==============================================
+// WHATSAPP MESSAGE WITH LEAD (Story 11.7)
+// ==============================================
+
+/**
+ * WhatsApp message enriched with lead info via join
+ * AC 11.7 #2 — Used by whatsapp-messages API endpoints
+ */
+export interface WhatsAppMessageWithLead extends WhatsAppMessage {
+  lead_email: string;
+  lead_name: string | null;
+}
+
+// ==============================================
 // COMPOSITE TYPES
 // ==============================================
 

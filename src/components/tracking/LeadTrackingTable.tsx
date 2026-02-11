@@ -1,6 +1,7 @@
 /**
  * LeadTrackingTable Component
  * Story 10.5: Lead Tracking Detail
+ * Story 11.7: WhatsApp indicator column (AC #3, #7)
  *
  * AC: #1 — Tabela estilo Airtable com Email, Nome, Aberturas, Cliques, Respondeu, Ultimo Open
  * AC: #2 — Ordenacao client-side por qualquer coluna
@@ -8,12 +9,14 @@
  * AC: #4 — Skeleton loading state
  * AC: #5 — Paginacao client-side
  * AC: #6 — Estado vazio
+ * AC 11.7 #3 — WhatsApp icon for leads with messages
+ * AC 11.7 #7 — Status icons following WhatsApp conventions
  */
 
 "use client";
 
 import { useState, useMemo } from "react";
-import { ChevronUp, ChevronDown, ChevronsUpDown, MailOpen, AlertCircle } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, MailOpen, AlertCircle, MessageCircle, Check, CheckCheck, X, Clock } from "lucide-react";
 import {
   Table,
   TableHeader,
@@ -22,10 +25,17 @@ import {
   TableRow,
   TableCell,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { LeadTracking } from "@/types/tracking";
+import type { WhatsAppMessageStatus } from "@/types/database";
 import { formatRelativeTime } from "@/components/tracking/SyncIndicator";
 
 // ==============================================
@@ -101,6 +111,36 @@ function compareLead(a: LeadTracking, b: LeadTracking, column: SortableColumn, d
 }
 
 // ==============================================
+// WHATSAPP STATUS HELPER (Story 11.7 AC#7)
+// ==============================================
+
+export function getWhatsAppStatusIcon(status: WhatsAppMessageStatus) {
+  switch (status) {
+    case "pending":
+      return { icon: Clock, color: "text-muted-foreground", label: "Pendente" };
+    case "sent":
+      return { icon: Check, color: "text-green-600 dark:text-green-400", label: "Enviado" };
+    case "delivered":
+      return { icon: CheckCheck, color: "text-blue-500", label: "Entregue" };
+    case "read":
+      return { icon: CheckCheck, color: "text-blue-700 dark:text-blue-300", label: "Lido" };
+    case "failed":
+      return { icon: X, color: "text-red-500", label: "Falhou" };
+  }
+}
+
+function formatWhatsAppDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return "—";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(dateStr));
+}
+
+// ==============================================
 // SORT INDICATOR
 // ==============================================
 
@@ -160,6 +200,7 @@ function SkeletonRows() {
           <TableCell><Skeleton className="h-4 w-16" /></TableCell>
           <TableCell><Skeleton className="h-4 w-12" /></TableCell>
           <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+          <TableCell><Skeleton className="h-4 w-4" /></TableCell>
         </TableRow>
       ))}
     </>
@@ -230,6 +271,7 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
   }
 
   return (
+    <TooltipProvider>
     <div data-testid="lead-tracking-table" className="flex flex-col gap-4">
       <Table>
         <TableHeader>
@@ -240,13 +282,16 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
             <SortableHeader label="Cliques" column="clickCount" sort={sort} onSort={handleSort} />
             <SortableHeader label="Respondeu" column="hasReplied" sort={sort} onSort={handleSort} />
             <SortableHeader label="Ultimo Open" column="lastOpenAt" sort={sort} onSort={handleSort} />
+            <TableHead className="w-10">WA</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {isLoading ? (
             <SkeletonRows />
           ) : (
-            paginatedLeads.map((lead) => (
+            paginatedLeads.map((lead) => {
+              const waCount = lead.whatsappMessageCount ?? 0;
+              return (
               <TableRow key={lead.leadEmail} data-testid="lead-row">
                 <TableCell className="font-medium">{lead.leadEmail}</TableCell>
                 <TableCell>{formatName(lead)}</TableCell>
@@ -271,8 +316,25 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
                 <TableCell>{lead.clickCount}</TableCell>
                 <TableCell>{lead.hasReplied ? "Sim" : "Nao"}</TableCell>
                 <TableCell>{lead.lastOpenAt ? formatRelativeTime(lead.lastOpenAt) : "-"}</TableCell>
+                <TableCell>
+                  {waCount > 0 && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span data-testid="whatsapp-indicator" className="cursor-pointer">
+                          <MessageCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {waCount === 1
+                          ? `WhatsApp enviado em ${formatWhatsAppDate(lead.lastWhatsAppSentAt)}`
+                          : `${waCount} mensagens WhatsApp | Última: ${formatWhatsAppDate(lead.lastWhatsAppSentAt)}`}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </TableCell>
               </TableRow>
-            ))
+              );
+            })
           )}
         </TableBody>
       </Table>
@@ -308,5 +370,6 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
         </div>
       )}
     </div>
+    </TooltipProvider>
   );
 }

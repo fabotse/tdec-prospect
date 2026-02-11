@@ -1,3 +1,5 @@
+import type { WhatsAppMessageStatus } from "@/types/database";
+
 // ==============================================
 // EVENT TYPES
 // ==============================================
@@ -146,6 +148,10 @@ export interface LeadTracking {
   lastName?: string;
   phone?: string;
   leadId?: string;
+  /** Story 11.7 AC#8 — WhatsApp message stats from aggregate query */
+  whatsappMessageCount?: number;
+  lastWhatsAppSentAt?: string | null;
+  lastWhatsAppStatus?: WhatsAppMessageStatus | null;
 }
 
 // ==============================================

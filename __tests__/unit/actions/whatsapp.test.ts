@@ -315,7 +315,7 @@ describe("sendWhatsAppMessage", () => {
       expect(result.success).toBe(false);
     });
 
-    it("rejects phone with non-numeric characters", async () => {
+    it("rejects phone with non-numeric characters that result in too few digits", async () => {
       const result = await sendWhatsAppMessage({
         ...validInput,
         phone: "55abc99999",
@@ -334,6 +334,40 @@ describe("sendWhatsAppMessage", () => {
       });
 
       expect(result.success).toBe(true);
+    });
+
+    it("sanitizes formatted phone: strips parens, dashes, spaces before validation", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockProfile);
+      setupMockClient();
+
+      const result = await sendWhatsAppMessage({
+        ...validInput,
+        phone: "+55 (11) 99542-1150",
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockSendText).toHaveBeenCalledWith(
+        "zapi-credentials",
+        "+5511995421150",
+        validInput.message
+      );
+    });
+
+    it("sanitizes phone with only parens and spaces", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockProfile);
+      setupMockClient();
+
+      const result = await sendWhatsAppMessage({
+        ...validInput,
+        phone: "(11) 99999-9999",
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockSendText).toHaveBeenCalledWith(
+        "zapi-credentials",
+        "11999999999",
+        validInput.message
+      );
     });
 
     it("rejects message exceeding 5000 characters", async () => {

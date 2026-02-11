@@ -86,6 +86,17 @@ function EmptyState() {
   );
 }
 
+function formatWhatsAppDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return "—";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(dateStr));
+}
+
 const VISIBLE_LIMIT = 5;
 
 export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps>(
@@ -154,7 +165,7 @@ export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps
       setPhoneLookupLead(null);
       // Invalidate tracking query so phone persists on next refresh
       if (campaignId) {
-        queryClient.invalidateQueries({ queryKey: ["leadTracking", campaignId] });
+        queryClient.invalidateQueries({ queryKey: ["lead-tracking", campaignId] });
       }
     }, [phoneLookupLead, campaignId, queryClient]);
 
@@ -377,10 +388,19 @@ export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps
                           )}
                           <div className="ml-auto flex items-center gap-1">
                             {sent && (
-                              <span data-testid="whatsapp-sent-indicator" className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
-                                <Check className="h-3 w-3" />
-                                Enviado
-                              </span>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span data-testid="whatsapp-sent-indicator" className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 cursor-pointer">
+                                    <Check className="h-3 w-3" />
+                                    Enviado{(lead.whatsappMessageCount ?? 0) > 1 ? ` (${lead.whatsappMessageCount})` : ""}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent data-testid="whatsapp-sent-tooltip">
+                                  {(lead.whatsappMessageCount ?? 0) > 1
+                                    ? `${lead.whatsappMessageCount} mensagens enviadas via WhatsApp | Última: ${formatWhatsAppDate(lead.lastWhatsAppSentAt)}`
+                                    : `WhatsApp enviado em ${formatWhatsAppDate(lead.lastWhatsAppSentAt)}`}
+                                </TooltipContent>
+                              </Tooltip>
                             )}
                             {hasPhone ? (
                               <Tooltip>

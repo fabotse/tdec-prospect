@@ -7,6 +7,7 @@ export const interactionTypeValues = [
   "import",
   "campaign_sent",
   "campaign_reply",
+  "whatsapp_sent",
 ] as const;
 
 export type InteractionType = (typeof interactionTypeValues)[number];

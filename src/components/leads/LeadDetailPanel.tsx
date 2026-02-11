@@ -20,7 +20,7 @@
 
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
@@ -40,6 +40,7 @@ import {
   Copy,
   AlertCircle,
   Sparkles,
+  MessageCircle,
 } from "lucide-react";
 import {
   Sheet,
@@ -64,6 +65,8 @@ import {
 } from "@/hooks/use-phone-lookup";
 import { useEnrichPersistedLead } from "@/hooks/use-enrich-persisted-lead";
 import { useIcebreakerEnrichment } from "@/hooks/use-icebreaker-enrichment";
+import { useWhatsAppMessages } from "@/hooks/use-whatsapp-messages";
+import { getWhatsAppStatusIcon } from "@/components/tracking/LeadTrackingTable";
 import { IcebreakerCategorySelect } from "./IcebreakerCategorySelect";
 import { DEFAULT_ICEBREAKER_CATEGORY } from "@/types/ai-prompt";
 import type { IcebreakerCategory } from "@/types/ai-prompt";
@@ -96,6 +99,8 @@ function renderInteractionIcon(type: InteractionType, className: string) {
       return <Send className={className} />;
     case "campaign_reply":
       return <Reply className={className} />;
+    case "whatsapp_sent":
+      return <MessageCircle className={cn(className, "text-green-600 dark:text-green-400")} />;
     default:
       return <StickyNote className={className} />;
   }
@@ -544,6 +549,90 @@ function IcebreakerSection({ lead }: { lead: Lead }) {
 }
 
 /**
+ * WhatsApp Messages Section
+ * Story 11.7: AC #4, #5 — WhatsApp message history grouped by campaign
+ */
+function WhatsAppMessagesSection({ lead }: { lead: Lead }) {
+  const { messages, isLoading } = useWhatsAppMessages(undefined, lead.email ?? undefined, {
+    enabled: !!lead.email,
+  });
+
+  // Group messages by campaign_name
+  const groupedMessages = useMemo(() => {
+    const groups = new Map<string, typeof messages>();
+    for (const msg of messages) {
+      const key = msg.campaign_name ?? "Sem campanha";
+      const existing = groups.get(key) ?? [];
+      existing.push(msg);
+      groups.set(key, existing);
+    }
+    return groups;
+  }, [messages]);
+
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+        <MessageCircle className="h-3.5 w-3.5" />
+        Mensagens WhatsApp
+      </h3>
+
+      <div className="rounded-lg border bg-card p-4">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-4">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="text-center py-4 text-muted-foreground">
+            <MessageCircle className="h-6 w-6 mx-auto mb-2 opacity-50" />
+            <p className="text-sm">Nenhuma mensagem WhatsApp enviada</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {Array.from(groupedMessages.entries()).map(([campaignName, msgs]) => (
+              <div key={campaignName} className="space-y-2">
+                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  {campaignName}
+                </h4>
+                {msgs.map((msg) => {
+                  const statusInfo = getWhatsAppStatusIcon(msg.status);
+                  const StatusIcon = statusInfo.icon;
+                  const preview = msg.message.length > 100
+                    ? msg.message.slice(0, 100) + "..."
+                    : msg.message;
+
+                  return (
+                    <div key={msg.id} className="flex gap-3 p-3 rounded-md bg-muted/50">
+                      <div className="flex-shrink-0 mt-0.5">
+                        <StatusIcon className={cn("h-4 w-4", statusInfo.color)} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                          <span className="font-mono">{msg.phone}</span>
+                          <span>·</span>
+                          <span>{statusInfo.label}</span>
+                        </div>
+                        <p className="text-sm text-foreground break-words">
+                          {preview}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {msg.sent_at
+                            ? formatDate(msg.sent_at, true)
+                            : formatDate(msg.created_at, true)}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/**
  * Lead Detail Panel
  * AC: #1 - Sidepanel with Sheet component
  * AC: #2 - Lead information display
@@ -756,6 +845,9 @@ export function LeadDetailPanel({
               )}
             </div>
           </section>
+
+          {/* Story 11.7: AC #4, #5 — WhatsApp Messages Section */}
+          <WhatsAppMessagesSection lead={lead} />
         </div>
       </SheetContent>
     </Sheet>

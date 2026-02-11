@@ -112,30 +112,61 @@ export async function GET(_request: Request, { params }: RouteParams) {
     }
 
     // Fetch sent WhatsApp emails for this campaign (Story 11.4 AC#7)
+    // Story 11.7 AC#8: Also build aggregate WhatsApp stats per lead
     const sentLeadEmails: string[] = [];
-    if (emailByLeadId.size > 0) {
-      const { data: sentMessages } = await supabase
-        .from("whatsapp_messages")
-        .select("lead_id")
-        .eq("campaign_id", campaignId)
-        .eq("tenant_id", profile.tenant_id)
-        .eq("status", "sent");
+    const whatsappStats = new Map<string, { count: number; lastSentAt: string | null; lastStatus: string | null }>();
 
-      if (sentMessages) {
-        for (const msg of sentMessages) {
+    if (emailByLeadId.size > 0) {
+      const { data: allMessages } = await supabase
+        .from("whatsapp_messages")
+        .select("lead_id, status, sent_at")
+        .eq("campaign_id", campaignId)
+        .eq("tenant_id", profile.tenant_id);
+
+      if (allMessages) {
+        // Group by lead_id for aggregate stats
+        for (const msg of allMessages) {
           const email = emailByLeadId.get(msg.lead_id);
-          if (email) sentLeadEmails.push(email);
+          if (!email) continue;
+
+          // Existing: track sent emails (11.4 compat)
+          if (msg.status === "sent" && !sentLeadEmails.includes(email)) {
+            sentLeadEmails.push(email);
+          }
+
+          // Story 11.7 AC#8: Aggregate stats
+          const existing = whatsappStats.get(email);
+          if (existing) {
+            existing.count++;
+            // Track latest by sent_at
+            if (msg.sent_at && (!existing.lastSentAt || msg.sent_at > existing.lastSentAt)) {
+              existing.lastSentAt = msg.sent_at;
+              existing.lastStatus = msg.status;
+            }
+          } else {
+            whatsappStats.set(email, {
+              count: 1,
+              lastSentAt: msg.sent_at ?? null,
+              lastStatus: msg.status ?? null,
+            });
+          }
         }
       }
     }
 
-    // Map campaignId to local ID + merge phone + leadId from DB
-    const mappedLeads = leads.map((lead) => ({
-      ...lead,
-      campaignId,
-      phone: lead.phone || phoneMap.get(lead.leadEmail) || undefined,
-      leadId: leadIdMap.get(lead.leadEmail) || undefined,
-    }));
+    // Map campaignId to local ID + merge phone + leadId + WhatsApp stats from DB
+    const mappedLeads = leads.map((lead) => {
+      const waStats = whatsappStats.get(lead.leadEmail);
+      return {
+        ...lead,
+        campaignId,
+        phone: lead.phone || phoneMap.get(lead.leadEmail) || undefined,
+        leadId: leadIdMap.get(lead.leadEmail) || undefined,
+        whatsappMessageCount: waStats?.count ?? 0,
+        lastWhatsAppSentAt: waStats?.lastSentAt ?? null,
+        lastWhatsAppStatus: waStats?.lastStatus ?? null,
+      };
+    });
 
     return NextResponse.json({ data: mappedLeads, sentLeadEmails });
   } catch (error) {

@@ -45,8 +45,14 @@ type ActionResult<T> =
 export async function sendWhatsAppMessage(
   input: z.infer<typeof sendWhatsAppSchema>
 ): Promise<ActionResult<WhatsAppMessage>> {
+  // 0. Sanitize phone: strip parens, dashes, spaces — keep + and digits for Z-API
+  const sanitizedInput = {
+    ...input,
+    phone: input.phone.replace(/[^\d+]/g, ""),
+  };
+
   // 1. Validate input with Zod
-  const parsed = sendWhatsAppSchema.safeParse(input);
+  const parsed = sendWhatsAppSchema.safeParse(sanitizedInput);
   if (!parsed.success) {
     const message = parsed.error.issues[0]?.message ?? "Dados inválidos";
     return { success: false, error: message };

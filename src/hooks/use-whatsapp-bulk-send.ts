@@ -9,6 +9,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { sendWhatsAppMessage } from "@/actions/whatsapp";
 
 // ==============================================
@@ -68,6 +69,7 @@ function getHumanizedInterval(baseMs: number): number {
 // ==============================================
 
 export function useWhatsAppBulkSend(): UseWhatsAppBulkSendReturn {
+  const queryClient = useQueryClient();
   const [isRunning, setIsRunning] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
   const [isCancelled, setIsCancelled] = useState(false);
@@ -210,10 +212,14 @@ export function useWhatsAppBulkSend(): UseWhatsAppBulkSendReturn {
         }
       }
 
+      // Story 11.7 AC#9: Invalidate WhatsApp messages + tracking caches after bulk
+      queryClient.invalidateQueries({ queryKey: ["whatsapp-messages"] });
+      queryClient.invalidateQueries({ queryKey: ["lead-tracking"] });
+
       setIsComplete(true);
       setIsRunning(false);
     },
-    [cancellableDelay]
+    [cancellableDelay, queryClient]
   );
 
   return {

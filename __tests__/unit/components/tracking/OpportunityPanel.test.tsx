@@ -469,7 +469,7 @@ describe("OpportunityPanel", () => {
     });
   });
 
-  describe("indicador de ja enviado (AC 11.4 #7)", () => {
+  describe("indicador de ja enviado (AC 11.4 #7, 11.7 #6)", () => {
     it("exibe indicador 'Enviado' para leads no sentLeadEmails", () => {
       const sentEmails = new Set(["joao@test.com"]);
       render(
@@ -484,6 +484,129 @@ describe("OpportunityPanel", () => {
       const indicators = screen.getAllByTestId("whatsapp-sent-indicator");
       expect(indicators).toHaveLength(1);
       expect(indicators[0]).toHaveTextContent("Enviado");
+    });
+
+    it("AC 11.7 #6: exibe 'Enviado (X)' quando whatsappMessageCount > 1", () => {
+      const leadsWithCount = [
+        createMockOpportunityLead({
+          leadEmail: "joao@test.com",
+          phone: "+5511999999999",
+          whatsappMessageCount: 3,
+        }),
+      ];
+      const sentEmails = new Set(["joao@test.com"]);
+      render(
+        <OpportunityPanel
+          leads={leadsWithCount}
+          isLoading={false}
+          campaignId={CAMPAIGN_ID}
+          sentLeadEmails={sentEmails}
+        />
+      );
+
+      const indicator = screen.getByTestId("whatsapp-sent-indicator");
+      expect(indicator).toHaveTextContent("Enviado (3)");
+    });
+
+    it("AC 11.7 #6: exibe apenas 'Enviado' quando whatsappMessageCount = 1", () => {
+      const leadsWithSingleCount = [
+        createMockOpportunityLead({
+          leadEmail: "joao@test.com",
+          phone: "+5511999999999",
+          whatsappMessageCount: 1,
+        }),
+      ];
+      const sentEmails = new Set(["joao@test.com"]);
+      render(
+        <OpportunityPanel
+          leads={leadsWithSingleCount}
+          isLoading={false}
+          campaignId={CAMPAIGN_ID}
+          sentLeadEmails={sentEmails}
+        />
+      );
+
+      const indicator = screen.getByTestId("whatsapp-sent-indicator");
+      expect(indicator).toHaveTextContent("Enviado");
+      expect(indicator).not.toHaveTextContent("(1)");
+    });
+
+    it("AC 11.7 #6: exibe apenas 'Enviado' quando whatsappMessageCount undefined", () => {
+      const leadsNoCount = [
+        createMockOpportunityLead({
+          leadEmail: "joao@test.com",
+          phone: "+5511999999999",
+          whatsappMessageCount: undefined,
+        }),
+      ];
+      const sentEmails = new Set(["joao@test.com"]);
+      render(
+        <OpportunityPanel
+          leads={leadsNoCount}
+          isLoading={false}
+          campaignId={CAMPAIGN_ID}
+          sentLeadEmails={sentEmails}
+        />
+      );
+
+      const indicator = screen.getByTestId("whatsapp-sent-indicator");
+      expect(indicator).toHaveTextContent("Enviado");
+      expect(indicator.textContent).toBe("Enviado");
+    });
+
+    it("AC 11.7 #6: exibe tooltip com contagem e data ao hover no indicador Enviado", async () => {
+      const user = userEvent.setup();
+      const leadsWithCount = [
+        createMockOpportunityLead({
+          leadEmail: "joao@test.com",
+          phone: "+5511999999999",
+          whatsappMessageCount: 3,
+          lastWhatsAppSentAt: "2026-02-10T14:30:00Z",
+        }),
+      ];
+      const sentEmails = new Set(["joao@test.com"]);
+      render(
+        <OpportunityPanel
+          leads={leadsWithCount}
+          isLoading={false}
+          campaignId={CAMPAIGN_ID}
+          sentLeadEmails={sentEmails}
+        />
+      );
+
+      const indicator = screen.getByTestId("whatsapp-sent-indicator");
+      await user.hover(indicator);
+
+      const tooltip = await screen.findByTestId("whatsapp-sent-tooltip");
+      expect(tooltip).toHaveTextContent("3 mensagens enviadas via WhatsApp");
+      expect(tooltip).toHaveTextContent("Última:");
+    });
+
+    it("AC 11.7 #6: exibe tooltip singular quando whatsappMessageCount = 1", async () => {
+      const user = userEvent.setup();
+      const leadsWithSingleCount = [
+        createMockOpportunityLead({
+          leadEmail: "joao@test.com",
+          phone: "+5511999999999",
+          whatsappMessageCount: 1,
+          lastWhatsAppSentAt: "2026-02-10T14:30:00Z",
+        }),
+      ];
+      const sentEmails = new Set(["joao@test.com"]);
+      render(
+        <OpportunityPanel
+          leads={leadsWithSingleCount}
+          isLoading={false}
+          campaignId={CAMPAIGN_ID}
+          sentLeadEmails={sentEmails}
+        />
+      );
+
+      const indicator = screen.getByTestId("whatsapp-sent-indicator");
+      await user.hover(indicator);
+
+      const tooltip = await screen.findByTestId("whatsapp-sent-tooltip");
+      expect(tooltip).toHaveTextContent("WhatsApp enviado em");
     });
 
     it("nao exibe indicador para leads nao enviados", () => {
@@ -651,7 +774,7 @@ describe("OpportunityPanel", () => {
       await user.click(screen.getByTestId("mock-phone-lookup-found"));
 
       expect(mockInvalidateQueries).toHaveBeenCalledWith({
-        queryKey: ["leadTracking", CAMPAIGN_ID],
+        queryKey: ["lead-tracking", CAMPAIGN_ID],
       });
     });
 

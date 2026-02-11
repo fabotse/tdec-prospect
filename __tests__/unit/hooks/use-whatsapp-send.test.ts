@@ -25,6 +25,14 @@ vi.mock("sonner", () => ({
   },
 }));
 
+// Mock react-query (Story 11.7 AC#9 — cache invalidation)
+const mockInvalidateQueries = vi.fn();
+vi.mock("@tanstack/react-query", () => ({
+  useQueryClient: () => ({
+    invalidateQueries: mockInvalidateQueries,
+  }),
+}));
+
 import { useWhatsAppSend } from "@/hooks/use-whatsapp-send";
 
 // ==============================================
@@ -108,6 +116,29 @@ describe("useWhatsAppSend", () => {
       });
 
       expect(mockSendWhatsAppMessage).toHaveBeenCalledWith(validParams);
+    });
+
+    it("AC 11.7 #9: invalidates whatsapp-messages and leadTracking queries on success", async () => {
+      mockSendWhatsAppMessage.mockResolvedValue({ success: true, data: mockMessage });
+      const { result } = renderHook(() => useWhatsAppSend());
+
+      await act(async () => {
+        await result.current.send(validParams);
+      });
+
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["whatsapp-messages"] });
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["lead-tracking"] });
+    });
+
+    it("AC 11.7 #9: does NOT invalidate queries on error", async () => {
+      mockSendWhatsAppMessage.mockResolvedValue({ success: false, error: "Erro" });
+      const { result } = renderHook(() => useWhatsAppSend());
+
+      await act(async () => {
+        await result.current.send(validParams);
+      });
+
+      expect(mockInvalidateQueries).not.toHaveBeenCalled();
     });
   });
 

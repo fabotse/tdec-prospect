@@ -16,6 +16,14 @@ vi.mock("@/actions/whatsapp", () => ({
   sendWhatsAppMessage: (...args: unknown[]) => mockSendWhatsAppMessage(...args),
 }));
 
+// Mock react-query (Story 11.7 AC#9 — cache invalidation)
+const mockInvalidateQueries = vi.fn();
+vi.mock("@tanstack/react-query", () => ({
+  useQueryClient: () => ({
+    invalidateQueries: mockInvalidateQueries,
+  }),
+}));
+
 import {
   useWhatsAppBulkSend,
   type BulkSendLead,
@@ -577,6 +585,24 @@ describe("useWhatsAppBulkSend", () => {
       expect(result.current.isComplete).toBe(true);
       expect(result.current.progress.total).toBe(0);
       expect(mockSendWhatsAppMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("cache invalidation (AC 11.7 #9)", () => {
+    it("invalidates whatsapp-messages and leadTracking queries after bulk complete", async () => {
+      const leads = createLeads(1);
+      const { result } = renderHook(() => useWhatsAppBulkSend());
+
+      await act(async () => {
+        await result.current.start({
+          ...defaultParams,
+          leads,
+        });
+      });
+
+      expect(result.current.isComplete).toBe(true);
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["whatsapp-messages"] });
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["lead-tracking"] });
     });
   });
 });

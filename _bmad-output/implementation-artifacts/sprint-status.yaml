@@ -280,4 +280,4 @@ development_status:
   11-4-envio-individual-whatsapp: done  # Envio via Z-API + tracking de status + integração no OpportunityPanel. Code review: 2 HIGH, 3 MEDIUM fixes (AC7 DB query, tenant_id filter, phone regex, File List). 102 story tests, 4271 total
   11-5-busca-telefone-fluxo-leads-quentes: done  # Code review: 3 MEDIUM, 3 LOW fixes (dead abort code, PATCH feedback, spinner test, dead branch, AC7 text, aria-labels). 25 testes PhoneLookupDialog, 104 story tests total
   11-6-envio-em-massa-com-intervalos: done  # Code review: 4 MEDIUM, 3 LOW fixes (isWaiting AC#6, PT-BR accents, close protection tests, double-call, reset, export). 110 story tests, 4408 total
-  11-7-tracking-historico-mensagens: backlog  # Marcar leads contactados + histórico por campanha + indicadores visuais
+  11-7-tracking-historico-mensagens: done  # WhatsApp messages API + tracking aggregate stats + useWhatsAppMessages hook + WA column/indicator + LeadDetailPanel WA section + OpportunityPanel count + cache invalidation. 52 story tests, 4460 total

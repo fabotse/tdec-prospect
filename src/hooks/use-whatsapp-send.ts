@@ -9,6 +9,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { sendWhatsAppMessage } from "@/actions/whatsapp";
 import type { WhatsAppMessage } from "@/types/database";
@@ -31,6 +32,7 @@ export function useWhatsAppSend(): UseWhatsAppSendReturn {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<WhatsAppMessage | null>(null);
+  const queryClient = useQueryClient();
 
   const send = useCallback(async (data: SendParams): Promise<boolean> => {
     setIsSending(true);
@@ -42,6 +44,9 @@ export function useWhatsAppSend(): UseWhatsAppSendReturn {
       if (result.success) {
         setLastResult(result.data);
         toast.success("Mensagem WhatsApp enviada com sucesso!");
+        // Story 11.7 AC#9: Invalidate WhatsApp messages + tracking caches
+        queryClient.invalidateQueries({ queryKey: ["whatsapp-messages"] });
+        queryClient.invalidateQueries({ queryKey: ["lead-tracking"] });
         return true;
       } else {
         setError(result.error);
@@ -56,7 +61,7 @@ export function useWhatsAppSend(): UseWhatsAppSendReturn {
     } finally {
       setIsSending(false);
     }
-  }, []);
+  }, [queryClient]);
 
   return { send, isSending, error, lastResult };
 }
