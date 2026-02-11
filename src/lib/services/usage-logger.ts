@@ -7,7 +7,7 @@
  */
 
 import { createClient } from "@/lib/supabase/server";
-import type { LogApiUsageParams, ServiceName } from "@/types/api-usage";
+import type { LogApiUsageParams, UsageServiceName } from "@/types/api-usage";
 import { calculateApifyCost } from "@/types/api-usage";
 
 /**
@@ -116,9 +116,9 @@ export async function getUsageStatistics(params: {
   tenantId: string;
   startDate: Date;
   endDate: Date;
-  serviceName?: ServiceName;
+  serviceName?: UsageServiceName;
 }): Promise<{
-  serviceName: ServiceName;
+  serviceName: UsageServiceName;
   totalCalls: number;
   totalPosts: number;
   totalCost: number;
@@ -153,7 +153,7 @@ export async function getUsageStatistics(params: {
 
   // Aggregate by service
   const aggregated = new Map<
-    ServiceName,
+    UsageServiceName,
     {
       totalCalls: number;
       totalPosts: number;
@@ -163,7 +163,7 @@ export async function getUsageStatistics(params: {
   >();
 
   for (const row of data) {
-    const service = row.service_name as ServiceName;
+    const service = row.service_name as UsageServiceName;
     const current = aggregated.get(service) || {
       totalCalls: 0,
       totalPosts: 0,

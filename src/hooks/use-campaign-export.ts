@@ -9,7 +9,16 @@ import type {
   ExportRecord,
   PlatformConnectionStatus,
 } from "@/types/export";
-import type { IntegrationConfigState } from "@/types/integration";
+import type { IntegrationStatus, ConnectionStatus } from "@/types/integration";
+
+/**
+ * Minimal integration config shape needed by this hook.
+ * Compatible with both the hook's internal state and the exported type.
+ */
+interface MinimalIntegrationConfig {
+  status: IntegrationStatus;
+  connectionStatus: ConnectionStatus;
+}
 
 /**
  * Platform display names (PT-BR)
@@ -25,7 +34,7 @@ const PLATFORM_DISPLAY_NAMES: Record<ExportPlatform, string> = {
  * Map integration config status + connection status to PlatformConnectionStatus
  */
 function toPlatformConnectionStatus(
-  config: IntegrationConfigState | undefined
+  config: MinimalIntegrationConfig | undefined
 ): PlatformConnectionStatus {
   if (!config || config.status === "not_configured") return "not_configured";
   if (config.connectionStatus === "connected") return "connected";
@@ -45,7 +54,7 @@ interface ExportLeadInfo {
 interface UseCampaignExportParams {
   leads: ExportLeadInfo[];
   campaign: Campaign | null;
-  integrationConfigs: Record<string, IntegrationConfigState>;
+  integrationConfigs: Record<string, MinimalIntegrationConfig>;
 }
 
 /**

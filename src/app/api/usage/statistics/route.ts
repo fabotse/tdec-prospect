@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { getUsageStatistics } from "@/lib/services/usage-logger";
-import type { ServiceName, UsageStatisticsResponse } from "@/types/api-usage";
+import type { UsageServiceName, UsageStatisticsResponse } from "@/types/api-usage";
 
 // ==============================================
 // ERROR MESSAGES (Portuguese)
@@ -47,7 +47,7 @@ function parseDate(dateStr: string | null): Date | null {
 // HELPER: Validate Service Name
 // ==============================================
 
-const VALID_SERVICES: ServiceName[] = [
+const VALID_SERVICES: UsageServiceName[] = [
   "apify",
   "apollo",
   "signalhire",
@@ -55,8 +55,8 @@ const VALID_SERVICES: ServiceName[] = [
   "instantly",
 ];
 
-function isValidServiceName(name: string): name is ServiceName {
-  return VALID_SERVICES.includes(name as ServiceName);
+function isValidUsageServiceName(name: string): name is UsageServiceName {
+  return VALID_SERVICES.includes(name as UsageServiceName);
 }
 
 // ==============================================
@@ -120,9 +120,9 @@ export async function GET(request: NextRequest) {
   }
 
   // Validate service name if provided
-  let serviceName: ServiceName | undefined;
+  let serviceName: UsageServiceName | undefined;
   if (serviceNameParam) {
-    if (!isValidServiceName(serviceNameParam)) {
+    if (!isValidUsageServiceName(serviceNameParam)) {
       return NextResponse.json(
         { error: { code: "VALIDATION_ERROR", message: ERROR_MESSAGES.INVALID_SERVICE } },
         { status: 400 }

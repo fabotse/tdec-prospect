@@ -76,6 +76,24 @@ function makeFailureResult(error: string) {
   return { success: false as const, error };
 }
 
+/**
+ * Helper: kick off start (fire-and-forget) then flush all fake timers.
+ * Uses sync act to avoid React 19 hanging on unresolved setTimeout promises.
+ */
+async function startAndComplete(
+  result: { current: ReturnType<typeof useWhatsAppBulkSend> },
+  params: typeof defaultParams & { onLeadSent?: (leadEmail: string) => void }
+) {
+  act(() => {
+    result.current.start(params);
+  });
+
+  // Flush all timers (intervals between leads) + microtasks
+  await act(async () => {
+    await vi.runAllTimersAsync();
+  });
+}
+
 // ==============================================
 // TESTS
 // ==============================================
@@ -115,26 +133,7 @@ describe("useWhatsAppBulkSend", () => {
     it("processes all leads and marks complete", async () => {
       const { result } = renderHook(() => useWhatsAppBulkSend());
 
-      let startPromise: Promise<void>;
-      await act(async () => {
-        startPromise = result.current.start(defaultParams);
-      });
-
-      // After first send, need to advance timer for interval
-      // Lead 0 sent, waiting for interval before lead 1
-      await act(async () => {
-        vi.advanceTimersByTime(70000); // > 60000 * 1.2
-      });
-
-      // Lead 1 sent, waiting for interval before lead 2
-      await act(async () => {
-        vi.advanceTimersByTime(70000);
-      });
-
-      // Lead 2 is last — NO interval after last lead
-      await act(async () => {
-        await startPromise;
-      });
+      await startAndComplete(result, defaultParams);
 
       expect(result.current.isComplete).toBe(true);
       expect(result.current.isRunning).toBe(false);
@@ -148,21 +147,10 @@ describe("useWhatsAppBulkSend", () => {
       const leads = createLeads(2);
       const { result } = renderHook(() => useWhatsAppBulkSend());
 
-      let startPromise: Promise<void>;
-      await act(async () => {
-        startPromise = result.current.start({
-          ...defaultParams,
-          leads,
-          intervalMs: 1000,
-        });
-      });
-
-      await act(async () => {
-        vi.advanceTimersByTime(1500);
-      });
-
-      await act(async () => {
-        await startPromise;
+      await startAndComplete(result, {
+        ...defaultParams,
+        leads,
+        intervalMs: 1000,
       });
 
       expect(mockSendWhatsAppMessage).toHaveBeenCalledWith({
@@ -181,7 +169,7 @@ describe("useWhatsAppBulkSend", () => {
 
     it("updates lead statuses progressively", async () => {
       const leads = createLeads(2);
-      let resolveFirst: () => void;
+      let resolveFirst!: () => void;
       const firstSendPromise = new Promise<void>((resolve) => {
         resolveFirst = resolve;
       });
@@ -197,29 +185,25 @@ describe("useWhatsAppBulkSend", () => {
 
       const { result } = renderHook(() => useWhatsAppBulkSend());
 
-      await act(async () => {
+      // Start (sync act — fire-and-forget)
+      act(() => {
         result.current.start({ ...defaultParams, leads, intervalMs: 1000 });
       });
 
-      // First lead is "sending"
+      // First lead is "sending" (blocked on firstSendPromise)
       expect(result.current.leadStatuses.get(leads[0].leadEmail)).toBe("sending");
       expect(result.current.leadStatuses.get(leads[1].leadEmail)).toBe("pending");
 
       // Resolve first send
       await act(async () => {
-        resolveFirst!();
+        resolveFirst();
       });
 
       expect(result.current.leadStatuses.get(leads[0].leadEmail)).toBe("sent");
 
-      // Advance timer for interval
+      // Flush remaining timers + sends
       await act(async () => {
-        vi.advanceTimersByTime(1500);
-      });
-
-      // Wait for second send
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
+        await vi.runAllTimersAsync();
       });
 
       expect(result.current.leadStatuses.get(leads[1].leadEmail)).toBe("sent");
@@ -230,22 +214,11 @@ describe("useWhatsAppBulkSend", () => {
       const leads = createLeads(2);
       const { result } = renderHook(() => useWhatsAppBulkSend());
 
-      let startPromise: Promise<void>;
-      await act(async () => {
-        startPromise = result.current.start({
-          ...defaultParams,
-          leads,
-          intervalMs: 1000,
-          onLeadSent,
-        });
-      });
-
-      await act(async () => {
-        vi.advanceTimersByTime(1500);
-      });
-
-      await act(async () => {
-        await startPromise;
+      await startAndComplete(result, {
+        ...defaultParams,
+        leads,
+        intervalMs: 1000,
+        onLeadSent,
       });
 
       expect(onLeadSent).toHaveBeenCalledTimes(2);
@@ -259,17 +232,10 @@ describe("useWhatsAppBulkSend", () => {
 
       const { result } = renderHook(() => useWhatsAppBulkSend());
 
-      let startPromise: Promise<void>;
-      await act(async () => {
-        startPromise = result.current.start({
-          ...defaultParams,
-          leads: createLeads(1),
-          onLeadSent,
-        });
-      });
-
-      await act(async () => {
-        await startPromise;
+      await startAndComplete(result, {
+        ...defaultParams,
+        leads: createLeads(1),
+        onLeadSent,
       });
 
       expect(onLeadSent).not.toHaveBeenCalled();
@@ -293,24 +259,10 @@ describe("useWhatsAppBulkSend", () => {
 
       const { result } = renderHook(() => useWhatsAppBulkSend());
 
-      let startPromise: Promise<void>;
-      await act(async () => {
-        startPromise = result.current.start({
-          ...defaultParams,
-          leads,
-          intervalMs: 1000,
-        });
-      });
-
-      // Advance timers for all intervals
-      await act(async () => {
-        vi.advanceTimersByTime(2000);
-      });
-      await act(async () => {
-        vi.advanceTimersByTime(2000);
-      });
-      await act(async () => {
-        await startPromise;
+      await startAndComplete(result, {
+        ...defaultParams,
+        leads,
+        intervalMs: 1000,
       });
 
       expect(result.current.isComplete).toBe(true);
@@ -329,16 +281,9 @@ describe("useWhatsAppBulkSend", () => {
       const leads = createLeads(1);
       const { result } = renderHook(() => useWhatsAppBulkSend());
 
-      let startPromise: Promise<void>;
-      await act(async () => {
-        startPromise = result.current.start({
-          ...defaultParams,
-          leads,
-        });
-      });
-
-      await act(async () => {
-        await startPromise;
+      await startAndComplete(result, {
+        ...defaultParams,
+        leads,
       });
 
       expect(result.current.leadStatuses.get(leads[0].leadEmail)).toBe("failed");
@@ -353,7 +298,8 @@ describe("useWhatsAppBulkSend", () => {
       const leads = createLeads(3);
       const { result } = renderHook(() => useWhatsAppBulkSend());
 
-      await act(async () => {
+      // Start (sync — fire-and-forget)
+      act(() => {
         result.current.start({
           ...defaultParams,
           leads,
@@ -367,9 +313,9 @@ describe("useWhatsAppBulkSend", () => {
         result.current.cancel();
       });
 
-      // Advance past what would be the full interval
+      // Flush remaining timers
       await act(async () => {
-        vi.advanceTimersByTime(10000);
+        await vi.runAllTimersAsync();
       });
 
       expect(result.current.isCancelled).toBe(true);
@@ -386,7 +332,8 @@ describe("useWhatsAppBulkSend", () => {
       const leads = createLeads(2);
       const { result } = renderHook(() => useWhatsAppBulkSend());
 
-      await act(async () => {
+      // Start (sync)
+      act(() => {
         result.current.start({
           ...defaultParams,
           leads,
@@ -394,7 +341,7 @@ describe("useWhatsAppBulkSend", () => {
         });
       });
 
-      // First lead already sent
+      // First lead already sent — cancel during interval
       await act(async () => {
         result.current.cancel();
       });
@@ -408,7 +355,8 @@ describe("useWhatsAppBulkSend", () => {
       const leads = createLeads(2);
       const { result } = renderHook(() => useWhatsAppBulkSend());
 
-      await act(async () => {
+      // Start (sync)
+      act(() => {
         result.current.start({
           ...defaultParams,
           leads,
@@ -416,12 +364,17 @@ describe("useWhatsAppBulkSend", () => {
         });
       });
 
+      // Flush microtasks so first send resolves and isWaiting state update commits
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
       // After first send, hook should be waiting for interval
       expect(result.current.isWaiting).toBe(true);
 
-      // Advance past interval
+      // Flush all timers
       await act(async () => {
-        vi.advanceTimersByTime(75000);
+        await vi.runAllTimersAsync();
       });
 
       // After interval resolves and second send completes, not waiting anymore
@@ -432,12 +385,18 @@ describe("useWhatsAppBulkSend", () => {
       const leads = createLeads(2);
       const { result } = renderHook(() => useWhatsAppBulkSend());
 
-      await act(async () => {
+      // Start (sync)
+      act(() => {
         result.current.start({
           ...defaultParams,
           leads,
           intervalMs: 60000,
         });
+      });
+
+      // Flush microtasks so first send resolves and isWaiting state update commits
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
       });
 
       expect(result.current.isWaiting).toBe(true);
@@ -453,11 +412,10 @@ describe("useWhatsAppBulkSend", () => {
       const leads = createLeads(1);
       const { result } = renderHook(() => useWhatsAppBulkSend());
 
-      await act(async () => {
-        await result.current.start({
-          ...defaultParams,
-          leads,
-        });
+      // Single lead — no interval, completes immediately
+      await startAndComplete(result, {
+        ...defaultParams,
+        leads,
       });
 
       expect(result.current.isWaiting).toBe(false);
@@ -470,9 +428,9 @@ describe("useWhatsAppBulkSend", () => {
       const leads = createLeads(2);
       const { result } = renderHook(() => useWhatsAppBulkSend());
 
-      let startPromise: Promise<void>;
-      await act(async () => {
-        startPromise = result.current.start({
+      // Start (sync)
+      act(() => {
+        result.current.start({
           ...defaultParams,
           leads,
           intervalMs: 60000,
@@ -484,7 +442,7 @@ describe("useWhatsAppBulkSend", () => {
 
       // Advance by minimum jitter (60000 - 20% = 48000)
       await act(async () => {
-        vi.advanceTimersByTime(47000);
+        await vi.advanceTimersByTimeAsync(47000);
       });
 
       // Should NOT have sent second yet (48000 minimum)
@@ -492,11 +450,7 @@ describe("useWhatsAppBulkSend", () => {
 
       // Advance past maximum jitter (60000 + 20% = 72000)
       await act(async () => {
-        vi.advanceTimersByTime(30000); // total 77000ms
-      });
-
-      await act(async () => {
-        await startPromise;
+        await vi.advanceTimersByTimeAsync(30000); // total 77000ms
       });
 
       // Now second should be sent
@@ -510,9 +464,9 @@ describe("useWhatsAppBulkSend", () => {
       const leads = createLeads(2);
       const { result } = renderHook(() => useWhatsAppBulkSend());
 
-      let startPromise: Promise<void>;
-      await act(async () => {
-        startPromise = result.current.start({
+      // Start (sync)
+      act(() => {
+        result.current.start({
           ...defaultParams,
           leads,
           intervalMs: 60000,
@@ -521,11 +475,7 @@ describe("useWhatsAppBulkSend", () => {
 
       // With Math.random() = 0, jitter = 60000 + (0 * 2 - 1) * 0.2 * 60000 = 60000 - 12000 = 48000
       await act(async () => {
-        vi.advanceTimersByTime(48001);
-      });
-
-      await act(async () => {
-        await startPromise;
+        await vi.advanceTimersByTimeAsync(48001);
       });
 
       expect(mockSendWhatsAppMessage).toHaveBeenCalledTimes(2);
@@ -538,16 +488,10 @@ describe("useWhatsAppBulkSend", () => {
       const leads = createLeads(1);
       const { result } = renderHook(() => useWhatsAppBulkSend());
 
-      let startPromise: Promise<void>;
-      await act(async () => {
-        startPromise = result.current.start({
-          ...defaultParams,
-          leads,
-        });
-      });
-
-      await act(async () => {
-        await startPromise;
+      // Single lead — no interval, completes immediately
+      await startAndComplete(result, {
+        ...defaultParams,
+        leads,
       });
 
       expect(result.current.isComplete).toBe(true);
@@ -575,11 +519,9 @@ describe("useWhatsAppBulkSend", () => {
     it("completes immediately with empty leads array", async () => {
       const { result } = renderHook(() => useWhatsAppBulkSend());
 
-      await act(async () => {
-        await result.current.start({
-          ...defaultParams,
-          leads: [],
-        });
+      await startAndComplete(result, {
+        ...defaultParams,
+        leads: [],
       });
 
       expect(result.current.isComplete).toBe(true);
@@ -593,11 +535,9 @@ describe("useWhatsAppBulkSend", () => {
       const leads = createLeads(1);
       const { result } = renderHook(() => useWhatsAppBulkSend());
 
-      await act(async () => {
-        await result.current.start({
-          ...defaultParams,
-          leads,
-        });
+      await startAndComplete(result, {
+        ...defaultParams,
+        leads,
       });
 
       expect(result.current.isComplete).toBe(true);

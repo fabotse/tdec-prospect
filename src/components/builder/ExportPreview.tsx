@@ -130,17 +130,17 @@ export function ExportPreview({
                 Email 1
               </span>
             </div>
-            {firstEmailBlock.data.subject && (
+            {typeof firstEmailBlock.data.subject === "string" && firstEmailBlock.data.subject && (
               <div className="mb-2">
                 <span className="text-xs text-muted-foreground">Assunto: </span>
                 <span className="text-sm font-medium">
-                  {renderTextWithVariablePlaceholders(firstEmailBlock.data.subject as string)}
+                  {renderTextWithVariablePlaceholders(firstEmailBlock.data.subject)}
                 </span>
               </div>
             )}
-            {firstEmailBlock.data.body && (
+            {typeof firstEmailBlock.data.body === "string" && firstEmailBlock.data.body && (
               <div className="text-sm text-muted-foreground whitespace-pre-wrap" data-testid="email-preview-body">
-                {renderTextWithVariablePlaceholders(firstEmailBlock.data.body as string)}
+                {renderTextWithVariablePlaceholders(firstEmailBlock.data.body)}
               </div>
             )}
           </div>

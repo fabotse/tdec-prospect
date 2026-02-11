@@ -281,3 +281,7 @@ development_status:
   11-5-busca-telefone-fluxo-leads-quentes: done  # Code review: 3 MEDIUM, 3 LOW fixes (dead abort code, PATCH feedback, spinner test, dead branch, AC7 text, aria-labels). 25 testes PhoneLookupDialog, 104 story tests total
   11-6-envio-em-massa-com-intervalos: done  # Code review: 4 MEDIUM, 3 LOW fixes (isWaiting AC#6, PT-BR accents, close protection tests, double-call, reset, export). 110 story tests, 4408 total
   11-7-tracking-historico-mensagens: done  # WhatsApp messages API + tracking aggregate stats + useWhatsAppMessages hook + WA column/indicator + LeadDetailPanel WA section + OpportunityPanel count + cache invalidation. 52 story tests, 4460 total
+  # NOVA STORY — Deploy Vercel (Preparação para demonstração ao cliente)
+  # Objetivo: Configurar projeto para deploy na Vercel sem quebrar funcionalidades existentes
+  # Escopo: vercel.json, .env.example update, auditoria localhost, validação build
+  11-8-deploy-vercel-preparation: done  # Code review: 1 CRITICAL fix (.gitignore !.env.example), 5 acknowledged. Build fixes (6 TS errors), vercel.json, .env.example, security audit. 245 files, 4464 tests, 0 failures

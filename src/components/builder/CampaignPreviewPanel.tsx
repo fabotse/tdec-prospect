@@ -202,7 +202,7 @@ export function CampaignPreviewPanel({
                         hasPremiumIcebreaker={data.icebreakerSource === "premium"}
                         icebreakerPosts={data.icebreakerPosts}
                         // Story 7.1: Pass previewLead for variable resolution
-                        previewLead={previewLead}
+                        previewLead={previewLead as Record<string, unknown> | null}
                       />
                     );
                   }

@@ -86,7 +86,8 @@ export async function PUT(request: Request, { params }: RouteParams) {
   const data = parsed.data;
 
   if ("clear" in data && data.clear) {
-    const { error } = await clearExportStatus(supabase, campaignId);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await clearExportStatus(supabase as any, campaignId);
     if (error) {
       return NextResponse.json(
         { error: "Erro ao limpar status de exportação" },
@@ -96,7 +97,8 @@ export async function PUT(request: Request, { params }: RouteParams) {
     return NextResponse.json({ success: true });
   }
 
-  const { error } = await updateExportStatus(supabase, campaignId, data);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await updateExportStatus(supabase as any, campaignId, data as any);
   if (error) {
     return NextResponse.json(
       { error: "Erro ao atualizar status de exportação" },

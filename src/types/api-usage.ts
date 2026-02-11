@@ -8,7 +8,7 @@
 /**
  * Supported external services for usage tracking
  */
-export type ServiceName =
+export type UsageServiceName =
   | "apify"
   | "apollo"
   | "signalhire"
@@ -26,7 +26,7 @@ export type UsageStatus = "success" | "failed" | "partial";
 export interface ApiUsageLog {
   id: string;
   tenantId: string;
-  serviceName: ServiceName;
+  serviceName: UsageServiceName;
   requestType: string;
   externalRequestId?: string | null;
   leadId?: string | null;
@@ -45,7 +45,7 @@ export interface ApiUsageLog {
  */
 export interface LogApiUsageParams {
   tenantId: string;
-  serviceName: ServiceName;
+  serviceName: UsageServiceName;
   requestType: string;
   externalRequestId?: string;
   leadId?: string;
@@ -62,7 +62,7 @@ export interface LogApiUsageParams {
  * Aggregated usage statistics for a service
  */
 export interface UsageStatistics {
-  serviceName: ServiceName;
+  serviceName: UsageServiceName;
   totalCalls: number;
   totalPosts: number;
   totalCost: number;
@@ -87,14 +87,14 @@ export interface UsageStatisticsResponse {
 export interface UsageStatisticsQuery {
   startDate?: string;
   endDate?: string;
-  serviceName?: ServiceName;
+  serviceName?: UsageServiceName;
 }
 
 /**
  * Cost calculation rates per service
  * Values are cost per unit (e.g., per 1000 posts for Apify)
  */
-export const SERVICE_COST_RATES: Record<ServiceName, number> = {
+export const SERVICE_COST_RATES: Record<UsageServiceName, number> = {
   apify: 1, // $1 per 1000 posts
   apollo: 0, // Not tracked yet
   signalhire: 0, // Not tracked yet

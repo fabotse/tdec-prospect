@@ -166,7 +166,7 @@ export default function CampaignBuilderPage({ params }: PageProps) {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const { exportToInstantly, isExporting, steps: exportSteps } = useInstantlyExport();
   const { exportToCsv, exportToCsvWithVariables, exportToClipboard } = useCsvClipboardExport();
-  const exportToastIdRef = useRef<string | number | undefined>();
+  const exportToastIdRef = useRef<string | number | undefined>(undefined);
   const { configs: integrationConfigs } = useIntegrationConfig();
   const exportLeadInfos = useMemo(
     () => (campaignLeadsForExport ?? []).map((cl) => cl.lead),

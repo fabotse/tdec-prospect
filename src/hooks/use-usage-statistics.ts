@@ -12,7 +12,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type {
-  ServiceName,
+  UsageServiceName,
   UsageStatistics,
   UsageStatisticsResponse,
 } from "@/types/api-usage";
@@ -31,7 +31,7 @@ interface ApiErrorResponse {
 interface UseUsageStatisticsParams {
   startDate?: Date;
   endDate?: Date;
-  serviceName?: ServiceName;
+  serviceName?: UsageServiceName;
 }
 
 /**
@@ -118,7 +118,7 @@ export function getLastMonthRange(): { startDate: Date; endDate: Date } {
  */
 export function getServiceStatistics(
   response: UsageStatisticsResponse | undefined,
-  serviceName: ServiceName
+  serviceName: UsageServiceName
 ): UsageStatistics | null {
   if (!response) return null;
   return (
