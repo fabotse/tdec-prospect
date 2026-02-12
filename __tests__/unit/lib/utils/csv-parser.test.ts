@@ -9,6 +9,7 @@ import {
   parseCSVLine,
   parseCSVData,
   detectColumnMappings,
+  detectLeadColumnMappings,
   parseResponseType,
   isValidEmail,
 } from "@/lib/utils/csv-parser";
@@ -155,6 +156,139 @@ describe("CSV Parser Utilities", () => {
       const result = detectColumnMappings(["EMAIL", "STATUS"]);
       expect(result.emailColumn).toBe(0);
       expect(result.responseColumn).toBe(1);
+    });
+  });
+
+  describe("detectLeadColumnMappings", () => {
+    it("should detect all columns with Portuguese headers", () => {
+      const result = detectLeadColumnMappings([
+        "nome", "sobrenome", "email", "empresa", "cargo", "linkedin", "telefone",
+      ]);
+      expect(result.nameColumn).toBe(0);
+      expect(result.lastNameColumn).toBe(1);
+      expect(result.emailColumn).toBe(2);
+      expect(result.companyColumn).toBe(3);
+      expect(result.titleColumn).toBe(4);
+      expect(result.linkedinColumn).toBe(5);
+      expect(result.phoneColumn).toBe(6);
+    });
+
+    it("should detect all columns with English headers", () => {
+      const result = detectLeadColumnMappings([
+        "first_name", "last_name", "email", "company", "title", "linkedin_url", "phone",
+      ]);
+      expect(result.nameColumn).toBe(0);
+      expect(result.lastNameColumn).toBe(1);
+      expect(result.emailColumn).toBe(2);
+      expect(result.companyColumn).toBe(3);
+      expect(result.titleColumn).toBe(4);
+      expect(result.linkedinColumn).toBe(5);
+      expect(result.phoneColumn).toBe(6);
+    });
+
+    it("should detect name variations", () => {
+      expect(detectLeadColumnMappings(["name"]).nameColumn).toBe(0);
+      expect(detectLeadColumnMappings(["first name"]).nameColumn).toBe(0);
+      expect(detectLeadColumnMappings(["primeiro_nome"]).nameColumn).toBe(0);
+      expect(detectLeadColumnMappings(["primeiro nome"]).nameColumn).toBe(0);
+    });
+
+    it("should detect last name variations", () => {
+      expect(detectLeadColumnMappings(["surname"]).lastNameColumn).toBe(0);
+      expect(detectLeadColumnMappings(["last name"]).lastNameColumn).toBe(0);
+      expect(detectLeadColumnMappings(["último nome"]).lastNameColumn).toBe(0);
+      expect(detectLeadColumnMappings(["ultimo nome"]).lastNameColumn).toBe(0);
+    });
+
+    it("should detect email variations", () => {
+      expect(detectLeadColumnMappings(["e-mail"]).emailColumn).toBe(0);
+      expect(detectLeadColumnMappings(["email_address"]).emailColumn).toBe(0);
+      expect(detectLeadColumnMappings(["emailaddress"]).emailColumn).toBe(0);
+    });
+
+    it("should detect company variations", () => {
+      expect(detectLeadColumnMappings(["company_name"]).companyColumn).toBe(0);
+      expect(detectLeadColumnMappings(["organização"]).companyColumn).toBe(0);
+      expect(detectLeadColumnMappings(["organizacao"]).companyColumn).toBe(0);
+      expect(detectLeadColumnMappings(["organization"]).companyColumn).toBe(0);
+    });
+
+    it("should detect title variations", () => {
+      expect(detectLeadColumnMappings(["job_title"]).titleColumn).toBe(0);
+      expect(detectLeadColumnMappings(["job title"]).titleColumn).toBe(0);
+      expect(detectLeadColumnMappings(["posição"]).titleColumn).toBe(0);
+      expect(detectLeadColumnMappings(["posicao"]).titleColumn).toBe(0);
+      expect(detectLeadColumnMappings(["position"]).titleColumn).toBe(0);
+      expect(detectLeadColumnMappings(["role"]).titleColumn).toBe(0);
+    });
+
+    it("should detect linkedin variations", () => {
+      expect(detectLeadColumnMappings(["linkedin url"]).linkedinColumn).toBe(0);
+      expect(detectLeadColumnMappings(["perfil linkedin"]).linkedinColumn).toBe(0);
+    });
+
+    it("should detect phone variations", () => {
+      expect(detectLeadColumnMappings(["phone_number"]).phoneColumn).toBe(0);
+      expect(detectLeadColumnMappings(["celular"]).phoneColumn).toBe(0);
+      expect(detectLeadColumnMappings(["mobile"]).phoneColumn).toBe(0);
+      expect(detectLeadColumnMappings(["whatsapp"]).phoneColumn).toBe(0);
+    });
+
+    it("should be case-insensitive", () => {
+      const result = detectLeadColumnMappings(["NOME", "EMAIL", "EMPRESA"]);
+      expect(result.nameColumn).toBe(0);
+      expect(result.emailColumn).toBe(1);
+      expect(result.companyColumn).toBe(2);
+    });
+
+    it("should return null for unrecognized headers", () => {
+      const result = detectLeadColumnMappings(["foo", "bar", "baz"]);
+      expect(result.nameColumn).toBeNull();
+      expect(result.lastNameColumn).toBeNull();
+      expect(result.emailColumn).toBeNull();
+      expect(result.companyColumn).toBeNull();
+      expect(result.titleColumn).toBeNull();
+      expect(result.linkedinColumn).toBeNull();
+      expect(result.phoneColumn).toBeNull();
+    });
+
+    it("should handle partial matches (some columns detected)", () => {
+      const result = detectLeadColumnMappings(["nome", "random_column", "email"]);
+      expect(result.nameColumn).toBe(0);
+      expect(result.emailColumn).toBe(2);
+      expect(result.lastNameColumn).toBeNull();
+      expect(result.companyColumn).toBeNull();
+    });
+
+    it("should NOT match 'sobrenome' as nameColumn (false positive prevention)", () => {
+      const result = detectLeadColumnMappings(["sobrenome", "email"]);
+      expect(result.nameColumn).toBeNull();
+      expect(result.lastNameColumn).toBe(0);
+      expect(result.emailColumn).toBe(1);
+    });
+
+    it("should NOT match 'company_name' as nameColumn (false positive prevention)", () => {
+      const result = detectLeadColumnMappings(["company_name", "last_name", "email"]);
+      expect(result.nameColumn).toBeNull();
+      expect(result.companyColumn).toBe(0);
+      expect(result.lastNameColumn).toBe(1);
+      expect(result.emailColumn).toBe(2);
+    });
+
+    it("should correctly assign when sobrenome appears before nome", () => {
+      const result = detectLeadColumnMappings(["sobrenome", "nome", "email"]);
+      expect(result.lastNameColumn).toBe(0);
+      expect(result.nameColumn).toBe(1);
+      expect(result.emailColumn).toBe(2);
+    });
+
+    it("should not assign same column to multiple fields", () => {
+      const result = detectLeadColumnMappings(["nome", "email"]);
+      expect(result.nameColumn).toBe(0);
+      expect(result.emailColumn).toBe(1);
+      // "nome" should not also match as companyColumn or titleColumn
+      expect(result.companyColumn).toBeNull();
+      expect(result.titleColumn).toBeNull();
     });
   });
 

@@ -4,6 +4,7 @@
  * Story 4.3: Lead Detail View & Interaction History
  * Story 4.6: Interested Leads Highlighting
  * Story 4.7: Import Campaign Results
+ * Story 12.2: Import Leads via CSV
  *
  * Main content component for displaying imported leads from database.
  *
@@ -16,6 +17,7 @@
  * Story 4.3: AC #1 - Detail sidepanel on row click
  * Story 4.6: AC #2, #6 - Interested leads quick filter and counter
  * Story 4.7: AC #1 - Import campaign results button
+ * Story 12.2: AC #1 - Import CSV button
  */
 
 "use client";
@@ -36,9 +38,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Upload,
+  FileUp,
   Plus,
 } from "lucide-react";
 import { ImportCampaignResultsDialog } from "@/components/leads/ImportCampaignResultsDialog";
+import { ImportLeadsDialog } from "@/components/leads/ImportLeadsDialog";
 import { CreateLeadDialog } from "@/components/leads/CreateLeadDialog";
 import {
   Select,
@@ -81,6 +85,9 @@ export function MyLeadsPageContent() {
 
   // Story 4.7: AC #1 - State for import campaign results dialog
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+
+  // Story 12.2: AC #1 - State for import leads CSV dialog
+  const [isImportCsvDialogOpen, setIsImportCsvDialogOpen] = useState(false);
 
   // Quick Dev: State for manual lead creation dialog
   const [isCreateLeadDialogOpen, setIsCreateLeadDialogOpen] = useState(false);
@@ -221,6 +228,16 @@ export function MyLeadsPageContent() {
                 <Plus className="h-4 w-4 mr-2" />
                 Criar Lead
               </Button>
+              {/* Story 12.2: AC #1 - Import leads CSV button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsImportCsvDialogOpen(true)}
+                data-testid="import-csv-button"
+              >
+                <FileUp className="h-4 w-4 mr-2" />
+                Importar CSV
+              </Button>
               {/* Story 4.7: AC #1 - Import campaign results button */}
               <Button
                 variant="outline"
@@ -348,6 +365,12 @@ export function MyLeadsPageContent() {
       <ImportCampaignResultsDialog
         open={isImportDialogOpen}
         onOpenChange={setIsImportDialogOpen}
+      />
+
+      {/* Story 12.2: AC #1 - Import leads CSV dialog */}
+      <ImportLeadsDialog
+        open={isImportCsvDialogOpen}
+        onOpenChange={setIsImportCsvDialogOpen}
       />
 
       {/* Quick Dev: Manual lead creation dialog */}

@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MyLeadsPageContent } from "@/components/leads/MyLeadsPageContent";
 
@@ -34,6 +34,22 @@ vi.mock("@/hooks/use-segments", () => ({
     data: [],
     isLoading: false,
   })),
+  useCreateSegment: vi.fn(() => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  })),
+}));
+
+vi.mock("@/hooks/use-import-leads-csv", () => ({
+  useImportLeadsCsv: vi.fn(() => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  })),
+}));
+
+vi.mock("@/lib/utils/csv-parser", () => ({
+  parseCSVData: vi.fn(() => ({ headers: [], rows: [] })),
+  detectLeadColumnMappings: vi.fn(() => ({})),
 }));
 
 vi.mock("@/stores/use-selection-store", () => ({
@@ -227,6 +243,30 @@ describe("MyLeadsPageContent", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Erro ao buscar leads/)).toBeInTheDocument();
+    });
+  });
+
+  // Story 12.2: AC #1 - Import CSV button opens dialog
+  it("should show 'Importar CSV' button and open dialog on click", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: mockLeads,
+          meta: { total: 2, page: 1, limit: 25, totalPages: 1 },
+        }),
+    });
+
+    render(<MyLeadsPageContent />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("import-csv-button")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("import-csv-button"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Importar Leads via CSV")).toBeInTheDocument();
     });
   });
 });

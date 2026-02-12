@@ -293,6 +293,6 @@ development_status:
   # Não requerem planejamento arquitetural — reutilizam infraestrutura existente
   epic-12: in-progress
   12-1-filtro-segmento-dialog-adicionar-leads: done  # Code review: 2 HIGH, 4 MEDIUM fixes (search reactivity, SegmentFilter position, AC#3/5/7 tests, AC#6 test strengthened). 28 story tests, 245 files, 4469 total
-  12-2-importacao-leads-csv: ready-for-dev  # Dialog multi-step (upload/paste CSV, mapeamento de colunas, seleção de segmento, criação de leads). Reutiliza padrão ImportCampaignResultsDialog + csv-parser.
+  12-2-importacao-leads-csv: done  # Dialog multi-step (upload/paste CSV, mapeamento de colunas, seleção de segmento, criação de leads). Code review: 2 HIGH, 3 MEDIUM fixes (preview 5 rows, two-pass column mapping, try/catch JSON, filter undefined, ALLOWED_MIME_TYPES). 109 story tests, 5 novos da review.
   12-3-enriquecimento-apollo-leads-importados: backlog  # Enriquecimento batch Apollo para leads importados via CSV (email, LinkedIn, foto). Depende de 12-2.
   12-4-suporte-importacao-excel: backlog  # Suporte a importação de arquivos .xlsx (requer lib xlsx). Opcional. Depende de 12-2.

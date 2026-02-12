@@ -19,6 +19,20 @@ export interface ColumnMappingResult {
 }
 
 /**
+ * Lead column mapping result for CSV import
+ * Story 12.2: AC #4 - Auto-detect lead fields
+ */
+export interface LeadColumnMappingResult {
+  nameColumn: number | null;
+  lastNameColumn: number | null;
+  emailColumn: number | null;
+  companyColumn: number | null;
+  titleColumn: number | null;
+  linkedinColumn: number | null;
+  phoneColumn: number | null;
+}
+
+/**
  * Detect the delimiter used in CSV data
  * Checks for comma, tab, and semicolon
  */
@@ -158,6 +172,62 @@ export function detectColumnMappings(headers: string[]): ColumnMappingResult {
   }
 
   return { emailColumn, responseColumn };
+}
+
+/**
+ * Auto-detect lead column mappings based on header names
+ * Story 12.2: AC #4 - Pre-select columns for lead import
+ */
+export function detectLeadColumnMappings(headers: string[]): LeadColumnMappingResult {
+  const lowerHeaders = headers.map((h) => h.toLowerCase().trim());
+
+  const patternGroups: { key: keyof LeadColumnMappingResult; patterns: string[] }[] = [
+    { key: "nameColumn", patterns: ["nome", "name", "first_name", "first name", "primeiro_nome", "primeiro nome"] },
+    { key: "lastNameColumn", patterns: ["sobrenome", "last_name", "last name", "último nome", "ultimo nome", "surname"] },
+    { key: "emailColumn", patterns: ["email", "e-mail", "email_address", "emailaddress"] },
+    { key: "companyColumn", patterns: ["empresa", "company", "company_name", "organização", "organizacao", "organization"] },
+    { key: "titleColumn", patterns: ["cargo", "title", "job_title", "job title", "posição", "posicao", "position", "role"] },
+    { key: "linkedinColumn", patterns: ["linkedin", "linkedin_url", "linkedin url", "perfil linkedin"] },
+    { key: "phoneColumn", patterns: ["telefone", "phone", "phone_number", "celular", "mobile", "whatsapp"] },
+  ];
+
+  const result: LeadColumnMappingResult = {
+    nameColumn: null,
+    lastNameColumn: null,
+    emailColumn: null,
+    companyColumn: null,
+    titleColumn: null,
+    linkedinColumn: null,
+    phoneColumn: null,
+  };
+  const usedColumns = new Set<number>();
+
+  // Pass 1: exact matches only (prevents "sobrenome" matching "nome" pattern)
+  for (const group of patternGroups) {
+    for (let i = 0; i < lowerHeaders.length; i++) {
+      if (usedColumns.has(i)) continue;
+      if (group.patterns.some((p) => lowerHeaders[i] === p)) {
+        result[group.key] = i;
+        usedColumns.add(i);
+        break;
+      }
+    }
+  }
+
+  // Pass 2: substring matches for remaining unresolved groups
+  for (const group of patternGroups) {
+    if (result[group.key] !== null) continue;
+    for (let i = 0; i < lowerHeaders.length; i++) {
+      if (usedColumns.has(i)) continue;
+      if (group.patterns.some((p) => lowerHeaders[i].includes(p))) {
+        result[group.key] = i;
+        usedColumns.add(i);
+        break;
+      }
+    }
+  }
+
+  return result;
 }
 
 /**
