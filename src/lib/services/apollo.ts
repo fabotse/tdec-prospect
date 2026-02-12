@@ -417,6 +417,95 @@ export class ApolloService extends ExternalService {
   }
 
   /**
+   * Enrich a single person by details (name, email, company) instead of apollo_id
+   * Story 12.3: AC #2 - Match via Apollo People Match using available fields
+   * Story 12.3: AC #3 - Returns apollo_id from match for future use
+   *
+   * @param details - Match fields (first_name, last_name, organization_name, email, linkedin_url)
+   * @returns Enriched person data or throws if not found
+   */
+  async enrichPersonByDetails(
+    details: ApolloEnrichmentRequest
+  ): Promise<ApolloEnrichmentResponse> {
+    const apiKey = await this.getApiKey();
+
+    const body: ApolloEnrichmentRequest = {
+      ...details,
+      reveal_personal_emails: details.reveal_personal_emails ?? false,
+      reveal_phone_number: details.reveal_phone_number ?? false,
+    };
+
+    const response = await this.request<ApolloEnrichmentResponse>(
+      `${APOLLO_API_BASE}${APOLLO_ENRICH_ENDPOINT}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache",
+          "x-api-key": apiKey,
+        },
+        body: JSON.stringify(body),
+      }
+    );
+
+    if (!response.person) {
+      throw new ExternalServiceError(
+        this.name,
+        404,
+        APOLLO_ERROR_MESSAGES.ENRICHMENT_NOT_FOUND
+      );
+    }
+
+    return response;
+  }
+
+  /**
+   * Bulk enrich people by details (name, email, company) instead of apollo_ids
+   * Story 12.3: AC #2 - Bulk match via Apollo People Bulk Match
+   *
+   * @param details - Array of match fields (max 10)
+   * @returns Array of enrichment responses (preserves order for correlation)
+   */
+  async enrichPeopleByDetails(
+    details: ApolloEnrichmentRequest[]
+  ): Promise<ApolloEnrichmentResponse[]> {
+    if (details.length > APOLLO_BULK_LIMIT) {
+      throw new ExternalServiceError(
+        this.name,
+        400,
+        APOLLO_ERROR_MESSAGES.BULK_LIMIT_EXCEEDED
+      );
+    }
+
+    if (details.length === 0) {
+      return [];
+    }
+
+    const apiKey = await this.getApiKey();
+
+    const body: ApolloBulkEnrichmentRequest = {
+      details,
+      reveal_personal_emails: false,
+      reveal_phone_number: false,
+    };
+
+    const response = await this.request<ApolloBulkEnrichmentResponse>(
+      `${APOLLO_API_BASE}${APOLLO_BULK_ENRICH_ENDPOINT}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache",
+          "x-api-key": apiKey,
+        },
+        body: JSON.stringify(body),
+      }
+    );
+
+    return response.matches;
+  }
+
+  /**
    * Bulk enrich up to 10 people
    * AC: #4 - Up to 10 leads per API call, respects rate limits
    * AC: #6 - Follows ExternalService patterns

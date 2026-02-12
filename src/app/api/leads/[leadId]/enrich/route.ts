@@ -1,13 +1,17 @@
 /**
  * Lead Enrichment API Route
  * Story 4.4.1: Lead Data Enrichment
+ * Story 12.3: Support enrichment for leads without apollo_id
  *
  * Enriches a persisted lead with complete data from Apollo People Enrichment API.
  * Uses economy mode: reveal_personal_emails=false, reveal_phone_number=false
+ * Story 12.3: If lead has no apollo_id, uses match by details (name, company, email)
  *
  * AC: #2 - Enrich lead and update in database
  * AC: #3 - Handle not found case
  * AC: #6 - Error handling with Portuguese messages
+ * Story 12.3 AC: #7 - Support enrichment for leads without apollo_id
+ * Story 12.3 AC: #3 - Save apollo_id from match
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -16,7 +20,7 @@ import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { z } from "zod";
 import { ApolloService } from "@/lib/services/apollo";
 import { ExternalServiceError } from "@/lib/services/base-service";
-import { transformEnrichmentToLead } from "@/types/apollo";
+import { transformEnrichmentToLead, buildMatchRequest } from "@/types/apollo";
 import type { LeadRow } from "@/types/lead";
 
 interface RouteParams {
@@ -29,7 +33,7 @@ const uuidSchema = z.string().uuid("ID de lead inválido");
 /**
  * POST /api/leads/[leadId]/enrich
  * Enrich a single persisted lead with Apollo data
- * AC: #2, #3, #6
+ * Story 12.3: Supports leads with AND without apollo_id
  */
 export async function POST(request: NextRequest, { params }: RouteParams) {
   const { leadId } = await params;
@@ -53,7 +57,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   const supabase = await createClient();
 
-  // Fetch lead to get apollo_id (with tenant isolation)
+  // Fetch lead (with tenant isolation)
   const { data: lead, error: fetchError } = await supabase
     .from("leads")
     .select("*")
@@ -68,27 +72,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     );
   }
 
-  // Lead must have apollo_id to be enriched
-  if (!lead.apollo_id) {
-    return NextResponse.json(
-      {
-        error: {
-          code: "VALIDATION_ERROR",
-          message: "Lead não possui ID do Apollo para enriquecimento",
-        },
-      },
-      { status: 400 }
-    );
-  }
-
   try {
-    // Call Apollo enrichment with economy options
-    // AC: #2 - reveal_personal_emails: false, reveal_phone_number: false
     const apolloService = new ApolloService(profile.tenant_id);
-    const enrichmentResponse = await apolloService.enrichPerson(lead.apollo_id, {
-      revealPersonalEmails: false,
-      revealPhoneNumber: false,
-    });
+    let enrichmentResponse;
+
+    if (lead.apollo_id) {
+      // Existing flow: enrich by apollo_id
+      enrichmentResponse = await apolloService.enrichPerson(lead.apollo_id, {
+        revealPersonalEmails: false,
+        revealPhoneNumber: false,
+      });
+    } else {
+      // Story 12.3 AC #7: enrich by details (name, company, email)
+      enrichmentResponse = await apolloService.enrichPersonByDetails(
+        buildMatchRequest(lead as LeadRow)
+      );
+    }
 
     // Transform enrichment response to partial LeadRow
     const enrichedData = transformEnrichmentToLead(
@@ -96,19 +95,24 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       enrichmentResponse.organization
     );
 
+    // Story 12.3 AC #3: Save apollo_id from match if lead didn't have one
+    const updateData: Record<string, unknown> = {
+      ...enrichedData,
+    };
+
+    if (!lead.apollo_id && enrichmentResponse.person?.id) {
+      updateData.apollo_id = enrichmentResponse.person.id;
+    }
+
     // Update lead in database with enriched data
     const { data: updatedLead, error: updateError } = await supabase
       .from("leads")
-      .update({
-        ...enrichedData,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq("id", leadId)
       .select()
       .single();
 
     if (updateError) {
-      console.error("[POST /api/leads/[leadId]/enrich] Update error:", updateError);
       return NextResponse.json(
         { error: { code: "INTERNAL_ERROR", message: "Erro ao atualizar lead" } },
         { status: 500 }
@@ -117,10 +121,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ data: updatedLead as LeadRow });
   } catch (error) {
-    console.error("[POST /api/leads/[leadId]/enrich] Error:", error);
-
     if (error instanceof ExternalServiceError) {
-      // AC: #3 - Handle not found case
       if (error.statusCode === 404) {
         return NextResponse.json(
           {

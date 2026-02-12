@@ -1,6 +1,7 @@
 /**
  * Import Leads CSV Dialog Component
  * Story 12.2: Import Leads via CSV
+ * Story 12.3: Apollo enrichment for imported leads
  *
  * AC: #1 - Button opens dialog
  * AC: #2 - CSV upload via click or drag-and-drop
@@ -9,6 +10,9 @@
  * AC: #5 - Optional segment selection
  * AC: #7 - Import summary
  * AC: #8 - Download CSV template
+ * Story 12.3 AC: #1 - Enrich button after import
+ * Story 12.3 AC: #5 - Enrichment progress
+ * Story 12.3 AC: #6 - Enrichment summary
  */
 
 "use client";
@@ -27,6 +31,7 @@ import {
   ArrowRight,
   TableProperties,
   FolderOpen,
+  Sparkles,
 } from "lucide-react";
 import {
   Dialog,
@@ -62,6 +67,7 @@ import {
 import type { ImportLeadRow, ImportLeadsResponse } from "@/types/lead-import";
 import { useImportLeadsCsv } from "@/hooks/use-import-leads-csv";
 import { useSegments, useCreateSegment } from "@/hooks/use-segments";
+import { useBulkEnrichPersistedLeads } from "@/hooks/use-enrich-persisted-lead";
 
 type ImportStep = "input" | "mapping" | "segment" | "processing" | "summary";
 
@@ -110,10 +116,19 @@ export function ImportLeadsDialog({
   const [newSegmentName, setNewSegmentName] = useState("");
   const [isDragOver, setIsDragOver] = useState(false);
 
+  // Story 12.3: Enrichment state
+  const [enrichmentState, setEnrichmentState] = useState<"idle" | "running" | "done">("idle");
+  const [enrichmentResult, setEnrichmentResult] = useState<{
+    enriched: number;
+    notFound: number;
+    failed: number;
+  } | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importMutation = useImportLeadsCsv();
   const { data: segments } = useSegments();
   const createSegmentMutation = useCreateSegment();
+  const enrichMutation = useBulkEnrichPersistedLeads();
 
   const isValidCSVFile = useCallback((file: File): boolean => {
     const hasValidExtension = file.name.toLowerCase().endsWith(".csv");
@@ -145,6 +160,8 @@ export function ImportLeadsDialog({
         setSelectedSegmentId(null);
         setNewSegmentName("");
         setIsDragOver(false);
+        setEnrichmentState("idle");
+        setEnrichmentResult(null);
       }
       onOpenChange(newOpen);
     },
@@ -330,6 +347,26 @@ Pedro,Oliveira,,,Gerente Comercial,,11988776655`;
     createSegmentMutation,
     importMutation,
   ]);
+
+  // Story 12.3 AC #1: Handle enrichment of imported leads
+  const handleEnrichment = useCallback(async () => {
+    if (!importResult || importResult.leads.length === 0) return;
+
+    setEnrichmentState("running");
+
+    try {
+      const result = await enrichMutation.mutateAsync(importResult.leads);
+      setEnrichmentResult({
+        enriched: result.enriched,
+        notFound: result.notFound,
+        failed: result.failed,
+      });
+      setEnrichmentState("done");
+    } catch {
+      setEnrichmentState("done");
+      setEnrichmentResult({ enriched: 0, notFound: 0, failed: importResult.leads.length });
+    }
+  }, [importResult, enrichMutation]);
 
   // Get mapped fields that have a column selected (for preview)
   const activeMappings = LEAD_FIELDS.filter((f) => mappings[f.key] !== null);
@@ -644,7 +681,7 @@ João,Silva,joao@empresa.com,Empresa ABC,Diretor`}
             </div>
           )}
 
-          {/* Step: Summary (AC #7) */}
+          {/* Step: Summary (AC #7) + Story 12.3 Enrichment */}
           {step === "summary" && importResult && (
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
@@ -682,6 +719,51 @@ João,Silva,joao@empresa.com,Empresa ABC,Diretor`}
                       <li key={i}>{err}</li>
                     ))}
                   </ul>
+                </div>
+              )}
+
+              {/* Story 12.3 AC #5: Enrichment progress */}
+              {enrichmentState === "running" && (
+                <div
+                  className="flex items-center gap-3 rounded-md border border-primary/20 bg-primary/5 p-3"
+                  data-testid="enrichment-progress"
+                >
+                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                  <span className="text-sm">
+                    Enriquecendo {importResult.leads.length} lead
+                    {importResult.leads.length !== 1 ? "s" : ""} com Apollo...
+                  </span>
+                </div>
+              )}
+
+              {/* Story 12.3 AC #6: Enrichment summary */}
+              {enrichmentState === "done" && enrichmentResult && (
+                <div className="space-y-2 rounded-md border p-3" data-testid="enrichment-summary">
+                  <span className="text-sm font-medium">Enriquecimento Apollo</span>
+                  {enrichmentResult.enriched > 0 && (
+                    <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                      <CheckCircle2 className="h-4 w-4" />
+                      <span className="text-sm">
+                        {enrichmentResult.enriched} enriquecido{enrichmentResult.enriched !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                  )}
+                  {enrichmentResult.notFound > 0 && (
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <AlertTriangle className="h-4 w-4" />
+                      <span className="text-sm">
+                        {enrichmentResult.notFound} não encontrado{enrichmentResult.notFound !== 1 ? "s" : ""} no Apollo
+                      </span>
+                    </div>
+                  )}
+                  {enrichmentResult.failed > 0 && (
+                    <div className="flex items-center gap-2 text-destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <span className="text-sm">
+                        {enrichmentResult.failed} erro{enrichmentResult.failed !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -722,8 +804,20 @@ João,Silva,joao@empresa.com,Empresa ABC,Diretor`}
 
         {step === "summary" && (
           <DialogFooter>
+            {/* Story 12.3 AC #1: Enrich button after import */}
+            {enrichmentState === "idle" && importResult && importResult.leads.length > 0 && (
+              <Button
+                variant="outline"
+                onClick={handleEnrichment}
+                data-testid="enrich-button"
+              >
+                <Sparkles className="h-4 w-4 mr-2" />
+                Enriquecer com Apollo
+              </Button>
+            )}
             <Button
               onClick={() => handleOpenChange(false)}
+              disabled={enrichmentState === "running"}
               data-testid="close-button"
             >
               Fechar

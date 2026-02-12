@@ -764,4 +764,259 @@ describe("ApolloService", () => {
       ).rejects.toThrow("Webhook URL obrigatória");
     });
   });
+
+  // ==============================================
+  // ENRICHMENT BY DETAILS TESTS (Story 12.3)
+  // ==============================================
+
+  describe("enrichPersonByDetails (Story 12.3)", () => {
+    let serviceWithTenant: ApolloService;
+
+    beforeEach(() => {
+      serviceWithTenant = new ApolloService("tenant-123");
+    });
+
+    it("sends match fields in request body", async () => {
+      const mockResponse = {
+        person: {
+          id: "apollo-match-1",
+          first_name: "João",
+          last_name: "Silva",
+          email: "joao@empresa.com",
+          email_status: "verified",
+          title: "CEO",
+          city: "São Paulo",
+          state: "SP",
+          country: "Brazil",
+          linkedin_url: "https://linkedin.com/in/joao",
+          photo_url: null,
+          employment_history: [],
+        },
+        organization: {
+          id: "org-1",
+          name: "Empresa SA",
+          domain: "empresa.com",
+          industry: "Technology",
+          estimated_num_employees: 150,
+        },
+      };
+
+      const { mock } = createMockFetch([
+        { url: /apollo\.io.*people\/match/, method: "POST", response: mockJsonResponse(mockResponse) },
+      ]);
+
+      const result = await serviceWithTenant.enrichPersonByDetails({
+        first_name: "João",
+        last_name: "Silva",
+        organization_name: "Empresa SA",
+        email: "joao@empresa.com",
+      });
+
+      // Verify body contains match fields (not id)
+      const callBody = JSON.parse(mock.mock.calls[0][1].body);
+      expect(callBody.first_name).toBe("João");
+      expect(callBody.last_name).toBe("Silva");
+      expect(callBody.organization_name).toBe("Empresa SA");
+      expect(callBody.email).toBe("joao@empresa.com");
+      expect(callBody.id).toBeUndefined();
+
+      expect(result.person?.id).toBe("apollo-match-1");
+      expect(result.person?.email).toBe("joao@empresa.com");
+    });
+
+    it("returns apollo_id from match (AC #3)", async () => {
+      const mockResponse = {
+        person: {
+          id: "apollo-new-id-999",
+          first_name: "Maria",
+          last_name: "Santos",
+          email: "maria@corp.com",
+          email_status: "verified",
+          title: "CTO",
+          city: null,
+          state: null,
+          country: null,
+          linkedin_url: null,
+          photo_url: null,
+          employment_history: [],
+        },
+        organization: null,
+      };
+
+      createMockFetch([
+        { url: /apollo\.io/, response: mockJsonResponse(mockResponse) },
+      ]);
+
+      const result = await serviceWithTenant.enrichPersonByDetails({
+        first_name: "Maria",
+        last_name: "Santos",
+        organization_name: "Corp",
+      });
+
+      expect(result.person?.id).toBe("apollo-new-id-999");
+    });
+
+    it("throws when no match found", async () => {
+      const mockResponse = {
+        person: null,
+        organization: null,
+      };
+
+      createMockFetch([
+        { url: /apollo\.io/, response: mockJsonResponse(mockResponse) },
+      ]);
+
+      await expect(
+        serviceWithTenant.enrichPersonByDetails({
+          first_name: "Unknown",
+          last_name: "Person",
+        })
+      ).rejects.toThrow("não encontrada");
+    });
+
+    it("sets economy mode by default (AC #8)", async () => {
+      const mockResponse = {
+        person: {
+          id: "apollo-1",
+          first_name: "João",
+          last_name: "Silva",
+          email: null,
+          email_status: null,
+          title: null,
+          city: null,
+          state: null,
+          country: null,
+          linkedin_url: null,
+          photo_url: null,
+          employment_history: [],
+        },
+        organization: null,
+      };
+
+      const { mock } = createMockFetch([
+        { url: /apollo\.io/, response: mockJsonResponse(mockResponse) },
+      ]);
+
+      await serviceWithTenant.enrichPersonByDetails({
+        first_name: "João",
+      });
+
+      const callBody = JSON.parse(mock.mock.calls[0][1].body);
+      expect(callBody.reveal_personal_emails).toBe(false);
+      expect(callBody.reveal_phone_number).toBe(false);
+    });
+  });
+
+  describe("enrichPeopleByDetails (Story 12.3)", () => {
+    let serviceWithTenant: ApolloService;
+
+    beforeEach(() => {
+      serviceWithTenant = new ApolloService("tenant-123");
+    });
+
+    it("sends details array in request body", async () => {
+      const mockResponse = {
+        matches: [
+          {
+            person: {
+              id: "apollo-1",
+              first_name: "João",
+              last_name: "Silva",
+              email: "joao@empresa.com",
+              email_status: "verified",
+              title: "CEO",
+              city: null,
+              state: null,
+              country: null,
+              linkedin_url: null,
+              photo_url: null,
+              employment_history: [],
+            },
+            organization: null,
+          },
+          {
+            person: null,
+            organization: null,
+          },
+        ],
+        missing: 1,
+      };
+
+      const { mock } = createMockFetch([
+        { url: /apollo\.io.*bulk_match/, response: mockJsonResponse(mockResponse) },
+      ]);
+
+      const details = [
+        { first_name: "João", last_name: "Silva", organization_name: "Empresa SA" },
+        { first_name: "Maria", last_name: "Santos", email: "maria@corp.com" },
+      ];
+
+      const result = await serviceWithTenant.enrichPeopleByDetails(details);
+
+      const callBody = JSON.parse(mock.mock.calls[0][1].body);
+      expect(callBody.details).toHaveLength(2);
+      expect(callBody.details[0].first_name).toBe("João");
+      expect(callBody.details[1].email).toBe("maria@corp.com");
+      expect(callBody.reveal_personal_emails).toBe(false);
+      expect(callBody.reveal_phone_number).toBe(false);
+
+      // Preserves order for correlation (AC #2)
+      expect(result).toHaveLength(2);
+      expect(result[0].person?.id).toBe("apollo-1");
+      expect(result[1].person).toBeNull();
+    });
+
+    it("throws error for more than 10 details", async () => {
+      const details = Array.from({ length: 11 }, (_, i) => ({
+        first_name: `Person${i}`,
+      }));
+
+      await expect(
+        serviceWithTenant.enrichPeopleByDetails(details)
+      ).rejects.toThrow("Máximo de 10");
+    });
+
+    it("returns empty array for empty input", async () => {
+      const result = await serviceWithTenant.enrichPeopleByDetails([]);
+      expect(result).toEqual([]);
+    });
+
+    it("calls bulk_match endpoint", async () => {
+      const mockResponse = {
+        matches: [
+          {
+            person: {
+              id: "apollo-1",
+              first_name: "Test",
+              last_name: "User",
+              email: null,
+              email_status: null,
+              title: null,
+              city: null,
+              state: null,
+              country: null,
+              linkedin_url: null,
+              photo_url: null,
+              employment_history: [],
+            },
+            organization: null,
+          },
+        ],
+        missing: 0,
+      };
+
+      const { mock } = createMockFetch([
+        { url: /apollo\.io.*bulk_match/, response: mockJsonResponse(mockResponse) },
+      ]);
+
+      await serviceWithTenant.enrichPeopleByDetails([
+        { first_name: "Test", last_name: "User" },
+      ]);
+
+      expect(mock).toHaveBeenCalledWith(
+        expect.stringContaining("bulk_match"),
+        expect.objectContaining({ method: "POST" })
+      );
+    });
+  });
 });

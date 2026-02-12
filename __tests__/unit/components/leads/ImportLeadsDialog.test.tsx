@@ -1,6 +1,7 @@
 /**
  * Tests for ImportLeadsDialog Component
  * Story 12.2: Import Leads via CSV
+ * Story 12.3: Apollo enrichment for imported leads
  *
  * AC: #1 - Dialog opens/closes
  * AC: #2 - CSV upload
@@ -9,6 +10,9 @@
  * AC: #5 - Segment selection
  * AC: #7 - Import summary
  * AC: #8 - Download CSV template
+ * Story 12.3 AC: #1 - Enrich button after import
+ * Story 12.3 AC: #5 - Enrichment progress
+ * Story 12.3 AC: #6 - Enrichment summary
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -59,6 +63,15 @@ const mockImportMutateAsync = vi.fn();
 vi.mock("@/hooks/use-import-leads-csv", () => ({
   useImportLeadsCsv: () => ({
     mutateAsync: mockImportMutateAsync,
+    isPending: false,
+  }),
+}));
+
+// Mock useBulkEnrichPersistedLeads (Story 12.3)
+const mockEnrichMutateAsync = vi.fn();
+vi.mock("@/hooks/use-enrich-persisted-lead", () => ({
+  useBulkEnrichPersistedLeads: () => ({
+    mutateAsync: mockEnrichMutateAsync,
     isPending: false,
   }),
 }));
@@ -501,6 +514,113 @@ describe("ImportLeadsDialog", () => {
       rerender(createElement(ImportLeadsDialog, { open: true, onOpenChange }));
 
       expect(screen.getByTestId("tab-upload")).toBeInTheDocument();
+    });
+  });
+
+  describe("Apollo enrichment (Story 12.3)", () => {
+    /** Navigate to summary step with imported leads that have IDs */
+    async function goToSummaryWithLeads(leadIds: string[] = ["id-1", "id-2"]) {
+      mockImportMutateAsync.mockResolvedValue({
+        imported: leadIds.length,
+        existing: 0,
+        errors: [],
+        leads: leadIds,
+      });
+
+      await goToSegment();
+      fireEvent.click(screen.getByTestId("import-button"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("close-button")).toBeInTheDocument();
+      });
+    }
+
+    it("should show enrich button after import with leads (AC #1)", async () => {
+      await goToSummaryWithLeads();
+
+      const enrichButton = screen.getByTestId("enrich-button");
+      expect(enrichButton).toBeInTheDocument();
+      expect(enrichButton).toHaveTextContent("Enriquecer com Apollo");
+    });
+
+    it("should NOT show enrich button when no leads imported", async () => {
+      await goToSummaryWithLeads([]);
+
+      expect(screen.queryByTestId("enrich-button")).not.toBeInTheDocument();
+    });
+
+    it("should show enrichment progress during enrichment (AC #5)", async () => {
+      // Make enrichment hang (never resolve) to test running state
+      mockEnrichMutateAsync.mockReturnValue(new Promise(() => {}));
+
+      await goToSummaryWithLeads();
+      fireEvent.click(screen.getByTestId("enrich-button"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("enrichment-progress")).toBeInTheDocument();
+      });
+      expect(screen.getByText(/Enriquecendo 2 leads com Apollo/)).toBeInTheDocument();
+      // Enrich button should disappear during enrichment
+      expect(screen.queryByTestId("enrich-button")).not.toBeInTheDocument();
+    });
+
+    it("should disable close button during enrichment", async () => {
+      mockEnrichMutateAsync.mockReturnValue(new Promise(() => {}));
+
+      await goToSummaryWithLeads();
+      fireEvent.click(screen.getByTestId("enrich-button"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("enrichment-progress")).toBeInTheDocument();
+      });
+      expect(screen.getByTestId("close-button")).toBeDisabled();
+    });
+
+    it("should show enrichment summary after completion (AC #6)", async () => {
+      mockEnrichMutateAsync.mockResolvedValue({
+        enriched: 1,
+        notFound: 1,
+        failed: 0,
+        leads: [],
+      });
+
+      await goToSummaryWithLeads();
+      fireEvent.click(screen.getByTestId("enrich-button"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("enrichment-summary")).toBeInTheDocument();
+      });
+      expect(screen.getByText(/1 enriquecido/)).toBeInTheDocument();
+      expect(screen.getByText(/1 não encontrado no Apollo/)).toBeInTheDocument();
+    });
+
+    it("should show all failures when enrichment throws", async () => {
+      mockEnrichMutateAsync.mockRejectedValue(new Error("Network error"));
+
+      await goToSummaryWithLeads(["id-1", "id-2", "id-3"]);
+      fireEvent.click(screen.getByTestId("enrich-button"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("enrichment-summary")).toBeInTheDocument();
+      });
+      expect(screen.getByText(/3 erros/)).toBeInTheDocument();
+    });
+
+    it("should re-enable close button after enrichment completes", async () => {
+      mockEnrichMutateAsync.mockResolvedValue({
+        enriched: 2,
+        notFound: 0,
+        failed: 0,
+        leads: [],
+      });
+
+      await goToSummaryWithLeads();
+      fireEvent.click(screen.getByTestId("enrich-button"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("enrichment-summary")).toBeInTheDocument();
+      });
+      expect(screen.getByTestId("close-button")).not.toBeDisabled();
     });
   });
 });

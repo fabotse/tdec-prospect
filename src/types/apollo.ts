@@ -223,6 +223,26 @@ export function transformApolloToLeadRow(
   };
 }
 
+/**
+ * Build Apollo match request from lead data
+ * Story 12.3: AC #2 - Uses available fields for matching
+ * Used by both individual and bulk enrichment routes
+ *
+ * Note: Does NOT set reveal_personal_emails/reveal_phone_number.
+ * Economy mode flags are enforced by the service methods (enrichPersonByDetails, enrichPeopleByDetails).
+ */
+export function buildMatchRequest(lead: LeadRow): ApolloEnrichmentRequest {
+  const request: ApolloEnrichmentRequest = {};
+
+  if (lead.first_name) request.first_name = lead.first_name;
+  if (lead.last_name) request.last_name = lead.last_name;
+  if (lead.email) request.email = lead.email;
+  if (lead.company_name) request.organization_name = lead.company_name;
+  if (lead.linkedin_url) request.linkedin_url = lead.linkedin_url;
+
+  return request;
+}
+
 // ==============================================
 // PEOPLE ENRICHMENT TYPES (Story 3.2.1)
 // ==============================================

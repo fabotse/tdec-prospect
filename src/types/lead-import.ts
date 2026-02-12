@@ -25,12 +25,13 @@ export interface ImportLeadRow {
 /**
  * Import response summary
  * AC: #7 - Summary with counts
+ * Story 12.3 AC: #1 - leads contains insertedLeadIds for post-import enrichment
  */
 export interface ImportLeadsResponse {
   imported: number;
   existing: number;
   errors: string[];
-  leads: unknown[];
+  leads: string[];
 }
 
 /**
