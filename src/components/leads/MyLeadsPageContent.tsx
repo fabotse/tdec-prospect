@@ -5,6 +5,7 @@
  * Story 4.6: Interested Leads Highlighting
  * Story 4.7: Import Campaign Results
  * Story 12.2: Import Leads via CSV
+ * Story 12.5: Deleção de Leads
  *
  * Main content component for displaying imported leads from database.
  *
@@ -18,6 +19,7 @@
  * Story 4.6: AC #2, #6 - Interested leads quick filter and counter
  * Story 4.7: AC #1 - Import campaign results button
  * Story 12.2: AC #1 - Import CSV button
+ * Story 12.5: AC #1 - Individual lead delete from row actions
  */
 
 "use client";
@@ -44,6 +46,8 @@ import {
 import { ImportCampaignResultsDialog } from "@/components/leads/ImportCampaignResultsDialog";
 import { ImportLeadsDialog } from "@/components/leads/ImportLeadsDialog";
 import { CreateLeadDialog } from "@/components/leads/CreateLeadDialog";
+import { DeleteLeadsDialog } from "@/components/leads/DeleteLeadsDialog";
+import { useDeleteLeads } from "@/hooks/use-delete-leads";
 import {
   Select,
   SelectContent,
@@ -95,6 +99,10 @@ export function MyLeadsPageContent() {
   // Story 6.5.6: AC #4 - Track leads currently generating icebreakers
   const [generatingIcebreakerIds, setGeneratingIcebreakerIds] = useState<Set<string>>(new Set());
 
+  // Story 12.5: AC #1 - Individual lead delete state
+  const [deleteLeadId, setDeleteLeadId] = useState<string | null>(null);
+  const deleteMutation = useDeleteLeads();
+
   // Story 4.3: AC #1 - Open panel when row is clicked
   const handleRowClick = useCallback((lead: Lead) => {
     setSelectedLead(lead);
@@ -120,6 +128,21 @@ export function MyLeadsPageContent() {
   const handleIcebreakerGenerationEnd = useCallback(() => {
     setGeneratingIcebreakerIds(new Set());
   }, []);
+
+  // Story 12.5: AC #1 - Handle individual lead delete
+  const handleDeleteLead = useCallback((leadId: string) => {
+    setDeleteLeadId(leadId);
+  }, []);
+
+  const handleConfirmDeleteLead = useCallback(async () => {
+    if (!deleteLeadId) return;
+    try {
+      await deleteMutation.mutateAsync([deleteLeadId]);
+      setDeleteLeadId(null);
+    } catch {
+      // Error toast handled by hook onError
+    }
+  }, [deleteLeadId, deleteMutation]);
 
   // Count visible selected leads
   const visibleSelectedCount = useMemo(() => {
@@ -254,6 +277,7 @@ export function MyLeadsPageContent() {
             {/* AC: #2 - LeadTable with showCreatedAt for "Importado em" column */}
             {/* Story 4.3: AC #1 - Row click opens detail panel */}
             {/* Story 6.5.6: AC #1 - showIcebreaker column on My Leads page */}
+            {/* Story 12.5: AC #1 - onDeleteLead for individual row delete */}
             <LeadTable
               leads={leads}
               selectedIds={selectedIds}
@@ -263,6 +287,7 @@ export function MyLeadsPageContent() {
               showIcebreaker
               onRowClick={handleRowClick}
               generatingIcebreakerIds={generatingIcebreakerIds}
+              onDeleteLead={handleDeleteLead}
             />
 
             {/* AC: #7 - Pagination controls */}
@@ -377,6 +402,15 @@ export function MyLeadsPageContent() {
       <CreateLeadDialog
         open={isCreateLeadDialogOpen}
         onOpenChange={setIsCreateLeadDialogOpen}
+      />
+
+      {/* Story 12.5: AC #1 - Individual lead delete confirmation dialog */}
+      <DeleteLeadsDialog
+        open={deleteLeadId !== null}
+        onOpenChange={(open) => { if (!open) setDeleteLeadId(null); }}
+        leadCount={1}
+        onConfirm={handleConfirmDeleteLead}
+        isDeleting={deleteMutation.isPending}
       />
     </div>
   );

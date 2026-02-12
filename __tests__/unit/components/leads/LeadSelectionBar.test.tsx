@@ -3,6 +3,7 @@
  * Story: 3.6 - Lead Selection (Individual & Batch)
  * Story: 4.1 - Lead Segments/Lists (SegmentDropdown integration)
  * Story: 4.2.1 - Lead Import Mechanism
+ * Story: 12.5 - Deleção de Leads
  *
  * AC: #1 - Selection bar appears when leads selected
  * AC: #3 - Action buttons: "Criar Campanha", dropdown menu
@@ -851,6 +852,124 @@ describe("LeadSelectionBar", () => {
       await waitFor(() => {
         expect(onStart).toHaveBeenCalledWith(["lead-1", "lead-2"]);
       });
+    });
+  });
+
+  // ==============================================
+  // BULK DELETE TESTS (Story 12.5: AC #2, #8)
+  // ==============================================
+
+  describe("Bulk Delete (Story 12.5)", () => {
+    beforeEach(() => {
+      useSelectionStore.setState({ selectedIds: ["lead-1", "lead-2"] });
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ data: [] }),
+      });
+    });
+
+    it("AC#2: shows 'Excluir Leads' in dropdown menu", async () => {
+      const user = userEvent.setup();
+      render(<LeadSelectionBar visibleSelectedCount={2} />, { wrapper: createWrapper() });
+
+      await user.click(screen.getByRole("button", { name: "Mais opções" }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("bulk-delete-menu-item")).toBeInTheDocument();
+        expect(screen.getByText("Excluir Leads")).toBeInTheDocument();
+      });
+    });
+
+    it("AC#3: opens confirmation dialog when 'Excluir Leads' clicked", async () => {
+      const user = userEvent.setup();
+      render(<LeadSelectionBar visibleSelectedCount={2} />, { wrapper: createWrapper() });
+
+      await user.click(screen.getByRole("button", { name: "Mais opções" }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Excluir Leads")).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByText("Excluir Leads"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Excluir Leads", { selector: "h2" })).toBeInTheDocument();
+        expect(screen.getByText(/Tem certeza que deseja excluir 2 leads\?/)).toBeInTheDocument();
+      });
+    });
+
+    it("AC#8: calls delete API and clears selection on confirm", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ data: [] }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ data: { deleted: 2 } }),
+        });
+
+      const user = userEvent.setup();
+      render(<LeadSelectionBar visibleSelectedCount={2} />, { wrapper: createWrapper() });
+
+      // Open dropdown
+      await user.click(screen.getByRole("button", { name: "Mais opções" }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Excluir Leads")).toBeInTheDocument();
+      });
+
+      // Click delete
+      await user.click(screen.getByText("Excluir Leads"));
+
+      // Confirm in dialog
+      await waitFor(() => {
+        expect(screen.getByText("Excluir", { selector: "button" })).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByText("Excluir", { selector: "button" }));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          "/api/leads/bulk-delete",
+          expect.objectContaining({
+            method: "DELETE",
+            body: JSON.stringify({ leadIds: ["lead-1", "lead-2"] }),
+          })
+        );
+      });
+
+      // Selection should be cleared after successful delete
+      await waitFor(() => {
+        expect(useSelectionStore.getState().selectedIds).toEqual([]);
+      });
+    });
+
+    it("AC#3: can cancel delete dialog", async () => {
+      const user = userEvent.setup();
+      render(<LeadSelectionBar visibleSelectedCount={2} />, { wrapper: createWrapper() });
+
+      await user.click(screen.getByRole("button", { name: "Mais opções" }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Excluir Leads")).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByText("Excluir Leads"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Cancelar")).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByText("Cancelar"));
+
+      await waitFor(() => {
+        // Dialog should close
+        expect(screen.queryByText(/Tem certeza que deseja excluir/)).not.toBeInTheDocument();
+      });
+
+      // Selection should NOT be cleared
+      expect(useSelectionStore.getState().selectedIds).toHaveLength(2);
     });
   });
 

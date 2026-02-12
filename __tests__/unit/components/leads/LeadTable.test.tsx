@@ -1161,4 +1161,89 @@ describe("LeadTable", () => {
       expect(results).toHaveNoViolations();
     });
   });
+
+  // ==============================================
+  // INDIVIDUAL DELETE TESTS (Story 12.5: AC #1)
+  // ==============================================
+
+  describe("Individual Delete (Story 12.5)", () => {
+    it("AC#1: shows actions column when onDeleteLead is provided", () => {
+      renderLeadTable(
+        <LeadTable
+          leads={mockLeads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+          onDeleteLead={vi.fn()}
+        />
+      );
+
+      expect(screen.getByTestId("row-actions-lead-1")).toBeInTheDocument();
+      expect(screen.getByTestId("row-actions-lead-2")).toBeInTheDocument();
+    });
+
+    it("AC#1: does not show actions column when onDeleteLead is not provided", () => {
+      renderLeadTable(
+        <LeadTable
+          leads={mockLeads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      expect(screen.queryByTestId("row-actions-lead-1")).not.toBeInTheDocument();
+    });
+
+    it("AC#1: shows 'Excluir' option in row dropdown", async () => {
+      const user = userEvent.setup();
+
+      renderLeadTable(
+        <LeadTable
+          leads={mockLeads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+          onDeleteLead={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByTestId("row-actions-lead-1"));
+
+      await screen.findByTestId("delete-lead-lead-1");
+      expect(screen.getByText("Excluir")).toBeInTheDocument();
+    });
+
+    it("AC#1: calls onDeleteLead with lead ID when 'Excluir' clicked", async () => {
+      const onDeleteLead = vi.fn();
+      const user = userEvent.setup();
+
+      renderLeadTable(
+        <LeadTable
+          leads={mockLeads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+          onDeleteLead={onDeleteLead}
+        />
+      );
+
+      await user.click(screen.getByTestId("row-actions-lead-1"));
+
+      await screen.findByTestId("delete-lead-lead-1");
+      await user.click(screen.getByTestId("delete-lead-lead-1"));
+
+      expect(onDeleteLead).toHaveBeenCalledWith("lead-1");
+    });
+
+    it("AC#1: each row has its own actions button", () => {
+      renderLeadTable(
+        <LeadTable
+          leads={mockLeads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+          onDeleteLead={vi.fn()}
+        />
+      );
+
+      const actionButtons = screen.getAllByRole("button", { name: "Ações do lead" });
+      expect(actionButtons.length).toBe(mockLeads.length);
+    });
+  });
 });

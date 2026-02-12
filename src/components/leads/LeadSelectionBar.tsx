@@ -7,6 +7,7 @@
  * Story: 4.4.1 - Lead Data Enrichment
  * Story: 4.5 - Phone Number Lookup
  * Story: 5.7 - Campaign Lead Association
+ * Story: 12.5 - Deleção de Leads
  *
  * AC: #1 - Selection bar appears at bottom when leads selected
  * AC: #3 - Action buttons: "Criar Campanha", dropdown menu
@@ -18,6 +19,7 @@
  * Story 4.4.1: AC #4 - Bulk enrichment from selection bar
  * Story 4.5: AC #4 - Batch phone lookup from selection bar
  * Story 5.7: AC #6 - "Criar Campanha" redirects with pre-selected leads
+ * Story 12.5: AC #2 - Deleção em massa from selection bar
  */
 
 "use client";
@@ -27,6 +29,8 @@ import { toast } from "sonner";
 import { useSelectionStore } from "@/stores/use-selection-store";
 import { useBulkUpdateStatus } from "@/hooks/use-lead-status";
 import { useImportLeads, type LeadDataForImport } from "@/hooks/use-import-leads";
+import { useDeleteLeads } from "@/hooks/use-delete-leads";
+import { DeleteLeadsDialog } from "./DeleteLeadsDialog";
 import { useEnrichPersistedLead } from "@/hooks/use-enrich-persisted-lead";
 import { useIcebreakerEnrichment, estimateIcebreakerCost } from "@/hooks/use-icebreaker-enrichment";
 import { IcebreakerCategorySelect } from "./IcebreakerCategorySelect";
@@ -50,7 +54,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { MoreHorizontal, X, RefreshCw, Loader2, Download, Phone, Sparkles } from "lucide-react";
+import { MoreHorizontal, X, RefreshCw, Loader2, Download, Phone, Sparkles, Trash2 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { NativeMagnetic } from "@/components/ui/native-magnetic";
 import { useRouter } from "next/navigation";
@@ -103,6 +107,10 @@ export function LeadSelectionBar({
     total: number;
     isRunning: boolean;
   }>({ current: 0, total: 0, isRunning: false });
+
+  // Story 12.5: AC #2 - Bulk delete
+  const deleteMutation = useDeleteLeads();
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   // Story 4.5: AC #4 - Batch phone lookup state
   const [showBatchLookup, setShowBatchLookup] = useState(false);
@@ -234,6 +242,18 @@ export function LeadSelectionBar({
 
     await icebreakerEnrichment.generateForLeads(leadIds, false, icebreakerCategory);
   }, [selectedIds, icebreakerEnrichment, onIcebreakerGenerationStart, icebreakerCategory]);
+
+  // Story 12.5: AC #2 - Handle bulk delete
+  const handleBulkDelete = useCallback(async () => {
+    const leadIds = [...selectedIds];
+    try {
+      await deleteMutation.mutateAsync(leadIds);
+      setShowDeleteDialog(false);
+      clearSelection();
+    } catch {
+      // Error toast handled by hook onError
+    }
+  }, [selectedIds, deleteMutation, clearSelection]);
 
   return (
     <>
@@ -385,6 +405,15 @@ export function LeadSelectionBar({
                     <DropdownMenuItem disabled>
                       Exportar CSV (em breve)
                     </DropdownMenuItem>
+                    {/* Story 12.5: AC #2 - Bulk delete option */}
+                    <DropdownMenuItem
+                      onClick={() => setShowDeleteDialog(true)}
+                      className="text-destructive focus:text-destructive"
+                      data-testid="bulk-delete-menu-item"
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Excluir Leads
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
 
@@ -410,6 +439,15 @@ export function LeadSelectionBar({
         open={showBatchLookup}
         onComplete={handleBatchLookupComplete}
         onCancel={handleBatchLookupCancel}
+      />
+
+      {/* Story 12.5: AC #2, #3 - Bulk delete confirmation dialog */}
+      <DeleteLeadsDialog
+        open={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+        leadCount={selectedIds.length}
+        onConfirm={handleBulkDelete}
+        isDeleting={deleteMutation.isPending}
       />
 
       {/* Story 6.5.6: AC #2 - Icebreaker generation confirmation dialog */}

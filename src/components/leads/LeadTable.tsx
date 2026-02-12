@@ -5,6 +5,7 @@
  * Story: 4.2.2 - My Leads Page
  * Story: 4.4.1 - Lead Data Enrichment
  * Story: 4.6 - Interested Leads Highlighting
+ * Story: 12.5 - Deleção de Leads
  *
  * AC: #1 - Table with columns: checkbox, Nome, Empresa, Cargo, Localização, Status
  * AC: #2 - Airtable-inspired styling with hover states
@@ -47,11 +48,20 @@ import {
   Phone,
   Loader2,
   Sparkles,
+  MoreHorizontal,
+  Trash2,
 } from "lucide-react";
 import { Lead } from "@/types/lead";
 import { LeadStatusDropdown } from "./LeadStatusDropdown";
 import { LeadImportIndicator } from "./LeadImportIndicator";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 // ==============================================
@@ -88,7 +98,7 @@ interface SortState {
 }
 
 interface Column {
-  key: keyof Lead | "select" | "contact" | "import";
+  key: keyof Lead | "select" | "contact" | "import" | "actions";
   label: string;
   defaultWidth: number;
   minWidth: number;
@@ -113,6 +123,8 @@ interface LeadTableProps {
   showIcebreaker?: boolean;
   /** Story 6.5.6: AC #4 - Set of lead IDs currently generating icebreakers */
   generatingIcebreakerIds?: Set<string>;
+  /** Story 12.5: AC #1 - Callback when individual delete is requested */
+  onDeleteLead?: (leadId: string) => void;
 }
 
 // ==============================================
@@ -205,6 +217,15 @@ const COLUMNS: Column[] = [
     sortable: true,
     truncate: false,
   },
+  // Story 12.5: AC #1 - Actions column (optional, shown via onDeleteLead prop)
+  {
+    key: "actions",
+    label: "Ações",
+    defaultWidth: 48,
+    minWidth: 48,
+    sortable: false,
+    truncate: false,
+  },
 ];
 
 // ==============================================
@@ -221,15 +242,17 @@ export function LeadTable({
   showImportStatus = false,
   showIcebreaker = false,
   generatingIcebreakerIds = new Set(),
+  onDeleteLead,
 }: LeadTableProps) {
-  // Story 4.2.2, 6.5.6: Filter columns based on showCreatedAt and showIcebreaker props
+  // Story 4.2.2, 6.5.6, 12.5: Filter columns based on props
   const visibleColumns = useMemo(() => {
     return COLUMNS.filter((col) => {
       if (col.key === "createdAt" && !showCreatedAt) return false;
       if (col.key === "icebreaker" && !showIcebreaker) return false;
+      if (col.key === "actions" && !onDeleteLead) return false;
       return true;
     });
-  }, [showCreatedAt, showIcebreaker]);
+  }, [showCreatedAt, showIcebreaker, onDeleteLead]);
   // Sort state
   const [sort, setSort] = useState<SortState>({
     column: null,
@@ -810,6 +833,41 @@ export function LeadTable({
                     }
                   >
                     {formatBrazilianDate(lead.createdAt)}
+                  </TableCell>
+                )}
+
+                {/* Story 12.5: AC #1 - Row actions column (optional) */}
+                {onDeleteLead && (
+                  <TableCell
+                    role="gridcell"
+                    className="w-12"
+                  >
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          data-testid={`row-actions-${lead.id}`}
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                          <span className="sr-only">Ações do lead</span>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteLead(lead.id);
+                          }}
+                          className="text-destructive focus:text-destructive"
+                          data-testid={`delete-lead-${lead.id}`}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Excluir
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 )}
               </TableRow>
