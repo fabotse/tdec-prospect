@@ -1,10 +1,11 @@
 /**
- * Import Leads CSV Dialog Component
+ * Import Leads Dialog Component
  * Story 12.2: Import Leads via CSV
  * Story 12.3: Apollo enrichment for imported leads
+ * Story 12.4: Support for .xlsx (Excel) files
  *
  * AC: #1 - Button opens dialog
- * AC: #2 - CSV upload via click or drag-and-drop
+ * AC: #2 - CSV/XLSX upload via click or drag-and-drop
  * AC: #3 - Paste tabular data
  * AC: #4 - Column mapping with auto-detection
  * AC: #5 - Optional segment selection
@@ -13,6 +14,9 @@
  * Story 12.3 AC: #1 - Enrich button after import
  * Story 12.3 AC: #5 - Enrichment progress
  * Story 12.3 AC: #6 - Enrichment summary
+ * Story 12.4 AC: #1 - Accept .xlsx files
+ * Story 12.4 AC: #2 - Parse .xlsx to ParsedCSVData
+ * Story 12.4 AC: #5 - Validate .xlsx MIME type
  */
 
 "use client";
@@ -60,6 +64,7 @@ import {
   type ParsedCSVData,
   type LeadColumnMappingResult,
 } from "@/lib/utils/csv-parser";
+import { parseXlsxData } from "@/lib/utils/xlsx-parser";
 import {
   MAX_FILE_SIZE_MB,
   MAX_FILE_SIZE_BYTES,
@@ -86,6 +91,7 @@ const ALLOWED_MIME_TYPES = [
   "text/plain",
   "application/csv",
   "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ];
 
 interface ImportLeadsDialogProps {
@@ -130,8 +136,13 @@ export function ImportLeadsDialog({
   const createSegmentMutation = useCreateSegment();
   const enrichMutation = useBulkEnrichPersistedLeads();
 
-  const isValidCSVFile = useCallback((file: File): boolean => {
-    const hasValidExtension = file.name.toLowerCase().endsWith(".csv");
+  const isValidImportFile = useCallback((file: File): boolean => {
+    const lowerName = file.name.toLowerCase();
+    // Explicitly reject .xls (legacy Excel format) — AC #5
+    if (lowerName.endsWith(".xls") && !lowerName.endsWith(".xlsx")) {
+      return false;
+    }
+    const hasValidExtension = lowerName.endsWith(".csv") || lowerName.endsWith(".xlsx");
     const hasValidMimeType = ALLOWED_MIME_TYPES.some(
       (type) => file.type === type || file.type === ""
     );
@@ -196,9 +207,8 @@ Pedro,Oliveira,,,Gerente Comercial,,11988776655`;
     setIsDragOver(false);
   }, []);
 
-  // Process CSV/TSV data and auto-detect columns
-  const processData = useCallback((text: string) => {
-    const data = parseCSVData(text);
+  // Process already-parsed data and auto-detect columns
+  const processDataFromParsed = useCallback((data: ParsedCSVData) => {
     if (data.headers.length === 0) {
       setError("Nenhum dado encontrado");
       return;
@@ -213,26 +223,48 @@ Pedro,Oliveira,,,Gerente Comercial,,11988776655`;
     setStep("mapping");
   }, []);
 
+  // Process CSV/TSV text data
+  const processData = useCallback((text: string) => {
+    processDataFromParsed(parseCSVData(text));
+  }, [processDataFromParsed]);
+
   const processFile = useCallback(
     (file: File) => {
       if (file.size > MAX_FILE_SIZE_BYTES) {
         setError(`Arquivo muito grande. Limite: ${MAX_FILE_SIZE_MB}MB`);
         return;
       }
-      if (!isValidCSVFile(file)) {
-        setError("Apenas arquivos CSV são aceitos");
+      if (!isValidImportFile(file)) {
+        setError("Apenas arquivos .csv ou .xlsx são aceitos");
         return;
       }
       setFileName(file.name);
       setError(null);
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        processData(event.target?.result as string);
-      };
-      reader.onerror = () => setError("Erro ao ler arquivo");
-      reader.readAsText(file);
+
+      const isExcel = file.name.toLowerCase().endsWith(".xlsx");
+
+      if (isExcel) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const buffer = event.target?.result as ArrayBuffer;
+            processDataFromParsed(parseXlsxData(buffer));
+          } catch {
+            setError("Erro ao processar arquivo Excel. Verifique se o arquivo não está corrompido.");
+          }
+        };
+        reader.onerror = () => setError("Erro ao ler arquivo");
+        reader.readAsArrayBuffer(file);
+      } else {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          processData(event.target?.result as string);
+        };
+        reader.onerror = () => setError("Erro ao ler arquivo");
+        reader.readAsText(file);
+      }
     },
-    [isValidCSVFile, processData]
+    [isValidImportFile, processData, processDataFromParsed]
   );
 
   const handleDrop = useCallback(
@@ -377,10 +409,10 @@ Pedro,Oliveira,,,Gerente Comercial,,11988776655`;
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>Importar Leads via CSV</DialogTitle>
+          <DialogTitle>Importar Leads</DialogTitle>
           <DialogDescription>
-            Importe uma lista de leads a partir de um arquivo CSV, TSV ou
-            ponto-e-vírgula.
+            Importe uma lista de leads a partir de um arquivo CSV, Excel
+            (.xlsx), TSV ou ponto-e-vírgula.
           </DialogDescription>
         </DialogHeader>
 
@@ -410,7 +442,7 @@ Pedro,Oliveira,,,Gerente Comercial,,11988776655`;
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="upload" data-testid="tab-upload">
                     <Upload className="h-4 w-4 mr-2" />
-                    Upload CSV
+                    Upload Arquivo
                   </TabsTrigger>
                   <TabsTrigger value="paste" data-testid="tab-paste">
                     <ClipboardPaste className="h-4 w-4 mr-2" />
@@ -435,7 +467,7 @@ Pedro,Oliveira,,,Gerente Comercial,,11988776655`;
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept=".csv"
+                      accept=".csv,.xlsx"
                       onChange={handleFileChange}
                       className="hidden"
                       data-testid="file-input"
@@ -462,7 +494,7 @@ Pedro,Oliveira,,,Gerente Comercial,,11988776655`;
                       <>
                         <Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
                         <p className="text-sm text-muted-foreground">
-                          Clique ou arraste um arquivo CSV
+                          Clique ou arraste um arquivo CSV ou Excel
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
                           Limite: {MAX_FILE_SIZE_MB}MB

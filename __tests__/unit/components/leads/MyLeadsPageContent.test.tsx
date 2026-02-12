@@ -266,7 +266,7 @@ describe("MyLeadsPageContent", () => {
     fireEvent.click(screen.getByTestId("import-csv-button"));
 
     await waitFor(() => {
-      expect(screen.getByText("Importar Leads via CSV")).toBeInTheDocument();
+      expect(screen.getByText("Importar Leads")).toBeInTheDocument();
     });
   });
 });
