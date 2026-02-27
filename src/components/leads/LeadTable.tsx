@@ -6,6 +6,7 @@
  * Story: 4.4.1 - Lead Data Enrichment
  * Story: 4.6 - Interested Leads Highlighting
  * Story: 12.5 - Deleção de Leads
+ * Story: 12.8 - Ordenação Padrão — Leads Enriquecidos Primeiro
  *
  * AC: #1 - Table with columns: checkbox, Nome, Empresa, Cargo, Localização, Status
  * AC: #2 - Airtable-inspired styling with hover states
@@ -330,11 +331,15 @@ export function LeadTable({
     // Story 4.6: AC #3 - When no explicit sort, prioritize interested leads
     if (!sort.column || !sort.direction) {
       return [...leads].sort((a, b) => {
-        // Interested leads come first
+        // 1. Interested leads come first
         const aInterested = a.status === "interessado" ? 0 : 1;
         const bInterested = b.status === "interessado" ? 0 : 1;
         if (aInterested !== bInterested) return aInterested - bInterested;
-        // Fallback: sort by createdAt desc (most recent first)
+        // 2. Enriched leads (with photoUrl via Apollo) come before non-enriched
+        const aEnriched = a.photoUrl !== null ? 0 : 1;
+        const bEnriched = b.photoUrl !== null ? 0 : 1;
+        if (aEnriched !== bEnriched) return aEnriched - bEnriched;
+        // 3. Fallback: sort by createdAt desc (most recent first)
         const aDate = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const bDate = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return bDate - aDate;

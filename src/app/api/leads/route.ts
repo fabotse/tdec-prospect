@@ -1,6 +1,7 @@
 /**
  * Leads List API Route
  * Story 4.2.2: My Leads Page
+ * Story 12.8: Ordenação Padrão — Leads Enriquecidos Primeiro
  *
  * GET /api/leads - Fetch imported leads from database (not Apollo)
  *
@@ -100,7 +101,16 @@ export async function GET(request: NextRequest) {
   const from = (page - 1) * perPage;
   const to = from + perPage - 1;
 
-  query = query.order("created_at", { ascending: false }).range(from, to);
+  // Story 12.8: Server-side ordering para paginação — sem isso, leads
+  // enriquecidos com created_at antigo ficariam em páginas posteriores.
+  // Client-side sort (LeadTable.tsx) complementa com critério "interessado"
+  // (não suportado pelo Supabase .order()). Dentro do grupo enriched, a
+  // ordenação é por string da URL (limitação do Supabase), mas o client-side
+  // reordena por createdAt DESC dentro de cada página.
+  query = query
+    .order("photo_url", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .range(from, to);
 
   const { data: leads, error, count } = await query;
 

@@ -292,15 +292,25 @@ describe("GET /api/leads", () => {
   });
 
   describe("Sorting", () => {
-    it("should sort by created_at DESC by default", async () => {
+    it("should sort by photo_url (enriched first) then created_at DESC", async () => {
       const { leadsChain } = setupSuccessMocks();
 
       const request = createRequest();
       await GET(request);
 
+      // Story 12.8: Enriched leads (with photo_url) first
+      expect(leadsChain.order).toHaveBeenCalledWith("photo_url", {
+        ascending: false,
+        nullsFirst: false,
+      });
       expect(leadsChain.order).toHaveBeenCalledWith("created_at", {
         ascending: false,
       });
+      // photo_url order called before created_at
+      const calls = leadsChain.order.mock.calls;
+      const photoUrlIdx = calls.findIndex((c: unknown[]) => c[0] === "photo_url");
+      const createdAtIdx = calls.findIndex((c: unknown[]) => c[0] === "created_at");
+      expect(photoUrlIdx).toBeLessThan(createdAtIdx);
     });
   });
 

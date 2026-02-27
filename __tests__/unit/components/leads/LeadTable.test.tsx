@@ -1163,6 +1163,162 @@ describe("LeadTable", () => {
   });
 
   // ==============================================
+  // STORY 12.8: DEFAULT SORT — ENRICHED LEADS FIRST
+  // ==============================================
+
+  describe("Default Sort — Enriched Leads First (Story 12.8)", () => {
+    const enrichedInterested: Lead = {
+      ...mockLeads[1],
+      id: "lead-enriched-interested",
+      firstName: "Alice",
+      status: "interessado",
+      photoUrl: "https://example.com/alice.jpg",
+      createdAt: "2026-01-01T00:00:00Z",
+    };
+
+    const nonEnrichedInterested: Lead = {
+      ...mockLeads[1],
+      id: "lead-nonenriched-interested",
+      firstName: "Bruno",
+      status: "interessado",
+      photoUrl: null,
+      createdAt: "2026-01-02T00:00:00Z",
+    };
+
+    const enrichedNovo: Lead = {
+      ...mockLeads[0],
+      id: "lead-enriched-novo",
+      firstName: "Carla",
+      status: "novo",
+      photoUrl: "https://example.com/carla.jpg",
+      createdAt: "2026-01-03T00:00:00Z",
+    };
+
+    const nonEnrichedNovo: Lead = {
+      ...mockLeads[0],
+      id: "lead-nonenriched-novo",
+      firstName: "Diego",
+      status: "novo",
+      photoUrl: null,
+      createdAt: "2026-01-04T00:00:00Z",
+    };
+
+    it("AC#1,#2: enriched lead (with photoUrl) appears before non-enriched, same status", () => {
+      const leads = [nonEnrichedNovo, enrichedNovo];
+
+      renderLeadTable(
+        <LeadTable
+          leads={leads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      const rows = screen.getAllByTestId(/lead-row-/);
+      expect(rows[0]).toHaveAttribute("data-testid", "lead-row-lead-enriched-novo");
+      expect(rows[1]).toHaveAttribute("data-testid", "lead-row-lead-nonenriched-novo");
+    });
+
+    it("AC#3: full hierarchy — interessado+enriched > interessado > enriched > non-enriched", () => {
+      const leads = [nonEnrichedNovo, enrichedNovo, nonEnrichedInterested, enrichedInterested];
+
+      renderLeadTable(
+        <LeadTable
+          leads={leads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      const rows = screen.getAllByTestId(/lead-row-/);
+      expect(rows[0]).toHaveAttribute("data-testid", "lead-row-lead-enriched-interested");
+      expect(rows[1]).toHaveAttribute("data-testid", "lead-row-lead-nonenriched-interested");
+      expect(rows[2]).toHaveAttribute("data-testid", "lead-row-lead-enriched-novo");
+      expect(rows[3]).toHaveAttribute("data-testid", "lead-row-lead-nonenriched-novo");
+    });
+
+    it("AC#4: explicit column sort ignores enrichment prioritization", async () => {
+      const user = userEvent.setup();
+      const leads = [
+        { ...enrichedNovo, id: "lead-zara", firstName: "Zara" },
+        { ...nonEnrichedNovo, id: "lead-ana", firstName: "Ana" },
+      ];
+
+      renderLeadTable(
+        <LeadTable
+          leads={leads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      let rows = screen.getAllByTestId(/lead-row-/);
+      expect(rows[0]).toHaveAttribute("data-testid", "lead-row-lead-zara");
+
+      await user.click(screen.getByText("Nome"));
+
+      rows = screen.getAllByTestId(/lead-row-/);
+      expect(rows[0]).toHaveAttribute("data-testid", "lead-row-lead-ana");
+    });
+
+    it("AC#5: leads with same status and enrichment sort by createdAt desc", () => {
+      const olderEnriched: Lead = {
+        ...enrichedNovo,
+        id: "lead-older",
+        firstName: "Eva",
+        createdAt: "2026-01-01T00:00:00Z",
+      };
+      const newerEnriched: Lead = {
+        ...enrichedNovo,
+        id: "lead-newer",
+        firstName: "Fabio",
+        createdAt: "2026-01-10T00:00:00Z",
+      };
+
+      renderLeadTable(
+        <LeadTable
+          leads={[olderEnriched, newerEnriched]}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      const rows = screen.getAllByTestId(/lead-row-/);
+      expect(rows[0]).toHaveAttribute("data-testid", "lead-row-lead-newer");
+      expect(rows[1]).toHaveAttribute("data-testid", "lead-row-lead-older");
+    });
+
+    it("edge case: empty string photoUrl is treated as enriched (non-null)", () => {
+      const emptyUrlLead: Lead = {
+        ...nonEnrichedNovo,
+        id: "lead-empty-url",
+        firstName: "Gabi",
+        photoUrl: "",
+      };
+      const nullUrlLead: Lead = {
+        ...nonEnrichedNovo,
+        id: "lead-null-url",
+        firstName: "Hugo",
+        photoUrl: null,
+        createdAt: "2026-01-05T00:00:00Z",
+      };
+
+      renderLeadTable(
+        <LeadTable
+          leads={[nullUrlLead, emptyUrlLead]}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      const rows = screen.getAllByTestId(/lead-row-/);
+      // photoUrl !== null check: "" is non-null, so treated as enriched
+      expect(rows[0]).toHaveAttribute("data-testid", "lead-row-lead-empty-url");
+      expect(rows[1]).toHaveAttribute("data-testid", "lead-row-lead-null-url");
+    });
+  });
+
+  // ==============================================
   // INDIVIDUAL DELETE TESTS (Story 12.5: AC #1)
   // ==============================================
 
