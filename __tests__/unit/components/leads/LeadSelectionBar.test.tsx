@@ -1009,4 +1009,138 @@ describe("LeadSelectionBar", () => {
       expect(screen.getByText("3 leads selecionados")).toBeInTheDocument();
     });
   });
+
+  // ==============================================
+  // STORY 13.2: BULK MONITORING
+  // ==============================================
+
+  describe("Story 13.2: Bulk Monitoring", () => {
+    beforeEach(() => {
+      useSelectionStore.setState({ selectedIds: ["lead-1", "lead-2"] });
+    });
+
+    it("AC#2: does not show monitor button when showMonitoring is false", () => {
+      render(<LeadSelectionBar visibleSelectedCount={2} />, { wrapper: createWrapper() });
+
+      expect(screen.queryByTestId("bulk-monitor-button")).not.toBeInTheDocument();
+    });
+
+    it("AC#2: shows monitor button when showMonitoring is true", () => {
+      render(
+        <LeadSelectionBar visibleSelectedCount={2} showMonitoring onBulkMonitor={vi.fn()} />,
+        { wrapper: createWrapper() }
+      );
+
+      expect(screen.getByTestId("bulk-monitor-button")).toBeInTheDocument();
+      expect(screen.getByText("Monitorar (2)")).toBeInTheDocument();
+    });
+
+    it("AC#2: calls onBulkMonitor with true when button clicked", async () => {
+      const user = userEvent.setup();
+      const onBulkMonitor = vi.fn();
+
+      render(
+        <LeadSelectionBar visibleSelectedCount={2} showMonitoring onBulkMonitor={onBulkMonitor} />,
+        { wrapper: createWrapper() }
+      );
+
+      await user.click(screen.getByTestId("bulk-monitor-button"));
+
+      expect(onBulkMonitor).toHaveBeenCalledWith(["lead-1", "lead-2"], true);
+    });
+
+    it("AC#2: disables button when isBulkMonitorPending", () => {
+      render(
+        <LeadSelectionBar
+          visibleSelectedCount={2}
+          showMonitoring
+          onBulkMonitor={vi.fn()}
+          isBulkMonitorPending
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      expect(screen.getByTestId("bulk-monitor-button")).toBeDisabled();
+    });
+
+    it("AC#2: shows 'Desmonitorar' when all selected leads are monitored", () => {
+      const monitoredLeads = [
+        { id: "lead-1", isMonitored: true, firstName: "A", lastName: "B", email: null, phone: null, companyName: null, companySize: null, industry: null, location: null, title: null, linkedinUrl: "https://linkedin.com/in/a", photoUrl: null, hasEmail: false, hasDirectPhone: "No" as const, status: "novo" as const, createdAt: "", updatedAt: "", tenantId: "t1", apolloId: null, icebreaker: null, icebreakerGeneratedAt: null, linkedinPostsCache: null },
+        { id: "lead-2", isMonitored: true, firstName: "C", lastName: "D", email: null, phone: null, companyName: null, companySize: null, industry: null, location: null, title: null, linkedinUrl: "https://linkedin.com/in/c", photoUrl: null, hasEmail: false, hasDirectPhone: "No" as const, status: "novo" as const, createdAt: "", updatedAt: "", tenantId: "t1", apolloId: null, icebreaker: null, icebreakerGeneratedAt: null, linkedinPostsCache: null },
+      ];
+
+      render(
+        <LeadSelectionBar visibleSelectedCount={2} showMonitoring onBulkMonitor={vi.fn()} leads={monitoredLeads} />,
+        { wrapper: createWrapper() }
+      );
+
+      expect(screen.getByText("Desmonitorar (2)")).toBeInTheDocument();
+    });
+
+    it("AC#2: calls onBulkMonitor with false when all selected are monitored", async () => {
+      const user = userEvent.setup();
+      const onBulkMonitor = vi.fn();
+      const monitoredLeads = [
+        { id: "lead-1", isMonitored: true, firstName: "A", lastName: "B", email: null, phone: null, companyName: null, companySize: null, industry: null, location: null, title: null, linkedinUrl: "https://linkedin.com/in/a", photoUrl: null, hasEmail: false, hasDirectPhone: "No" as const, status: "novo" as const, createdAt: "", updatedAt: "", tenantId: "t1", apolloId: null, icebreaker: null, icebreakerGeneratedAt: null, linkedinPostsCache: null },
+        { id: "lead-2", isMonitored: true, firstName: "C", lastName: "D", email: null, phone: null, companyName: null, companySize: null, industry: null, location: null, title: null, linkedinUrl: "https://linkedin.com/in/c", photoUrl: null, hasEmail: false, hasDirectPhone: "No" as const, status: "novo" as const, createdAt: "", updatedAt: "", tenantId: "t1", apolloId: null, icebreaker: null, icebreakerGeneratedAt: null, linkedinPostsCache: null },
+      ];
+
+      render(
+        <LeadSelectionBar visibleSelectedCount={2} showMonitoring onBulkMonitor={onBulkMonitor} leads={monitoredLeads} />,
+        { wrapper: createWrapper() }
+      );
+
+      await user.click(screen.getByTestId("bulk-monitor-button"));
+
+      expect(onBulkMonitor).toHaveBeenCalledWith(["lead-1", "lead-2"], false);
+    });
+
+    it("AC#2: shows 'Monitorar' when some selected leads are not monitored", () => {
+      const mixedLeads = [
+        { id: "lead-1", isMonitored: true, firstName: "A", lastName: "B", email: null, phone: null, companyName: null, companySize: null, industry: null, location: null, title: null, linkedinUrl: "https://linkedin.com/in/a", photoUrl: null, hasEmail: false, hasDirectPhone: "No" as const, status: "novo" as const, createdAt: "", updatedAt: "", tenantId: "t1", apolloId: null, icebreaker: null, icebreakerGeneratedAt: null, linkedinPostsCache: null },
+        { id: "lead-2", isMonitored: false, firstName: "C", lastName: "D", email: null, phone: null, companyName: null, companySize: null, industry: null, location: null, title: null, linkedinUrl: "https://linkedin.com/in/c", photoUrl: null, hasEmail: false, hasDirectPhone: "No" as const, status: "novo" as const, createdAt: "", updatedAt: "", tenantId: "t1", apolloId: null, icebreaker: null, icebreakerGeneratedAt: null, linkedinPostsCache: null },
+      ];
+
+      render(
+        <LeadSelectionBar visibleSelectedCount={2} showMonitoring onBulkMonitor={vi.fn()} leads={mixedLeads} />,
+        { wrapper: createWrapper() }
+      );
+
+      expect(screen.getByText("Monitorar (2)")).toBeInTheDocument();
+    });
+
+    it("AC#2, Task 7.4: dropdown always shows 'Desativar Monitoramento'", async () => {
+      const user = userEvent.setup();
+
+      render(
+        <LeadSelectionBar visibleSelectedCount={2} showMonitoring onBulkMonitor={vi.fn()} />,
+        { wrapper: createWrapper() }
+      );
+
+      await user.click(screen.getByRole("button", { name: "Mais opções" }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Desativar Monitoramento")).toBeInTheDocument();
+        expect(screen.getByTestId("bulk-disable-monitor-menu-item")).toBeInTheDocument();
+      });
+    });
+
+    it("AC#2, Task 7.4: dropdown 'Desativar' calls onBulkMonitor with false", async () => {
+      const user = userEvent.setup();
+      const onBulkMonitor = vi.fn();
+
+      render(
+        <LeadSelectionBar visibleSelectedCount={2} showMonitoring onBulkMonitor={onBulkMonitor} />,
+        { wrapper: createWrapper() }
+      );
+
+      await user.click(screen.getByRole("button", { name: "Mais opções" }));
+
+      await waitFor(async () => {
+        await user.click(screen.getByTestId("bulk-disable-monitor-menu-item"));
+      });
+
+      expect(onBulkMonitor).toHaveBeenCalledWith(["lead-1", "lead-2"], false);
+    });
+  });
 });

@@ -1405,4 +1405,117 @@ describe("LeadTable", () => {
       expect(actionButtons.length).toBe(mockLeads.length);
     });
   });
+
+  // ==============================================
+  // STORY 13.2: MONITORING TOGGLE COLUMN
+  // ==============================================
+
+  describe("Story 13.2: Monitoring toggle column", () => {
+    it("AC#1: does not show monitoring column when showMonitoring is false", () => {
+      renderLeadTable(
+        <LeadTable
+          leads={mockLeads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      expect(screen.queryByText("Monitorar")).not.toBeInTheDocument();
+    });
+
+    it("AC#1: shows monitoring column header when showMonitoring is true", () => {
+      renderLeadTable(
+        <LeadTable
+          leads={mockLeads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+          showMonitoring
+        />
+      );
+
+      expect(screen.getByText("Monitorar")).toBeInTheDocument();
+    });
+
+    it("AC#1: shows toggle switch for each lead", () => {
+      renderLeadTable(
+        <LeadTable
+          leads={mockLeads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+          showMonitoring
+        />
+      );
+
+      const toggles = screen.getAllByTestId(/^monitoring-toggle-/);
+      expect(toggles.length).toBe(mockLeads.length);
+    });
+
+    it("AC#3: disables toggle for lead without LinkedIn", () => {
+      // lead-2 and lead-3 have linkedinUrl: null
+      renderLeadTable(
+        <LeadTable
+          leads={mockLeads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+          showMonitoring
+        />
+      );
+
+      const toggle2 = screen.getByTestId("monitoring-toggle-lead-2");
+      expect(toggle2).toBeDisabled();
+
+      const toggle3 = screen.getByTestId("monitoring-toggle-lead-3");
+      expect(toggle3).toBeDisabled();
+    });
+
+    it("AC#3: enables toggle for lead with LinkedIn", () => {
+      // lead-1 has linkedinUrl
+      renderLeadTable(
+        <LeadTable
+          leads={mockLeads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+          showMonitoring
+        />
+      );
+
+      const toggle1 = screen.getByTestId("monitoring-toggle-lead-1");
+      expect(toggle1).not.toBeDisabled();
+    });
+
+    it("AC#1: calls onToggleMonitoring when toggle is clicked", async () => {
+      const user = userEvent.setup();
+      const onToggleMonitoring = vi.fn();
+
+      renderLeadTable(
+        <LeadTable
+          leads={mockLeads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+          showMonitoring
+          onToggleMonitoring={onToggleMonitoring}
+        />
+      );
+
+      const toggle1 = screen.getByTestId("monitoring-toggle-lead-1");
+      await user.click(toggle1);
+
+      expect(onToggleMonitoring).toHaveBeenCalledWith("lead-1", true);
+    });
+
+    it("AC#3: shows tooltip for disabled toggle", async () => {
+      renderLeadTable(
+        <LeadTable
+          leads={mockLeads}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+          showMonitoring
+        />
+      );
+
+      // lead-2 has no LinkedIn — should have aria-label indicating disabled reason
+      const toggle2 = screen.getByTestId("monitoring-toggle-lead-2");
+      expect(toggle2).toHaveAttribute("aria-label", "Lead sem perfil LinkedIn");
+    });
+  });
 });

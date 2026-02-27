@@ -54,7 +54,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { MoreHorizontal, X, RefreshCw, Loader2, Download, Phone, Sparkles, Trash2 } from "lucide-react";
+import { MoreHorizontal, X, RefreshCw, Loader2, Download, Phone, Sparkles, Trash2, Eye, EyeOff } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { NativeMagnetic } from "@/components/ui/native-magnetic";
 import { useRouter } from "next/navigation";
@@ -79,6 +79,12 @@ interface LeadSelectionBarProps {
   onIcebreakerGenerationStart?: (leadIds: string[]) => void;
   /** Story 6.5.6: Callback when icebreaker generation ends */
   onIcebreakerGenerationEnd?: () => void;
+  /** Story 13.2: AC #2 - Show bulk monitoring button */
+  showMonitoring?: boolean;
+  /** Story 13.2: AC #2 - Callback for bulk monitoring toggle */
+  onBulkMonitor?: (leadIds: string[], isMonitored: boolean) => void;
+  /** Story 13.2: AC #2 - Whether bulk monitor mutation is pending */
+  isBulkMonitorPending?: boolean;
 }
 
 export function LeadSelectionBar({
@@ -89,6 +95,9 @@ export function LeadSelectionBar({
   showIcebreaker = false,
   onIcebreakerGenerationStart,
   onIcebreakerGenerationEnd,
+  showMonitoring = false,
+  onBulkMonitor,
+  isBulkMonitorPending = false,
 }: LeadSelectionBarProps) {
   const { selectedIds, clearSelection } = useSelectionStore();
   const router = useRouter();
@@ -143,6 +152,11 @@ export function LeadSelectionBar({
     const selectedIdSet = new Set(selectedIds);
     return leads.filter((lead) => selectedIdSet.has(lead.id));
   }, [leads, selectedIds]);
+
+  // Story 13.2: Context-aware monitoring — check if ALL selected leads are already monitored
+  const allSelectedMonitored = useMemo(() => {
+    return selectedLeads.length > 0 && selectedLeads.every((lead) => lead.isMonitored);
+  }, [selectedLeads]);
 
   // Story 4.2.1: AC #1, #4 - Prepare leads data for import
   const leadsForImport = useMemo((): LeadDataForImport[] => {
@@ -339,6 +353,28 @@ export function LeadSelectionBar({
                   </Button>
                 )}
 
+                {/* Story 13.2: AC #2 - Bulk monitoring button (context-aware) */}
+                {showMonitoring && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => onBulkMonitor?.(selectedIds, !allSelectedMonitored)}
+                    disabled={isBulkMonitorPending || selectedIds.length === 0}
+                    className="gap-2"
+                    data-testid="bulk-monitor-button"
+                  >
+                    {isBulkMonitorPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : allSelectedMonitored ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                    {allSelectedMonitored
+                      ? `Desmonitorar (${selectedIds.length})`
+                      : `Monitorar (${selectedIds.length})`}
+                  </Button>
+                )}
+
                 {/* Story 4.5: AC #4 - Batch phone lookup button */}
                 {showPhoneLookup && (
                   <Button
@@ -405,6 +441,16 @@ export function LeadSelectionBar({
                     <DropdownMenuItem disabled>
                       Exportar CSV (em breve)
                     </DropdownMenuItem>
+                    {/* Story 13.2: AC #2, Task 7.4 - Fixed "Desativar Monitoramento" in dropdown */}
+                    {showMonitoring && (
+                      <DropdownMenuItem
+                        onClick={() => onBulkMonitor?.(selectedIds, false)}
+                        data-testid="bulk-disable-monitor-menu-item"
+                      >
+                        <EyeOff className="mr-2 h-4 w-4" />
+                        Desativar Monitoramento
+                      </DropdownMenuItem>
+                    )}
                     {/* Story 12.5: AC #2 - Bulk delete option */}
                     <DropdownMenuItem
                       onClick={() => setShowDeleteDialog(true)}

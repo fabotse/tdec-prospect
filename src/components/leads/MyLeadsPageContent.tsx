@@ -27,6 +27,7 @@
 import { useState, useMemo, useCallback } from "react";
 import type { Lead } from "@/types/lead";
 import { useMyLeads, useInterestedCount } from "@/hooks/use-my-leads";
+import { useToggleMonitoring, useBulkToggleMonitoring, useMonitoredCount } from "@/hooks/use-lead-monitoring";
 import { useSelectionStore } from "@/stores/use-selection-store";
 import { LeadTable } from "@/components/leads/LeadTable";
 import { LeadSelectionBar } from "@/components/leads/LeadSelectionBar";
@@ -81,6 +82,12 @@ export function MyLeadsPageContent() {
   // Story 4.6: AC #2, #6 - Interested leads count for quick filter and header
   const { count: interestedCount } = useInterestedCount();
 
+  // Story 13.2: AC #1, #2, #6 - Monitoring hooks
+  const toggleMonitoring = useToggleMonitoring();
+  const bulkToggleMonitoring = useBulkToggleMonitoring();
+  const { data: monitoredCountData } = useMonitoredCount();
+  const [pendingMonitoringId, setPendingMonitoringId] = useState<string | null>(null);
+
   const { selectedIds, setSelectedIds } = useSelectionStore();
 
   // Story 4.3: AC #1 - State for lead detail panel
@@ -128,6 +135,20 @@ export function MyLeadsPageContent() {
   const handleIcebreakerGenerationEnd = useCallback(() => {
     setGeneratingIcebreakerIds(new Set());
   }, []);
+
+  // Story 13.2: AC #1 - Handle individual monitoring toggle
+  const handleToggleMonitoring = useCallback((leadId: string, isMonitored: boolean) => {
+    setPendingMonitoringId(leadId);
+    toggleMonitoring.mutate(
+      { leadId, isMonitored },
+      { onSettled: () => setPendingMonitoringId(null) }
+    );
+  }, [toggleMonitoring]);
+
+  // Story 13.2: AC #2 - Handle bulk monitoring toggle
+  const handleBulkMonitor = useCallback((leadIds: string[], isMonitored: boolean) => {
+    bulkToggleMonitoring.mutate({ leadIds, isMonitored });
+  }, [bulkToggleMonitoring]);
 
   // Story 12.5: AC #1 - Handle individual lead delete
   const handleDeleteLead = useCallback((leadId: string) => {
@@ -239,6 +260,15 @@ export function MyLeadsPageContent() {
                   • {interestedCount} interessado{interestedCount !== 1 ? "s" : ""}
                 </span>
               )}
+              {/* Story 13.2: AC #6 - Monitored leads counter */}
+              {monitoredCountData && (
+                <span
+                  className="text-sm text-muted-foreground font-medium"
+                  data-testid="monitored-count"
+                >
+                  • {monitoredCountData.current}/{monitoredCountData.max} monitorados
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2">
               {/* Quick Dev: Manual lead creation button */}
@@ -285,9 +315,12 @@ export function MyLeadsPageContent() {
               isLoading={isFetching}
               showCreatedAt
               showIcebreaker
+              showMonitoring
               onRowClick={handleRowClick}
               generatingIcebreakerIds={generatingIcebreakerIds}
               onDeleteLead={handleDeleteLead}
+              onToggleMonitoring={handleToggleMonitoring}
+              pendingMonitoringId={pendingMonitoringId}
             />
 
             {/* AC: #7 - Pagination controls */}
@@ -373,8 +406,11 @@ export function MyLeadsPageContent() {
         showEnrichment
         showPhoneLookup
         showIcebreaker
+        showMonitoring
         onIcebreakerGenerationStart={handleIcebreakerGenerationStart}
         onIcebreakerGenerationEnd={handleIcebreakerGenerationEnd}
+        onBulkMonitor={handleBulkMonitor}
+        isBulkMonitorPending={bulkToggleMonitoring.isPending}
       />
 
       {/* Story 4.3: AC #1 - Lead detail sidepanel */}

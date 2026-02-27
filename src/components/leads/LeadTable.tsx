@@ -63,6 +63,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 // ==============================================
@@ -99,7 +100,7 @@ interface SortState {
 }
 
 interface Column {
-  key: keyof Lead | "select" | "contact" | "import" | "actions";
+  key: keyof Lead | "select" | "contact" | "import" | "actions" | "monitoring";
   label: string;
   defaultWidth: number;
   minWidth: number;
@@ -126,6 +127,12 @@ interface LeadTableProps {
   generatingIcebreakerIds?: Set<string>;
   /** Story 12.5: AC #1 - Callback when individual delete is requested */
   onDeleteLead?: (leadId: string) => void;
+  /** Story 13.2: AC #1 - Show "Monitorar" column with toggle */
+  showMonitoring?: boolean;
+  /** Story 13.2: AC #1 - Callback when monitoring toggle is changed */
+  onToggleMonitoring?: (leadId: string, isMonitored: boolean) => void;
+  /** Story 13.2: Lead ID currently being toggled (for loading state) */
+  pendingMonitoringId?: string | null;
 }
 
 // ==============================================
@@ -209,6 +216,15 @@ const COLUMNS: Column[] = [
     truncate: true,
     headerTooltip: "Gerado automaticamente a partir dos posts do LinkedIn",
   },
+  // Story 13.2: AC #1 - "Monitorar" column (optional, shown via showMonitoring prop)
+  {
+    key: "monitoring",
+    label: "Monitorar",
+    defaultWidth: 80,
+    minWidth: 80,
+    sortable: false,
+    truncate: false,
+  },
   // Story 4.2.2: AC #2 - "Importado em" column (optional, shown via showCreatedAt prop)
   {
     key: "createdAt",
@@ -244,16 +260,20 @@ export function LeadTable({
   showIcebreaker = false,
   generatingIcebreakerIds = new Set(),
   onDeleteLead,
+  showMonitoring = false,
+  onToggleMonitoring,
+  pendingMonitoringId,
 }: LeadTableProps) {
   // Story 4.2.2, 6.5.6, 12.5: Filter columns based on props
   const visibleColumns = useMemo(() => {
     return COLUMNS.filter((col) => {
       if (col.key === "createdAt" && !showCreatedAt) return false;
       if (col.key === "icebreaker" && !showIcebreaker) return false;
+      if (col.key === "monitoring" && !showMonitoring) return false;
       if (col.key === "actions" && !onDeleteLead) return false;
       return true;
     });
-  }, [showCreatedAt, showIcebreaker, onDeleteLead]);
+  }, [showCreatedAt, showIcebreaker, showMonitoring, onDeleteLead]);
   // Sort state
   const [sort, setSort] = useState<SortState>({
     column: null,
@@ -822,6 +842,15 @@ export function LeadTable({
                   />
                 )}
 
+                {/* Story 13.2: AC #1 - Monitoring toggle column (optional) */}
+                {showMonitoring && (
+                  <MonitoringToggleCell
+                    lead={lead}
+                    onToggle={onToggleMonitoring}
+                    isPending={pendingMonitoringId === lead.id}
+                  />
+                )}
+
                 {/* Story 4.2.2: AC #2 - Importado em column (optional) */}
                 {showCreatedAt && (
                   <TableCell
@@ -1118,6 +1147,66 @@ function LeadNameCell({
             <p>{fullName}</p>
           </TooltipContent>
         </Tooltip>
+      </div>
+    </TableCell>
+  );
+}
+
+// ==============================================
+// MONITORING TOGGLE CELL SUB-COMPONENT
+// Story 13.2: AC #1, #3, #5 - Monitoring toggle with LinkedIn validation
+// ==============================================
+
+interface MonitoringToggleCellProps {
+  lead: Lead;
+  onToggle?: (leadId: string, isMonitored: boolean) => void;
+  isPending?: boolean;
+}
+
+function MonitoringToggleCell({
+  lead,
+  onToggle,
+  isPending = false,
+}: MonitoringToggleCellProps) {
+  const hasLinkedin = !!lead.linkedinUrl;
+
+  if (!hasLinkedin) {
+    return (
+      <TableCell role="gridcell">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <Switch
+                disabled
+                checked={false}
+                aria-label="Lead sem perfil LinkedIn"
+                data-testid={`monitoring-toggle-${lead.id}`}
+              />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Lead sem perfil LinkedIn</TooltipContent>
+        </Tooltip>
+      </TableCell>
+    );
+  }
+
+  return (
+    <TableCell role="gridcell">
+      <div className="flex items-center gap-1.5">
+        <Switch
+          checked={lead.isMonitored}
+          onCheckedChange={(checked) => onToggle?.(lead.id, checked)}
+          disabled={isPending}
+          aria-label={`Monitorar ${lead.firstName}`}
+          data-testid={`monitoring-toggle-${lead.id}`}
+        />
+        {isPending && (
+          <Loader2
+            className="h-3.5 w-3.5 animate-spin text-muted-foreground"
+            aria-label="Atualizando monitoramento"
+            data-testid={`monitoring-loading-${lead.id}`}
+          />
+        )}
       </div>
     </TableCell>
   );
