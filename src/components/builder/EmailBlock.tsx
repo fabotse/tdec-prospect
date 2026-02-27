@@ -582,7 +582,7 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
       </div>
 
       {/* Block Content */}
-      <div className="p-4 space-y-4">
+      <div className="p-4 flex flex-col gap-4">
         {/* Subject Field with Character Count (Story 6.7 AC #5) */}
         <div className="flex flex-col gap-2">
           <Label

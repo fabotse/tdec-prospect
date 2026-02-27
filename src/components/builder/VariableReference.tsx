@@ -6,6 +6,7 @@
 
 "use client";
 
+import { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { getVariables } from "@/lib/export/variable-registry";
 
@@ -14,7 +15,7 @@ interface VariableReferenceProps {
 }
 
 export function VariableReference({ onInsert }: VariableReferenceProps) {
-  const variables = getVariables();
+  const variables = useMemo(() => getVariables(), []);
 
   return (
     <div className="flex flex-wrap items-center gap-1.5" data-testid="variable-reference">

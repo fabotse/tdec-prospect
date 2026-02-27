@@ -821,6 +821,65 @@ describe("ImportLeadsDialog", () => {
       expect(call.leads[2].lastName).toBe("");
     });
 
+    it("should handle names with extra whitespace when splitting", async () => {
+      const csvWithSpacyNames = {
+        headers: ["nome", "email"],
+        rows: [
+          ["  João   Silva  ", "joao@test.com"],
+          ["  Maria  ", "maria@test.com"],
+        ],
+      };
+      const mappingsNoLastName = {
+        nameColumn: 0,
+        lastNameColumn: null,
+        emailColumn: 1,
+        companyColumn: null,
+        titleColumn: null,
+        linkedinColumn: null,
+        phoneColumn: null,
+      };
+
+      mockParseCSVData.mockReturnValue(csvWithSpacyNames);
+      mockDetectLeadColumnMappings.mockReturnValue(mappingsNoLastName);
+      mockImportMutateAsync.mockResolvedValue({
+        imported: 2,
+        existing: 0,
+        errors: [],
+        leads: [],
+      });
+
+      renderDialog();
+      const textarea = screen.getByTestId("paste-textarea");
+      fireEvent.change(textarea, {
+        target: { value: "nome,email\n  João   Silva  ,j@test.com" },
+      });
+      fireEvent.click(screen.getByTestId("process-paste-button"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Mapeamento de colunas")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId("mapping-next-button"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("segment-select")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId("import-button"));
+
+      await waitFor(() => {
+        expect(mockImportMutateAsync).toHaveBeenCalled();
+      });
+
+      const call = mockImportMutateAsync.mock.calls[0][0];
+      // "  João   Silva  " → trimmed + split → firstName: "João", lastName: "Silva"
+      expect(call.leads[0].firstName).toBe("João");
+      expect(call.leads[0].lastName).toBe("Silva");
+      // "  Maria  " → trimmed → no space → firstName: "Maria", lastName: ""
+      expect(call.leads[1].firstName).toBe("Maria");
+      expect(call.leads[1].lastName).toBe("");
+    });
+
     it("should NOT split name when lastNameColumn IS mapped", async () => {
       mockImportMutateAsync.mockResolvedValue({
         imported: 2,

@@ -1,6 +1,6 @@
 # Story 12.6: Variáveis de Personalização no Editor de Campanha
 
-Status: review
+Status: done
 
 ## Story
 
@@ -179,16 +179,26 @@ Nenhum debug necessário.
 
 ### File List
 
-- `src/components/builder/VariableReference.tsx` (novo) — Componente de referência de variáveis
-- `src/components/builder/EmailBlock.tsx` (modificado) — Integração VariableReference + refs + inserção no cursor
+- `src/components/builder/VariableReference.tsx` (novo) — Componente de referência de variáveis com useMemo
+- `src/components/builder/EmailBlock.tsx` (modificado) — Integração VariableReference + refs + inserção no cursor + fix space-y-4→gap-4
 - `src/components/builder/index.ts` (modificado) — Export do VariableReference
 - `src/lib/export/resolve-variables.ts` (modificado) — First name extraction para {{first_name}}
 - `src/components/leads/ImportLeadsDialog.tsx` (modificado) — Split automático de nome no CSV import
+- `src/app/api/campaigns/[campaignId]/route.ts` (modificado) — Adição de email_mode no insert de email blocks
+- `src/components/builder/LeadPreviewSelector.tsx` (modificado) — SelectContent position="popper" para UX
+- `src/components/builder/ProductSelector.tsx` (modificado) — Remoção de productName não usado + SelectContent popper
+- `src/components/common/Sidebar.tsx` (modificado) — Refactor localStorage init para lazy state + eslint comment
 - `__tests__/unit/components/builder/VariableReference.test.tsx` (novo) — 12 testes
 - `__tests__/unit/lib/export/resolve-variables.test.ts` (modificado) — 8 testes adicionados
-- `__tests__/unit/components/leads/ImportLeadsDialog.test.tsx` (modificado) — 2 testes adicionados
+- `__tests__/unit/components/leads/ImportLeadsDialog.test.tsx` (modificado) — 3 testes adicionados (inclui edge case espaços extras)
+
+### Code Review Notes
+
+- **M2/M3**: Inserção no cursor (handleInsertVariable) depende de DOM refs (selectionStart/selectionEnd) — não testável via happy-dom. Cobertura indireta via VariableReference (contrato onInsert). Integração completa validável via E2E/Playwright.
+- **L1**: Commit inclui 4 bug fixes colaterais (email_mode, SelectContent popper, Sidebar, ProductSelector). Idealmente em commit separado para rastreabilidade.
 
 ### Change Log
 
 - 2026-02-27: Story 12.6 implementada — referência de variáveis no editor, first name extraction, CSV name split. 22 novos testes.
+- 2026-02-27: Code review fixes — space-y-4→gap-4 (Tailwind v4), useMemo em getVariables, teste edge case espaços, File List atualizada com 4 arquivos faltantes.
 
