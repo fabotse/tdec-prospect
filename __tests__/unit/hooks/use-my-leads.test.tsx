@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useMyLeads, useInterestedCount } from "@/hooks/use-my-leads";
+import { useMyLeads, useInterestedCount, useAllLeads } from "@/hooks/use-my-leads";
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -379,5 +379,285 @@ describe("useInterestedCount (Story 4.6)", () => {
     });
 
     expect(result.current.count).toBe(0);
+  });
+});
+
+// ==============================================
+// STORY 12.7: useAllLeads Hook Tests
+// ==============================================
+
+describe("useAllLeads (Story 12.7)", () => {
+  const mockLeadsPage1 = Array.from({ length: 100 }, (_, i) => ({
+    id: `lead-${i + 1}`,
+    firstName: `First${i + 1}`,
+    lastName: `Last${i + 1}`,
+    email: `lead${i + 1}@example.com`,
+    companyName: `Company ${i + 1}`,
+    status: "novo",
+    createdAt: "2026-01-30T10:00:00Z",
+  }));
+
+  const mockLeadsPage2 = Array.from({ length: 50 }, (_, i) => ({
+    id: `lead-${i + 101}`,
+    firstName: `First${i + 101}`,
+    lastName: `Last${i + 101}`,
+    email: `lead${i + 101}@example.com`,
+    companyName: `Company ${i + 101}`,
+    status: "novo",
+    createdAt: "2026-01-29T10:00:00Z",
+  }));
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should fetch first page with per_page=100", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: mockLeadsPage1.slice(0, 50),
+          meta: { total: 50, page: 1, limit: 100, totalPages: 1 },
+        }),
+    });
+
+    const { result } = renderHook(() => useAllLeads(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.leads).toHaveLength(50);
+    expect(result.current.total).toBe(50);
+    expect(result.current.hasNextPage).toBe(false);
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining("per_page=100")
+    );
+  });
+
+  it("should indicate hasNextPage when more pages exist", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: mockLeadsPage1,
+          meta: { total: 150, page: 1, limit: 100, totalPages: 2 },
+        }),
+    });
+
+    const { result } = renderHook(() => useAllLeads(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.leads).toHaveLength(100);
+    expect(result.current.total).toBe(150);
+    expect(result.current.hasNextPage).toBe(true);
+  });
+
+  it("should accumulate leads from multiple pages via fetchNextPage", async () => {
+    // Page 1
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: mockLeadsPage1,
+          meta: { total: 150, page: 1, limit: 100, totalPages: 2 },
+        }),
+    });
+
+    const { result } = renderHook(() => useAllLeads(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.leads).toHaveLength(100);
+    });
+
+    // Page 2
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: mockLeadsPage2,
+          meta: { total: 150, page: 2, limit: 100, totalPages: 2 },
+        }),
+    });
+
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+
+    await waitFor(() => {
+      expect(result.current.leads).toHaveLength(150);
+    });
+
+    expect(result.current.hasNextPage).toBe(false);
+    // First 100 leads from page 1 + 50 from page 2
+    expect(result.current.leads[0].id).toBe("lead-1");
+    expect(result.current.leads[99].id).toBe("lead-100");
+    expect(result.current.leads[100].id).toBe("lead-101");
+  });
+
+  it("should return correct total from first page meta", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: mockLeadsPage1.slice(0, 30),
+          meta: { total: 30, page: 1, limit: 100, totalPages: 1 },
+        }),
+    });
+
+    const { result } = renderHook(() => useAllLeads(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.total).toBe(30);
+    });
+  });
+
+  it("should apply search filter to API call", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: [mockLeadsPage1[0]],
+          meta: { total: 1, page: 1, limit: 100, totalPages: 1 },
+        }),
+    });
+
+    const { result } = renderHook(
+      () => useAllLeads({ search: "First1" }),
+      { wrapper: createWrapper() }
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining("search=First1")
+    );
+  });
+
+  it("should apply segment filter to API call", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: mockLeadsPage1.slice(0, 10),
+          meta: { total: 10, page: 1, limit: 100, totalPages: 1 },
+        }),
+    });
+
+    const { result } = renderHook(
+      () => useAllLeads({ segmentId: "seg-abc" }),
+      { wrapper: createWrapper() }
+    );
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining("segment_id=seg-abc")
+    );
+  });
+
+  it("should handle errors gracefully", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      json: () =>
+        Promise.resolve({
+          error: { code: "INTERNAL_ERROR", message: "Erro ao buscar leads" },
+        }),
+    });
+
+    const { result } = renderHook(() => useAllLeads(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.error).toBe("Erro ao buscar leads");
+    expect(result.current.leads).toEqual([]);
+    expect(result.current.total).toBe(0);
+  });
+
+  it("should fetch all remaining pages via fetchAllPages", async () => {
+    // Page 1
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: mockLeadsPage1,
+          meta: { total: 150, page: 1, limit: 100, totalPages: 2 },
+        }),
+    });
+
+    const { result } = renderHook(() => useAllLeads(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.leads).toHaveLength(100);
+    });
+
+    // Page 2
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: mockLeadsPage2,
+          meta: { total: 150, page: 2, limit: 100, totalPages: 2 },
+        }),
+    });
+
+    await act(async () => {
+      await result.current.fetchAllPages();
+    });
+
+    await waitFor(() => {
+      expect(result.current.leads).toHaveLength(150);
+    });
+
+    expect(result.current.hasNextPage).toBe(false);
+  });
+
+  it("should load everything in single page when total <= 100", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: mockLeadsPage1.slice(0, 80),
+          meta: { total: 80, page: 1, limit: 100, totalPages: 1 },
+        }),
+    });
+
+    const { result } = renderHook(() => useAllLeads(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.leads).toHaveLength(80);
+    expect(result.current.total).toBe(80);
+    expect(result.current.hasNextPage).toBe(false);
+    expect(result.current.isFetchingNextPage).toBe(false);
   });
 });

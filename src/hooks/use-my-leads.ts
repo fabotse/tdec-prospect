@@ -14,7 +14,7 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import { useDebounce } from "./use-debounce";
 import type { Lead } from "@/types/lead";
 import type { APISuccessResponse, APIErrorResponse } from "@/types/api";
@@ -168,6 +168,88 @@ export function useMyLeads(initialFilters?: MyLeadsFilters) {
     perPage,
     setPage,
     setPerPage,
+  };
+}
+
+const ALL_LEADS_PER_PAGE = 100;
+
+/**
+ * Hook for fetching ALL leads with infinite query support
+ * Story 12.7: Carregamento completo de leads no dialog de adicionar à campanha
+ *
+ * Uses useInfiniteQuery to progressively load all pages (per_page=100).
+ * If total <= 100, everything loads in a single page (no infinite scroll needed).
+ * If total > 100, exposes fetchNextPage for infinite scroll and fetchAllPages for "select all".
+ *
+ * AC: #1 - All leads available for selection
+ * AC: #5 - Search works on the complete set
+ */
+export function useAllLeads(options?: {
+  search?: string;
+  segmentId?: string | null;
+}) {
+  const debouncedSearch = useDebounce(options?.search ?? "", 300);
+
+  const queryFilters = useMemo<MyLeadsFilters>(
+    () => ({
+      search: debouncedSearch || undefined,
+      segmentId: options?.segmentId,
+    }),
+    [debouncedSearch, options?.segmentId]
+  );
+
+  const {
+    data,
+    isLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    error: queryError,
+  } = useInfiniteQuery({
+    queryKey: ["all-leads", queryFilters],
+    queryFn: ({ pageParam }) =>
+      fetchMyLeads(queryFilters, pageParam, ALL_LEADS_PER_PAGE),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, allPages) => {
+      if (allPages.length < lastPage.pagination.totalPages) {
+        return allPages.length + 1;
+      }
+      return undefined;
+    },
+    staleTime: 30 * 1000,
+  });
+
+  // Consolidated array of all loaded leads
+  const leads = useMemo(
+    () => data?.pages.flatMap((page) => page.leads) ?? [],
+    [data]
+  );
+
+  // Total count from API (first page's meta.total with count: exact)
+  const total = data?.pages[0]?.pagination.total ?? 0;
+
+  // Fetch all remaining pages (for "Select all" functionality)
+  // Returns the complete leads array from all pages after fetching
+  const fetchAllPages = useCallback(async (): Promise<Lead[]> => {
+    const totalPages = data?.pages[0]?.pagination.totalPages ?? 1;
+    const loadedPages = data?.pages.length ?? 0;
+    let allLeads: Lead[] = data?.pages.flatMap((p) => p.leads) ?? [];
+    for (let i = loadedPages + 1; i <= totalPages; i++) {
+      const result = await fetchNextPage();
+      allLeads = result.data?.pages.flatMap((p) => p.leads) ?? allLeads;
+    }
+    return allLeads;
+  }, [data, fetchNextPage]);
+
+  return {
+    leads,
+    total,
+    isLoading,
+    isFetchingNextPage,
+    hasNextPage: !!hasNextPage,
+    fetchNextPage,
+    fetchAllPages,
+    error: queryError instanceof Error ? queryError.message : null,
   };
 }
 

@@ -1,10 +1,11 @@
 /**
  * Add Leads Dialog Component
  * Story 5.7: Campaign Lead Association
+ * Story 12.7: Carregamento completo de leads no dialog
  *
- * AC: #1 - Open modal showing available leads
+ * AC: #1 - Open modal showing available leads (ALL leads, not just first 25)
  * AC: #2 - Search and filter leads with debounce
- * AC: #3 - Select leads individually or in batch
+ * AC: #3 - Select leads individually or in batch (ALL leads, not just visible)
  * AC: #4 - Add leads to campaign via API
  * AC: #7 - View leads already associated
  * AC: #8 - Remove leads from campaign
@@ -12,7 +13,7 @@
 
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { Search, Loader2, Users, X } from "lucide-react";
 import {
   Dialog,
@@ -27,8 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useDebounce } from "@/hooks/use-debounce";
-import { useMyLeads } from "@/hooks/use-my-leads";
+import { useAllLeads } from "@/hooks/use-my-leads";
 import { useCampaignLeads } from "@/hooks/use-campaign-leads";
 import { SegmentFilter } from "@/components/leads/SegmentFilter";
 import type { Lead } from "@/types/lead";
@@ -42,7 +42,7 @@ interface AddLeadsDialogProps {
 
 /**
  * Dialog for adding/viewing/removing leads in a campaign
- * AC: #1, #2, #3, #4, #7, #8
+ * Story 12.7: Uses useAllLeads with infinite scroll for complete lead loading
  */
 export function AddLeadsDialog({
   open,
@@ -52,16 +52,24 @@ export function AddLeadsDialog({
 }: AddLeadsDialogProps) {
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
-  const debouncedSearch = useDebounce(search, 300);
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(
+    null
+  );
+  const [selectAllPending, setSelectAllPending] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
 
-  // Fetch available leads with search and segment filter
-  const { leads, isLoading, updateFilters } = useMyLeads({ search: debouncedSearch });
-
-  // Sync filters to hook's internal state when they change
-  useEffect(() => {
-    updateFilters({ segmentId: selectedSegmentId, search: debouncedSearch });
-  }, [selectedSegmentId, debouncedSearch, updateFilters]);
+  // Story 12.7 AC #1, #5: Fetch ALL leads with infinite query (per_page=100)
+  // Hook handles debouncing internally
+  const {
+    leads,
+    total,
+    isLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    fetchAllPages,
+  } = useAllLeads({ search, segmentId: selectedSegmentId });
 
   // Fetch leads already in campaign and mutations
   const {
@@ -84,6 +92,13 @@ export function AddLeadsDialog({
     [leads, existingLeadIds]
   );
 
+  // Story 12.7 AC #2: Total available from API (not limited by loaded page count)
+  // CR fix M1: Use loaded availableLeads count + unloaded remainder for accurate display
+  const availableTotal = useMemo(() => {
+    const unloadedCount = Math.max(0, total - leads.length);
+    return availableLeads.length + unloadedCount;
+  }, [total, leads.length, availableLeads.length]);
+
   // Check if all available leads are selected
   const isAllSelected = useMemo(
     () =>
@@ -91,6 +106,34 @@ export function AddLeadsDialog({
       availableLeads.every((l) => selectedIds.has(l.id)),
     [availableLeads, selectedIds]
   );
+
+  // Story 12.7 AC #4: Infinite scroll with IntersectionObserver
+  // CR fix M2: Use ref to avoid observer teardown/setup churn on isFetchingNextPage changes
+  const isFetchingNextPageRef = useRef(isFetchingNextPage);
+  useEffect(() => {
+    isFetchingNextPageRef.current = isFetchingNextPage;
+  }, [isFetchingNextPage]);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || !hasNextPage) return;
+
+    const viewport = scrollAreaRef.current?.querySelector(
+      "[data-radix-scroll-area-viewport]"
+    );
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !isFetchingNextPageRef.current) {
+          fetchNextPage();
+        }
+      },
+      { root: viewport || null, threshold: 0.1 }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasNextPage, fetchNextPage]);
 
   // Toggle single lead selection
   const toggleLead = useCallback((leadId: string) => {
@@ -105,29 +148,43 @@ export function AddLeadsDialog({
     });
   }, []);
 
-  // Toggle all visible leads
+  // Story 12.7 AC #3: Toggle all leads — loads all pages first if needed
+  // CR fix H1: catch error to reset selectAllPending
+  // fetchAllPages returns all leads via Promise, avoiding setState-in-effect
   const toggleAll = useCallback(() => {
-    const availableIds = availableLeads.map((l) => l.id);
-
-    setSelectedIds((prev) => {
-      const allSelected = availableIds.every((id) => prev.has(id));
-      if (allSelected) {
-        // Deselect all
-        return new Set();
-      } else {
-        // Select all available
-        return new Set(availableIds);
-      }
-    });
-  }, [availableLeads]);
+    if (isAllSelected) {
+      // Deselect all
+      setSelectedIds(new Set());
+    } else if (hasNextPage) {
+      // Need to load all pages first, then select
+      setSelectAllPending(true);
+      fetchAllPages()
+        .then((allLeads) => {
+          const allAvailable = allLeads.filter(
+            (l) => !existingLeadIds.has(l.id)
+          );
+          setSelectedIds(new Set(allAvailable.map((l) => l.id)));
+          setSelectAllPending(false);
+        })
+        .catch(() => setSelectAllPending(false));
+    } else {
+      // All pages loaded, select all available
+      setSelectedIds(new Set(availableLeads.map((l) => l.id)));
+    }
+  }, [isAllSelected, hasNextPage, fetchAllPages, availableLeads, existingLeadIds]);
 
   // Handle add leads - AC #4: add leads and close modal
+  // CR fix L2: wrap in try/catch to prevent unhandled promise rejection
   const handleAddLeads = useCallback(async () => {
     if (selectedIds.size === 0) return;
-    await addLeads.mutateAsync(Array.from(selectedIds));
-    setSelectedIds(new Set());
-    onLeadsAdded?.();
-    onOpenChange(false); // AC #4: close modal after success
+    try {
+      await addLeads.mutateAsync(Array.from(selectedIds));
+      setSelectedIds(new Set());
+      onLeadsAdded?.();
+      onOpenChange(false); // AC #4: close modal after success
+    } catch {
+      // Error is handled by React Query's mutation state (addLeads.isError)
+    }
   }, [selectedIds, addLeads, onLeadsAdded, onOpenChange]);
 
   // Handle remove lead
@@ -145,6 +202,7 @@ export function AddLeadsDialog({
         setSearch("");
         setSelectedIds(new Set());
         setSelectedSegmentId(null);
+        setSelectAllPending(false);
       }
       onOpenChange(newOpen);
     },
@@ -186,6 +244,7 @@ export function AddLeadsDialog({
           onSegmentChange={(segmentId) => {
             setSelectedSegmentId(segmentId);
             setSelectedIds(new Set());
+            setSelectAllPending(false);
           }}
         />
 
@@ -226,8 +285,11 @@ export function AddLeadsDialog({
         {/* Available leads - AC #1, #3 */}
         <div className="flex-1 min-h-0">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-muted-foreground">
-              Leads disponiveis ({availableLeads.length})
+            <p
+              className="text-sm font-medium text-muted-foreground"
+              data-testid="available-leads-count"
+            >
+              Leads disponiveis ({availableTotal})
             </p>
             {selectedIds.size > 0 && (
               <span className="text-sm text-primary">
@@ -238,9 +300,12 @@ export function AddLeadsDialog({
 
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin" aria-label="Carregando leads" />
+              <Loader2
+                className="h-6 w-6 animate-spin"
+                aria-label="Carregando leads"
+              />
             </div>
-          ) : availableLeads.length === 0 ? (
+          ) : availableLeads.length === 0 && !hasNextPage ? (
             <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
               <Users className="h-8 w-8 mb-2" aria-hidden="true" />
               <p className="text-sm">
@@ -248,17 +313,26 @@ export function AddLeadsDialog({
               </p>
             </div>
           ) : (
-            <ScrollArea className="h-64 rounded-md border">
+            <ScrollArea
+              ref={scrollAreaRef}
+              className="h-64 rounded-md border"
+              data-testid="leads-scroll-area"
+            >
               <div className="p-2">
                 {/* Header with select all */}
                 <div className="flex items-center gap-3 px-2 py-1.5 border-b">
                   <Checkbox
-                    checked={isAllSelected}
+                    checked={isAllSelected && !selectAllPending}
                     onCheckedChange={toggleAll}
+                    disabled={selectAllPending}
                     aria-label="Selecionar todos os leads"
                     data-testid="select-all-checkbox"
                   />
-                  <span className="text-sm font-medium">Selecionar todos</span>
+                  <span className="text-sm font-medium">
+                    {selectAllPending
+                      ? "Carregando todos os leads..."
+                      : "Selecionar todos"}
+                  </span>
                 </div>
 
                 {/* Lead rows */}
@@ -270,6 +344,24 @@ export function AddLeadsDialog({
                     onToggle={() => toggleLead(lead.id)}
                   />
                 ))}
+
+                {/* Story 12.7 AC #4: Sentinel for infinite scroll */}
+                {hasNextPage && (
+                  <div
+                    ref={sentinelRef}
+                    data-testid="scroll-sentinel"
+                    className="py-2"
+                  >
+                    {isFetchingNextPage && (
+                      <div className="flex justify-center">
+                        <Loader2
+                          className="h-4 w-4 animate-spin"
+                          aria-label="Carregando mais leads"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </ScrollArea>
           )}
@@ -312,7 +404,8 @@ function LeadRow({
   isSelected: boolean;
   onToggle: () => void;
 }) {
-  const initials = `${lead.firstName?.[0] || ""}${lead.lastName?.[0] || ""}`.toUpperCase();
+  const initials =
+    `${lead.firstName?.[0] || ""}${lead.lastName?.[0] || ""}`.toUpperCase();
   const fullName = `${lead.firstName} ${lead.lastName || ""}`.trim();
 
   return (
