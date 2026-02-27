@@ -159,6 +159,8 @@ export interface Lead {
   icebreakerGeneratedAt: string | null;
   /** Story 6.5.4: Cached LinkedIn posts used for generation */
   linkedinPostsCache: LinkedInPostsCache | null;
+  /** Story 13.1: Flag de monitoramento LinkedIn */
+  isMonitored: boolean;
 }
 
 /**
@@ -199,6 +201,8 @@ export interface LeadRow {
   icebreaker_generated_at: string | null;
   /** Story 6.5.4: Cached LinkedIn posts used for generation */
   linkedin_posts_cache: LinkedInPostsCache | null;
+  /** Story 13.1: Flag de monitoramento LinkedIn */
+  is_monitored: boolean;
 }
 
 // ==============================================
@@ -238,6 +242,7 @@ export function transformLeadRow(row: LeadRow): Lead {
     icebreaker: row.icebreaker,
     icebreakerGeneratedAt: row.icebreaker_generated_at,
     linkedinPostsCache: row.linkedin_posts_cache,
+    isMonitored: row.is_monitored,
   };
 }
 

@@ -74,6 +74,12 @@ const mockLeadRow = {
   has_direct_phone: "No",
   created_at: "2026-01-15T10:00:00Z",
   updated_at: "2026-01-15T12:00:00Z",
+  // Story 6.5.4: Icebreaker fields
+  icebreaker: null,
+  icebreaker_generated_at: null,
+  linkedin_posts_cache: null,
+  // Story 13.1: Monitoring flag
+  is_monitored: false,
 };
 
 const mockBulkResult = {

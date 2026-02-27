@@ -54,6 +54,8 @@ export function createMockLead(overrides: Partial<Lead> = {}): Lead {
     icebreaker: null,
     icebreakerGeneratedAt: null,
     linkedinPostsCache: null,
+    // Story 13.1: Monitoring flag
+    isMonitored: false,
     ...overrides,
   };
 }

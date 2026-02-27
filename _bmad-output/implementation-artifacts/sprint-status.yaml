@@ -309,8 +309,8 @@ development_status:
   # Dependências: Epic 6.5 (ApifyService), Epic 11 (ZApiService, WhatsAppComposer), Knowledge Base
   # Product Brief: _bmad-output/planning-artifacts/product-brief-tdec-prospect-2026-02-27.md
   # Documento: _bmad-output/planning-artifacts/epic-13-monitoramento-inteligente-leads-linkedin.md
-  epic-13: backlog
-  13-1-schema-de-monitoramento-e-tipos: backlog
+  epic-13: in-progress
+  13-1-schema-de-monitoramento-e-tipos: done  # Code review: 1 HIGH, 2 MEDIUM, 2 LOW fixes (14 tsc errors inline mocks, stale mockLeadRow, variant typing, toEqual shape validation). 254 files, 4680 total
   13-2-toggle-de-monitoramento-na-tabela-de-leads: backlog
   13-3-edge-function-de-verificacao-semanal: backlog
   13-4-filtro-de-relevancia-por-ia: backlog

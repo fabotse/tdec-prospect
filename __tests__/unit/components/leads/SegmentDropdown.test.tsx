@@ -76,6 +76,7 @@ const mockSelectedLeads: Lead[] = [
     icebreaker: null,
     icebreakerGeneratedAt: null,
     linkedinPostsCache: null,
+    isMonitored: false,
   },
   {
     id: "lead-2",
@@ -101,6 +102,7 @@ const mockSelectedLeads: Lead[] = [
     icebreaker: null,
     icebreakerGeneratedAt: null,
     linkedinPostsCache: null,
+    isMonitored: false,
   },
   {
     id: "lead-3",
@@ -126,6 +128,7 @@ const mockSelectedLeads: Lead[] = [
     icebreaker: null,
     icebreakerGeneratedAt: null,
     linkedinPostsCache: null,
+    isMonitored: false,
   },
 ];
 
@@ -501,6 +504,7 @@ describe("SegmentDropdown", () => {
           icebreaker: null,
           icebreakerGeneratedAt: null,
           linkedinPostsCache: null,
+          isMonitored: false,
         },
       ];
 

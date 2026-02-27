@@ -323,6 +323,7 @@ describe("LeadSelectionBar", () => {
         icebreaker: null,
         icebreakerGeneratedAt: null,
         linkedinPostsCache: null,
+        isMonitored: false,
       },
       {
         id: "lead-2",
@@ -348,6 +349,7 @@ describe("LeadSelectionBar", () => {
         icebreaker: null,
         icebreakerGeneratedAt: null,
         linkedinPostsCache: null,
+        isMonitored: false,
       },
     ];
 
@@ -592,6 +594,7 @@ describe("LeadSelectionBar", () => {
         icebreaker: null,
         icebreakerGeneratedAt: null,
         linkedinPostsCache: null,
+        isMonitored: false,
       },
       {
         id: "lead-2",
@@ -616,6 +619,7 @@ describe("LeadSelectionBar", () => {
         icebreaker: null,
         icebreakerGeneratedAt: null,
         linkedinPostsCache: null,
+        isMonitored: false,
       },
     ];
 

@@ -92,6 +92,7 @@ const mockLeads: Lead[] = [
     icebreaker: null,
     icebreakerGeneratedAt: null,
     linkedinPostsCache: null,
+    isMonitored: false,
   },
   {
     id: "lead-2",
@@ -117,6 +118,7 @@ const mockLeads: Lead[] = [
     icebreaker: null,
     icebreakerGeneratedAt: null,
     linkedinPostsCache: null,
+    isMonitored: false,
   },
   {
     id: "lead-3",
@@ -142,6 +144,7 @@ const mockLeads: Lead[] = [
     icebreaker: null,
     icebreakerGeneratedAt: null,
     linkedinPostsCache: null,
+    isMonitored: false,
   },
 ];
 

@@ -318,6 +318,8 @@ describe("lead types", () => {
       icebreaker: null,
       icebreaker_generated_at: null,
       linkedin_posts_cache: null,
+      // Story 13.1: Monitoring flag
+      is_monitored: false,
     };
 
     it("should transform snake_case to camelCase", () => {
@@ -534,6 +536,26 @@ describe("lead types", () => {
         expect(result.icebreaker).toBe("Adorei seu post sobre inovação em tecnologia!");
         expect(result.icebreakerGeneratedAt).toBe("2026-02-04T16:00:00Z");
         expect(result.linkedinPostsCache).toEqual(mockLinkedInPostsCache);
+      });
+    });
+
+    // ==============================================
+    // Story 13.1: isMonitored Field Tests (AC #8)
+    // ==============================================
+
+    describe("isMonitored field (Story 13.1)", () => {
+      it("should transform is_monitored to isMonitored", () => {
+        const result = transformLeadRow(mockLeadRow);
+        expect(result.isMonitored).toBe(false);
+      });
+
+      it("should transform is_monitored true correctly", () => {
+        const rowMonitored: LeadRow = {
+          ...mockLeadRow,
+          is_monitored: true,
+        };
+        const result = transformLeadRow(rowMonitored);
+        expect(result.isMonitored).toBe(true);
       });
     });
   });
