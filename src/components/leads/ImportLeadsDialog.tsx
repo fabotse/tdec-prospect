@@ -339,15 +339,33 @@ Pedro,Oliveira,,,Gerente Comercial,,11988776655`;
     }
 
     // Build leads array from mapped columns
-    const leads: ImportLeadRow[] = parsedData.rows.map((row) => ({
-      firstName: row[mappings.nameColumn!] ?? "",
-      lastName: mappings.lastNameColumn !== null ? (row[mappings.lastNameColumn] ?? "") : "",
-      email: mappings.emailColumn !== null ? (row[mappings.emailColumn] || null) : null,
-      companyName: mappings.companyColumn !== null ? (row[mappings.companyColumn] || null) : null,
-      title: mappings.titleColumn !== null ? (row[mappings.titleColumn] || null) : null,
-      linkedinUrl: mappings.linkedinColumn !== null ? (row[mappings.linkedinColumn] || null) : null,
-      phone: mappings.phoneColumn !== null ? (row[mappings.phoneColumn] || null) : null,
-    }));
+    // Story 12.6 AC #5: Auto-split name when lastName column is not mapped
+    const shouldSplitName = mappings.lastNameColumn === null;
+    const leads: ImportLeadRow[] = parsedData.rows.map((row) => {
+      const rawName = (row[mappings.nameColumn!] ?? "").trim();
+
+      let firstName: string;
+      let lastName: string;
+
+      if (shouldSplitName && rawName.includes(" ")) {
+        const parts = rawName.split(/\s+/);
+        firstName = parts[0];
+        lastName = parts.slice(1).join(" ");
+      } else {
+        firstName = rawName;
+        lastName = mappings.lastNameColumn !== null ? (row[mappings.lastNameColumn] ?? "") : "";
+      }
+
+      return {
+        firstName,
+        lastName,
+        email: mappings.emailColumn !== null ? (row[mappings.emailColumn] || null) : null,
+        companyName: mappings.companyColumn !== null ? (row[mappings.companyColumn] || null) : null,
+        title: mappings.titleColumn !== null ? (row[mappings.titleColumn] || null) : null,
+        linkedinUrl: mappings.linkedinColumn !== null ? (row[mappings.linkedinColumn] || null) : null,
+        phone: mappings.phoneColumn !== null ? (row[mappings.phoneColumn] || null) : null,
+      };
+    });
 
     // Filter out rows with empty firstName
     const validLeads = leads.filter((l) => l.firstName.trim());

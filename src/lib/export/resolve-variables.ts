@@ -42,6 +42,11 @@ function resolveTemplate(
       return match;
     }
 
+    // Story 12.6 AC #4: Extract only first name for first_name variable
+    if (variable.name === "first_name") {
+      return value.split(" ")[0] || value;
+    }
+
     return value;
   });
 }

@@ -53,31 +53,27 @@ interface SidebarProps {
 
 export function Sidebar({ isCollapsed, onToggleCollapse, width, isHydrated }: SidebarProps) {
   const pathname = usePathname();
-  const [expandedItems, setExpandedItems] = useState<string[]>([]);
-  const subItemRefs = useRef<Map<string, HTMLAnchorElement>>(new Map());
-  const prevPathname = useRef<string | null>(null);
-  const hasInitialized = useRef(false);
-
-  // Initialize expanded state from localStorage
-  useEffect(() => {
+  const [expandedItems, setExpandedItems] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         try {
           const parsed = JSON.parse(stored);
-          setExpandedItems(parsed);
-          hasInitialized.current = true;
+          if (Array.isArray(parsed)) return parsed;
         } catch {
           // Ignore invalid JSON
         }
       }
     }
-  }, []);
+    return [];
+  });
+  const subItemRefs = useRef<Map<string, HTMLAnchorElement>>(new Map());
+  const prevPathname = useRef<string | null>(null);
+  const hasInitialized = useRef(false);
 
   // Auto-expand submenu when navigating to a child route
   // Only triggers on actual pathname changes to prevent re-expand after manual collapse
   useEffect(() => {
-    const isFirstRender = prevPathname.current === null;
     const pathnameChanged = prevPathname.current !== pathname;
 
     // Skip if pathname hasn't changed (except first render)
@@ -94,6 +90,7 @@ export function Sidebar({ isCollapsed, onToggleCollapse, width, isHydrated }: Si
       .map((item) => item.href);
 
     if (itemsToExpand.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Syncing sidebar state with URL pathname
       setExpandedItems((prev) => {
         const newItems = itemsToExpand.filter((href) => !prev.includes(href));
         if (newItems.length === 0) return prev;

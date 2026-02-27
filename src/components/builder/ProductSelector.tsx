@@ -30,7 +30,7 @@ import { toast } from "sonner";
 const GENERAL_CONTEXT_VALUE = "__general__";
 
 export function ProductSelector() {
-  const { productId, productName, setProductId, blocks } = useBuilderStore();
+  const { productId, setProductId, blocks } = useBuilderStore();
   const { data: products, isLoading } = useProducts();
 
   // Check if any email block has content
@@ -72,7 +72,7 @@ export function ProductSelector() {
         >
           <SelectValue placeholder="Contexto Geral" />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent position="popper" sideOffset={4}>
           <SelectItem value={GENERAL_CONTEXT_VALUE}>Contexto Geral</SelectItem>
           {products?.map((product) => (
             <SelectItem key={product.id} value={product.id}>

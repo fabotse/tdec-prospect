@@ -27,3 +27,4 @@ export { PreviewNavigation } from "./PreviewNavigation";
 export { ExportDialog } from "./ExportDialog";
 export { ExportPreview } from "./ExportPreview";
 export { SendingAccountSelector } from "./SendingAccountSelector";
+export { VariableReference } from "./VariableReference";

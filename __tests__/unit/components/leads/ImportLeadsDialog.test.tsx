@@ -747,4 +747,100 @@ describe("ImportLeadsDialog", () => {
       expect(screen.getByTestId("close-button")).not.toBeDisabled();
     });
   });
+
+  // ==============================================
+  // Story 12.6 AC #5: Split de nome na importação CSV
+  // ==============================================
+
+  describe("Name split on import (Story 12.6 AC #5)", () => {
+    /** Helper: CSV with full name in "Nome" column, no "Sobrenome" column */
+    async function goToSegmentWithFullNames() {
+      const csvWithFullNames = {
+        headers: ["nome", "email", "empresa"],
+        rows: [
+          ["João Silva", "joao@test.com", "ABC"],
+          ["Maria Santos Oliveira", "maria@test.com", "XYZ"],
+          ["Ana", "ana@test.com", "DEF"],
+        ],
+      };
+      const mappingsNoLastName = {
+        nameColumn: 0,
+        lastNameColumn: null,
+        emailColumn: 1,
+        companyColumn: 2,
+        titleColumn: null,
+        linkedinColumn: null,
+        phoneColumn: null,
+      };
+
+      mockParseCSVData.mockReturnValue(csvWithFullNames);
+      mockDetectLeadColumnMappings.mockReturnValue(mappingsNoLastName);
+
+      renderDialog();
+      const textarea = screen.getByTestId("paste-textarea");
+      fireEvent.change(textarea, {
+        target: { value: "nome,email,empresa\nJoão Silva,j@test.com,ABC" },
+      });
+      fireEvent.click(screen.getByTestId("process-paste-button"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Mapeamento de colunas")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId("mapping-next-button"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("segment-select")).toBeInTheDocument();
+      });
+    }
+
+    it("should split full name into firstName and lastName when lastNameColumn is null", async () => {
+      mockImportMutateAsync.mockResolvedValue({
+        imported: 3,
+        existing: 0,
+        errors: [],
+        leads: [],
+      });
+
+      await goToSegmentWithFullNames();
+      fireEvent.click(screen.getByTestId("import-button"));
+
+      await waitFor(() => {
+        expect(mockImportMutateAsync).toHaveBeenCalled();
+      });
+
+      const call = mockImportMutateAsync.mock.calls[0][0];
+      // "João Silva" → firstName: "João", lastName: "Silva"
+      expect(call.leads[0].firstName).toBe("João");
+      expect(call.leads[0].lastName).toBe("Silva");
+      // "Maria Santos Oliveira" → firstName: "Maria", lastName: "Santos Oliveira"
+      expect(call.leads[1].firstName).toBe("Maria");
+      expect(call.leads[1].lastName).toBe("Santos Oliveira");
+      // "Ana" (single name) → firstName: "Ana", lastName: ""
+      expect(call.leads[2].firstName).toBe("Ana");
+      expect(call.leads[2].lastName).toBe("");
+    });
+
+    it("should NOT split name when lastNameColumn IS mapped", async () => {
+      mockImportMutateAsync.mockResolvedValue({
+        imported: 2,
+        existing: 0,
+        errors: [],
+        leads: [],
+      });
+
+      // Use default setup with both name and lastName columns mapped
+      await goToSegment();
+      fireEvent.click(screen.getByTestId("import-button"));
+
+      await waitFor(() => {
+        expect(mockImportMutateAsync).toHaveBeenCalled();
+      });
+
+      const call = mockImportMutateAsync.mock.calls[0][0];
+      // With lastNameColumn mapped, firstName stays as-is from CSV
+      expect(call.leads[0].firstName).toBe("João");
+      expect(call.leads[0].lastName).toBe("Silva");
+    });
+  });
 });

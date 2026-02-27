@@ -43,7 +43,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Mail, GripVertical, Trash2, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -72,6 +72,7 @@ import { useDebouncedCallback } from "@/hooks/use-debounce";
 import { AIGenerateButton } from "./AIGenerateButton";
 import { ExamplesHint } from "./ExamplesHint";
 import { PremiumIcebreakerBadge } from "./PremiumIcebreakerBadge";
+import { VariableReference } from "./VariableReference";
 import {
   sanitizeGeneratedSubject,
   sanitizeGeneratedBody,
@@ -147,6 +148,11 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
 
   const [subject, setSubject] = useState(blockData.subject);
   const [body, setBody] = useState(blockData.body);
+
+  // Story 12.6 AC #2: Refs for cursor-based variable insertion
+  const subjectRef = useRef<HTMLInputElement>(null);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const activeFieldRef = useRef<"subject" | "body">("body");
 
   // AI Generation hook (Story 6.2)
   const {
@@ -237,15 +243,15 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
   );
 
   // Update local state immediately, debounce store update (AC #3)
-  const handleSubjectChange = (value: string) => {
+  const handleSubjectChange = useCallback((value: string) => {
     setSubject(value);
     debouncedUpdateSubject(value);
-  };
+  }, [debouncedUpdateSubject]);
 
-  const handleBodyChange = (value: string) => {
+  const handleBodyChange = useCallback((value: string) => {
     setBody(value);
     debouncedUpdateBody(value);
-  };
+  }, [debouncedUpdateBody]);
 
   // Story 6.7 AC #3: Flush on blur to prevent data loss
   const handleSubjectBlur = () => {
@@ -255,6 +261,34 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
   const handleBodyBlur = () => {
     flushBody();
   };
+
+  // Story 12.6 AC #2: Insert variable at cursor position in active field
+  const handleInsertVariable = useCallback((template: string) => {
+    const isSubject = activeFieldRef.current === "subject";
+    const element = isSubject
+      ? (subjectRef.current as HTMLInputElement | null)
+      : (bodyRef.current as HTMLTextAreaElement | null);
+    if (!element) return;
+
+    const start = element.selectionStart ?? element.value.length;
+    const end = element.selectionEnd ?? element.value.length;
+    const text = element.value;
+    const newText = text.substring(0, start) + template + text.substring(end);
+
+    if (isSubject) {
+      handleSubjectChange(newText);
+    } else {
+      handleBodyChange(newText);
+    }
+
+    // Reposition cursor after the inserted variable
+    requestAnimationFrame(() => {
+      const newPos = start + template.length;
+      element.selectionStart = newPos;
+      element.selectionEnd = newPos;
+      element.focus();
+    });
+  }, [handleSubjectChange, handleBodyChange]);
 
   // Handle block selection
   const handleClick = (e: React.MouseEvent) => {
@@ -558,11 +592,13 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
             Assunto
           </Label>
           <Input
+            ref={subjectRef}
             id={`subject-${block.id}`}
             data-testid="email-subject-input"
             value={subject}
             onChange={(e) => handleSubjectChange(e.target.value)}
             onBlur={handleSubjectBlur}
+            onFocus={() => { activeFieldRef.current = "subject"; }}
             placeholder="Assunto do email"
             className="bg-background/50"
             maxLength={200}
@@ -604,11 +640,13 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
           )}
           {/* Story 6.7 AC #4: Auto-expanding textarea */}
           <AutoResizeTextarea
+            ref={bodyRef}
             id={`body-${block.id}`}
             data-testid="email-body-input"
             value={body}
             onChange={(e) => handleBodyChange(e.target.value)}
             onBlur={handleBodyBlur}
+            onFocus={() => { activeFieldRef.current = "body"; }}
             placeholder="Conteudo do email..."
             className={cn(
               "bg-background/50",
@@ -621,6 +659,9 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
             aria-label="Conteudo do email, expande automaticamente"
           />
         </div>
+
+        {/* Story 12.6 AC #1, #2, #3: Variable reference chips */}
+        <VariableReference onInsert={handleInsertVariable} />
 
         {/* AI Generate Section (Story 6.2) */}
         <div className="flex flex-col items-end gap-2">

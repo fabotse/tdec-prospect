@@ -287,4 +287,82 @@ describe("resolve-variables", () => {
       expect(result.subject).toBe("{João}");
     });
   });
+
+  // ==============================================
+  // FIRST NAME EXTRACTION (Story 12.6 AC #4)
+  // ==============================================
+
+  describe("first name extraction (Story 12.6 AC #4)", () => {
+    it("should extract only first name from composite name", () => {
+      const lead = { firstName: "João Silva" };
+      const result = resolveEmailVariables(
+        { subject: "Olá {{first_name}}", body: "" },
+        lead
+      );
+      expect(result.subject).toBe("Olá João");
+    });
+
+    it("should keep single name unchanged", () => {
+      const lead = { firstName: "Maria" };
+      const result = resolveEmailVariables(
+        { subject: "Olá {{first_name}}", body: "" },
+        lead
+      );
+      expect(result.subject).toBe("Olá Maria");
+    });
+
+    it("should extract first name from name with multiple parts", () => {
+      const lead = { firstName: "Ana Paula Santos" };
+      const result = resolveEmailVariables(
+        { subject: "{{first_name}}", body: "" },
+        lead
+      );
+      expect(result.subject).toBe("Ana");
+    });
+
+    it("should keep variable as-is when firstName is empty", () => {
+      const lead = { firstName: "" };
+      const result = resolveEmailVariables(
+        { subject: "{{first_name}}", body: "" },
+        lead
+      );
+      expect(result.subject).toBe("{{first_name}}");
+    });
+
+    it("should keep variable as-is when firstName is null", () => {
+      const lead = { firstName: null };
+      const result = resolveEmailVariables(
+        { subject: "{{first_name}}", body: "" },
+        lead
+      );
+      expect(result.subject).toBe("{{first_name}}");
+    });
+
+    it("should NOT extract first word from other variables like company_name", () => {
+      const lead = { companyName: "Acme Corp Ltda" };
+      const result = resolveEmailVariables(
+        { subject: "{{company_name}}", body: "" },
+        lead
+      );
+      expect(result.subject).toBe("Acme Corp Ltda");
+    });
+
+    it("should NOT extract first word from title variable", () => {
+      const lead = { title: "Chief Technology Officer" };
+      const result = resolveEmailVariables(
+        { subject: "{{title}}", body: "" },
+        lead
+      );
+      expect(result.subject).toBe("Chief Technology Officer");
+    });
+
+    it("should extract first name in body as well", () => {
+      const lead = { firstName: "Carlos Eduardo" };
+      const result = resolveEmailVariables(
+        { subject: "", body: "Prezado {{first_name}}, como vai?" },
+        lead
+      );
+      expect(result.body).toBe("Prezado Carlos, como vai?");
+    });
+  });
 });

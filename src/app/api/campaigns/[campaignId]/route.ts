@@ -268,6 +268,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       position: b.position,
       subject: (b.data as { subject?: string }).subject || null,
       body: (b.data as { body?: string }).body || null,
+      email_mode: (b.data as { emailMode?: string }).emailMode || "initial",
     }));
 
     const delayRows = delayBlocks.map((b) => ({

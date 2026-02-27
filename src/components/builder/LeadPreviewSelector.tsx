@@ -138,7 +138,7 @@ export function LeadPreviewSelector({ campaignId }: LeadPreviewSelectorProps) {
         >
           <SelectValue placeholder="Selecione um lead" />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent position="popper" sideOffset={4}>
           {leads?.map((item) => (
             <SelectItem key={item.lead.id} value={item.lead.id}>
               {formatLeadLabel(item.lead)}
