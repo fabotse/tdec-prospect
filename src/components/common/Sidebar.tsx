@@ -12,6 +12,7 @@ import {
   ChevronDown,
   Search,
   Database,
+  Lightbulb,
 } from "lucide-react";
 import {
   Tooltip,
@@ -19,6 +20,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Badge } from "@/components/ui/badge";
+import { useNewInsightsCount } from "@/hooks/use-lead-insights";
 
 const TRANSITION_DURATION = 200;
 const STORAGE_KEY = "sidebar-expanded";
@@ -41,8 +44,19 @@ const navItems: NavItem[] = [
     ],
   },
   { label: "Campanhas", href: "/campaigns", icon: Send },
+  { label: "Insights", href: "/insights", icon: Lightbulb },
   { label: "Configurações", href: "/settings", icon: Settings },
 ];
+
+function InsightsBadge() {
+  const { data: count } = useNewInsightsCount();
+  if (!count || count === 0) return null;
+  return (
+    <Badge variant="default" className="ml-auto text-[10px] h-5 min-w-[20px] px-1.5">
+      {count > 99 ? "99+" : count}
+    </Badge>
+  );
+}
 
 interface SidebarProps {
   isCollapsed: boolean;
@@ -360,15 +374,18 @@ export function Sidebar({ isCollapsed, onToggleCollapse, width, isHydrated }: Si
         >
           <Icon className="h-5 w-5 shrink-0" />
           {!isCollapsed && (
-            <span
-              className="ml-3 text-body font-medium whitespace-nowrap"
-              style={{
-                opacity: 1,
-                transition: `opacity ${TRANSITION_DURATION}ms cubic-bezier(0.4, 0, 0.2, 1)`,
-              }}
-            >
-              {item.label}
-            </span>
+            <>
+              <span
+                className="ml-3 text-body font-medium whitespace-nowrap"
+                style={{
+                  opacity: 1,
+                  transition: `opacity ${TRANSITION_DURATION}ms cubic-bezier(0.4, 0, 0.2, 1)`,
+                }}
+              >
+                {item.label}
+              </span>
+              {item.href === "/insights" && <InsightsBadge />}
+            </>
           )}
         </Link>
       </li>

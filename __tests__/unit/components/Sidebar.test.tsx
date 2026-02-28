@@ -9,6 +9,11 @@ vi.mock('next/navigation', () => ({
   usePathname: vi.fn(() => '/leads'),
 }))
 
+// Mock use-lead-insights hook (requires QueryClientProvider otherwise)
+vi.mock('@/hooks/use-lead-insights', () => ({
+  useNewInsightsCount: vi.fn(() => ({ data: 0 })),
+}))
+
 const mockUsePathname = vi.mocked(usePathname)
 
 describe('Sidebar', () => {
@@ -42,6 +47,7 @@ describe('Sidebar', () => {
       // Leads is now a button (expandable), others are links
       expect(screen.getByRole('button', { name: /leads/i })).toBeInTheDocument()
       expect(screen.getByRole('link', { name: /campanhas/i })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /insights/i })).toBeInTheDocument()
       expect(screen.getByRole('link', { name: /configurações/i })).toBeInTheDocument()
     })
 
@@ -50,6 +56,7 @@ describe('Sidebar', () => {
 
       // Non-expandable items still have hrefs
       expect(screen.getByRole('link', { name: /campanhas/i })).toHaveAttribute('href', '/campaigns')
+      expect(screen.getByRole('link', { name: /insights/i })).toHaveAttribute('href', '/insights')
       expect(screen.getByRole('link', { name: /configurações/i })).toHaveAttribute('href', '/settings')
     })
 
@@ -91,6 +98,7 @@ describe('Sidebar', () => {
       // Labels should not be visible when collapsed
       // Check that text spans for labels are not present
       expect(screen.queryByText('Campanhas')).not.toBeInTheDocument()
+      expect(screen.queryByText('Insights')).not.toBeInTheDocument()
       expect(screen.queryByText('Configurações')).not.toBeInTheDocument()
     })
 
@@ -99,6 +107,7 @@ describe('Sidebar', () => {
 
       expect(screen.getByText('Leads')).toBeInTheDocument()
       expect(screen.getByText('Campanhas')).toBeInTheDocument()
+      expect(screen.getByText('Insights')).toBeInTheDocument()
       expect(screen.getByText('Configurações')).toBeInTheDocument()
     })
   })
@@ -420,7 +429,7 @@ describe('Sidebar', () => {
         // Verify the button is set up as a tooltip trigger (data-slot attribute)
         const leadsButton = screen.getByRole('button', { name: /leads/i })
         // The button should be within a tooltip structure
-        expect(leadsButton.closest('[data-slot="tooltip-trigger"]') ?? leadsButton).toBeInTheDocument()
+        expect(leadsButton.closest('[data-slot="tooltip-trigger"]')).toBeInTheDocument()
       })
 
       it('should have aria-haspopup on collapsed button for accessibility', () => {

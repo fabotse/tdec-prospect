@@ -12,6 +12,11 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
+// Mock use-lead-insights hook (Sidebar uses useNewInsightsCount)
+vi.mock("@/hooks/use-lead-insights", () => ({
+  useNewInsightsCount: vi.fn(() => ({ data: 0 })),
+}));
+
 // Mock useUser hook
 vi.mock("@/hooks/use-user", () => ({
   useUser: () => ({
