@@ -866,6 +866,63 @@ Responda EXCLUSIVAMENTE com JSON válido (sem markdown, sem explicação):
     },
   },
 
+  // Monitoring approach suggestion (Story 13.5)
+  monitoring_approach_suggestion: {
+    template: `Você é um consultor de vendas B2B especializado em abordagens contextuais baseadas em atividade no LinkedIn.
+
+CONTEXTO DA EMPRESA REMETENTE:
+{{company_context}}
+
+PRODUTOS/SERVIÇOS:
+{{products_services}}
+
+DIFERENCIAIS COMPETITIVOS:
+{{competitive_advantages}}
+
+PÚBLICO-ALVO (ICP):
+{{icp_summary}}
+
+TOM DE VOZ:
+{{tone_description}}
+Estilo: {{tone_style}}
+
+DADOS DO LEAD:
+- Nome: {{lead_name}}
+- Cargo: {{lead_title}}
+- Empresa: {{lead_company}}
+- Setor: {{lead_industry}}
+
+POST DO LINKEDIN QUE GEROU A OPORTUNIDADE:
+URL: {{post_url}}
+{{post_text}}
+
+TAREFA:
+Gere uma SUGESTÃO DE ABORDAGEM curta e contextualizada para este lead, baseada no post acima.
+
+A sugestão deve:
+- Conectar o TEMA do post com o PRODUTO/SERVIÇO da empresa remetente
+- Focar na OPORTUNIDADE TEMPORAL (o lead acabou de demonstrar interesse/necessidade)
+- Ser diferente de um Ice Breaker frio — o tom é de quem percebeu uma oportunidade real
+- Incluir uma sugestão concreta de como iniciar a conversa (WhatsApp ou email)
+- Considerar o cargo e setor do lead para calibrar a abordagem
+- Seguir o tom de voz configurado ({{tone_style}})
+
+A sugestão NÃO deve:
+- Ser genérica ("entre em contato com o lead")
+- Repetir o conteúdo do post sem conectar ao produto
+- Usar linguagem de template ("Prezado [nome]")
+- Ser longa demais — máximo 3-4 frases objetivas
+
+FORMATO:
+Responda APENAS com a sugestão de abordagem, sem explicações ou formatação extra.
+Máximo 150 palavras.`,
+    modelPreference: "gpt-4o-mini",
+    metadata: {
+      temperature: 0.7,
+      maxTokens: 500,
+    },
+  },
+
   // WhatsApp message generation (Story 11.3)
   whatsapp_message_generation: {
     template: `Você é um especialista em comunicação WhatsApp B2B no Brasil.

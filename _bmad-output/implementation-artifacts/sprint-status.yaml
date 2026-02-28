@@ -314,7 +314,7 @@ development_status:
   13-2-toggle-de-monitoramento-na-tabela-de-leads: done  # Code review: 2 HIGH, 2 MEDIUM, 4 LOW fixes (limit check edge cases, 404 vs 400, loading UX, dropdown spec, edge case tests). 49 story tests, 258 files, 4729 total
   13-3-edge-function-de-verificacao-semanal: done  # Code review: 1 CRITICAL, 3 MEDIUM, 2 LOW fixes (hardcoded secrets removed, try-catch, ApifyService singleton, .env.example File List, AC comment, race condition doc). 25 story tests, 260 files, 4758 total.
   13-4-filtro-de-relevancia-por-ia: done  # Code review: 1 HIGH, 3 MEDIUM, 3 LOW fixes (accurate token cost, newPostsFound semantics, OpenAI key test, DRY getApiKey, test desc, post_url template, response validation). 56 story tests, 261 files, 4790 total
-  13-5-geracao-de-sugestao-de-abordagem: backlog
+  13-5-geracao-de-sugestao-de-abordagem: done  # Code review: 1 HIGH, 2 MEDIUM, 3 LOW fixes (timeout test, failure logging, status correction, tone tests, post_url template). 24 novos testes (14 approach-suggestion + 10 process-batch), 262 files, 4814 total
   13-6-pagina-de-insights-ui: backlog
   13-7-envio-whatsapp-a-partir-do-insight: backlog
   13-8-configuracoes-de-monitoramento: backlog

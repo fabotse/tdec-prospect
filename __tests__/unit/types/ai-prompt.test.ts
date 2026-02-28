@@ -31,6 +31,7 @@ describe("AI Prompt Types (Story 6.5.3)", () => {
         "campaign_structure_generation",
         "whatsapp_message_generation",
         "monitoring_relevance_filter",
+        "monitoring_approach_suggestion",
       ];
 
       expectedKeys.forEach((key) => {
@@ -38,8 +39,8 @@ describe("AI Prompt Types (Story 6.5.3)", () => {
       });
     });
 
-    it("has correct length with all 11 prompt keys", () => {
-      expect(PROMPT_KEYS.length).toBe(11);
+    it("has correct length with all 12 prompt keys", () => {
+      expect(PROMPT_KEYS.length).toBe(12);
     });
   });
 
@@ -95,8 +96,9 @@ describe("AI Prompt Types (Story 6.5.3)", () => {
         "campaign_structure_generation",
         "whatsapp_message_generation",
         "monitoring_relevance_filter",
+        "monitoring_approach_suggestion",
       ];
-      expect(keys.length).toBe(11);
+      expect(keys.length).toBe(12);
     });
   });
 });

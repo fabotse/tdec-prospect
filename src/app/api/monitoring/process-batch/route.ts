@@ -25,6 +25,14 @@ import {
   calculateClassificationCost,
 } from "@/lib/utils/relevance-classifier";
 import type { KBContextForClassification } from "@/lib/utils/relevance-classifier";
+import {
+  generateApproachSuggestion,
+  calculateSuggestionCost,
+} from "@/lib/utils/approach-suggestion";
+import type {
+  LeadContextForSuggestion,
+  KBContextForSuggestion,
+} from "@/lib/utils/approach-suggestion";
 import type { LinkedInPostsCache } from "@/types/lead";
 import type { MonitoringConfigRow } from "@/types/monitoring";
 
@@ -97,6 +105,40 @@ async function getApiKey(
 }
 
 // ==============================================
+// HELPER: Load Tone Context for Suggestion (Story 13.5)
+// ==============================================
+
+interface ToneContext {
+  toneDescription: string;
+  toneStyle: string;
+}
+
+async function loadToneContext(
+  supabase: ReturnType<typeof createClient>,
+  tenantId: string
+): Promise<ToneContext> {
+  const { data: tone } = await supabase
+    .from("tone_of_voice")
+    .select("preset, description, writing_guidelines")
+    .eq("tenant_id", tenantId)
+    .single();
+
+  if (!tone) {
+    return { toneDescription: "", toneStyle: "casual" };
+  }
+
+  const parts: string[] = [];
+  if (tone.preset) parts.push(`Estilo: ${tone.preset}`);
+  if (tone.description) parts.push(tone.description);
+  if (tone.writing_guidelines) parts.push(`Diretrizes: ${tone.writing_guidelines}`);
+
+  return {
+    toneDescription: parts.join(". ") || "",
+    toneStyle: tone.preset || "casual",
+  };
+}
+
+// ==============================================
 // HELPER: Load KB Context for Classification (Story 13.4)
 // ==============================================
 
@@ -135,14 +177,20 @@ async function processLead(
     id: string;
     linkedin_url: string | null;
     linkedin_posts_cache: LinkedInPostsCache | null;
+    first_name: string;
+    last_name: string | null;
+    title: string | null;
+    company_name: string | null;
+    industry: string | null;
   },
   apifyKey: string,
   apifyService: ApifyService,
   supabase: ReturnType<typeof createClient>,
   tenantId: string,
   openaiKey: string | null,
-  kbContext: KBContextForClassification | null
-): Promise<{ leadId: string; success: boolean; newPostsFound: number; postsFiltered: number; error?: string }> {
+  kbContext: KBContextForClassification | null,
+  toneContext: ToneContext
+): Promise<{ leadId: string; success: boolean; newPostsFound: number; postsFiltered: number; suggestionsGenerated: number; error?: string }> {
   const startTime = Date.now();
 
   // Skip leads without linkedin_url
@@ -157,7 +205,7 @@ async function processLead(
       durationMs: Date.now() - startTime,
       metadata: { source: "monitoring" },
     });
-    return { leadId: lead.id, success: false, newPostsFound: 0, postsFiltered: 0, error: "Lead sem linkedin_url" };
+    return { leadId: lead.id, success: false, newPostsFound: 0, postsFiltered: 0, suggestionsGenerated: 0, error: "Lead sem linkedin_url" };
   }
 
   const result = await apifyService.fetchLinkedInPosts(apifyKey, lead.linkedin_url, 3);
@@ -173,7 +221,7 @@ async function processLead(
       durationMs: Date.now() - startTime,
       metadata: { source: "monitoring" },
     });
-    return { leadId: lead.id, success: false, newPostsFound: 0, postsFiltered: 0, error: result.error };
+    return { leadId: lead.id, success: false, newPostsFound: 0, postsFiltered: 0, suggestionsGenerated: 0, error: result.error };
   }
 
   // Detect new posts
@@ -195,8 +243,9 @@ async function processLead(
     })
     .eq("id", lead.id);
 
-  // Classify new posts for relevance (Story 13.4)
+  // Classify new posts for relevance (Story 13.4) + generate suggestions (Story 13.5)
   let postsFiltered = 0;
+  let suggestionsGenerated = 0;
   if (newPosts.length > 0) {
     const relevantInsights: Array<{
       tenant_id: string;
@@ -205,6 +254,7 @@ async function processLead(
       post_text: string;
       post_published_at: string | null;
       relevance_reasoning: string;
+      suggestion: string | null;
       status: "new";
     }> = [];
 
@@ -219,6 +269,81 @@ async function processLead(
       );
 
       if (classification.isRelevant) {
+        // Generate approach suggestion (Story 13.5)
+        let suggestion: string | null = null;
+        let suggestionTokens = { promptTokens: 0, completionTokens: 0 };
+
+        // Only generate suggestion if we have openaiKey AND kbContext (classification used AI)
+        if (openaiKey && kbContext) {
+          const leadContext: LeadContextForSuggestion = {
+            leadName: `${lead.first_name}${lead.last_name ? ` ${lead.last_name}` : ""}`,
+            leadTitle: lead.title || "",
+            leadCompany: lead.company_name || "",
+            leadIndustry: lead.industry || "",
+          };
+
+          const suggestionKBContext: KBContextForSuggestion = {
+            ...kbContext,
+            toneDescription: toneContext.toneDescription,
+            toneStyle: toneContext.toneStyle,
+          };
+
+          const suggestionResult = await generateApproachSuggestion(
+            post.text,
+            post.postUrl,
+            leadContext,
+            suggestionKBContext,
+            openaiKey,
+            supabase,
+            tenantId
+          );
+
+          suggestion = suggestionResult.suggestion;
+          suggestionTokens = {
+            promptTokens: suggestionResult.promptTokens,
+            completionTokens: suggestionResult.completionTokens,
+          };
+
+          // Log suggestion cost/failure (AC #7)
+          if (suggestionTokens.promptTokens > 0 || suggestionTokens.completionTokens > 0) {
+            await logMonitoringUsage(supabase, {
+              tenantId,
+              serviceName: "openai",
+              requestType: "monitoring_approach_suggestion",
+              leadId: lead.id,
+              estimatedCost: calculateSuggestionCost(
+                suggestionTokens.promptTokens,
+                suggestionTokens.completionTokens
+              ),
+              status: suggestion !== null ? "success" : "failed",
+              errorMessage: suggestionResult.error,
+              metadata: {
+                source: "monitoring",
+                postUrl: post.postUrl,
+                hasSuggestion: suggestion !== null,
+              },
+            });
+          } else if (suggestionResult.error) {
+            // Log failure even without tokens (timeout, HTTP error)
+            await logMonitoringUsage(supabase, {
+              tenantId,
+              serviceName: "openai",
+              requestType: "monitoring_approach_suggestion",
+              leadId: lead.id,
+              estimatedCost: 0,
+              status: "failed",
+              errorMessage: suggestionResult.error,
+              metadata: {
+                source: "monitoring",
+                postUrl: post.postUrl,
+                hasSuggestion: false,
+              },
+            });
+          }
+
+          if (suggestion) suggestionsGenerated++;
+        }
+
         relevantInsights.push({
           tenant_id: tenantId,
           lead_id: lead.id,
@@ -226,6 +351,7 @@ async function processLead(
           post_text: post.text,
           post_published_at: post.publishedAt || null,
           relevance_reasoning: classification.reasoning,
+          suggestion,
           status: "new" as const,
         });
       } else {
@@ -278,7 +404,7 @@ async function processLead(
     },
   });
 
-  return { leadId: lead.id, success: true, newPostsFound: newPosts.length, postsFiltered };
+  return { leadId: lead.id, success: true, newPostsFound: newPosts.length, postsFiltered, suggestionsGenerated };
 }
 
 // ==============================================
@@ -357,6 +483,7 @@ export async function POST(req: NextRequest) {
           leadsProcessed: 0,
           newPostsFound: 0,
           postsFiltered: 0,
+          suggestionsGenerated: 0,
           cursor: null,
           errors: [],
         };
@@ -375,6 +502,7 @@ export async function POST(req: NextRequest) {
           leadsProcessed: 0,
           newPostsFound: 0,
           postsFiltered: 0,
+          suggestionsGenerated: 0,
           cursor: null,
           errors: [],
         };
@@ -395,10 +523,10 @@ export async function POST(req: NextRequest) {
       config.run_cursor = null;
     }
 
-    // Fetch batch of leads
+    // Fetch batch of leads (expanded for suggestion generation — Story 13.5)
     let query = supabase
       .from("leads")
-      .select("id, linkedin_url, linkedin_posts_cache, tenant_id")
+      .select("id, linkedin_url, linkedin_posts_cache, tenant_id, first_name, last_name, title, company_name, industry")
       .eq("tenant_id", config.tenant_id)
       .eq("is_monitored", true)
       .order("id", { ascending: true })
@@ -429,6 +557,7 @@ export async function POST(req: NextRequest) {
         leadsProcessed: 0,
         newPostsFound: 0,
         postsFiltered: 0,
+        suggestionsGenerated: 0,
         cursor: null,
         errors: [],
       };
@@ -456,15 +585,17 @@ export async function POST(req: NextRequest) {
         leadsProcessed: 0,
         newPostsFound: 0,
         postsFiltered: 0,
+        suggestionsGenerated: 0,
         cursor: null,
         errors: [],
       };
       return NextResponse.json(result);
     }
 
-    // Load OpenAI key and KB context once for the batch (Story 13.4)
+    // Load OpenAI key, KB context, and tone context once for the batch (Story 13.4, 13.5)
     const openaiKey = await getApiKey(supabase, config.tenant_id, "openai");
     const kbContext = await loadKBContext(supabase, config.tenant_id);
+    const toneContext = await loadToneContext(supabase, config.tenant_id);
 
     // Process batch with Promise.allSettled (AC #7)
     const results = await Promise.allSettled(
@@ -474,13 +605,19 @@ export async function POST(req: NextRequest) {
             id: string;
             linkedin_url: string | null;
             linkedin_posts_cache: LinkedInPostsCache | null;
+            first_name: string;
+            last_name: string | null;
+            title: string | null;
+            company_name: string | null;
+            industry: string | null;
           },
           apifyKey,
           apifyService,
           supabase,
           config!.tenant_id,
           openaiKey,
-          kbContext
+          kbContext,
+          toneContext
         )
       )
     );
@@ -488,12 +625,14 @@ export async function POST(req: NextRequest) {
     // Aggregate results
     let totalNewPosts = 0;
     let totalPostsFiltered = 0;
+    let totalSuggestionsGenerated = 0;
     const errors: Array<{ leadId: string; error: string }> = [];
 
     for (const r of results) {
       if (r.status === "fulfilled") {
         totalNewPosts += r.value.newPostsFound;
         totalPostsFiltered += r.value.postsFiltered;
+        totalSuggestionsGenerated += r.value.suggestionsGenerated;
         if (!r.value.success && r.value.error) {
           errors.push({ leadId: r.value.leadId, error: r.value.error });
         }
@@ -517,6 +656,7 @@ export async function POST(req: NextRequest) {
       leadsProcessed: leads.length,
       newPostsFound: totalNewPosts,
       postsFiltered: totalPostsFiltered,
+      suggestionsGenerated: totalSuggestionsGenerated,
       cursor: lastLeadId,
       errors,
     };

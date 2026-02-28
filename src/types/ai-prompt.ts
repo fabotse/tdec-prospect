@@ -76,7 +76,8 @@ export type PromptKey =
   | "follow_up_subject_generation"
   | "campaign_structure_generation"
   | "whatsapp_message_generation"
-  | "monitoring_relevance_filter";
+  | "monitoring_relevance_filter"
+  | "monitoring_approach_suggestion";
 
 /**
  * All prompt keys as array (for validation)
@@ -93,6 +94,7 @@ export const PROMPT_KEYS: PromptKey[] = [
   "campaign_structure_generation",
   "whatsapp_message_generation",
   "monitoring_relevance_filter",
+  "monitoring_approach_suggestion",
 ];
 
 // ==============================================
@@ -184,6 +186,7 @@ export const promptKeySchema = z.enum([
   "campaign_structure_generation",
   "whatsapp_message_generation",
   "monitoring_relevance_filter",
+  "monitoring_approach_suggestion",
 ]);
 
 // ==============================================

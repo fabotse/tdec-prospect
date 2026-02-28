@@ -22,6 +22,7 @@ export interface MonitoringBatchResult {
   leadsProcessed: number;
   newPostsFound: number;
   postsFiltered: number;
+  suggestionsGenerated: number;
   cursor: string | null;
   errors: Array<{ leadId: string; error: string }>;
 }
