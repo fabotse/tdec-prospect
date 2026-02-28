@@ -34,6 +34,15 @@ vi.mock("@/lib/crypto/encryption", () => ({
   decryptApiKey: (...args: unknown[]) => mockDecryptApiKey(...args),
 }));
 
+const mockClassifyPostRelevance = vi.fn();
+const mockCalculateClassificationCost = vi.fn(() => 0.00005);
+vi.mock("@/lib/utils/relevance-classifier", () => ({
+  classifyPostRelevance: (...args: unknown[]) =>
+    mockClassifyPostRelevance(...args),
+  calculateClassificationCost: (...args: unknown[]) =>
+    mockCalculateClassificationCost(...args),
+}));
+
 import { POST } from "@/app/api/monitoring/process-batch/route";
 
 // ==============================================
@@ -48,6 +57,13 @@ beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://test.supabase.co");
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key");
   mockDecryptApiKey.mockReturnValue("decrypted-apify-key");
+  // Default: all posts classified as relevant (Story 13.4)
+  mockClassifyPostRelevance.mockResolvedValue({
+    isRelevant: true,
+    reasoning: "Post relevante",
+    promptTokens: 150,
+    completionTokens: 50,
+  });
 });
 
 // ==============================================
@@ -635,6 +651,376 @@ describe("POST /api/monitoring/process-batch", () => {
       expect(json.errors).toHaveLength(1);
       expect(json.errors[0].error).toBe("Lead sem linkedin_url");
       expect(mockFetchLinkedInPosts).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==============================================
+  // RELEVANCE FILTER (Story 13.4)
+  // ==============================================
+
+  describe("Relevance filter (Story 13.4)", () => {
+    it("should filter out non-relevant posts — not inserted in lead_insights", async () => {
+      const configData = createMockConfig({ run_status: "running" });
+      const configChain = createChainBuilder({
+        data: [configData],
+        error: null,
+      });
+      const leadsData = [
+        createMockLead({ id: "lead-1", linkedin_posts_cache: null }),
+      ];
+      const leadsChain = createChainBuilder({
+        data: leadsData,
+        error: null,
+      });
+      const apiConfigChain = createChainBuilder({
+        data: { encrypted_key: "enc" },
+        error: null,
+      });
+
+      const insertedInsights: unknown[] = [];
+      const insightsChain = createChainBuilder({ data: null, error: null });
+      const origInsert = insightsChain.insert;
+      insightsChain.insert = vi.fn((data) => {
+        insertedInsights.push(data);
+        return origInsert(data);
+      });
+
+      mockFrom.mockImplementation((table: string) => {
+        if (table === "monitoring_configs") return configChain;
+        if (table === "leads") return leadsChain;
+        if (table === "api_configs") return apiConfigChain;
+        if (table === "lead_insights") return insightsChain;
+        return createChainBuilder();
+      });
+
+      mockFetchLinkedInPosts.mockResolvedValue({
+        success: true,
+        posts: [
+          {
+            postUrl: "https://linkedin.com/posts/1",
+            text: "Relevant post",
+            publishedAt: "2026-02-27",
+            likesCount: 5,
+            commentsCount: 1,
+          },
+          {
+            postUrl: "https://linkedin.com/posts/2",
+            text: "Irrelevant post",
+            publishedAt: "2026-02-26",
+            likesCount: 3,
+            commentsCount: 0,
+          },
+        ],
+        profileUrl: "https://linkedin.com/in/john",
+        fetchedAt: "2026-02-27T10:00:00Z",
+      });
+
+      // First post relevant, second not
+      mockClassifyPostRelevance
+        .mockResolvedValueOnce({
+          isRelevant: true,
+          reasoning: "Post sobre tecnologia",
+          promptTokens: 150,
+          completionTokens: 50,
+        })
+        .mockResolvedValueOnce({
+          isRelevant: false,
+          reasoning: "Post genérico",
+          promptTokens: 150,
+          completionTokens: 50,
+        });
+
+      const req = createRequest(`Bearer ${CRON_SECRET}`);
+      const response = await POST(req);
+      const json = await response.json();
+
+      expect(json.status).toBe("batch_processed");
+      expect(json.newPostsFound).toBe(2); // total new posts (before filter)
+      expect(json.postsFiltered).toBe(1);
+
+      // Only 1 insight should be inserted (relevant one)
+      expect(insertedInsights).toHaveLength(1);
+      const inserted = insertedInsights[0] as Array<Record<string, unknown>>;
+      expect(inserted).toHaveLength(1);
+      expect(inserted[0].post_url).toBe("https://linkedin.com/posts/1");
+    });
+
+    it("should include relevance_reasoning in inserted insights", async () => {
+      const configData = createMockConfig({ run_status: "running" });
+      const configChain = createChainBuilder({
+        data: [configData],
+        error: null,
+      });
+      const leadsData = [
+        createMockLead({ id: "lead-1", linkedin_posts_cache: null }),
+      ];
+      const leadsChain = createChainBuilder({
+        data: leadsData,
+        error: null,
+      });
+      const apiConfigChain = createChainBuilder({
+        data: { encrypted_key: "enc" },
+        error: null,
+      });
+
+      const insertedInsights: unknown[] = [];
+      const insightsChain = createChainBuilder({ data: null, error: null });
+      const origInsert = insightsChain.insert;
+      insightsChain.insert = vi.fn((data) => {
+        insertedInsights.push(data);
+        return origInsert(data);
+      });
+
+      mockFrom.mockImplementation((table: string) => {
+        if (table === "monitoring_configs") return configChain;
+        if (table === "leads") return leadsChain;
+        if (table === "api_configs") return apiConfigChain;
+        if (table === "lead_insights") return insightsChain;
+        return createChainBuilder();
+      });
+
+      mockFetchLinkedInPosts.mockResolvedValue({
+        success: true,
+        posts: [
+          {
+            postUrl: "https://linkedin.com/posts/1",
+            text: "Post about AI",
+            publishedAt: "2026-02-27",
+            likesCount: 5,
+            commentsCount: 1,
+          },
+        ],
+        profileUrl: "https://linkedin.com/in/john",
+        fetchedAt: "2026-02-27T10:00:00Z",
+      });
+
+      mockClassifyPostRelevance.mockResolvedValue({
+        isRelevant: true,
+        reasoning: "Post sobre IA em vendas B2B",
+        promptTokens: 150,
+        completionTokens: 50,
+      });
+
+      const req = createRequest(`Bearer ${CRON_SECRET}`);
+      await POST(req);
+
+      expect(insertedInsights).toHaveLength(1);
+      const inserted = insertedInsights[0] as Array<Record<string, unknown>>;
+      expect(inserted[0].relevance_reasoning).toBe(
+        "Post sobre IA em vendas B2B"
+      );
+    });
+
+    it("should return postsFiltered in MonitoringBatchResult", async () => {
+      const configData = createMockConfig({ run_status: "running" });
+      const configChain = createChainBuilder({
+        data: [configData],
+        error: null,
+      });
+      const leadsData = [
+        createMockLead({ id: "lead-1", linkedin_posts_cache: null }),
+      ];
+      const leadsChain = createChainBuilder({
+        data: leadsData,
+        error: null,
+      });
+      const apiConfigChain = createChainBuilder({
+        data: { encrypted_key: "enc" },
+        error: null,
+      });
+
+      mockFrom.mockImplementation((table: string) => {
+        if (table === "monitoring_configs") return configChain;
+        if (table === "leads") return leadsChain;
+        if (table === "api_configs") return apiConfigChain;
+        return createChainBuilder();
+      });
+
+      mockFetchLinkedInPosts.mockResolvedValue({
+        success: true,
+        posts: [
+          {
+            postUrl: "https://linkedin.com/posts/1",
+            text: "Post 1",
+            publishedAt: "2026-02-27",
+            likesCount: 5,
+            commentsCount: 1,
+          },
+          {
+            postUrl: "https://linkedin.com/posts/2",
+            text: "Post 2",
+            publishedAt: "2026-02-26",
+            likesCount: 3,
+            commentsCount: 0,
+          },
+          {
+            postUrl: "https://linkedin.com/posts/3",
+            text: "Post 3",
+            publishedAt: "2026-02-25",
+            likesCount: 1,
+            commentsCount: 0,
+          },
+        ],
+        profileUrl: "https://linkedin.com/in/john",
+        fetchedAt: "2026-02-27T10:00:00Z",
+      });
+
+      // 1 relevant, 2 filtered
+      mockClassifyPostRelevance
+        .mockResolvedValueOnce({
+          isRelevant: true,
+          reasoning: "Relevante",
+          promptTokens: 150,
+          completionTokens: 50,
+        })
+        .mockResolvedValueOnce({
+          isRelevant: false,
+          reasoning: "Genérico",
+          promptTokens: 150,
+          completionTokens: 50,
+        })
+        .mockResolvedValueOnce({
+          isRelevant: false,
+          reasoning: "Off-topic",
+          promptTokens: 150,
+          completionTokens: 50,
+        });
+
+      const req = createRequest(`Bearer ${CRON_SECRET}`);
+      const response = await POST(req);
+      const json = await response.json();
+
+      expect(json.postsFiltered).toBe(2);
+      expect(json.newPostsFound).toBe(3); // total new posts (before filter)
+    });
+
+    it("should pass all posts when no KB configured (fallback)", async () => {
+      const configData = createMockConfig({ run_status: "running" });
+      const configChain = createChainBuilder({
+        data: [configData],
+        error: null,
+      });
+      const leadsData = [
+        createMockLead({ id: "lead-1", linkedin_posts_cache: null }),
+      ];
+      const leadsChain = createChainBuilder({
+        data: leadsData,
+        error: null,
+      });
+      const apiConfigChain = createChainBuilder({
+        data: { encrypted_key: "enc" },
+        error: null,
+      });
+
+      mockFrom.mockImplementation((table: string) => {
+        if (table === "monitoring_configs") return configChain;
+        if (table === "leads") return leadsChain;
+        if (table === "api_configs") return apiConfigChain;
+        // company_profiles and icp_definitions return null → KB not configured
+        return createChainBuilder();
+      });
+
+      mockFetchLinkedInPosts.mockResolvedValue({
+        success: true,
+        posts: [
+          {
+            postUrl: "https://linkedin.com/posts/1",
+            text: "Post",
+            publishedAt: "2026-02-27",
+            likesCount: 5,
+            commentsCount: 1,
+          },
+        ],
+        profileUrl: "https://linkedin.com/in/john",
+        fetchedAt: "2026-02-27T10:00:00Z",
+      });
+
+      // classifyPostRelevance receives kbContext=null → fallback relevant
+      mockClassifyPostRelevance.mockResolvedValue({
+        isRelevant: true,
+        reasoning: "KB não configurado — post aceito por padrão",
+        promptTokens: 0,
+        completionTokens: 0,
+      });
+
+      const req = createRequest(`Bearer ${CRON_SECRET}`);
+      const response = await POST(req);
+      const json = await response.json();
+
+      expect(json.newPostsFound).toBe(1);
+      expect(json.postsFiltered).toBe(0);
+    });
+
+    it("should pass all posts when no OpenAI key configured (fallback)", async () => {
+      const configData = createMockConfig({ run_status: "running" });
+      const configChain = createChainBuilder({
+        data: [configData],
+        error: null,
+      });
+      const leadsData = [
+        createMockLead({ id: "lead-1", linkedin_posts_cache: null }),
+      ];
+      const leadsChain = createChainBuilder({
+        data: leadsData,
+        error: null,
+      });
+      // Apify key found, OpenAI key NOT found
+      const apifyConfigChain = createChainBuilder({
+        data: { encrypted_key: "enc" },
+        error: null,
+      });
+      const openaiConfigChain = createChainBuilder({
+        data: null,
+        error: { code: "PGRST116" },
+      });
+
+      let apiConfigCallCount = 0;
+      mockFrom.mockImplementation((table: string) => {
+        if (table === "monitoring_configs") return configChain;
+        if (table === "leads") return leadsChain;
+        if (table === "api_configs") {
+          apiConfigCallCount++;
+          // First call = getApiKey("apify"), second = getApiKey("openai")
+          return apiConfigCallCount === 1
+            ? apifyConfigChain
+            : openaiConfigChain;
+        }
+        return createChainBuilder();
+      });
+
+      mockFetchLinkedInPosts.mockResolvedValue({
+        success: true,
+        posts: [
+          {
+            postUrl: "https://linkedin.com/posts/1",
+            text: "Post",
+            publishedAt: "2026-02-27",
+            likesCount: 5,
+            commentsCount: 1,
+          },
+        ],
+        profileUrl: "https://linkedin.com/in/john",
+        fetchedAt: "2026-02-27T10:00:00Z",
+      });
+
+      // classifyPostRelevance receives openaiKey=null → fallback relevant
+      mockClassifyPostRelevance.mockResolvedValue({
+        isRelevant: true,
+        reasoning: "OpenAI key não configurada — post aceito por padrão",
+        promptTokens: 0,
+        completionTokens: 0,
+      });
+
+      const req = createRequest(`Bearer ${CRON_SECRET}`);
+      const response = await POST(req);
+      const json = await response.json();
+
+      expect(json.newPostsFound).toBe(1);
+      expect(json.postsFiltered).toBe(0);
+
+      // Verify openaiKey=null was passed to classifyPostRelevance (4th arg)
+      const callArgs = mockClassifyPostRelevance.mock.calls[0];
+      expect(callArgs[3]).toBeNull(); // openaiKey must be null
     });
   });
 

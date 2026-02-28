@@ -20,6 +20,11 @@ import {
   calculateNextRunAt,
 } from "@/lib/utils/monitoring-utils";
 import type { MonitoringBatchResult } from "@/lib/utils/monitoring-utils";
+import {
+  classifyPostRelevance,
+  calculateClassificationCost,
+} from "@/lib/utils/relevance-classifier";
+import type { KBContextForClassification } from "@/lib/utils/relevance-classifier";
 import type { LinkedInPostsCache } from "@/types/lead";
 import type { MonitoringConfigRow } from "@/types/monitoring";
 
@@ -67,18 +72,19 @@ async function logMonitoringUsage(
 }
 
 // ==============================================
-// HELPER: Get Apify Key for Tenant
+// HELPER: Get API Key for Tenant (by service name)
 // ==============================================
 
-async function getApifyKey(
+async function getApiKey(
   supabase: ReturnType<typeof createClient>,
-  tenantId: string
+  tenantId: string,
+  serviceName: string
 ): Promise<string | null> {
   const { data, error } = await supabase
     .from("api_configs")
     .select("encrypted_key")
     .eq("tenant_id", tenantId)
-    .eq("service_name", "apify")
+    .eq("service_name", serviceName)
     .single();
 
   if (error || !data) return null;
@@ -88,6 +94,36 @@ async function getApifyKey(
   } catch {
     return null;
   }
+}
+
+// ==============================================
+// HELPER: Load KB Context for Classification (Story 13.4)
+// ==============================================
+
+async function loadKBContext(
+  supabase: ReturnType<typeof createClient>,
+  tenantId: string
+): Promise<KBContextForClassification | null> {
+  const { data: company } = await supabase
+    .from("company_profiles")
+    .select("description, products_services, competitive_advantages")
+    .eq("tenant_id", tenantId)
+    .single();
+
+  if (!company || !company.description) return null;
+
+  const { data: icp } = await supabase
+    .from("icp_definitions")
+    .select("summary")
+    .eq("tenant_id", tenantId)
+    .single();
+
+  return {
+    companyContext: company.description || "",
+    productsServices: company.products_services || "",
+    competitiveAdvantages: company.competitive_advantages || "",
+    icpSummary: icp?.summary || "",
+  };
 }
 
 // ==============================================
@@ -103,8 +139,10 @@ async function processLead(
   apifyKey: string,
   apifyService: ApifyService,
   supabase: ReturnType<typeof createClient>,
-  tenantId: string
-): Promise<{ leadId: string; success: boolean; newPostsFound: number; error?: string }> {
+  tenantId: string,
+  openaiKey: string | null,
+  kbContext: KBContextForClassification | null
+): Promise<{ leadId: string; success: boolean; newPostsFound: number; postsFiltered: number; error?: string }> {
   const startTime = Date.now();
 
   // Skip leads without linkedin_url
@@ -119,7 +157,7 @@ async function processLead(
       durationMs: Date.now() - startTime,
       metadata: { source: "monitoring" },
     });
-    return { leadId: lead.id, success: false, newPostsFound: 0, error: "Lead sem linkedin_url" };
+    return { leadId: lead.id, success: false, newPostsFound: 0, postsFiltered: 0, error: "Lead sem linkedin_url" };
   }
 
   const result = await apifyService.fetchLinkedInPosts(apifyKey, lead.linkedin_url, 3);
@@ -135,7 +173,7 @@ async function processLead(
       durationMs: Date.now() - startTime,
       metadata: { source: "monitoring" },
     });
-    return { leadId: lead.id, success: false, newPostsFound: 0, error: result.error };
+    return { leadId: lead.id, success: false, newPostsFound: 0, postsFiltered: 0, error: result.error };
   }
 
   // Detect new posts
@@ -157,20 +195,72 @@ async function processLead(
     })
     .eq("id", lead.id);
 
-  // Insert insights for new posts (AC #10)
+  // Classify new posts for relevance (Story 13.4)
+  let postsFiltered = 0;
   if (newPosts.length > 0) {
-    const insights = newPosts.map((post) => ({
-      tenant_id: tenantId,
-      lead_id: lead.id,
-      post_url: post.postUrl,
-      post_text: post.text,
-      post_published_at: post.publishedAt || null,
-      status: "new" as const,
-    }));
-    await supabase.from("lead_insights").insert(insights);
+    const relevantInsights: Array<{
+      tenant_id: string;
+      lead_id: string;
+      post_url: string;
+      post_text: string;
+      post_published_at: string | null;
+      relevance_reasoning: string;
+      status: "new";
+    }> = [];
+
+    for (const post of newPosts) {
+      const classification = await classifyPostRelevance(
+        post.text,
+        post.postUrl,
+        kbContext,
+        openaiKey,
+        supabase,
+        tenantId
+      );
+
+      if (classification.isRelevant) {
+        relevantInsights.push({
+          tenant_id: tenantId,
+          lead_id: lead.id,
+          post_url: post.postUrl,
+          post_text: post.text,
+          post_published_at: post.publishedAt || null,
+          relevance_reasoning: classification.reasoning,
+          status: "new" as const,
+        });
+      } else {
+        postsFiltered++;
+      }
+
+      // Log classification cost (AC #10)
+      if (classification.promptTokens > 0 || classification.completionTokens > 0) {
+        await logMonitoringUsage(supabase, {
+          tenantId,
+          serviceName: "openai",
+          requestType: "monitoring_relevance_filter",
+          leadId: lead.id,
+          estimatedCost: calculateClassificationCost(
+            classification.promptTokens,
+            classification.completionTokens
+          ),
+          status: "success",
+          metadata: {
+            source: "monitoring",
+            isRelevant: classification.isRelevant,
+            promptTokens: classification.promptTokens,
+            completionTokens: classification.completionTokens,
+            postUrl: post.postUrl,
+          },
+        });
+      }
+    }
+
+    if (relevantInsights.length > 0) {
+      await supabase.from("lead_insights").insert(relevantInsights);
+    }
   }
 
-  // Log usage (AC #8)
+  // Log Apify usage (AC #8 from 13.3)
   await logMonitoringUsage(supabase, {
     tenantId,
     serviceName: "apify",
@@ -180,10 +270,15 @@ async function processLead(
     estimatedCost: calculateApifyCost(result.posts.length),
     status: "success",
     durationMs: Date.now() - startTime,
-    metadata: { source: "monitoring", newPostsFound: newPosts.length, linkedinUrl: lead.linkedin_url },
+    metadata: {
+      source: "monitoring",
+      newPostsFound: newPosts.length,
+      postsFiltered,
+      linkedinUrl: lead.linkedin_url,
+    },
   });
 
-  return { leadId: lead.id, success: true, newPostsFound: newPosts.length };
+  return { leadId: lead.id, success: true, newPostsFound: newPosts.length, postsFiltered };
 }
 
 // ==============================================
@@ -261,6 +356,7 @@ export async function POST(req: NextRequest) {
           status: "no_config",
           leadsProcessed: 0,
           newPostsFound: 0,
+          postsFiltered: 0,
           cursor: null,
           errors: [],
         };
@@ -278,6 +374,7 @@ export async function POST(req: NextRequest) {
           status: "no_run_due",
           leadsProcessed: 0,
           newPostsFound: 0,
+          postsFiltered: 0,
           cursor: null,
           errors: [],
         };
@@ -331,6 +428,7 @@ export async function POST(req: NextRequest) {
         status: "run_completed",
         leadsProcessed: 0,
         newPostsFound: 0,
+        postsFiltered: 0,
         cursor: null,
         errors: [],
       };
@@ -338,7 +436,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Get Apify key for tenant
-    const apifyKey = await getApifyKey(supabase, config.tenant_id);
+    const apifyKey = await getApiKey(supabase, config.tenant_id, "apify");
     if (!apifyKey) {
       // No Apify key — mark run complete, skip tenant
       const nextRunAt = calculateNextRunAt(config.frequency, new Date());
@@ -357,11 +455,16 @@ export async function POST(req: NextRequest) {
         status: "no_apify_key",
         leadsProcessed: 0,
         newPostsFound: 0,
+        postsFiltered: 0,
         cursor: null,
         errors: [],
       };
       return NextResponse.json(result);
     }
+
+    // Load OpenAI key and KB context once for the batch (Story 13.4)
+    const openaiKey = await getApiKey(supabase, config.tenant_id, "openai");
+    const kbContext = await loadKBContext(supabase, config.tenant_id);
 
     // Process batch with Promise.allSettled (AC #7)
     const results = await Promise.allSettled(
@@ -375,18 +478,22 @@ export async function POST(req: NextRequest) {
           apifyKey,
           apifyService,
           supabase,
-          config!.tenant_id
+          config!.tenant_id,
+          openaiKey,
+          kbContext
         )
       )
     );
 
     // Aggregate results
     let totalNewPosts = 0;
+    let totalPostsFiltered = 0;
     const errors: Array<{ leadId: string; error: string }> = [];
 
     for (const r of results) {
       if (r.status === "fulfilled") {
         totalNewPosts += r.value.newPostsFound;
+        totalPostsFiltered += r.value.postsFiltered;
         if (!r.value.success && r.value.error) {
           errors.push({ leadId: r.value.leadId, error: r.value.error });
         }
@@ -409,6 +516,7 @@ export async function POST(req: NextRequest) {
       status: "batch_processed",
       leadsProcessed: leads.length,
       newPostsFound: totalNewPosts,
+      postsFiltered: totalPostsFiltered,
       cursor: lastLeadId,
       errors,
     };

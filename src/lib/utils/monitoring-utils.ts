@@ -21,6 +21,7 @@ export interface MonitoringBatchResult {
     | "no_apify_key";
   leadsProcessed: number;
   newPostsFound: number;
+  postsFiltered: number;
   cursor: string | null;
   errors: Array<{ leadId: string; error: string }>;
 }

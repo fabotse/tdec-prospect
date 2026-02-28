@@ -30,6 +30,7 @@ describe("AI Prompt Types (Story 6.5.3)", () => {
         "follow_up_subject_generation",
         "campaign_structure_generation",
         "whatsapp_message_generation",
+        "monitoring_relevance_filter",
       ];
 
       expectedKeys.forEach((key) => {
@@ -37,12 +38,8 @@ describe("AI Prompt Types (Story 6.5.3)", () => {
       });
     });
 
-    it("has correct length after adding whatsapp_message_generation", () => {
-      // 10 total keys: search_translation, email_subject_generation, email_body_generation,
-      // icebreaker_generation, icebreaker_premium_generation, tone_application,
-      // follow_up_email_generation, follow_up_subject_generation, campaign_structure_generation,
-      // whatsapp_message_generation
-      expect(PROMPT_KEYS.length).toBe(10);
+    it("has correct length with all 11 prompt keys", () => {
+      expect(PROMPT_KEYS.length).toBe(11);
     });
   });
 
@@ -97,8 +94,9 @@ describe("AI Prompt Types (Story 6.5.3)", () => {
         "follow_up_subject_generation",
         "campaign_structure_generation",
         "whatsapp_message_generation",
+        "monitoring_relevance_filter",
       ];
-      expect(keys.length).toBe(10);
+      expect(keys.length).toBe(11);
     });
   });
 });

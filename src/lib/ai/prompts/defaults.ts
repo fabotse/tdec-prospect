@@ -824,6 +824,48 @@ Responda APENAS com o JSON.`,
     },
   },
 
+  // Monitoring relevance filter (Story 13.4)
+  monitoring_relevance_filter: {
+    template: `Você é um analista especializado em avaliar se posts do LinkedIn são relevantes para uma empresa B2B.
+
+CONTEXTO DA EMPRESA:
+{{company_context}}
+
+PRODUTOS/SERVIÇOS:
+{{products_services}}
+
+DIFERENCIAIS COMPETITIVOS:
+{{competitive_advantages}}
+
+PÚBLICO-ALVO (ICP):
+{{icp_summary}}
+
+POST LINKEDIN A ANALISAR:
+URL: {{post_url}}
+{{post_text}}
+
+TAREFA:
+Determine se este post indica uma oportunidade de abordagem comercial.
+Um post é RELEVANTE se:
+- Menciona dores, desafios ou necessidades que os produtos/serviços da empresa resolvem
+- Discute temas, tendências ou tecnologias do setor-alvo da empresa
+- Indica mudanças (novo cargo, novo projeto, expansão) que podem gerar oportunidade
+- Demonstra interesse em tópicos diretamente relacionados à proposta de valor
+
+Um post é NÃO RELEVANTE se:
+- É conteúdo genérico sem conexão com o negócio (memes, motivacional sem contexto)
+- Aborda temas completamente fora do setor-alvo
+- É repost/compartilhamento sem opinião própria relevante
+
+Responda EXCLUSIVAMENTE com JSON válido (sem markdown, sem explicação):
+{"isRelevant": true/false, "reasoning": "Justificativa em 1 frase"}`,
+    modelPreference: "gpt-4o-mini",
+    metadata: {
+      temperature: 0.3,
+      maxTokens: 200,
+    },
+  },
+
   // WhatsApp message generation (Story 11.3)
   whatsapp_message_generation: {
     template: `Você é um especialista em comunicação WhatsApp B2B no Brasil.
