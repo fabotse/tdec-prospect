@@ -147,6 +147,8 @@ describe("transformMonitoringConfigRow", () => {
     max_monitored_leads: 100,
     last_run_at: "2026-02-20T08:00:00Z",
     next_run_at: "2026-02-27T08:00:00Z",
+    run_status: "idle",
+    run_cursor: null,
     created_at: "2026-02-01T10:00:00Z",
     updated_at: "2026-02-20T08:00:00Z",
   };
@@ -161,6 +163,8 @@ describe("transformMonitoringConfigRow", () => {
       maxMonitoredLeads: 100,
       lastRunAt: "2026-02-20T08:00:00Z",
       nextRunAt: "2026-02-27T08:00:00Z",
+      runStatus: "idle",
+      runCursor: null,
       createdAt: "2026-02-01T10:00:00Z",
       updatedAt: "2026-02-20T08:00:00Z",
     });

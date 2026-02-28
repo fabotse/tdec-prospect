@@ -93,6 +93,12 @@ export function transformLeadInsightRow(row: LeadInsightRow): LeadInsight {
 }
 
 // ==============================================
+// MONITORING RUN STATUS
+// ==============================================
+
+export type MonitoringRunStatus = "idle" | "running";
+
+// ==============================================
 // MONITORING CONFIGS — DB Row (snake_case)
 // ==============================================
 
@@ -103,6 +109,8 @@ export interface MonitoringConfigRow {
   max_monitored_leads: number;
   last_run_at: string | null;
   next_run_at: string | null;
+  run_status: MonitoringRunStatus;
+  run_cursor: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -118,6 +126,8 @@ export interface MonitoringConfig {
   maxMonitoredLeads: number;
   lastRunAt: string | null;
   nextRunAt: string | null;
+  runStatus: MonitoringRunStatus;
+  runCursor: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -132,6 +142,8 @@ export function transformMonitoringConfigRow(
     maxMonitoredLeads: row.max_monitored_leads,
     lastRunAt: row.last_run_at,
     nextRunAt: row.next_run_at,
+    runStatus: row.run_status,
+    runCursor: row.run_cursor,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

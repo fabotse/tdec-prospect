@@ -312,7 +312,7 @@ development_status:
   epic-13: in-progress
   13-1-schema-de-monitoramento-e-tipos: done  # Code review: 1 HIGH, 2 MEDIUM, 2 LOW fixes (14 tsc errors inline mocks, stale mockLeadRow, variant typing, toEqual shape validation). 254 files, 4680 total
   13-2-toggle-de-monitoramento-na-tabela-de-leads: done  # Code review: 2 HIGH, 2 MEDIUM, 4 LOW fixes (limit check edge cases, 404 vs 400, loading UX, dropdown spec, edge case tests). 49 story tests, 258 files, 4729 total
-  13-3-edge-function-de-verificacao-semanal: backlog
+  13-3-edge-function-de-verificacao-semanal: done  # Code review: 1 CRITICAL, 3 MEDIUM, 2 LOW fixes (hardcoded secrets removed, try-catch, ApifyService singleton, .env.example File List, AC comment, race condition doc). 25 story tests, 260 files, 4758 total.
   13-4-filtro-de-relevancia-por-ia: backlog
   13-5-geracao-de-sugestao-de-abordagem: backlog
   13-6-pagina-de-insights-ui: backlog
