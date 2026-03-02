@@ -936,7 +936,7 @@ describe("POST /api/monitoring/process-batch", () => {
         if (table === "monitoring_configs") return configChain;
         if (table === "leads") return leadsChain;
         if (table === "api_configs") return apiConfigChain;
-        // company_profiles and icp_definitions return null → KB not configured
+        // knowledge_base returns null → KB not configured
         return createChainBuilder();
       });
 
@@ -1074,22 +1074,36 @@ describe("POST /api/monitoring/process-batch", () => {
         data: { encrypted_key: "enc" },
         error: null,
       });
-      // KB Context: company_profiles + icp_definitions
+      // KB Context: knowledge_base (company + icp sections)
       const companyChain = createChainBuilder({
         data: {
-          description: "Empresa de automação B2B",
-          products_services: "CRM, automação",
-          competitive_advantages: "IA integrada",
+          content: {
+            business_description: "Empresa de automação B2B",
+            products_services: "CRM, automação",
+            competitive_advantages: "IA integrada",
+          },
         },
         error: null,
       });
       const icpChain = createChainBuilder({
-        data: { summary: "CTOs de startups" },
+        data: {
+          content: {
+            job_titles: ["CTO"],
+            industries: ["startups"],
+            pain_points: "",
+          },
+        },
         error: null,
       });
-      // Tone context
+      // Tone context (knowledge_base section=tone)
       const toneChain = createChainBuilder({
-        data: { preset: "casual", description: "Tom casual", writing_guidelines: null },
+        data: {
+          content: {
+            preset: "casual",
+            custom_description: "Tom casual",
+            writing_guidelines: null,
+          },
+        },
         error: null,
       });
 
@@ -1101,14 +1115,18 @@ describe("POST /api/monitoring/process-batch", () => {
         return origInsert(data);
       });
 
+      let kbCallCount = 0;
       mockFrom.mockImplementation((table: string) => {
         if (table === "monitoring_configs") return configChain;
         if (table === "leads") return leadsChain;
         if (table === "api_configs") return apiConfigChain;
         if (table === "lead_insights") return insightsChain;
-        if (table === "company_profiles") return companyChain;
-        if (table === "icp_definitions") return icpChain;
-        if (table === "tone_of_voice") return toneChain;
+        if (table === "knowledge_base") {
+          kbCallCount++;
+          if (kbCallCount === 1) return companyChain;
+          if (kbCallCount === 2) return icpChain;
+          return toneChain;
+        }
         return createChainBuilder();
       });
 
@@ -1306,7 +1324,7 @@ describe("POST /api/monitoring/process-batch", () => {
         if (table === "monitoring_configs") return configChain;
         if (table === "leads") return leadsChain;
         if (table === "api_configs") return apiConfigChain;
-        // company_profiles returns null → KB not configured
+        // knowledge_base returns null → KB not configured
         return createChainBuilder();
       });
 
@@ -1361,18 +1379,32 @@ describe("POST /api/monitoring/process-batch", () => {
       });
       const companyChain = createChainBuilder({
         data: {
-          description: "Empresa B2B",
-          products_services: "CRM",
-          competitive_advantages: "IA",
+          content: {
+            business_description: "Empresa B2B",
+            products_services: "CRM",
+            competitive_advantages: "IA",
+          },
         },
         error: null,
       });
       const icpChain = createChainBuilder({
-        data: { summary: "CTOs" },
+        data: {
+          content: {
+            job_titles: ["CTO"],
+            industries: [],
+            pain_points: "",
+          },
+        },
         error: null,
       });
       const toneChain = createChainBuilder({
-        data: { preset: "casual", description: "Tom casual", writing_guidelines: null },
+        data: {
+          content: {
+            preset: "casual",
+            custom_description: "Tom casual",
+            writing_guidelines: null,
+          },
+        },
         error: null,
       });
 
@@ -1384,14 +1416,18 @@ describe("POST /api/monitoring/process-batch", () => {
         return origInsert(data);
       });
 
+      let kbCallCount = 0;
       mockFrom.mockImplementation((table: string) => {
         if (table === "monitoring_configs") return configChain;
         if (table === "leads") return leadsChain;
         if (table === "api_configs") return apiConfigChain;
         if (table === "api_usage_logs") return usageChain;
-        if (table === "company_profiles") return companyChain;
-        if (table === "icp_definitions") return icpChain;
-        if (table === "tone_of_voice") return toneChain;
+        if (table === "knowledge_base") {
+          kbCallCount++;
+          if (kbCallCount === 1) return companyChain;
+          if (kbCallCount === 2) return icpChain;
+          return toneChain;
+        }
         return createChainBuilder();
       });
 
@@ -1469,7 +1505,7 @@ describe("POST /api/monitoring/process-batch", () => {
       expect(kbContext.productsServices).toBe("CRM, automação");
     });
 
-    it("usa toneContext default quando tone_of_voice não existe", async () => {
+    it("usa toneContext default quando tone não existe na knowledge_base", async () => {
       const configData = createMockConfig({ run_status: "running" });
       const configChain = createChainBuilder({
         data: [configData],
@@ -1488,29 +1524,41 @@ describe("POST /api/monitoring/process-batch", () => {
       });
       const companyChain = createChainBuilder({
         data: {
-          description: "Empresa B2B",
-          products_services: "CRM",
-          competitive_advantages: "IA",
+          content: {
+            business_description: "Empresa B2B",
+            products_services: "CRM",
+            competitive_advantages: "IA",
+          },
         },
         error: null,
       });
       const icpChain = createChainBuilder({
-        data: { summary: "CTOs" },
+        data: {
+          content: {
+            job_titles: ["CTO"],
+            industries: [],
+            pain_points: "",
+          },
+        },
         error: null,
       });
-      // tone_of_voice returns null → default fallback
+      // knowledge_base section=tone returns null → default fallback
       const toneChain = createChainBuilder({
         data: null,
         error: { code: "PGRST116" },
       });
 
+      let kbCallCount = 0;
       mockFrom.mockImplementation((table: string) => {
         if (table === "monitoring_configs") return configChain;
         if (table === "leads") return leadsChain;
         if (table === "api_configs") return apiConfigChain;
-        if (table === "company_profiles") return companyChain;
-        if (table === "icp_definitions") return icpChain;
-        if (table === "tone_of_voice") return toneChain;
+        if (table === "knowledge_base") {
+          kbCallCount++;
+          if (kbCallCount === 1) return companyChain;
+          if (kbCallCount === 2) return icpChain;
+          return toneChain;
+        }
         return createChainBuilder();
       });
 
@@ -1573,18 +1621,32 @@ describe("POST /api/monitoring/process-batch", () => {
       });
       const companyChain = createChainBuilder({
         data: {
-          description: "Empresa B2B",
-          products_services: "CRM",
-          competitive_advantages: "IA",
+          content: {
+            business_description: "Empresa B2B",
+            products_services: "CRM",
+            competitive_advantages: "IA",
+          },
         },
         error: null,
       });
       const icpChain = createChainBuilder({
-        data: { summary: "CTOs" },
+        data: {
+          content: {
+            job_titles: ["CTO"],
+            industries: [],
+            pain_points: "",
+          },
+        },
         error: null,
       });
       const toneChain = createChainBuilder({
-        data: { preset: "casual", description: "Tom casual", writing_guidelines: null },
+        data: {
+          content: {
+            preset: "casual",
+            custom_description: "Tom casual",
+            writing_guidelines: null,
+          },
+        },
         error: null,
       });
 
@@ -1596,14 +1658,18 @@ describe("POST /api/monitoring/process-batch", () => {
         return origInsert(data);
       });
 
+      let kbCallCount = 0;
       mockFrom.mockImplementation((table: string) => {
         if (table === "monitoring_configs") return configChain;
         if (table === "leads") return leadsChain;
         if (table === "api_configs") return apiConfigChain;
         if (table === "api_usage_logs") return usageChain;
-        if (table === "company_profiles") return companyChain;
-        if (table === "icp_definitions") return icpChain;
-        if (table === "tone_of_voice") return toneChain;
+        if (table === "knowledge_base") {
+          kbCallCount++;
+          if (kbCallCount === 1) return companyChain;
+          if (kbCallCount === 2) return icpChain;
+          return toneChain;
+        }
         return createChainBuilder();
       });
 

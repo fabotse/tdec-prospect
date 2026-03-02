@@ -321,5 +321,5 @@ development_status:
   # NOVA STORY — Verificação Inicial ao Ativar Monitoramento (melhoria UX)
   # Problema: ao ativar monitoramento, usuário espera até 7 dias para primeira verificação
   # Solução: scan inicial automático após toggle, reutilizando processLead existente
-  13-9-verificacao-inicial-ao-ativar-monitoramento: ready-for-dev
+  13-9-verificacao-inicial-ao-ativar-monitoramento: done  # Code review: 2 MEDIUM, 6 LOW fixes (DRY helpers, dead useInitialScan, error handling writes, error format, unsafe cast, sanitize 500, leadId mapping). 277 files, 5028 total
   epic-13-retrospective: optional
