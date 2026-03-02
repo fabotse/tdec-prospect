@@ -322,4 +322,8 @@ development_status:
   # Problema: ao ativar monitoramento, usuário espera até 7 dias para primeira verificação
   # Solução: scan inicial automático após toggle, reutilizando processLead existente
   13-9-verificacao-inicial-ao-ativar-monitoramento: done  # Code review: 2 MEDIUM, 6 LOW fixes (DRY helpers, dead useInitialScan, error handling writes, error format, unsafe cast, sanitize 500, leadId mapping). 277 files, 5028 total
+  # NOVA STORY — Coluna de Raciocínio da IA na Tabela de Insights (melhoria UX)
+  # Problema: campo relevanceReasoning já existe no banco e API mas não é exibido na UI
+  # Solução: adicionar coluna "Por que?" na InsightsTable com tooltip (zero backend changes)
+  13-10-coluna-raciocinio-ia-na-tabela-de-insights: done  # Coluna "Por que?" + tooltip + placeholder null + 6 testes. Code review: 4 MEDIUM, 3 LOW fixes (header test, assertion precision, AC#4 rewrite, AC#6 test, reorder, Lead change documented). 277 files, 5034 total
   epic-13-retrospective: optional

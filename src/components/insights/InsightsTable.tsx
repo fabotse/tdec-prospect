@@ -29,9 +29,10 @@ export function InsightsTable({ insights, onUpdateStatus, onWhatsApp, isPending 
       <table className="w-full">
         <thead>
           <tr className="border-b text-left text-sm text-muted-foreground">
-            <th className="pb-3 pr-4 font-medium">Lead</th>
+            <th className="pb-3 pr-4 font-medium max-w-[220px]">Lead</th>
             <th className="pb-3 pr-4 font-medium">Post</th>
             <th className="pb-3 pr-4 font-medium">Sugestao de Abordagem</th>
+            <th className="pb-3 pr-4 font-medium">Por que?</th>
             <th className="pb-3 pr-4 font-medium w-[100px]">Status</th>
             <th className="pb-3 pr-4 font-medium w-[120px]">Data</th>
             <th className="pb-3 font-medium w-[100px]">Acoes</th>
@@ -75,7 +76,7 @@ function InsightRow({
   return (
     <tr className="border-b last:border-0 hover:bg-muted/50 transition-colors">
       {/* Lead */}
-      <td className="py-3 pr-4">
+      <td className="py-3 pr-4 max-w-[220px]">
         <div className="flex items-center gap-3">
           {insight.lead.photoUrl ? (
             <Image
@@ -154,6 +155,26 @@ function InsightRow({
         ) : (
           <span className="text-sm text-muted-foreground italic">
             Sugestao nao disponivel
+          </span>
+        )}
+      </td>
+
+      {/* Por que? */}
+      <td className="py-3 pr-4 max-w-[200px]">
+        {insight.relevanceReasoning ? (
+          <TooltipProvider>
+            <Tooltip delayDuration={300}>
+              <TooltipTrigger asChild>
+                <p className="text-sm text-muted-foreground line-clamp-2">{insight.relevanceReasoning}</p>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-[400px]">
+                <p className="text-sm whitespace-pre-wrap">{insight.relevanceReasoning}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        ) : (
+          <span className="text-sm text-muted-foreground italic">
+            Raciocinio nao disponivel
           </span>
         )}
       </td>

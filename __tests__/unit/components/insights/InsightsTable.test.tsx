@@ -63,6 +63,7 @@ describe("InsightsTable", () => {
     expect(screen.getByText("Lead")).toBeInTheDocument();
     expect(screen.getByText("Post")).toBeInTheDocument();
     expect(screen.getByText("Sugestao de Abordagem")).toBeInTheDocument();
+    expect(screen.getByText("Por que?")).toBeInTheDocument();
     expect(screen.getByText("Status")).toBeInTheDocument();
     expect(screen.getByText("Data")).toBeInTheDocument();
     expect(screen.getByText("Acoes")).toBeInTheDocument();
@@ -268,6 +269,62 @@ describe("InsightsTable", () => {
     await user.click(screen.getByLabelText("Acoes do insight"));
 
     expect(screen.getByText("Ver Post Original")).toBeInTheDocument();
+  });
+
+  // Story 13.10: Coluna "Por que?" (relevanceReasoning)
+  describe("Coluna Por que? (Story 13.10)", () => {
+    it("AC #1: should render 'Por que?' column header", () => {
+      render(<InsightsTable {...defaultProps} />);
+
+      expect(screen.getByText("Por que?")).toBeInTheDocument();
+    });
+
+    it("AC #2: should render relevanceReasoning text in the column", () => {
+      render(<InsightsTable {...defaultProps} />);
+
+      // The reasoning text appears in the table (line-clamp-2 cell)
+      const reasoningElements = screen.getAllByText("Relevant to product");
+      expect(reasoningElements).toHaveLength(1);
+    });
+
+    it("AC #3: should render reasoning text with line-clamp-2", () => {
+      render(<InsightsTable {...defaultProps} />);
+
+      const reasoningElements = screen.getAllByText("Relevant to product");
+      // The visible cell text should have line-clamp-2
+      const clampedElement = reasoningElements.find((el) =>
+        el.classList.contains("line-clamp-2")
+      );
+      expect(clampedElement).toBeDefined();
+    });
+
+    it("AC #4: should render reasoning text inside a tooltip trigger with line-clamp-2", () => {
+      const longReasoning = "This is a very long reasoning text that explains why this post is relevant to the product and the lead";
+      const insight = makeInsight({ relevanceReasoning: longReasoning });
+      render(<InsightsTable {...defaultProps} insights={[insight]} />);
+
+      const reasoningElement = screen.getByText(longReasoning);
+      expect(reasoningElement).toHaveClass("line-clamp-2");
+      expect(reasoningElement).toHaveClass("text-muted-foreground");
+    });
+
+    it("AC #5: should render placeholder when relevanceReasoning is null", () => {
+      const insight = makeInsight({ relevanceReasoning: null });
+      render(<InsightsTable {...defaultProps} insights={[insight]} />);
+
+      const placeholder = screen.getByText("Raciocinio nao disponivel");
+      expect(placeholder).toBeInTheDocument();
+      expect(placeholder.tagName.toLowerCase()).toBe("span");
+      expect(placeholder).toHaveClass("italic");
+    });
+
+    it("AC #6: should apply max-w-[200px] to the reasoning column cell", () => {
+      render(<InsightsTable {...defaultProps} />);
+
+      const reasoningText = screen.getByText("Relevant to product");
+      const cell = reasoningText.closest("td");
+      expect(cell).toHaveClass("max-w-[200px]");
+    });
   });
 
   // Story 13.7: WhatsApp button tests
