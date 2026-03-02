@@ -120,7 +120,7 @@ export interface MonitoringConfigRow {
 // ==============================================
 
 export interface MonitoringConfig {
-  id: string;
+  id: string | null;
   tenantId: string;
   frequency: MonitoringFrequency;
   maxMonitoredLeads: number;

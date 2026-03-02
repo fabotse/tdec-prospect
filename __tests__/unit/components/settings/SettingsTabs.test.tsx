@@ -20,6 +20,7 @@ describe('SettingsTabs', () => {
       expect(screen.getByRole('tab', { name: /base de conhecimento/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /produtos/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /uso da api/i })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /monitoramento/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /equipe/i })).toBeInTheDocument()
     })
 
@@ -40,6 +41,7 @@ describe('SettingsTabs', () => {
       expect(screen.getByRole('tab', { name: /base de conhecimento/i })).toHaveAttribute('href', '/settings/knowledge-base')
       expect(screen.getByRole('tab', { name: /produtos/i })).toHaveAttribute('href', '/settings/products')
       expect(screen.getByRole('tab', { name: /uso da api/i })).toHaveAttribute('href', '/settings/usage')
+      expect(screen.getByRole('tab', { name: /monitoramento/i })).toHaveAttribute('href', '/settings/monitoring')
       expect(screen.getByRole('tab', { name: /equipe/i })).toHaveAttribute('href', '/settings/team')
     })
   })
@@ -54,6 +56,7 @@ describe('SettingsTabs', () => {
       expect(screen.getByRole('tab', { name: /base de conhecimento/i })).toHaveAttribute('aria-selected', 'false')
       expect(screen.getByRole('tab', { name: /produtos/i })).toHaveAttribute('aria-selected', 'false')
       expect(screen.getByRole('tab', { name: /uso da api/i })).toHaveAttribute('aria-selected', 'false')
+      expect(screen.getByRole('tab', { name: /monitoramento/i })).toHaveAttribute('aria-selected', 'false')
       expect(screen.getByRole('tab', { name: /equipe/i })).toHaveAttribute('aria-selected', 'false')
     })
 
@@ -66,6 +69,7 @@ describe('SettingsTabs', () => {
       expect(screen.getByRole('tab', { name: /base de conhecimento/i })).toHaveAttribute('aria-selected', 'true')
       expect(screen.getByRole('tab', { name: /produtos/i })).toHaveAttribute('aria-selected', 'false')
       expect(screen.getByRole('tab', { name: /uso da api/i })).toHaveAttribute('aria-selected', 'false')
+      expect(screen.getByRole('tab', { name: /monitoramento/i })).toHaveAttribute('aria-selected', 'false')
       expect(screen.getByRole('tab', { name: /equipe/i })).toHaveAttribute('aria-selected', 'false')
     })
 
@@ -78,6 +82,7 @@ describe('SettingsTabs', () => {
       expect(screen.getByRole('tab', { name: /base de conhecimento/i })).toHaveAttribute('aria-selected', 'false')
       expect(screen.getByRole('tab', { name: /produtos/i })).toHaveAttribute('aria-selected', 'true')
       expect(screen.getByRole('tab', { name: /uso da api/i })).toHaveAttribute('aria-selected', 'false')
+      expect(screen.getByRole('tab', { name: /monitoramento/i })).toHaveAttribute('aria-selected', 'false')
       expect(screen.getByRole('tab', { name: /equipe/i })).toHaveAttribute('aria-selected', 'false')
     })
 
@@ -90,6 +95,7 @@ describe('SettingsTabs', () => {
       expect(screen.getByRole('tab', { name: /base de conhecimento/i })).toHaveAttribute('aria-selected', 'false')
       expect(screen.getByRole('tab', { name: /produtos/i })).toHaveAttribute('aria-selected', 'false')
       expect(screen.getByRole('tab', { name: /uso da api/i })).toHaveAttribute('aria-selected', 'true')
+      expect(screen.getByRole('tab', { name: /monitoramento/i })).toHaveAttribute('aria-selected', 'false')
       expect(screen.getByRole('tab', { name: /equipe/i })).toHaveAttribute('aria-selected', 'false')
     })
 
@@ -102,6 +108,7 @@ describe('SettingsTabs', () => {
       expect(screen.getByRole('tab', { name: /base de conhecimento/i })).toHaveAttribute('aria-selected', 'false')
       expect(screen.getByRole('tab', { name: /produtos/i })).toHaveAttribute('aria-selected', 'false')
       expect(screen.getByRole('tab', { name: /uso da api/i })).toHaveAttribute('aria-selected', 'false')
+      expect(screen.getByRole('tab', { name: /monitoramento/i })).toHaveAttribute('aria-selected', 'false')
       expect(screen.getByRole('tab', { name: /equipe/i })).toHaveAttribute('aria-selected', 'true')
     })
 
@@ -141,7 +148,7 @@ describe('SettingsTabs', () => {
       render(<SettingsTabs />)
 
       const tabs = screen.getAllByRole('tab')
-      expect(tabs).toHaveLength(5) // Integrações, Base de Conhecimento, Produtos, Uso da API, Equipe
+      expect(tabs).toHaveLength(6) // Integrações, Base de Conhecimento, Produtos, Uso da API, Monitoramento, Equipe
     })
 
     it('should be keyboard accessible', () => {

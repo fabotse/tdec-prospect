@@ -317,5 +317,9 @@ development_status:
   13-5-geracao-de-sugestao-de-abordagem: done  # Code review: 1 HIGH, 2 MEDIUM, 3 LOW fixes (timeout test, failure logging, status correction, tone tests, post_url template). 24 novos testes (14 approach-suggestion + 10 process-batch), 262 files, 4814 total
   13-6-pagina-de-insights-ui: done  # Code review: 1 HIGH, 4 MEDIUM, 2 LOW fixes (try-catch JSON, CSS-only truncation, next/image, aria-label, test dead code/no-op/weak assertion). 85 story tests, 270 files, 4899 total. Depende de 13.5
   13-7-envio-whatsapp-a-partir-do-insight: done  # WhatsApp send from insight: server action + hook + UI integration. Code review: 4 MEDIUM, 2 LOW fixes (lead ownership validation, isSending double-send, insight error isolation, getZApiCredentials helper, leadEmail passthrough). 45 story tests, 272 files, 4944 total
-  13-8-configuracoes-de-monitoramento: backlog
+  13-8-configuracoes-de-monitoramento: done  # Code review: 1 HIGH, 3 MEDIUM, 2 LOW fixes (error state UI, type mismatch id null, interaction tests, SERVICE_COST_RATES, redundant setupMocks). 59 story tests, 275 files, 4990 total
+  # NOVA STORY — Verificação Inicial ao Ativar Monitoramento (melhoria UX)
+  # Problema: ao ativar monitoramento, usuário espera até 7 dias para primeira verificação
+  # Solução: scan inicial automático após toggle, reutilizando processLead existente
+  13-9-verificacao-inicial-ao-ativar-monitoramento: ready-for-dev
   epic-13-retrospective: optional
