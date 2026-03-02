@@ -28,6 +28,8 @@ export interface InsightLeadData {
   companyName: string | null;
   title: string | null;
   linkedinUrl: string | null;
+  phone: string | null;
+  email: string | null;
 }
 
 export interface InsightWithLead {

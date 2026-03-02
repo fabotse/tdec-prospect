@@ -2,7 +2,9 @@
 
 import { useState, useCallback } from "react";
 import { useLeadInsights, useUpdateInsightStatus } from "@/hooks/use-lead-insights";
-import type { InsightFilters } from "@/hooks/use-lead-insights";
+import type { InsightFilters, InsightWithLead } from "@/hooks/use-lead-insights";
+import { WhatsAppComposerDialog } from "@/components/tracking/WhatsAppComposerDialog";
+import { useWhatsAppSendFromInsight } from "@/hooks/use-whatsapp-send-from-insight";
 import { InsightsTable } from "@/components/insights/InsightsTable";
 import { InsightsFilterBar } from "@/components/insights/InsightsFilterBar";
 import { InsightsEmptyState } from "@/components/insights/InsightsEmptyState";
@@ -33,9 +35,27 @@ export function InsightsPageContent() {
     perPage,
   };
 
+  // WhatsApp composer state (AC #2, #3, #4)
+  const [composerInsight, setComposerInsight] = useState<InsightWithLead | null>(null);
+  const { send: sendWhatsApp, isSending } = useWhatsAppSendFromInsight();
+
   // Data fetching
   const { insights, meta, isLoading, error } = useLeadInsights(filters);
   const updateStatus = useUpdateInsightStatus();
+
+  // WhatsApp handler (AC #5 — auto-mark used on success)
+  const handleWhatsAppSend = useCallback(async (data: { phone: string; message: string }) => {
+    if (!composerInsight) return;
+    const success = await sendWhatsApp({
+      leadId: composerInsight.lead.id,
+      insightId: composerInsight.id,
+      phone: data.phone,
+      message: data.message,
+    });
+    if (success) {
+      setComposerInsight(null);
+    }
+  }, [composerInsight, sendWhatsApp]);
 
   // Callbacks
   const handleFilterChange = useCallback((newStatus: string, newPeriod: string) => {
@@ -109,6 +129,7 @@ export function InsightsPageContent() {
               onUpdateStatus={(insightId, status) =>
                 updateStatus.mutate({ insightId, status })
               }
+              onWhatsApp={(insight) => setComposerInsight(insight)}
               isPending={updateStatus.isPending}
             />
           </CardContent>
@@ -164,6 +185,27 @@ export function InsightsPageContent() {
             </Button>
           </div>
         </div>
+      )}
+
+      {/* WhatsApp Composer Dialog (AC #2, #3, #4) */}
+      {composerInsight && (
+        <WhatsAppComposerDialog
+          key={composerInsight.id}
+          open={!!composerInsight}
+          onOpenChange={(open) => { if (!open) setComposerInsight(null); }}
+          lead={{
+            firstName: composerInsight.lead.firstName,
+            lastName: composerInsight.lead.lastName ?? undefined,
+            phone: composerInsight.lead.phone ?? undefined,
+            leadEmail: composerInsight.lead.email ?? undefined,
+            companyName: composerInsight.lead.companyName ?? undefined,
+            title: composerInsight.lead.title ?? undefined,
+          }}
+          campaignId=""
+          initialMessage={composerInsight.suggestion ?? ""}
+          isSending={isSending}
+          onSend={handleWhatsAppSend}
+        />
       )}
     </div>
   );

@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     .select(`
       *,
       leads!inner (
-        id, first_name, last_name, photo_url, company_name, title, linkedin_url
+        id, first_name, last_name, photo_url, company_name, title, linkedin_url, phone, email
       )
     `, { count: "exact" })
     .eq("tenant_id", profile.tenant_id);
@@ -91,6 +91,8 @@ export async function GET(request: NextRequest) {
         companyName: row.leads.company_name as string | null,
         title: row.leads.title as string | null,
         linkedinUrl: row.leads.linkedin_url as string | null,
+        phone: row.leads.phone as string | null,
+        email: row.leads.email as string | null,
       },
     };
   });

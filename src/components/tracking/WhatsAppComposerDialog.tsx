@@ -49,6 +49,8 @@ export interface WhatsAppComposerDialogProps {
   campaignId: string;
   campaignName?: string;
   productId?: string | null;
+  initialMessage?: string;
+  isSending?: boolean;
   onSend?: (data: { phone: string; message: string }) => void;
 }
 
@@ -85,9 +87,11 @@ export function WhatsAppComposerDialog({
   lead,
   // campaignId and campaignName reserved for story 11.4 (send integration)
   productId,
+  initialMessage,
+  isSending,
   onSend,
 }: WhatsAppComposerDialogProps) {
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(initialMessage ?? "");
 
   const {
     generate,
@@ -106,13 +110,13 @@ export function WhatsAppComposerDialog({
 
   const hasPhone = Boolean(lead.phone);
   const leadName = [lead.firstName, lead.lastName].filter(Boolean).join(" ") || "Lead";
-  const canSend = hasPhone && message.trim().length > 0 && !isGenerating;
+  const canSend = hasPhone && message.trim().length > 0 && !isGenerating && !isSending;
   const canCopy = message.trim().length > 0 && !isGenerating;
 
   // Handle dialog open/close with cleanup — abort in-flight request on close (M1 fix)
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
-      setMessage("");
+      setMessage(initialMessage ?? "");
       cancelAI();
       resetAI();
     }

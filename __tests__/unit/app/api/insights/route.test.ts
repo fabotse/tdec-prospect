@@ -56,6 +56,8 @@ function makeMockInsightRow(overrides: Record<string, unknown> = {}) {
       company_name: "Acme Inc",
       title: "CTO",
       linkedin_url: "https://linkedin.com/in/johndoe",
+      phone: "+5511999999999",
+      email: "john@acme.com",
     },
     ...overrides,
   };
@@ -214,6 +216,8 @@ describe("GET /api/insights", () => {
         company_name: null,
         title: null,
         linkedin_url: null,
+        phone: null,
+        email: null,
       },
     })];
     setupMockChain({ data: rows, error: null, count: 1 });
@@ -241,5 +245,40 @@ describe("GET /api/insights", () => {
     await GET(makeRequest());
 
     expect(chain.eq).toHaveBeenCalledWith("tenant_id", "tenant-1");
+  });
+
+  // Story 13.7: phone and email in response
+  it("should include phone and email in lead data", async () => {
+    const rows = [makeMockInsightRow()];
+    setupMockChain({ data: rows, error: null, count: 1 });
+
+    const response = await GET(makeRequest());
+    const json = await response.json();
+
+    expect(json.data[0].lead.phone).toBe("+5511999999999");
+    expect(json.data[0].lead.email).toBe("john@acme.com");
+  });
+
+  it("should handle null phone and email in lead data", async () => {
+    const rows = [makeMockInsightRow({
+      leads: {
+        id: "lead-1",
+        first_name: "Jane",
+        last_name: null,
+        photo_url: null,
+        company_name: null,
+        title: null,
+        linkedin_url: null,
+        phone: null,
+        email: null,
+      },
+    })];
+    setupMockChain({ data: rows, error: null, count: 1 });
+
+    const response = await GET(makeRequest());
+    const json = await response.json();
+
+    expect(json.data[0].lead.phone).toBeNull();
+    expect(json.data[0].lead.email).toBeNull();
   });
 });

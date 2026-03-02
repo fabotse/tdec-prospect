@@ -22,6 +22,40 @@ vi.mock("@/hooks/use-lead-insights", () => ({
   useUpdateInsightStatus: () => mockUseUpdateInsightStatus(),
 }));
 
+// Mock WhatsApp send from insight hook (Story 13.7)
+const mockSendWhatsApp = vi.fn();
+vi.mock("@/hooks/use-whatsapp-send-from-insight", () => ({
+  useWhatsAppSendFromInsight: () => ({
+    send: mockSendWhatsApp,
+    isSending: false,
+    error: null,
+    lastResult: null,
+  }),
+}));
+
+// Mock WhatsAppComposerDialog (Story 13.7)
+vi.mock("@/components/tracking/WhatsAppComposerDialog", () => ({
+  WhatsAppComposerDialog: ({ open, onOpenChange, onSend, initialMessage }: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    onSend?: (data: { phone: string; message: string }) => void;
+    initialMessage?: string;
+  }) => {
+    if (!open) return null;
+    return React.createElement("div", { "data-testid": "whatsapp-composer-dialog" },
+      React.createElement("span", { "data-testid": "whatsapp-initial-message" }, initialMessage),
+      React.createElement("button", {
+        "data-testid": "whatsapp-dialog-send",
+        onClick: () => onSend?.({ phone: "+5511999999999", message: "Test message" }),
+      }, "Send"),
+      React.createElement("button", {
+        "data-testid": "whatsapp-dialog-close",
+        onClick: () => onOpenChange(false),
+      }, "Close"),
+    );
+  },
+}));
+
 // Mock clipboard
 vi.mock("@/lib/utils/clipboard", () => ({
   copyToClipboard: vi.fn(),
@@ -62,6 +96,8 @@ const mockInsight = {
     companyName: "Acme",
     title: "CTO",
     linkedinUrl: null,
+    phone: "+5511999999999",
+    email: "john@acme.com",
   },
 };
 
@@ -201,5 +237,103 @@ describe("InsightsPageContent", () => {
         perPage: 25,
       })
     );
+  });
+
+  // Story 13.7: WhatsApp Composer Dialog integration
+  describe("WhatsApp Dialog (Story 13.7)", () => {
+    function setupWithInsights() {
+      mockUseLeadInsights.mockReturnValue({
+        insights: [mockInsight],
+        meta: { total: 1, page: 1, limit: 25, totalPages: 1 },
+        isLoading: false,
+        error: null,
+      });
+    }
+
+    it("should open WhatsApp dialog when WhatsApp button clicked", async () => {
+      const user = userEvent.setup();
+      setupWithInsights();
+
+      render(<InsightsPageContent />, { wrapper: createWrapper() });
+
+      // Click the WhatsApp button
+      await user.click(screen.getByTestId("insight-whatsapp-button"));
+
+      expect(screen.getByTestId("whatsapp-composer-dialog")).toBeInTheDocument();
+    });
+
+    it("should pass suggestion as initialMessage", async () => {
+      const user = userEvent.setup();
+      setupWithInsights();
+
+      render(<InsightsPageContent />, { wrapper: createWrapper() });
+
+      await user.click(screen.getByTestId("insight-whatsapp-button"));
+
+      expect(screen.getByTestId("whatsapp-initial-message")).toHaveTextContent("Approach suggestion");
+    });
+
+    it("should close dialog when close button clicked", async () => {
+      const user = userEvent.setup();
+      setupWithInsights();
+
+      render(<InsightsPageContent />, { wrapper: createWrapper() });
+
+      await user.click(screen.getByTestId("insight-whatsapp-button"));
+      expect(screen.getByTestId("whatsapp-composer-dialog")).toBeInTheDocument();
+
+      await user.click(screen.getByTestId("whatsapp-dialog-close"));
+      expect(screen.queryByTestId("whatsapp-composer-dialog")).not.toBeInTheDocument();
+    });
+
+    it("should call sendWhatsApp with correct params on send", async () => {
+      const user = userEvent.setup();
+      setupWithInsights();
+      mockSendWhatsApp.mockResolvedValue(true);
+
+      render(<InsightsPageContent />, { wrapper: createWrapper() });
+
+      await user.click(screen.getByTestId("insight-whatsapp-button"));
+      await user.click(screen.getByTestId("whatsapp-dialog-send"));
+
+      await waitFor(() => {
+        expect(mockSendWhatsApp).toHaveBeenCalledWith({
+          leadId: "l1",
+          insightId: "insight-1",
+          phone: "+5511999999999",
+          message: "Test message",
+        });
+      });
+    });
+
+    it("should close dialog on successful send", async () => {
+      const user = userEvent.setup();
+      setupWithInsights();
+      mockSendWhatsApp.mockResolvedValue(true);
+
+      render(<InsightsPageContent />, { wrapper: createWrapper() });
+
+      await user.click(screen.getByTestId("insight-whatsapp-button"));
+      await user.click(screen.getByTestId("whatsapp-dialog-send"));
+
+      await waitFor(() => {
+        expect(screen.queryByTestId("whatsapp-composer-dialog")).not.toBeInTheDocument();
+      });
+    });
+
+    it("should NOT close dialog on failed send", async () => {
+      const user = userEvent.setup();
+      setupWithInsights();
+      mockSendWhatsApp.mockResolvedValue(false);
+
+      render(<InsightsPageContent />, { wrapper: createWrapper() });
+
+      await user.click(screen.getByTestId("insight-whatsapp-button"));
+      await user.click(screen.getByTestId("whatsapp-dialog-send"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("whatsapp-composer-dialog")).toBeInTheDocument();
+      });
+    });
   });
 });

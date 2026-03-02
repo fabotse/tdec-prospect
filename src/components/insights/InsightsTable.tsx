@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { Copy, Check, MoreHorizontal, ExternalLink, Trash2 } from "lucide-react";
+import { Copy, Check, MoreHorizontal, ExternalLink, Trash2, MessageCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,10 +19,11 @@ import type { InsightWithLead } from "@/hooks/use-lead-insights";
 interface InsightsTableProps {
   insights: InsightWithLead[];
   onUpdateStatus: (insightId: string, status: InsightStatus) => void;
+  onWhatsApp: (insight: InsightWithLead) => void;
   isPending: boolean;
 }
 
-export function InsightsTable({ insights, onUpdateStatus, isPending }: InsightsTableProps) {
+export function InsightsTable({ insights, onUpdateStatus, onWhatsApp, isPending }: InsightsTableProps) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full">
@@ -42,6 +43,7 @@ export function InsightsTable({ insights, onUpdateStatus, isPending }: InsightsT
               key={insight.id}
               insight={insight}
               onUpdateStatus={onUpdateStatus}
+              onWhatsApp={onWhatsApp}
               isPending={isPending}
             />
           ))}
@@ -54,10 +56,12 @@ export function InsightsTable({ insights, onUpdateStatus, isPending }: InsightsT
 function InsightRow({
   insight,
   onUpdateStatus,
+  onWhatsApp,
   isPending,
 }: {
   insight: InsightWithLead;
   onUpdateStatus: (insightId: string, status: InsightStatus) => void;
+  onWhatsApp: (insight: InsightWithLead) => void;
   isPending: boolean;
 }) {
   const leadName = `${insight.lead.firstName}${insight.lead.lastName ? ` ${insight.lead.lastName}` : ""}`;
@@ -168,6 +172,37 @@ function InsightRow({
 
       {/* Acoes */}
       <td className="py-3">
+        <div className="flex items-center gap-1">
+        {insight.lead.phone ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-green-600 dark:text-green-400"
+            onClick={() => onWhatsApp(insight)}
+            aria-label="Enviar WhatsApp"
+            data-testid="insight-whatsapp-button"
+          >
+            <MessageCircle className="h-4 w-4" />
+          </Button>
+        ) : (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground"
+                  disabled
+                  aria-label="WhatsApp indisponivel - lead sem telefone"
+                  data-testid="insight-whatsapp-disabled"
+                >
+                  <MessageCircle className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Telefone nao cadastrado</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -214,6 +249,7 @@ function InsightRow({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+        </div>
       </td>
     </tr>
   );

@@ -42,6 +42,8 @@ function makeInsight(overrides: Partial<InsightWithLead> = {}): InsightWithLead 
       companyName: "Acme Inc",
       title: "CTO",
       linkedinUrl: "https://linkedin.com/in/johndoe",
+      phone: "+5511999999999",
+      email: "john@acme.com",
     },
     ...overrides,
   };
@@ -51,6 +53,7 @@ describe("InsightsTable", () => {
   const defaultProps = {
     insights: [makeInsight()],
     onUpdateStatus: vi.fn(),
+    onWhatsApp: vi.fn(),
     isPending: false,
   };
 
@@ -83,6 +86,8 @@ describe("InsightsTable", () => {
         companyName: null,
         title: null,
         linkedinUrl: null,
+        phone: null,
+        email: null,
       },
     });
 
@@ -263,5 +268,64 @@ describe("InsightsTable", () => {
     await user.click(screen.getByLabelText("Acoes do insight"));
 
     expect(screen.getByText("Ver Post Original")).toBeInTheDocument();
+  });
+
+  // Story 13.7: WhatsApp button tests
+  describe("WhatsApp button (Story 13.7)", () => {
+    it("AC #1: should render WhatsApp button when lead has phone", () => {
+      render(<InsightsTable {...defaultProps} />);
+
+      expect(screen.getByTestId("insight-whatsapp-button")).toBeInTheDocument();
+      expect(screen.getByLabelText("Enviar WhatsApp")).toBeInTheDocument();
+    });
+
+    it("AC #6: should render disabled WhatsApp button when lead has no phone", () => {
+      const insight = makeInsight({
+        lead: {
+          ...makeInsight().lead,
+          phone: null,
+        },
+      });
+      render(<InsightsTable {...defaultProps} insights={[insight]} />);
+
+      expect(screen.getByTestId("insight-whatsapp-disabled")).toBeInTheDocument();
+      expect(screen.getByTestId("insight-whatsapp-disabled")).toBeDisabled();
+    });
+
+    it("AC #6: should have descriptive aria-label for disabled WhatsApp button", () => {
+      const insight = makeInsight({
+        lead: {
+          ...makeInsight().lead,
+          phone: null,
+        },
+      });
+      render(<InsightsTable {...defaultProps} insights={[insight]} />);
+
+      expect(screen.getByLabelText("WhatsApp indisponivel - lead sem telefone")).toBeInTheDocument();
+    });
+
+    it("should call onWhatsApp when WhatsApp button clicked", async () => {
+      const user = userEvent.setup();
+      const onWhatsApp = vi.fn();
+      render(<InsightsTable {...defaultProps} onWhatsApp={onWhatsApp} />);
+
+      await user.click(screen.getByTestId("insight-whatsapp-button"));
+
+      expect(onWhatsApp).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "insight-1" })
+      );
+    });
+
+    it("should not render enabled WhatsApp button when lead has no phone", () => {
+      const insight = makeInsight({
+        lead: {
+          ...makeInsight().lead,
+          phone: null,
+        },
+      });
+      render(<InsightsTable {...defaultProps} insights={[insight]} />);
+
+      expect(screen.queryByTestId("insight-whatsapp-button")).not.toBeInTheDocument();
+    });
   });
 });
