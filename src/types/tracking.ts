@@ -130,6 +130,11 @@ export interface CampaignAnalytics {
   replyRate: number;
   bounceRate: number;
   lastSyncAt: string;
+  // Story 14.1: New fields from GET /api/v2/campaigns/analytics
+  leadsCount?: number;
+  contactedCount?: number;
+  campaignStatus?: number;
+  unsubscribedCount?: number;
 }
 
 // ==============================================
@@ -152,6 +157,22 @@ export interface LeadTracking {
   whatsappMessageCount?: number;
   lastWhatsAppSentAt?: string | null;
   lastWhatsAppStatus?: WhatsAppMessageStatus | null;
+  // Story 14.1: Step tracking fields
+  emailOpenedStep?: number;
+  emailOpenedVariant?: number;
+  emailRepliedStep?: number;
+  emailRepliedVariant?: number;
+  emailClickedStep?: number;
+  emailClickedVariant?: number;
+  // Story 14.1: Last step fields
+  lastStepId?: string;
+  lastStepFrom?: string;
+  lastStepTimestampExecuted?: string;
+  // Story 14.1: Status and provider fields
+  statusSummary?: string;
+  ltInterestStatus?: string;
+  espCode?: string;
+  esgCode?: string;
 }
 
 // ==============================================
@@ -270,6 +291,20 @@ export interface InstantlyLeadEntry {
   timestamp_last_click: string | null;
   timestamp_last_reply: string | null;
   status: number;
+  // Story 14.1: New fields from POST /api/v2/leads/list
+  esp_code?: string;
+  esg_code?: string;
+  email_opened_step?: number;
+  email_opened_variant?: number;
+  email_replied_step?: number;
+  email_replied_variant?: number;
+  email_clicked_step?: number;
+  email_clicked_variant?: number;
+  last_step_id?: string;
+  last_step_from?: string;
+  last_step_timestamp_executed?: string;
+  status_summary?: string;
+  lt_interest_status?: string;
 }
 
 export interface InstantlyLeadListResponse {

@@ -13,6 +13,7 @@ import {
   type LeadTracking,
   type OpportunityLead,
   type InstantlyWebhookEvent,
+  type InstantlyLeadEntry,
   type SyncResult,
 } from "@/types/tracking";
 
@@ -240,6 +241,52 @@ describe("Type structure validation", () => {
     expect(analytics.bounceRate).toBe(0.02);
   });
 
+  it("CampaignAnalytics accepts Story 14.1 optional fields", () => {
+    const analytics: CampaignAnalytics = {
+      campaignId: "campaign-uuid-001",
+      totalSent: 100,
+      totalOpens: 40,
+      totalClicks: 10,
+      totalReplies: 5,
+      totalBounces: 2,
+      openRate: 0.4,
+      clickRate: 0.1,
+      replyRate: 0.05,
+      bounceRate: 0.02,
+      lastSyncAt: "2026-02-09T10:00:00Z",
+      leadsCount: 500,
+      contactedCount: 450,
+      campaignStatus: 1,
+      unsubscribedCount: 3,
+    };
+
+    expect(analytics.leadsCount).toBe(500);
+    expect(analytics.contactedCount).toBe(450);
+    expect(analytics.campaignStatus).toBe(1);
+    expect(analytics.unsubscribedCount).toBe(3);
+  });
+
+  it("CampaignAnalytics works without Story 14.1 fields (backward-compatible)", () => {
+    const analytics: CampaignAnalytics = {
+      campaignId: "campaign-uuid-001",
+      totalSent: 100,
+      totalOpens: 40,
+      totalClicks: 10,
+      totalReplies: 5,
+      totalBounces: 2,
+      openRate: 0.4,
+      clickRate: 0.1,
+      replyRate: 0.05,
+      bounceRate: 0.02,
+      lastSyncAt: "2026-02-09T10:00:00Z",
+    };
+
+    expect(analytics.leadsCount).toBeUndefined();
+    expect(analytics.contactedCount).toBeUndefined();
+    expect(analytics.campaignStatus).toBeUndefined();
+    expect(analytics.unsubscribedCount).toBeUndefined();
+  });
+
   it("LeadTracking has all required fields including nullable lastOpenAt", () => {
     const tracking: LeadTracking = {
       leadEmail: "lead@example.com",
@@ -253,6 +300,43 @@ describe("Type structure validation", () => {
 
     expect(tracking.lastOpenAt).toBeNull();
     expect(tracking.events).toEqual([]);
+  });
+
+  it("LeadTracking accepts Story 14.1 optional fields", () => {
+    const tracking: LeadTracking = {
+      leadEmail: "lead@example.com",
+      campaignId: "campaign-uuid-001",
+      openCount: 3,
+      clickCount: 1,
+      hasReplied: false,
+      lastOpenAt: null,
+      events: [],
+      espCode: "Google",
+      esgCode: "Barracuda",
+      emailOpenedStep: 2,
+      emailOpenedVariant: 1,
+      emailRepliedStep: undefined,
+      emailRepliedVariant: undefined,
+      emailClickedStep: 1,
+      emailClickedVariant: 0,
+      lastStepId: "step-uuid-001",
+      lastStepFrom: "vendas@empresa.com",
+      lastStepTimestampExecuted: "2026-02-08T14:00:00Z",
+      statusSummary: "Email opened",
+      ltInterestStatus: undefined,
+    };
+
+    expect(tracking.espCode).toBe("Google");
+    expect(tracking.esgCode).toBe("Barracuda");
+    expect(tracking.emailOpenedStep).toBe(2);
+    expect(tracking.emailOpenedVariant).toBe(1);
+    expect(tracking.emailRepliedStep).toBeUndefined();
+    expect(tracking.emailClickedStep).toBe(1);
+    expect(tracking.lastStepId).toBe("step-uuid-001");
+    expect(tracking.lastStepFrom).toBe("vendas@empresa.com");
+    expect(tracking.lastStepTimestampExecuted).toBe("2026-02-08T14:00:00Z");
+    expect(tracking.statusSummary).toBe("Email opened");
+    expect(tracking.ltInterestStatus).toBeUndefined();
   });
 
   it("LeadTracking accepts lastOpenAt as string", () => {
@@ -285,6 +369,63 @@ describe("Type structure validation", () => {
 
     expect(opportunityLead.qualifiedAt).toBe("2026-02-09T12:00:00Z");
     expect(opportunityLead.isInOpportunityWindow).toBe(true);
+  });
+
+  it("InstantlyLeadEntry accepts Story 14.1 optional fields", () => {
+    const entry: InstantlyLeadEntry = {
+      id: "lead-1",
+      email: "lead@example.com",
+      email_open_count: 3,
+      email_click_count: 1,
+      email_reply_count: 0,
+      timestamp_last_open: null,
+      timestamp_last_click: null,
+      timestamp_last_reply: null,
+      status: 1,
+      esp_code: "Google",
+      esg_code: "Mimecast",
+      email_opened_step: 2,
+      email_opened_variant: 1,
+      email_replied_step: 3,
+      email_replied_variant: 0,
+      email_clicked_step: 1,
+      email_clicked_variant: 0,
+      last_step_id: "step-uuid",
+      last_step_from: "sender@company.com",
+      last_step_timestamp_executed: "2026-02-09T10:00:00Z",
+      status_summary: "Completed",
+      lt_interest_status: "Hot",
+    };
+
+    expect(entry.esp_code).toBe("Google");
+    expect(entry.esg_code).toBe("Mimecast");
+    expect(entry.email_opened_step).toBe(2);
+    expect(entry.email_replied_step).toBe(3);
+    expect(entry.email_clicked_step).toBe(1);
+    expect(entry.last_step_id).toBe("step-uuid");
+    expect(entry.last_step_from).toBe("sender@company.com");
+    expect(entry.last_step_timestamp_executed).toBe("2026-02-09T10:00:00Z");
+    expect(entry.status_summary).toBe("Completed");
+    expect(entry.lt_interest_status).toBe("Hot");
+  });
+
+  it("InstantlyLeadEntry works without Story 14.1 fields (backward-compatible)", () => {
+    const entry: InstantlyLeadEntry = {
+      id: "lead-1",
+      email: "lead@example.com",
+      email_open_count: 0,
+      email_click_count: 0,
+      email_reply_count: 0,
+      timestamp_last_open: null,
+      timestamp_last_click: null,
+      timestamp_last_reply: null,
+      status: 0,
+    };
+
+    expect(entry.esp_code).toBeUndefined();
+    expect(entry.esg_code).toBeUndefined();
+    expect(entry.email_opened_step).toBeUndefined();
+    expect(entry.status_summary).toBeUndefined();
   });
 
   it("InstantlyWebhookEvent has required and optional fields", () => {

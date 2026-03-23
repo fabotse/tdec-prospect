@@ -295,6 +295,11 @@ export function createMockCampaignAnalytics(
     replyRate: 0.04,
     bounceRate: 0.016,
     lastSyncAt: "2026-02-10T10:00:00.000Z",
+    // Story 14.1: New analytics fields
+    leadsCount: 500,
+    contactedCount: 450,
+    campaignStatus: 1,
+    unsubscribedCount: 3,
     ...overrides,
   };
 }
@@ -317,6 +322,18 @@ export function createMockLeadTracking(
     firstName: "João",
     lastName: "Silva",
     phone: undefined,
+    leadId: "instantly-lead-1",
+    // Story 14.1: New lead tracking fields
+    espCode: "Google",
+    esgCode: "Barracuda",
+    emailOpenedStep: 2,
+    emailOpenedVariant: 1,
+    emailClickedStep: 1,
+    emailClickedVariant: 0,
+    lastStepId: "step-uuid-001",
+    lastStepFrom: "vendas@empresa.com",
+    lastStepTimestampExecuted: "2026-02-08T14:00:00.000Z",
+    statusSummary: "Email opened",
     ...overrides,
   };
 }
@@ -403,6 +420,17 @@ export function createMockInstantlyLeadEntry(
     timestamp_last_click: "2026-02-07T10:00:00.000Z",
     timestamp_last_reply: null,
     status: 1,
+    // Story 14.1: New API fields
+    esp_code: "Google",
+    esg_code: "Barracuda",
+    email_opened_step: 2,
+    email_opened_variant: 1,
+    email_clicked_step: 1,
+    email_clicked_variant: 0,
+    last_step_id: "step-uuid-001",
+    last_step_from: "vendas@empresa.com",
+    last_step_timestamp_executed: "2026-02-08T14:00:00.000Z",
+    status_summary: "Email opened",
     ...overrides,
   };
 }

@@ -74,6 +74,22 @@ describe("TrackingService", () => {
       expect(result.replyRate).toBe(0);
       expect(result.bounceRate).toBe(0);
     });
+
+    // Story 14.1: New analytics fields mapping
+    it("maps leadsCount, contactedCount, campaignStatus, unsubscribedCount (14.1)", () => {
+      const response = createMockInstantlyAnalyticsResponse({
+        leads_count: 800,
+        contacted_count: 750,
+        campaign_status: 2,
+        unsubscribed_count: 5,
+      });
+      const result = mapToCampaignAnalytics(response, "c1");
+
+      expect(result.leadsCount).toBe(800);
+      expect(result.contactedCount).toBe(750);
+      expect(result.campaignStatus).toBe(2);
+      expect(result.unsubscribedCount).toBe(5);
+    });
   });
 
   // ==============================================
@@ -94,6 +110,7 @@ describe("TrackingService", () => {
       expect(result.events).toEqual([]);
       expect(result.firstName).toBe("João");
       expect(result.lastName).toBe("Silva");
+      expect(result.leadId).toBe("instantly-lead-1");
     });
 
     it("handles null/missing fields with defaults", () => {
@@ -108,6 +125,7 @@ describe("TrackingService", () => {
       expect(result.lastOpenAt).toBeNull();
       expect(result.firstName).toBeUndefined();
       expect(result.lastName).toBeUndefined();
+      expect(result.leadId).toBeUndefined();
     });
 
     it("sets hasReplied true when reply_count > 0", () => {
@@ -115,6 +133,61 @@ describe("TrackingService", () => {
       const result = mapToLeadTracking(entry, "c1");
 
       expect(result.hasReplied).toBe(true);
+    });
+
+    // Story 14.1: New lead tracking fields mapping
+    it("maps Story 14.1 new fields from snake_case to camelCase (14.1)", () => {
+      const entry = createMockInstantlyLeadEntry({
+        esp_code: "Microsoft",
+        esg_code: "Proofpoint",
+        email_opened_step: 3,
+        email_opened_variant: 2,
+        email_replied_step: 4,
+        email_replied_variant: 1,
+        email_clicked_step: 2,
+        email_clicked_variant: 0,
+        last_step_id: "step-abc-123",
+        last_step_from: "outreach@company.com",
+        last_step_timestamp_executed: "2026-03-01T10:00:00Z",
+        status_summary: "Reply received",
+        lt_interest_status: "Interested",
+      });
+      const result = mapToLeadTracking(entry, "c1");
+
+      expect(result.espCode).toBe("Microsoft");
+      expect(result.esgCode).toBe("Proofpoint");
+      expect(result.emailOpenedStep).toBe(3);
+      expect(result.emailOpenedVariant).toBe(2);
+      expect(result.emailRepliedStep).toBe(4);
+      expect(result.emailRepliedVariant).toBe(1);
+      expect(result.emailClickedStep).toBe(2);
+      expect(result.emailClickedVariant).toBe(0);
+      expect(result.lastStepId).toBe("step-abc-123");
+      expect(result.lastStepFrom).toBe("outreach@company.com");
+      expect(result.lastStepTimestampExecuted).toBe("2026-03-01T10:00:00Z");
+      expect(result.statusSummary).toBe("Reply received");
+      expect(result.ltInterestStatus).toBe("Interested");
+    });
+
+    it("returns undefined for Story 14.1 fields when not present in lead (14.1)", () => {
+      const result = mapToLeadTracking(
+        { email: "minimal@test.com", timestamp_last_open: null },
+        "c1"
+      );
+
+      expect(result.espCode).toBeUndefined();
+      expect(result.esgCode).toBeUndefined();
+      expect(result.emailOpenedStep).toBeUndefined();
+      expect(result.emailOpenedVariant).toBeUndefined();
+      expect(result.emailRepliedStep).toBeUndefined();
+      expect(result.emailRepliedVariant).toBeUndefined();
+      expect(result.emailClickedStep).toBeUndefined();
+      expect(result.emailClickedVariant).toBeUndefined();
+      expect(result.lastStepId).toBeUndefined();
+      expect(result.lastStepFrom).toBeUndefined();
+      expect(result.lastStepTimestampExecuted).toBeUndefined();
+      expect(result.statusSummary).toBeUndefined();
+      expect(result.ltInterestStatus).toBeUndefined();
     });
   });
 
@@ -177,6 +250,11 @@ describe("TrackingService", () => {
       expect(result.replyRate).toBe(0);
       expect(result.bounceRate).toBe(0);
       expect(result.lastSyncAt).toBeDefined();
+      // Story 14.1: New fields default to undefined for empty response
+      expect(result.leadsCount).toBeUndefined();
+      expect(result.contactedCount).toBeUndefined();
+      expect(result.campaignStatus).toBeUndefined();
+      expect(result.unsubscribedCount).toBeUndefined();
     });
   });
 

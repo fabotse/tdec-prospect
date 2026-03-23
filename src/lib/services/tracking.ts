@@ -24,6 +24,7 @@ import type {
   SyncResult,
   LeadTracking,
   InstantlyAnalyticsResponse,
+  InstantlyLeadEntry,
   InstantlyLeadListResponse,
 } from "@/types/tracking";
 
@@ -73,6 +74,11 @@ export function mapToCampaignAnalytics(
     replyRate: totalSent > 0 ? response.reply_count_unique / totalSent : 0,
     bounceRate: totalSent > 0 ? response.bounced_count / totalSent : 0,
     lastSyncAt: new Date().toISOString(),
+    // Story 14.1: Map new analytics fields
+    leadsCount: response.leads_count,
+    contactedCount: response.contacted_count,
+    campaignStatus: response.campaign_status,
+    unsubscribedCount: response.unsubscribed_count,
   };
 }
 
@@ -84,7 +90,7 @@ export function mapToCampaignAnalytics(
  * Accepts partial lead data defensively — fields default to 0/false/null when missing.
  */
 export function mapToLeadTracking(
-  item: { email: string; first_name?: string; last_name?: string; phone?: string; email_open_count?: number; email_click_count?: number; email_reply_count?: number; timestamp_last_open?: string | null },
+  item: Partial<InstantlyLeadEntry> & Pick<InstantlyLeadEntry, "email">,
   campaignId: string
 ): LeadTracking {
   return {
@@ -98,6 +104,21 @@ export function mapToLeadTracking(
     firstName: item.first_name,
     lastName: item.last_name,
     phone: item.phone,
+    leadId: item.id ?? undefined,
+    // Story 14.1: Map snake_case -> camelCase
+    espCode: item.esp_code ?? undefined,
+    esgCode: item.esg_code ?? undefined,
+    emailOpenedStep: item.email_opened_step ?? undefined,
+    emailOpenedVariant: item.email_opened_variant ?? undefined,
+    emailRepliedStep: item.email_replied_step ?? undefined,
+    emailRepliedVariant: item.email_replied_variant ?? undefined,
+    emailClickedStep: item.email_clicked_step ?? undefined,
+    emailClickedVariant: item.email_clicked_variant ?? undefined,
+    lastStepId: item.last_step_id ?? undefined,
+    lastStepFrom: item.last_step_from ?? undefined,
+    lastStepTimestampExecuted: item.last_step_timestamp_executed ?? undefined,
+    statusSummary: item.status_summary ?? undefined,
+    ltInterestStatus: item.lt_interest_status ?? undefined,
   };
 }
 
@@ -148,6 +169,11 @@ export class TrackingService extends ExternalService {
         replyRate: 0,
         bounceRate: 0,
         lastSyncAt: new Date().toISOString(),
+        // Story 14.1: New fields default to undefined for empty response
+        leadsCount: undefined,
+        contactedCount: undefined,
+        campaignStatus: undefined,
+        unsubscribedCount: undefined,
       };
     }
 

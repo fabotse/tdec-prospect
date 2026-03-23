@@ -41,8 +41,8 @@ story_location: _bmad-output/implementation-artifacts
 
 # GIT BRANCH TRACKING
 # ===================
-current_branch: epic/12-melhorias-ux-produtividade
-base_branch: epic/11-whatsapp-integration
+current_branch: epic/14-analytics-avancado-campanha
+base_branch: epic/13-monitoramento-inteligente-leads-linkedin
 
 branch_strategy:
   # Branch naming convention:
@@ -70,6 +70,8 @@ branches:
   epic/10-campaign-tracking: "Epic 10 - Campaign Tracking & Janela de Oportunidade (DONE)"
   epic/11-whatsapp-integration: "Epic 11 - WhatsApp Integration via Z-API (DONE)"
   epic/12-melhorias-ux-produtividade: "Epic 12 - Melhorias Avulsas — UX & Produtividade (IN-PROGRESS)"
+  epic/13-monitoramento-inteligente-leads-linkedin: "Epic 13 - Monitoramento Inteligente de Leads LinkedIn (IN-PROGRESS)"
+  epic/14-analytics-avancado-campanha: "Epic 14 - Analytics Avançado de Campanha (IN-PROGRESS)"
 
 development_status:
   # Epic 1: Foundation & Authentication
@@ -327,3 +329,17 @@ development_status:
   # Solução: adicionar coluna "Por que?" na InsightsTable com tooltip (zero backend changes)
   13-10-coluna-raciocinio-ia-na-tabela-de-insights: done  # Coluna "Por que?" + tooltip + placeholder null + 6 testes. Code review: 4 MEDIUM, 3 LOW fixes (header test, assertion precision, AC#4 rewrite, AC#6 test, reorder, Lead change documented). 277 files, 5034 total
   epic-13-retrospective: optional
+
+  # Epic 14: Analytics Avancado de Campanha
+  # Enriquecer dashboard de analytics com progresso visual, detalhamento por step,
+  # evolucao diaria e dados de email provider/security gateway do Instantly.
+  # Feature evolutiva — expande analytics existente (Epic 10) sem modificar funcionalidades.
+  # Dependencias: Epic 10 (TrackingService, AnalyticsDashboard — done), Epic 7 (InstantlyService — done)
+  # Documento: _bmad-output/planning-artifacts/epic-14-analytics-avancado-campanha.md
+  epic-14: in-progress
+  14-1-expandir-tipos-e-mapeamento-api-instantly: done  # Fundacao: mapear esp_code, esg_code, email_opened_step, leads_count, contacted_count, campaign_status. Code review: 4 MEDIUM, 2 LOW fixes (inline type → Pick, redundant ??, mock undefineds, leadId mapping, File List). 277 files, 5041 tests passed
+  14-2-barra-de-progresso-e-status-campanha: backlog  # Barra visual contactedCount/leadsCount + badge de status. Depende de 14.1
+  14-3-grafico-de-evolucao-diaria: backlog  # Chart de linhas com dailyAnalytics (dados ja buscados, so UI). Depende de 14.1
+  14-4-detalhamento-aberturas-cliques-respostas-por-step: backlog  # Colunas step na LeadTrackingTable + status_summary badge. Depende de 14.1
+  14-5-email-provider-e-security-gateway: backlog  # Colunas esp_code/esg_code na LeadTrackingTable com icones. Depende de 14.1
+  epic-14-retrospective: optional
