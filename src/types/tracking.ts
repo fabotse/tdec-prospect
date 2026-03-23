@@ -292,8 +292,9 @@ export interface InstantlyLeadEntry {
   timestamp_last_reply: string | null;
   status: number;
   // Story 14.1: New fields from POST /api/v2/leads/list
-  esp_code?: string;
-  esg_code?: string;
+  // API returns numeric codes (e.g. esp_code: 999, esg_code: 3), not strings
+  esp_code?: number | string;
+  esg_code?: number | string;
   email_opened_step?: number;
   email_opened_variant?: number;
   email_replied_step?: number;
@@ -303,7 +304,8 @@ export interface InstantlyLeadEntry {
   last_step_id?: string;
   last_step_from?: string;
   last_step_timestamp_executed?: string;
-  status_summary?: string;
+  // API may return string or object (e.g. { lastStep: { ... } })
+  status_summary?: unknown;
   lt_interest_status?: string;
 }
 

@@ -82,6 +82,51 @@ export function mapToCampaignAnalytics(
   };
 }
 
+// ==============================================
+// INSTANTLY CODE MAPPINGS (Story 14.5 fix)
+// API returns numeric codes, not string labels.
+// Confirmed: esp_code=999 → "Other", esg_code=3 → "Proofpoint"
+// ==============================================
+
+const ESP_CODE_MAP: Record<number, string> = {
+  1: "Google",
+  2: "Microsoft",
+  3: "Yahoo",
+  4: "Zoho",
+  5: "Yandex",
+  6: "AirMail",
+  7: "Web.de",
+  8: "Libero.it",
+  999: "Other",
+  0: "Not Found",
+};
+
+const ESG_CODE_MAP: Record<number, string> = {
+  1: "Barracuda",
+  2: "Mimecast",
+  3: "Proofpoint",
+  4: "Cisco",
+};
+
+function resolveEspCode(raw: number | string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw === "string") return raw;
+  if (typeof raw === "number") return ESP_CODE_MAP[raw] ?? `Unknown(${raw})`;
+  return undefined;
+}
+
+function resolveEsgCode(raw: number | string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw === "string") return raw;
+  if (typeof raw === "number") return ESG_CODE_MAP[raw] ?? `Unknown(${raw})`;
+  return undefined;
+}
+
+function resolveStatusSummary(raw: unknown): string | undefined {
+  if (typeof raw === "string") return raw;
+  return undefined;
+}
+
 /**
  * Maps Instantly lead entry to LeadTracking.
  * Events array is empty — granular events come from webhooks, not polling.
@@ -105,9 +150,9 @@ export function mapToLeadTracking(
     lastName: item.last_name,
     phone: item.phone,
     leadId: item.id ?? undefined,
-    // Story 14.1: Map snake_case -> camelCase
-    espCode: item.esp_code ?? undefined,
-    esgCode: item.esg_code ?? undefined,
+    // Story 14.1/14.5: Map snake_case -> camelCase, resolve numeric codes to strings
+    espCode: resolveEspCode(item.esp_code),
+    esgCode: resolveEsgCode(item.esg_code),
     emailOpenedStep: item.email_opened_step ?? undefined,
     emailOpenedVariant: item.email_opened_variant ?? undefined,
     emailRepliedStep: item.email_replied_step ?? undefined,
@@ -117,7 +162,7 @@ export function mapToLeadTracking(
     lastStepId: item.last_step_id ?? undefined,
     lastStepFrom: item.last_step_from ?? undefined,
     lastStepTimestampExecuted: item.last_step_timestamp_executed ?? undefined,
-    statusSummary: item.status_summary ?? undefined,
+    statusSummary: resolveStatusSummary(item.status_summary),
     ltInterestStatus: item.lt_interest_status ?? undefined,
   };
 }

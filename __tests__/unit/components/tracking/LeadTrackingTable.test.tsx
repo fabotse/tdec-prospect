@@ -82,7 +82,7 @@ const mockLeads: LeadTracking[] = [
 
 describe("LeadTrackingTable", () => {
   describe("renderizacao basica (AC #1)", () => {
-    it("renderiza 12 colunas de header", () => {
+    it("renderiza 10 colunas de header", () => {
       render(<LeadTrackingTable leads={mockLeads} isLoading={false} />);
 
       expect(screen.getByText("Email")).toBeInTheDocument();
@@ -92,10 +92,8 @@ describe("LeadTrackingTable", () => {
       expect(screen.getByText("Respondeu")).toBeInTheDocument();
       expect(screen.getByText("Ultimo Open")).toBeInTheDocument();
       expect(screen.getByText("Step Abertura")).toBeInTheDocument();
-      expect(screen.getByText("Step Clique")).toBeInTheDocument();
-      expect(screen.getByText("Step Resposta")).toBeInTheDocument();
-      expect(screen.getByText("Ultimo Step")).toBeInTheDocument();
-      expect(screen.getByText("Status")).toBeInTheDocument();
+      expect(screen.getByText("Provedor")).toBeInTheDocument();
+      expect(screen.getByText("Gateway")).toBeInTheDocument();
       expect(screen.getByText("WA")).toBeInTheDocument();
     });
 
@@ -522,117 +520,36 @@ describe("LeadTrackingTable", () => {
   });
 
   // ==============================================
-  // Story 14.4 — Step columns, last step, sort, status badge
+  // Story 14.4 — Step Abertura column + sort (remaining after column cleanup)
   // ==============================================
 
-  describe("colunas de step (Story 14.4 AC #1, #2, #3)", () => {
-    it("renderiza colunas Step Abertura, Step Clique, Step Resposta", () => {
-      render(<LeadTrackingTable leads={mockLeads} isLoading={false} />);
-
-      expect(screen.getByText("Step Abertura")).toBeInTheDocument();
-      expect(screen.getByText("Step Clique")).toBeInTheDocument();
-      expect(screen.getByText("Step Resposta")).toBeInTheDocument();
-    });
-
-    it("exibe 'Step N' quando campo de step presente", () => {
+  describe("coluna Step Abertura (Story 14.4)", () => {
+    it("exibe 'Step N' quando emailOpenedStep presente", () => {
       const leads = [
         createMockLeadTracking({
           leadEmail: "test@x.com",
           emailOpenedStep: 2,
-          emailClickedStep: 1,
-          emailRepliedStep: 3,
         }),
       ];
       render(<LeadTrackingTable leads={leads} isLoading={false} />);
 
       const row = screen.getByTestId("lead-row");
       expect(within(row).getByText("Step 2")).toBeInTheDocument();
-      expect(within(row).getByText("Step 1")).toBeInTheDocument();
-      expect(within(row).getByText("Step 3")).toBeInTheDocument();
     });
 
-    it("exibe '-' quando campo de step e undefined", () => {
-      const leads = [
-        createMockLeadTracking({
-          leadEmail: "no-steps@x.com",
-          emailOpenedStep: undefined,
-          emailClickedStep: undefined,
-          emailRepliedStep: undefined,
-        }),
-      ];
-      render(<LeadTrackingTable leads={leads} isLoading={false} />);
-
-      const row = screen.getByTestId("lead-row");
-      const cells = row.querySelectorAll("td");
-      // Cells index: 0=Email, 1=Nome, 2=Aberturas, 3=Cliques, 4=Respondeu, 5=UltimoOpen,
-      //              6=StepAbertura, 7=StepClique, 8=StepResposta, 9=UltimoStep, 10=Status, 11=WA
-      expect(cells[6]).toHaveTextContent("-");
-      expect(cells[7]).toHaveTextContent("-");
-      expect(cells[8]).toHaveTextContent("-");
-    });
-  });
-
-  describe("tooltips dos headers de step (Story 14.4 AC #2)", () => {
-    it("tooltip de Step Clique tem texto especifico", async () => {
-      const user = userEvent.setup();
-      render(<LeadTrackingTable leads={mockLeads} isLoading={false} />);
-
-      const stepClique = screen.getByText("Step Clique");
-      await user.hover(stepClique);
-
-      const tooltip = await screen.findByRole("tooltip");
-      expect(tooltip).toHaveTextContent("Step em que o lead clicou no link");
-    });
-
-    it("tooltip de Step Resposta tem texto especifico", async () => {
-      const user = userEvent.setup();
-      render(<LeadTrackingTable leads={mockLeads} isLoading={false} />);
-
-      const stepResposta = screen.getByText("Step Resposta");
-      await user.hover(stepResposta);
-
-      const tooltip = await screen.findByRole("tooltip");
-      expect(tooltip).toHaveTextContent("Step em que o lead respondeu ao email");
-    });
-  });
-
-  describe("ultimo step executado (Story 14.4 AC #4)", () => {
-    it("renderiza header Ultimo Step", () => {
-      render(<LeadTrackingTable leads={mockLeads} isLoading={false} />);
-
-      expect(screen.getByText("Ultimo Step")).toBeInTheDocument();
-    });
-
-    it("exibe tempo relativo quando lastStepTimestampExecuted presente", () => {
-      const leads = [
-        createMockLeadTracking({
-          leadEmail: "step@x.com",
-          lastStepId: "step-1",
-          lastStepTimestampExecuted: "2026-02-08T14:00:00.000Z",
-        }),
-      ];
-      render(<LeadTrackingTable leads={leads} isLoading={false} />);
-
-      const row = screen.getByTestId("lead-row");
-      const cells = row.querySelectorAll("td");
-      // Cell 9 = Ultimo Step — should contain relative time text (not "-")
-      expect(cells[9].textContent).not.toBe("-");
-      expect(cells[9].textContent?.length).toBeGreaterThan(0);
-    });
-
-    it("exibe '-' quando lastStepTimestampExecuted e undefined", () => {
+    it("exibe '-' quando emailOpenedStep e undefined", () => {
       const leads = [
         createMockLeadTracking({
           leadEmail: "no-step@x.com",
-          lastStepId: undefined,
-          lastStepTimestampExecuted: undefined,
+          emailOpenedStep: undefined,
         }),
       ];
       render(<LeadTrackingTable leads={leads} isLoading={false} />);
 
       const row = screen.getByTestId("lead-row");
-      const dashes = within(row).getAllByText("-");
-      expect(dashes.length).toBeGreaterThanOrEqual(1);
+      const cells = row.querySelectorAll("td");
+      // Cell 6 = StepAbertura
+      expect(cells[6]).toHaveTextContent("-");
     });
   });
 
@@ -693,72 +610,289 @@ describe("LeadTrackingTable", () => {
     });
   });
 
-  describe("badge status_summary (Story 14.4 AC #6)", () => {
-    it("exibe badge com label PT-BR para status mapeado", () => {
-      const leads = [
-        createMockLeadTracking({
-          leadEmail: "opened@x.com",
-          statusSummary: "Email opened",
-        }),
-      ];
-      render(<LeadTrackingTable leads={leads} isLoading={false} />);
-
-      const badge = screen.getByTestId("status-summary-badge");
-      expect(badge).toHaveTextContent("Aberto");
-    });
-
-    it("exibe badge para cada status mapeado", () => {
-      const leads = [
-        createMockLeadTracking({ leadEmail: "a@x.com", statusSummary: "Reply received" }),
-        createMockLeadTracking({ leadEmail: "b@x.com", statusSummary: "Completed" }),
-        createMockLeadTracking({ leadEmail: "c@x.com", statusSummary: "Bounced" }),
-        createMockLeadTracking({ leadEmail: "d@x.com", statusSummary: "Unsubscribed" }),
-      ];
-      render(<LeadTrackingTable leads={leads} isLoading={false} />);
-
-      const badges = screen.getAllByTestId("status-summary-badge");
-      expect(badges).toHaveLength(4);
-      expect(badges[0]).toHaveTextContent("Respondeu");
-      expect(badges[1]).toHaveTextContent("Completo");
-      expect(badges[2]).toHaveTextContent("Bounce");
-      expect(badges[3]).toHaveTextContent("Descadastrou");
-    });
-
-    it("exibe valor original quando status nao esta no mapa (fallback)", () => {
-      const leads = [
-        createMockLeadTracking({
-          leadEmail: "unknown@x.com",
-          statusSummary: "Custom status",
-        }),
-      ];
-      render(<LeadTrackingTable leads={leads} isLoading={false} />);
-
-      const badge = screen.getByTestId("status-summary-badge");
-      expect(badge).toHaveTextContent("Custom status");
-    });
-
-    it("exibe '-' quando statusSummary e undefined", () => {
-      const leads = [
-        createMockLeadTracking({
-          leadEmail: "none@x.com",
-          statusSummary: undefined,
-        }),
-      ];
-      render(<LeadTrackingTable leads={leads} isLoading={false} />);
-
-      const badge = screen.getByTestId("status-summary-badge");
-      expect(badge).toHaveTextContent("-");
-    });
-  });
-
-  describe("skeleton rows (Story 14.4 AC #1)", () => {
-    it("skeleton row tem 12 celulas (7 originais + 5 novas)", () => {
+  describe("skeleton rows", () => {
+    it("skeleton row tem 10 celulas", () => {
       render(<LeadTrackingTable leads={[]} isLoading={true} />);
 
       const skeletonRows = screen.getAllByTestId("skeleton-row");
       const firstRow = skeletonRows[0];
       const cells = firstRow.querySelectorAll("td");
-      expect(cells).toHaveLength(12);
+      expect(cells).toHaveLength(10);
+    });
+  });
+
+  // ==============================================
+  // Story 14.5 — ESP Provider e Security Gateway (AC #1-#7)
+  // ==============================================
+
+  describe("coluna Provedor (Story 14.5 AC #1, #3, #4)", () => {
+    it("exibe badge com label correto para Google", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "g@x.com", espCode: "Google" }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const badge = screen.getByTestId("esp-provider-badge");
+      expect(badge).toHaveTextContent("G");
+      expect(badge).toHaveTextContent("Google");
+    });
+
+    it("exibe badge com label correto para Microsoft", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "m@x.com", espCode: "Microsoft" }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const badge = screen.getByTestId("esp-provider-badge");
+      expect(badge).toHaveTextContent("M");
+      expect(badge).toHaveTextContent("Microsoft");
+    });
+
+    it("exibe badge com label correto para Yahoo", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "y@x.com", espCode: "Yahoo" }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const badge = screen.getByTestId("esp-provider-badge");
+      expect(badge).toHaveTextContent("Y");
+      expect(badge).toHaveTextContent("Yahoo");
+    });
+
+    it("exibe badge com label correto para Zoho", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "z@x.com", espCode: "Zoho" }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const badge = screen.getByTestId("esp-provider-badge");
+      expect(badge).toHaveTextContent("Z");
+      expect(badge).toHaveTextContent("Zoho");
+    });
+
+    it("exibe 'Desconhecido' quando espCode e undefined", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "unk@x.com", espCode: undefined }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const badge = screen.getByTestId("esp-provider-badge");
+      expect(badge).toHaveTextContent("?");
+      expect(badge).toHaveTextContent("Desconhecido");
+    });
+
+    it("exibe 'Desconhecido' quando espCode e 'Not Found'", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "nf@x.com", espCode: "Not Found" }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const badge = screen.getByTestId("esp-provider-badge");
+      expect(badge).toHaveTextContent("Desconhecido");
+    });
+
+    it("exibe badge com label correto para Yandex", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "ya@x.com", espCode: "Yandex" }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const badge = screen.getByTestId("esp-provider-badge");
+      expect(badge).toHaveTextContent("Ya");
+      expect(badge).toHaveTextContent("Yandex");
+    });
+
+    it("exibe badge com label correto para AirMail", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "am@x.com", espCode: "AirMail" }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const badge = screen.getByTestId("esp-provider-badge");
+      expect(badge).toHaveTextContent("AM");
+      expect(badge).toHaveTextContent("AirMail");
+    });
+
+    it("exibe badge com label correto para Web.de", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "w@x.com", espCode: "Web.de" }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const badge = screen.getByTestId("esp-provider-badge");
+      expect(badge).toHaveTextContent("W");
+      expect(badge).toHaveTextContent("Web.de");
+    });
+
+    it("exibe badge com label correto para Libero.it", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "li@x.com", espCode: "Libero.it" }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const badge = screen.getByTestId("esp-provider-badge");
+      expect(badge).toHaveTextContent("Li");
+      expect(badge).toHaveTextContent("Libero.it");
+    });
+
+    it("exibe badge 'Outro' para espCode 'Other'", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "o@x.com", espCode: "Other" }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const badge = screen.getByTestId("esp-provider-badge");
+      expect(badge).toHaveTextContent("?");
+      expect(badge).toHaveTextContent("Outro");
+    });
+
+    it("exibe fallback com primeiro caractere para provedor desconhecido", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "custom@x.com", espCode: "Fastmail" }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const badge = screen.getByTestId("esp-provider-badge");
+      expect(badge).toHaveTextContent("F");
+      expect(badge).toHaveTextContent("Fastmail");
+    });
+  });
+
+  describe("coluna Gateway (Story 14.5 AC #2, #4)", () => {
+    it("exibe nome do gateway quando esgCode presente", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "b@x.com", esgCode: "Barracuda" }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const cell = screen.getByTestId("esg-gateway-cell");
+      expect(cell).toHaveTextContent("Barracuda");
+    });
+
+    it("exibe Mimecast corretamente", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "m@x.com", esgCode: "Mimecast" }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const cell = screen.getByTestId("esg-gateway-cell");
+      expect(cell).toHaveTextContent("Mimecast");
+    });
+
+    it("exibe Proofpoint corretamente", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "p@x.com", esgCode: "Proofpoint" }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const cell = screen.getByTestId("esg-gateway-cell");
+      expect(cell).toHaveTextContent("Proofpoint");
+    });
+
+    it("exibe Cisco corretamente", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "c@x.com", esgCode: "Cisco" }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const cell = screen.getByTestId("esg-gateway-cell");
+      expect(cell).toHaveTextContent("Cisco");
+    });
+
+    it("exibe 'Nenhum' quando esgCode e undefined", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "none@x.com", esgCode: undefined }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const cell = screen.getByTestId("esg-gateway-cell");
+      expect(cell).toHaveTextContent("Nenhum");
+    });
+  });
+
+  describe("ordenacao por espCode (Story 14.5 AC #5)", () => {
+    it("ordena por Provedor desc ao clicar", async () => {
+      const user = userEvent.setup();
+      const leads = [
+        createMockLeadTracking({ leadEmail: "a@x.com", espCode: "Google" }),
+        createMockLeadTracking({ leadEmail: "b@x.com", espCode: "Yahoo" }),
+        createMockLeadTracking({ leadEmail: "c@x.com", espCode: "Microsoft" }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      await user.click(screen.getByTestId("sort-espCode"));
+
+      const rows = screen.getAllByTestId("lead-row");
+      // Desc: Yahoo, Microsoft, Google
+      expect(within(rows[0]).getByText("b@x.com")).toBeInTheDocument();
+      expect(within(rows[1]).getByText("c@x.com")).toBeInTheDocument();
+      expect(within(rows[2]).getByText("a@x.com")).toBeInTheDocument();
+    });
+
+    it("ordena por Provedor asc ao clicar novamente", async () => {
+      const user = userEvent.setup();
+      const leads = [
+        createMockLeadTracking({ leadEmail: "a@x.com", espCode: "Google" }),
+        createMockLeadTracking({ leadEmail: "b@x.com", espCode: "Yahoo" }),
+        createMockLeadTracking({ leadEmail: "c@x.com", espCode: "Microsoft" }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      await user.click(screen.getByTestId("sort-espCode"));
+      await user.click(screen.getByTestId("sort-espCode"));
+
+      const rows = screen.getAllByTestId("lead-row");
+      // Asc: Google, Microsoft, Yahoo
+      expect(within(rows[0]).getByText("a@x.com")).toBeInTheDocument();
+      expect(within(rows[1]).getByText("c@x.com")).toBeInTheDocument();
+      expect(within(rows[2]).getByText("b@x.com")).toBeInTheDocument();
+    });
+
+    it("reseta ordenacao ao clicar terceira vez", async () => {
+      const user = userEvent.setup();
+      const leads = [
+        createMockLeadTracking({ leadEmail: "a@x.com", espCode: "Google" }),
+        createMockLeadTracking({ leadEmail: "b@x.com", espCode: "Yahoo" }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      await user.click(screen.getByTestId("sort-espCode"));
+      await user.click(screen.getByTestId("sort-espCode"));
+      await user.click(screen.getByTestId("sort-espCode"));
+
+      const rows = screen.getAllByTestId("lead-row");
+      // Original order
+      expect(within(rows[0]).getByText("a@x.com")).toBeInTheDocument();
+      expect(within(rows[1]).getByText("b@x.com")).toBeInTheDocument();
+    });
+
+    it("trata undefined espCode como string vazia na ordenacao", async () => {
+      const user = userEvent.setup();
+      const leads = [
+        createMockLeadTracking({ leadEmail: "a@x.com", espCode: "Google" }),
+        createMockLeadTracking({ leadEmail: "b@x.com", espCode: undefined }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      await user.click(screen.getByTestId("sort-espCode"));
+
+      const rows = screen.getAllByTestId("lead-row");
+      // Desc: Google, "" (undefined)
+      expect(within(rows[0]).getByText("a@x.com")).toBeInTheDocument();
+      expect(within(rows[1]).getByText("b@x.com")).toBeInTheDocument();
+    });
+  });
+
+  describe("tooltip Gateway (Story 14.5 AC #6)", () => {
+    it("header Gateway exibe tooltip explicativo sobre confiabilidade", async () => {
+      const user = userEvent.setup();
+      render(<LeadTrackingTable leads={mockLeads} isLoading={false} />);
+
+      const gatewayHeader = screen.getByText("Gateway");
+      await user.hover(gatewayHeader);
+
+      const tooltip = await screen.findByRole("tooltip");
+      expect(tooltip).toHaveTextContent("Leads com Security Gateway podem ter dados de abertura menos confiaveis");
     });
   });
 

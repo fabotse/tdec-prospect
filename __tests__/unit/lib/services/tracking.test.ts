@@ -135,11 +135,11 @@ describe("TrackingService", () => {
       expect(result.hasReplied).toBe(true);
     });
 
-    // Story 14.1: New lead tracking fields mapping
-    it("maps Story 14.1 new fields from snake_case to camelCase (14.1)", () => {
+    // Story 14.1/14.5: New lead tracking fields mapping — numeric codes from API
+    it("resolves numeric esp_code and esg_code to string labels (14.5)", () => {
       const entry = createMockInstantlyLeadEntry({
-        esp_code: "Microsoft",
-        esg_code: "Proofpoint",
+        esp_code: 2,
+        esg_code: 3,
         email_opened_step: 3,
         email_opened_variant: 2,
         email_replied_step: 4,
@@ -167,6 +167,65 @@ describe("TrackingService", () => {
       expect(result.lastStepTimestampExecuted).toBe("2026-03-01T10:00:00Z");
       expect(result.statusSummary).toBe("Reply received");
       expect(result.ltInterestStatus).toBe("Interested");
+    });
+
+    it("resolves all known ESP numeric codes correctly (14.5)", () => {
+      const cases: [number, string][] = [
+        [0, "Not Found"],
+        [1, "Google"],
+        [2, "Microsoft"],
+        [3, "Yahoo"],
+        [4, "Zoho"],
+        [5, "Yandex"],
+        [6, "AirMail"],
+        [7, "Web.de"],
+        [8, "Libero.it"],
+        [999, "Other"],
+      ];
+      for (const [code, expected] of cases) {
+        const entry = createMockInstantlyLeadEntry({ esp_code: code });
+        const result = mapToLeadTracking(entry, "c1");
+        expect(result.espCode).toBe(expected);
+      }
+    });
+
+    it("resolves all known ESG numeric codes correctly (14.5)", () => {
+      const cases: [number, string][] = [
+        [1, "Barracuda"],
+        [2, "Mimecast"],
+        [3, "Proofpoint"],
+        [4, "Cisco"],
+      ];
+      for (const [code, expected] of cases) {
+        const entry = createMockInstantlyLeadEntry({ esg_code: code });
+        const result = mapToLeadTracking(entry, "c1");
+        expect(result.esgCode).toBe(expected);
+      }
+    });
+
+    it("handles unknown numeric codes with fallback label (14.5)", () => {
+      const entry = createMockInstantlyLeadEntry({ esp_code: 42, esg_code: 99 });
+      const result = mapToLeadTracking(entry, "c1");
+
+      expect(result.espCode).toBe("Unknown(42)");
+      expect(result.esgCode).toBe("Unknown(99)");
+    });
+
+    it("passes through string esp_code/esg_code as-is (14.5)", () => {
+      const entry = createMockInstantlyLeadEntry({ esp_code: "Google", esg_code: "Proofpoint" });
+      const result = mapToLeadTracking(entry, "c1");
+
+      expect(result.espCode).toBe("Google");
+      expect(result.esgCode).toBe("Proofpoint");
+    });
+
+    it("resolves object status_summary to undefined (14.5)", () => {
+      const entry = createMockInstantlyLeadEntry({
+        status_summary: { lastStep: { from: "x@y.com" } },
+      });
+      const result = mapToLeadTracking(entry, "c1");
+
+      expect(result.statusSummary).toBeUndefined();
     });
 
     it("returns undefined for Story 14.1 fields when not present in lead (14.1)", () => {

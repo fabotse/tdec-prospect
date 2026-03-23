@@ -421,9 +421,9 @@ export function createMockInstantlyLeadEntry(
     timestamp_last_click: "2026-02-07T10:00:00.000Z",
     timestamp_last_reply: null,
     status: 1,
-    // Story 14.1: New API fields
-    esp_code: "Google",
-    esg_code: "Barracuda",
+    // Story 14.1/14.5: API returns numeric codes (resolved to strings in mapToLeadTracking)
+    esp_code: 1,
+    esg_code: 1,
     email_opened_step: 2,
     email_opened_variant: 1,
     email_clicked_step: 1,

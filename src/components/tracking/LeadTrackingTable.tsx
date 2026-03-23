@@ -49,7 +49,7 @@ const LEADS_PER_PAGE = 20;
 // TYPES
 // ==============================================
 
-type SortableColumn = "leadEmail" | "firstName" | "openCount" | "clickCount" | "hasReplied" | "lastOpenAt" | "emailOpenedStep";
+type SortableColumn = "leadEmail" | "firstName" | "openCount" | "clickCount" | "hasReplied" | "lastOpenAt" | "emailOpenedStep" | "espCode";
 type SortDirection = "asc" | "desc" | null;
 
 interface SortState {
@@ -78,21 +78,30 @@ function formatStep(step: number | undefined): string {
   return typeof step === "number" ? `Step ${step}` : "-";
 }
 
-const STATUS_SUMMARY_MAP: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
-  "Email opened": { label: "Aberto", variant: "default" },
-  "Reply received": { label: "Respondeu", variant: "default" },
-  "Completed": { label: "Completo", variant: "secondary" },
-  "Bounced": { label: "Bounce", variant: "destructive" },
-  "Unsubscribed": { label: "Descadastrou", variant: "destructive" },
+// Story 14.5 — ESP Provider Map
+const ESP_PROVIDER_MAP: Record<string, { label: string; shortLabel: string }> = {
+  "Google": { label: "Google", shortLabel: "G" },
+  "Microsoft": { label: "Microsoft", shortLabel: "M" },
+  "Yahoo": { label: "Yahoo", shortLabel: "Y" },
+  "Zoho": { label: "Zoho", shortLabel: "Z" },
+  "Yandex": { label: "Yandex", shortLabel: "Ya" },
+  "AirMail": { label: "AirMail", shortLabel: "AM" },
+  "Web.de": { label: "Web.de", shortLabel: "W" },
+  "Libero.it": { label: "Libero.it", shortLabel: "Li" },
+  "Other": { label: "Outro", shortLabel: "?" },
 };
 
-function getStatusBadgeProps(statusSummary: unknown): { label: string; variant: "default" | "secondary" | "outline" | "destructive" } {
-  const rawStatus = typeof statusSummary === "string" ? statusSummary : undefined;
-  const statusInfo = STATUS_SUMMARY_MAP[rawStatus ?? ""];
-  return {
-    label: statusInfo?.label ?? rawStatus ?? "-",
-    variant: statusInfo?.variant ?? "outline",
-  };
+function getProviderBadgeProps(espCode: unknown): { label: string; shortLabel: string } {
+  const raw = typeof espCode === "string" ? espCode : undefined;
+  if (!raw || raw === "Not Found") return { label: "Desconhecido", shortLabel: "?" };
+  const mapped = ESP_PROVIDER_MAP[raw];
+  return mapped ?? { label: raw, shortLabel: raw.charAt(0) };
+}
+
+function getGatewayLabel(esgCode: unknown): string {
+  const raw = typeof esgCode === "string" ? esgCode : undefined;
+  if (!raw) return "Nenhum";
+  return raw;
 }
 
 function getNextDirection(current: SortDirection): SortDirection {
@@ -130,6 +139,11 @@ function compareLead(a: LeadTracking, b: LeadTracking, column: SortableColumn, d
       const aVal = a.emailOpenedStep ?? -1;
       const bVal = b.emailOpenedStep ?? -1;
       return mult * (aVal - bVal);
+    }
+    case "espCode": {
+      const aVal = typeof a.espCode === "string" ? a.espCode : "";
+      const bVal = typeof b.espCode === "string" ? b.espCode : "";
+      return mult * aVal.localeCompare(bVal);
     }
     default:
       return 0;
@@ -227,8 +241,6 @@ function SkeletonRows() {
           <TableCell><Skeleton className="h-4 w-12" /></TableCell>
           <TableCell><Skeleton className="h-4 w-24" /></TableCell>
           <TableCell><Skeleton className="h-4 w-16" /></TableCell>
-          <TableCell><Skeleton className="h-4 w-16" /></TableCell>
-          <TableCell><Skeleton className="h-4 w-16" /></TableCell>
           <TableCell><Skeleton className="h-4 w-20" /></TableCell>
           <TableCell><Skeleton className="h-4 w-16" /></TableCell>
           <TableCell><Skeleton className="h-4 w-4" /></TableCell>
@@ -315,24 +327,15 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
             <SortableHeader label="Respondeu" column="hasReplied" sort={sort} onSort={handleSort} />
             <SortableHeader label="Ultimo Open" column="lastOpenAt" sort={sort} onSort={handleSort} />
             <SortableHeader label="Step Abertura" column="emailOpenedStep" sort={sort} onSort={handleSort} />
+            <SortableHeader label="Provedor" column="espCode" sort={sort} onSort={handleSort} />
             <TableHead>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className="cursor-help">Step Clique</span>
+                  <span className="cursor-help">Gateway</span>
                 </TooltipTrigger>
-                <TooltipContent>Step em que o lead clicou no link</TooltipContent>
+                <TooltipContent>Leads com Security Gateway podem ter dados de abertura menos confiaveis</TooltipContent>
               </Tooltip>
             </TableHead>
-            <TableHead>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="cursor-help">Step Resposta</span>
-                </TooltipTrigger>
-                <TooltipContent>Step em que o lead respondeu ao email</TooltipContent>
-              </Tooltip>
-            </TableHead>
-            <TableHead>Ultimo Step</TableHead>
-            <TableHead>Status</TableHead>
             <TableHead className="w-10">WA</TableHead>
           </TableRow>
         </TableHeader>
@@ -342,7 +345,8 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
           ) : (
             paginatedLeads.map((lead) => {
               const waCount = lead.whatsappMessageCount ?? 0;
-              const statusBadge = getStatusBadgeProps(lead.statusSummary);
+              const provider = getProviderBadgeProps(lead.espCode);
+              const gateway = getGatewayLabel(lead.esgCode);
               return (
               <TableRow key={lead.leadEmail} data-testid="lead-row">
                 <TableCell className="font-medium">{lead.leadEmail}</TableCell>
@@ -369,30 +373,13 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
                 <TableCell>{lead.hasReplied ? "Sim" : "Nao"}</TableCell>
                 <TableCell>{lead.lastOpenAt ? formatRelativeTime(lead.lastOpenAt) : "-"}</TableCell>
                 <TableCell>{formatStep(lead.emailOpenedStep)}</TableCell>
-                <TableCell>{formatStep(lead.emailClickedStep)}</TableCell>
-                <TableCell>{formatStep(lead.emailRepliedStep)}</TableCell>
                 <TableCell>
-                  {typeof lead.lastStepTimestampExecuted === "string" ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span>
-                          {formatRelativeTime(lead.lastStepTimestampExecuted)}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {new Date(lead.lastStepTimestampExecuted).toLocaleString("pt-BR")}
-                      </TooltipContent>
-                    </Tooltip>
-                  ) : "-"}
-                </TableCell>
-                <TableCell>
-                  <Badge
-                    data-testid="status-summary-badge"
-                    variant={statusBadge.variant}
-                  >
-                    {statusBadge.label}
+                  <Badge variant="outline" data-testid="esp-provider-badge">
+                    <span className="font-bold mr-1">{provider.shortLabel}</span>
+                    {provider.label}
                   </Badge>
                 </TableCell>
+                <TableCell data-testid="esg-gateway-cell">{gateway}</TableCell>
                 <TableCell>
                   {waCount > 0 && (
                     <Tooltip>
