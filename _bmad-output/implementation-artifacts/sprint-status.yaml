@@ -339,7 +339,7 @@ development_status:
   epic-14: in-progress
   14-1-expandir-tipos-e-mapeamento-api-instantly: done  # Fundacao: mapear esp_code, esg_code, email_opened_step, leads_count, contacted_count, campaign_status. Code review: 4 MEDIUM, 2 LOW fixes (inline type → Pick, redundant ??, mock undefineds, leadId mapping, File List). 277 files, 5041 tests passed
   14-2-barra-de-progresso-e-status-campanha: done  # Barra visual contactedCount/leadsCount + badge de status. Code review: bug empty state msg, aria-label, 4 novos testes. 278 files, 5059 tests passed
-  14-3-grafico-de-evolucao-diaria: backlog  # Chart de linhas com dailyAnalytics (dados ja buscados, so UI). Depende de 14.1
+  14-3-grafico-de-evolucao-diaria: done  # AreaChart com dailyAnalytics (sent/opened/replies). Code review: a11y teclado, CustomTooltip testado, gradient IDs unicos, formatDateBR defensivo. 279 files, 5076 tests passed
   14-4-detalhamento-aberturas-cliques-respostas-por-step: backlog  # Colunas step na LeadTrackingTable + status_summary badge. Depende de 14.1
   14-5-email-provider-e-security-gateway: backlog  # Colunas esp_code/esg_code na LeadTrackingTable com icones. Depende de 14.1
   epic-14-retrospective: optional

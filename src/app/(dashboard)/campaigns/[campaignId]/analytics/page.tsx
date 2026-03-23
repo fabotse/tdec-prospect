@@ -14,7 +14,7 @@
 
 "use client";
 
-import { use, useRef, useEffect } from "react";
+import { use, useRef, useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { ArrowLeft, BarChart3, Flame } from "lucide-react";
 import { toast } from "sonner";
@@ -28,7 +28,7 @@ import { LeadTrackingTable } from "@/components/tracking/LeadTrackingTable";
 import { ThresholdConfig } from "@/components/tracking/ThresholdConfig";
 import { OpportunityPanel } from "@/components/tracking/OpportunityPanel";
 import { Badge } from "@/components/ui/badge";
-import type { CampaignAnalytics } from "@/types/tracking";
+import type { CampaignAnalytics, DailyAnalyticsEntry } from "@/types/tracking";
 
 interface PageProps {
   params: Promise<{ campaignId: string }>;
@@ -70,6 +70,7 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
   const { data: opportunityConfig } = useOpportunityConfig(campaignId, { enabled: hasExternalId });
   const { mutate: saveConfig, isPending: isSavingConfig } = useSaveOpportunityConfig(campaignId);
 
+  const [dailyAnalytics, setDailyAnalytics] = useState<DailyAnalyticsEntry[]>([]);
   const { data: sentLeadEmails } = useSentLeadEmails(campaignId, { enabled: hasExternalId });
   const opportunityLeads = useOpportunityLeads(leads, opportunityConfig);
   const opportunityPanelRef = useRef<HTMLDivElement>(null);
@@ -116,16 +117,17 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
     });
   };
 
-  const handleSync = () => {
+  const handleSync = useCallback(() => {
     syncAnalytics(undefined, {
-      onSuccess: () => {
+      onSuccess: (result) => {
+        setDailyAnalytics(result.dailyAnalytics);
         toast.success("Analytics sincronizado com sucesso");
       },
       onError: (error) => {
         toast.error(error.message || "Erro ao sincronizar analytics");
       },
     });
-  };
+  }, [syncAnalytics]);
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -170,6 +172,7 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
         <>
           <AnalyticsDashboard
             analytics={analytics ?? EMPTY_ANALYTICS}
+            dailyAnalytics={dailyAnalytics}
             isLoading={isLoadingAnalytics}
             lastSyncAt={analytics?.lastSyncAt ?? null}
             onSync={handleSync}

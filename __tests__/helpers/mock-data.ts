@@ -12,6 +12,7 @@ import type { Product } from "@/types/product";
 import type {
   CampaignEventRow,
   CampaignAnalytics,
+  DailyAnalyticsEntry,
   LeadTracking,
   InstantlyAnalyticsResponse,
   InstantlyLeadEntry,
@@ -433,4 +434,34 @@ export function createMockInstantlyLeadEntry(
     status_summary: "Email opened",
     ...overrides,
   };
+}
+
+// ==============================================
+// DAILY ANALYTICS MOCKS (Story 14.3)
+// ==============================================
+
+/**
+ * Creates an array of DailyAnalyticsEntry mocks
+ * Story 14.3 Task 5
+ */
+export function createMockDailyAnalytics(
+  days: number = 7,
+  overrides: Partial<DailyAnalyticsEntry> = {}
+): DailyAnalyticsEntry[] {
+  return Array.from({ length: days }, (_, i) => {
+    const date = new Date(2026, 2, 1); // Fixed date for deterministic tests
+    date.setDate(date.getDate() + i);
+    return {
+      date: date.toISOString().split("T")[0],
+      sent: 50 + i * 10,
+      contacted: 45 + i * 8,
+      opened: 20 + i * 5,
+      unique_opened: 15 + i * 4,
+      replies: 3 + i,
+      unique_replies: 2 + i,
+      clicks: 5 + i * 2,
+      unique_clicks: 4 + i,
+      ...overrides,
+    };
+  });
 }

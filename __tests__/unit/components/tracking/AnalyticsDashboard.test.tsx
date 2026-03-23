@@ -11,7 +11,20 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AnalyticsDashboard } from "@/components/tracking/AnalyticsDashboard";
-import { createMockCampaignAnalytics } from "../../../helpers/mock-data";
+import { createMockCampaignAnalytics, createMockDailyAnalytics } from "../../../helpers/mock-data";
+
+// Mock recharts — jsdom lacks ResizeObserver (needed when DailyAnalyticsChart renders with data)
+vi.mock("recharts", async () => {
+  const OriginalModule = await vi.importActual<typeof import("recharts")>("recharts");
+  return {
+    ...OriginalModule,
+    ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
+      <div data-testid="responsive-container" style={{ width: 800, height: 300 }}>
+        {children}
+      </div>
+    ),
+  };
+});
 
 describe("AnalyticsDashboard (AC: #1, #2, #3)", () => {
   const mockAnalytics = createMockCampaignAnalytics({
@@ -154,7 +167,43 @@ describe("AnalyticsDashboard (AC: #1, #2, #3)", () => {
     expect(screen.getByTestId("campaign-progress")).toBeInTheDocument();
   });
 
-  it("skeleton inclui 5 placeholders de cards (AC: #2) (7.3)", () => {
+  it("renderiza DailyAnalyticsChart com estado vazio (14.3 AC: #1)", () => {
+    render(
+      <AnalyticsDashboard
+        analytics={mockAnalytics}
+        isLoading={false}
+        lastSyncAt={null}
+        onSync={onSync}
+        isSyncing={false}
+        campaignName="Teste"
+      />
+    );
+
+    expect(screen.getByTestId("daily-analytics-chart")).toBeInTheDocument();
+    expect(screen.getByTestId("daily-chart-empty")).toBeInTheDocument();
+  });
+
+  it("renderiza DailyAnalyticsChart com dados quando dailyAnalytics fornecido (14.3 AC: #5)", () => {
+    const mockDaily = createMockDailyAnalytics(5);
+
+    render(
+      <AnalyticsDashboard
+        analytics={mockAnalytics}
+        dailyAnalytics={mockDaily}
+        isLoading={false}
+        lastSyncAt={null}
+        onSync={onSync}
+        isSyncing={false}
+        campaignName="Teste"
+      />
+    );
+
+    expect(screen.getByTestId("daily-analytics-chart")).toBeInTheDocument();
+    expect(screen.getByTestId("daily-chart-container")).toBeInTheDocument();
+    expect(screen.queryByTestId("daily-chart-empty")).not.toBeInTheDocument();
+  });
+
+  it("skeleton inclui 5 placeholders de cards + chart skeleton (AC: #2) (7.3)", () => {
     const { container } = render(
       <AnalyticsDashboard
         analytics={mockAnalytics}
@@ -167,7 +216,7 @@ describe("AnalyticsDashboard (AC: #1, #2, #3)", () => {
     );
 
     const skeletonCards = container.querySelectorAll("[data-slot='skeleton']");
-    // 2 header skeletons + 1 progress skeleton + 5 card skeletons = 8 total
-    expect(skeletonCards.length).toBe(8);
+    // 2 header skeletons + 1 progress skeleton + 5 card skeletons + 1 chart skeleton = 9 total
+    expect(skeletonCards.length).toBe(9);
   });
 });

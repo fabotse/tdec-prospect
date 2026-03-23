@@ -1,4 +1,5 @@
 export { AnalyticsDashboard } from "./AnalyticsDashboard";
+export { DailyAnalyticsChart } from "./DailyAnalyticsChart";
 export { AnalyticsCards } from "./AnalyticsCards";
 export { SyncIndicator } from "./SyncIndicator";
 export { LeadTrackingTable } from "./LeadTrackingTable";

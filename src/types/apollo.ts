@@ -220,6 +220,7 @@ export function transformApolloToLeadRow(
     icebreaker: null,
     icebreaker_generated_at: null,
     linkedin_posts_cache: null,
+    is_monitored: false,
   };
 }
 

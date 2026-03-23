@@ -13,10 +13,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AnalyticsCards } from "@/components/tracking/AnalyticsCards";
 import { CampaignProgress } from "@/components/tracking/CampaignProgress";
 import { SyncIndicator } from "@/components/tracking/SyncIndicator";
-import type { CampaignAnalytics } from "@/types/tracking";
+import type { CampaignAnalytics, DailyAnalyticsEntry } from "@/types/tracking";
+import { DailyAnalyticsChart } from "@/components/tracking/DailyAnalyticsChart";
 
 interface AnalyticsDashboardProps {
   analytics: CampaignAnalytics;
+  dailyAnalytics?: DailyAnalyticsEntry[];
   isLoading: boolean;
   lastSyncAt: string | null;
   onSync: () => void;
@@ -40,12 +42,15 @@ function DashboardSkeleton() {
           <Skeleton key={i} className="h-24 rounded-xl" />
         ))}
       </div>
+      {/* Daily chart skeleton */}
+      <Skeleton className="h-[350px] rounded-lg" />
     </div>
   );
 }
 
 export function AnalyticsDashboard({
   analytics,
+  dailyAnalytics,
   isLoading,
   lastSyncAt,
   onSync,
@@ -73,6 +78,9 @@ export function AnalyticsDashboard({
 
       {/* Metric cards */}
       <AnalyticsCards analytics={analytics} />
+
+      {/* Daily evolution chart */}
+      <DailyAnalyticsChart dailyAnalytics={dailyAnalytics} />
     </div>
   );
 }

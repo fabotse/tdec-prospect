@@ -13,7 +13,8 @@ export type UsageServiceName =
   | "apollo"
   | "signalhire"
   | "snovio"
-  | "instantly";
+  | "instantly"
+  | "openai";
 
 /**
  * Status of an API usage log entry
@@ -100,6 +101,7 @@ export const SERVICE_COST_RATES: Record<UsageServiceName, number> = {
   signalhire: 0, // Not tracked yet
   snovio: 0, // Not tracked yet
   instantly: 0, // Not tracked yet
+  openai: 0, // Not tracked yet
 };
 
 /**

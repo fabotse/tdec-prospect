@@ -37,7 +37,7 @@ export async function PATCH(
   const { status } = body;
 
   // Validate status
-  if (!status || !insightStatusValues.includes(status as string)) {
+  if (!status || !(insightStatusValues as readonly string[]).includes(status as string)) {
     return NextResponse.json(
       { error: { code: "VALIDATION_ERROR", message: "Status invalido. Use: new, used, dismissed" } },
       { status: 400 }
