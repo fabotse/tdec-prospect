@@ -3,7 +3,7 @@
  * Story 13.3: Edge Function de Verificação Semanal — AC #5, #12
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   detectNewPosts,
   calculateNextRunAt,
@@ -127,18 +127,19 @@ describe("calculateNextRunAt", () => {
   });
 
   it("usa data atual como default se fromDate não for fornecido", () => {
-    const before = new Date();
-    const result = calculateNextRunAt("weekly");
-    const after = new Date();
+    vi.useFakeTimers();
+    const nowMs = Date.UTC(2026, 2, 23, 12, 0, 0);
+    vi.setSystemTime(nowMs);
 
-    // Result should be ~7 days from now
-    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-    expect(result.getTime()).toBeGreaterThanOrEqual(
-      before.getTime() + sevenDaysMs - 1000
-    );
-    expect(result.getTime()).toBeLessThanOrEqual(
-      after.getTime() + sevenDaysMs + 1000
-    );
+    const result = calculateNextRunAt("weekly");
+
+    // calculateNextRunAt uses Date.setDate(+7), so we replicate the same logic
+    const expected = new Date(nowMs);
+    expected.setDate(expected.getDate() + 7);
+
+    expect(result.getTime()).toBe(expected.getTime());
+
+    vi.useRealTimers();
   });
 
   it("não modifica a data original", () => {
