@@ -11,6 +11,7 @@
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { AnalyticsCards } from "@/components/tracking/AnalyticsCards";
+import { CampaignProgress } from "@/components/tracking/CampaignProgress";
 import { SyncIndicator } from "@/components/tracking/SyncIndicator";
 import type { CampaignAnalytics } from "@/types/tracking";
 
@@ -31,6 +32,8 @@ function DashboardSkeleton() {
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-9 w-36" />
       </div>
+      {/* Progress skeleton */}
+      <Skeleton className="h-12 rounded-lg" />
       {/* Cards skeleton */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         {Array.from({ length: 5 }).map((_, i) => (
@@ -64,6 +67,9 @@ export function AnalyticsDashboard({
           isSyncing={isSyncing}
         />
       </div>
+
+      {/* Progress + status */}
+      <CampaignProgress analytics={analytics} />
 
       {/* Metric cards */}
       <AnalyticsCards analytics={analytics} />

@@ -139,6 +139,21 @@ describe("AnalyticsDashboard (AC: #1, #2, #3)", () => {
     expect(screen.getByTestId("sync-button")).toHaveTextContent("Sincronizando...");
   });
 
+  it("renderiza CampaignProgress entre header e cards (14.2 AC: #1)", () => {
+    render(
+      <AnalyticsDashboard
+        analytics={mockAnalytics}
+        isLoading={false}
+        lastSyncAt={null}
+        onSync={onSync}
+        isSyncing={false}
+        campaignName="Teste"
+      />
+    );
+
+    expect(screen.getByTestId("campaign-progress")).toBeInTheDocument();
+  });
+
   it("skeleton inclui 5 placeholders de cards (AC: #2) (7.3)", () => {
     const { container } = render(
       <AnalyticsDashboard
@@ -152,7 +167,7 @@ describe("AnalyticsDashboard (AC: #1, #2, #3)", () => {
     );
 
     const skeletonCards = container.querySelectorAll("[data-slot='skeleton']");
-    // 2 header skeletons + 5 card skeletons = 7 total
-    expect(skeletonCards.length).toBe(7);
+    // 2 header skeletons + 1 progress skeleton + 5 card skeletons = 8 total
+    expect(skeletonCards.length).toBe(8);
   });
 });
