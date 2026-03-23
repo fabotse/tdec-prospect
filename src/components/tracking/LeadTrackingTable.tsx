@@ -49,7 +49,7 @@ const LEADS_PER_PAGE = 20;
 // TYPES
 // ==============================================
 
-type SortableColumn = "leadEmail" | "firstName" | "openCount" | "clickCount" | "hasReplied" | "lastOpenAt";
+type SortableColumn = "leadEmail" | "firstName" | "openCount" | "clickCount" | "hasReplied" | "lastOpenAt" | "emailOpenedStep";
 type SortDirection = "asc" | "desc" | null;
 
 interface SortState {
@@ -72,6 +72,27 @@ interface LeadTrackingTableProps {
 function formatName(lead: LeadTracking): string {
   const parts = [lead.firstName, lead.lastName].filter(Boolean);
   return parts.length > 0 ? parts.join(" ") : "-";
+}
+
+function formatStep(step: number | undefined): string {
+  return typeof step === "number" ? `Step ${step}` : "-";
+}
+
+const STATUS_SUMMARY_MAP: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
+  "Email opened": { label: "Aberto", variant: "default" },
+  "Reply received": { label: "Respondeu", variant: "default" },
+  "Completed": { label: "Completo", variant: "secondary" },
+  "Bounced": { label: "Bounce", variant: "destructive" },
+  "Unsubscribed": { label: "Descadastrou", variant: "destructive" },
+};
+
+function getStatusBadgeProps(statusSummary: unknown): { label: string; variant: "default" | "secondary" | "outline" | "destructive" } {
+  const rawStatus = typeof statusSummary === "string" ? statusSummary : undefined;
+  const statusInfo = STATUS_SUMMARY_MAP[rawStatus ?? ""];
+  return {
+    label: statusInfo?.label ?? rawStatus ?? "-",
+    variant: statusInfo?.variant ?? "outline",
+  };
 }
 
 function getNextDirection(current: SortDirection): SortDirection {
@@ -104,6 +125,11 @@ function compareLead(a: LeadTracking, b: LeadTracking, column: SortableColumn, d
       const timeA = a.lastOpenAt ? new Date(a.lastOpenAt).getTime() : 0;
       const timeB = b.lastOpenAt ? new Date(b.lastOpenAt).getTime() : 0;
       return mult * (timeA - timeB);
+    }
+    case "emailOpenedStep": {
+      const aVal = a.emailOpenedStep ?? -1;
+      const bVal = b.emailOpenedStep ?? -1;
+      return mult * (aVal - bVal);
     }
     default:
       return 0;
@@ -200,6 +226,11 @@ function SkeletonRows() {
           <TableCell><Skeleton className="h-4 w-16" /></TableCell>
           <TableCell><Skeleton className="h-4 w-12" /></TableCell>
           <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+          <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+          <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+          <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+          <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+          <TableCell><Skeleton className="h-4 w-16" /></TableCell>
           <TableCell><Skeleton className="h-4 w-4" /></TableCell>
         </TableRow>
       ))}
@@ -273,6 +304,7 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
   return (
     <TooltipProvider>
     <div data-testid="lead-tracking-table" className="flex flex-col gap-4">
+      <div className="overflow-x-auto">
       <Table>
         <TableHeader>
           <TableRow>
@@ -282,6 +314,25 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
             <SortableHeader label="Cliques" column="clickCount" sort={sort} onSort={handleSort} />
             <SortableHeader label="Respondeu" column="hasReplied" sort={sort} onSort={handleSort} />
             <SortableHeader label="Ultimo Open" column="lastOpenAt" sort={sort} onSort={handleSort} />
+            <SortableHeader label="Step Abertura" column="emailOpenedStep" sort={sort} onSort={handleSort} />
+            <TableHead>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="cursor-help">Step Clique</span>
+                </TooltipTrigger>
+                <TooltipContent>Step em que o lead clicou no link</TooltipContent>
+              </Tooltip>
+            </TableHead>
+            <TableHead>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="cursor-help">Step Resposta</span>
+                </TooltipTrigger>
+                <TooltipContent>Step em que o lead respondeu ao email</TooltipContent>
+              </Tooltip>
+            </TableHead>
+            <TableHead>Ultimo Step</TableHead>
+            <TableHead>Status</TableHead>
             <TableHead className="w-10">WA</TableHead>
           </TableRow>
         </TableHeader>
@@ -291,6 +342,7 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
           ) : (
             paginatedLeads.map((lead) => {
               const waCount = lead.whatsappMessageCount ?? 0;
+              const statusBadge = getStatusBadgeProps(lead.statusSummary);
               return (
               <TableRow key={lead.leadEmail} data-testid="lead-row">
                 <TableCell className="font-medium">{lead.leadEmail}</TableCell>
@@ -316,6 +368,31 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
                 <TableCell>{lead.clickCount}</TableCell>
                 <TableCell>{lead.hasReplied ? "Sim" : "Nao"}</TableCell>
                 <TableCell>{lead.lastOpenAt ? formatRelativeTime(lead.lastOpenAt) : "-"}</TableCell>
+                <TableCell>{formatStep(lead.emailOpenedStep)}</TableCell>
+                <TableCell>{formatStep(lead.emailClickedStep)}</TableCell>
+                <TableCell>{formatStep(lead.emailRepliedStep)}</TableCell>
+                <TableCell>
+                  {typeof lead.lastStepTimestampExecuted === "string" ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          {formatRelativeTime(lead.lastStepTimestampExecuted)}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {new Date(lead.lastStepTimestampExecuted).toLocaleString("pt-BR")}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : "-"}
+                </TableCell>
+                <TableCell>
+                  <Badge
+                    data-testid="status-summary-badge"
+                    variant={statusBadge.variant}
+                  >
+                    {statusBadge.label}
+                  </Badge>
+                </TableCell>
                 <TableCell>
                   {waCount > 0 && (
                     <Tooltip>
@@ -338,6 +415,7 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
           )}
         </TableBody>
       </Table>
+      </div>
 
       {!isLoading && leads.length > LEADS_PER_PAGE && (
         <div data-testid="pagination" className="flex items-center justify-between">

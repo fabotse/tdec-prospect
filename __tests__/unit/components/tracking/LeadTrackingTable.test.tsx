@@ -82,7 +82,7 @@ const mockLeads: LeadTracking[] = [
 
 describe("LeadTrackingTable", () => {
   describe("renderizacao basica (AC #1)", () => {
-    it("renderiza 6 colunas de header", () => {
+    it("renderiza 12 colunas de header", () => {
       render(<LeadTrackingTable leads={mockLeads} isLoading={false} />);
 
       expect(screen.getByText("Email")).toBeInTheDocument();
@@ -91,6 +91,12 @@ describe("LeadTrackingTable", () => {
       expect(screen.getByText("Cliques")).toBeInTheDocument();
       expect(screen.getByText("Respondeu")).toBeInTheDocument();
       expect(screen.getByText("Ultimo Open")).toBeInTheDocument();
+      expect(screen.getByText("Step Abertura")).toBeInTheDocument();
+      expect(screen.getByText("Step Clique")).toBeInTheDocument();
+      expect(screen.getByText("Step Resposta")).toBeInTheDocument();
+      expect(screen.getByText("Ultimo Step")).toBeInTheDocument();
+      expect(screen.getByText("Status")).toBeInTheDocument();
+      expect(screen.getByText("WA")).toBeInTheDocument();
     });
 
     it("renderiza emails dos leads", () => {
@@ -135,10 +141,11 @@ describe("LeadTrackingTable", () => {
     it("exibe lastOpenAt como tempo relativo ou '-'", () => {
       render(<LeadTrackingTable leads={mockLeads} isLoading={false} />);
 
-      // Leads com lastOpenAt=null exibem "-"
+      // Leads com lastOpenAt=null exibem "-" (among other "-" from new step columns)
       const rows = screen.getAllByTestId("lead-row");
       const anaRow = rows[2];
-      expect(within(anaRow).getByText("-")).toBeInTheDocument();
+      const dashes = within(anaRow).getAllByText("-");
+      expect(dashes.length).toBeGreaterThanOrEqual(1);
     });
 
     it("renderiza contagem de openCount e clickCount", () => {
@@ -511,6 +518,247 @@ describe("LeadTrackingTable", () => {
 
       const badge = screen.getByTestId("high-interest-badge");
       expect(badge.className).toContain("cursor-pointer");
+    });
+  });
+
+  // ==============================================
+  // Story 14.4 — Step columns, last step, sort, status badge
+  // ==============================================
+
+  describe("colunas de step (Story 14.4 AC #1, #2, #3)", () => {
+    it("renderiza colunas Step Abertura, Step Clique, Step Resposta", () => {
+      render(<LeadTrackingTable leads={mockLeads} isLoading={false} />);
+
+      expect(screen.getByText("Step Abertura")).toBeInTheDocument();
+      expect(screen.getByText("Step Clique")).toBeInTheDocument();
+      expect(screen.getByText("Step Resposta")).toBeInTheDocument();
+    });
+
+    it("exibe 'Step N' quando campo de step presente", () => {
+      const leads = [
+        createMockLeadTracking({
+          leadEmail: "test@x.com",
+          emailOpenedStep: 2,
+          emailClickedStep: 1,
+          emailRepliedStep: 3,
+        }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const row = screen.getByTestId("lead-row");
+      expect(within(row).getByText("Step 2")).toBeInTheDocument();
+      expect(within(row).getByText("Step 1")).toBeInTheDocument();
+      expect(within(row).getByText("Step 3")).toBeInTheDocument();
+    });
+
+    it("exibe '-' quando campo de step e undefined", () => {
+      const leads = [
+        createMockLeadTracking({
+          leadEmail: "no-steps@x.com",
+          emailOpenedStep: undefined,
+          emailClickedStep: undefined,
+          emailRepliedStep: undefined,
+        }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const row = screen.getByTestId("lead-row");
+      const cells = row.querySelectorAll("td");
+      // Cells index: 0=Email, 1=Nome, 2=Aberturas, 3=Cliques, 4=Respondeu, 5=UltimoOpen,
+      //              6=StepAbertura, 7=StepClique, 8=StepResposta, 9=UltimoStep, 10=Status, 11=WA
+      expect(cells[6]).toHaveTextContent("-");
+      expect(cells[7]).toHaveTextContent("-");
+      expect(cells[8]).toHaveTextContent("-");
+    });
+  });
+
+  describe("tooltips dos headers de step (Story 14.4 AC #2)", () => {
+    it("tooltip de Step Clique tem texto especifico", async () => {
+      const user = userEvent.setup();
+      render(<LeadTrackingTable leads={mockLeads} isLoading={false} />);
+
+      const stepClique = screen.getByText("Step Clique");
+      await user.hover(stepClique);
+
+      const tooltip = await screen.findByRole("tooltip");
+      expect(tooltip).toHaveTextContent("Step em que o lead clicou no link");
+    });
+
+    it("tooltip de Step Resposta tem texto especifico", async () => {
+      const user = userEvent.setup();
+      render(<LeadTrackingTable leads={mockLeads} isLoading={false} />);
+
+      const stepResposta = screen.getByText("Step Resposta");
+      await user.hover(stepResposta);
+
+      const tooltip = await screen.findByRole("tooltip");
+      expect(tooltip).toHaveTextContent("Step em que o lead respondeu ao email");
+    });
+  });
+
+  describe("ultimo step executado (Story 14.4 AC #4)", () => {
+    it("renderiza header Ultimo Step", () => {
+      render(<LeadTrackingTable leads={mockLeads} isLoading={false} />);
+
+      expect(screen.getByText("Ultimo Step")).toBeInTheDocument();
+    });
+
+    it("exibe tempo relativo quando lastStepTimestampExecuted presente", () => {
+      const leads = [
+        createMockLeadTracking({
+          leadEmail: "step@x.com",
+          lastStepId: "step-1",
+          lastStepTimestampExecuted: "2026-02-08T14:00:00.000Z",
+        }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const row = screen.getByTestId("lead-row");
+      const cells = row.querySelectorAll("td");
+      // Cell 9 = Ultimo Step — should contain relative time text (not "-")
+      expect(cells[9].textContent).not.toBe("-");
+      expect(cells[9].textContent?.length).toBeGreaterThan(0);
+    });
+
+    it("exibe '-' quando lastStepTimestampExecuted e undefined", () => {
+      const leads = [
+        createMockLeadTracking({
+          leadEmail: "no-step@x.com",
+          lastStepId: undefined,
+          lastStepTimestampExecuted: undefined,
+        }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const row = screen.getByTestId("lead-row");
+      const dashes = within(row).getAllByText("-");
+      expect(dashes.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe("ordenacao por emailOpenedStep (Story 14.4 AC #5)", () => {
+    it("ordena por Step Abertura desc ao clicar", async () => {
+      const user = userEvent.setup();
+      const leads = [
+        createMockLeadTracking({ leadEmail: "a@x.com", emailOpenedStep: 1 }),
+        createMockLeadTracking({ leadEmail: "b@x.com", emailOpenedStep: 3 }),
+        createMockLeadTracking({ leadEmail: "c@x.com", emailOpenedStep: undefined }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      await user.click(screen.getByTestId("sort-emailOpenedStep"));
+
+      const rows = screen.getAllByTestId("lead-row");
+      // Desc: 3, 1, -1 (undefined)
+      expect(within(rows[0]).getByText("b@x.com")).toBeInTheDocument();
+      expect(within(rows[1]).getByText("a@x.com")).toBeInTheDocument();
+      expect(within(rows[2]).getByText("c@x.com")).toBeInTheDocument();
+    });
+
+    it("ordena por Step Abertura asc ao clicar novamente", async () => {
+      const user = userEvent.setup();
+      const leads = [
+        createMockLeadTracking({ leadEmail: "a@x.com", emailOpenedStep: 1 }),
+        createMockLeadTracking({ leadEmail: "b@x.com", emailOpenedStep: 3 }),
+        createMockLeadTracking({ leadEmail: "c@x.com", emailOpenedStep: undefined }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      await user.click(screen.getByTestId("sort-emailOpenedStep"));
+      await user.click(screen.getByTestId("sort-emailOpenedStep"));
+
+      const rows = screen.getAllByTestId("lead-row");
+      // Asc: -1 (undefined), 1, 3
+      expect(within(rows[0]).getByText("c@x.com")).toBeInTheDocument();
+      expect(within(rows[1]).getByText("a@x.com")).toBeInTheDocument();
+      expect(within(rows[2]).getByText("b@x.com")).toBeInTheDocument();
+    });
+
+    it("reseta ordenacao ao clicar terceira vez", async () => {
+      const user = userEvent.setup();
+      const leads = [
+        createMockLeadTracking({ leadEmail: "a@x.com", emailOpenedStep: 1 }),
+        createMockLeadTracking({ leadEmail: "b@x.com", emailOpenedStep: 3 }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      await user.click(screen.getByTestId("sort-emailOpenedStep"));
+      await user.click(screen.getByTestId("sort-emailOpenedStep"));
+      await user.click(screen.getByTestId("sort-emailOpenedStep"));
+
+      const rows = screen.getAllByTestId("lead-row");
+      // Original order
+      expect(within(rows[0]).getByText("a@x.com")).toBeInTheDocument();
+      expect(within(rows[1]).getByText("b@x.com")).toBeInTheDocument();
+    });
+  });
+
+  describe("badge status_summary (Story 14.4 AC #6)", () => {
+    it("exibe badge com label PT-BR para status mapeado", () => {
+      const leads = [
+        createMockLeadTracking({
+          leadEmail: "opened@x.com",
+          statusSummary: "Email opened",
+        }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const badge = screen.getByTestId("status-summary-badge");
+      expect(badge).toHaveTextContent("Aberto");
+    });
+
+    it("exibe badge para cada status mapeado", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "a@x.com", statusSummary: "Reply received" }),
+        createMockLeadTracking({ leadEmail: "b@x.com", statusSummary: "Completed" }),
+        createMockLeadTracking({ leadEmail: "c@x.com", statusSummary: "Bounced" }),
+        createMockLeadTracking({ leadEmail: "d@x.com", statusSummary: "Unsubscribed" }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const badges = screen.getAllByTestId("status-summary-badge");
+      expect(badges).toHaveLength(4);
+      expect(badges[0]).toHaveTextContent("Respondeu");
+      expect(badges[1]).toHaveTextContent("Completo");
+      expect(badges[2]).toHaveTextContent("Bounce");
+      expect(badges[3]).toHaveTextContent("Descadastrou");
+    });
+
+    it("exibe valor original quando status nao esta no mapa (fallback)", () => {
+      const leads = [
+        createMockLeadTracking({
+          leadEmail: "unknown@x.com",
+          statusSummary: "Custom status",
+        }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const badge = screen.getByTestId("status-summary-badge");
+      expect(badge).toHaveTextContent("Custom status");
+    });
+
+    it("exibe '-' quando statusSummary e undefined", () => {
+      const leads = [
+        createMockLeadTracking({
+          leadEmail: "none@x.com",
+          statusSummary: undefined,
+        }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const badge = screen.getByTestId("status-summary-badge");
+      expect(badge).toHaveTextContent("-");
+    });
+  });
+
+  describe("skeleton rows (Story 14.4 AC #1)", () => {
+    it("skeleton row tem 12 celulas (7 originais + 5 novas)", () => {
+      render(<LeadTrackingTable leads={[]} isLoading={true} />);
+
+      const skeletonRows = screen.getAllByTestId("skeleton-row");
+      const firstRow = skeletonRows[0];
+      const cells = firstRow.querySelectorAll("td");
+      expect(cells).toHaveLength(12);
     });
   });
 
