@@ -26,6 +26,7 @@ import { useCampaignSteps } from "@/hooks/use-campaign-steps";
 import { DEFAULT_MIN_OPENS } from "@/lib/services/opportunity-engine";
 import { AnalyticsDashboard } from "@/components/tracking/AnalyticsDashboard";
 import { LeadTrackingTable } from "@/components/tracking/LeadTrackingTable";
+import { StepPreviewPanel } from "@/components/tracking/StepPreviewPanel";
 import { ThresholdConfig } from "@/components/tracking/ThresholdConfig";
 import { OpportunityPanel } from "@/components/tracking/OpportunityPanel";
 import { Badge } from "@/components/ui/badge";
@@ -73,9 +74,17 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
 
   const [dailyAnalytics, setDailyAnalytics] = useState<DailyAnalyticsEntry[]>([]);
   const { data: sentLeadEmails } = useSentLeadEmails(campaignId, { enabled: hasExternalId });
-  const { data: stepsMap } = useCampaignSteps(campaignId, { enabled: hasExternalId });
+  const { stepsMap, stepsData } = useCampaignSteps(campaignId, { enabled: hasExternalId });
   const opportunityLeads = useOpportunityLeads(leads, opportunityConfig);
   const opportunityPanelRef = useRef<HTMLDivElement>(null);
+
+  const [isStepPanelOpen, setIsStepPanelOpen] = useState(false);
+  const [selectedStep, setSelectedStep] = useState<number | null>(null);
+
+  const handleStepClick = useCallback((stepNumber: number) => {
+    setSelectedStep(stepNumber);
+    setIsStepPanelOpen(true);
+  }, []);
 
   const scrollToOpportunity = () => {
     opportunityPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -203,6 +212,14 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
             highInterestThreshold={opportunityConfig?.minOpens ?? DEFAULT_MIN_OPENS}
             onHighInterestClick={scrollToOpportunity}
             stepsMap={stepsMap}
+            onStepClick={handleStepClick}
+          />
+          <StepPreviewPanel
+            open={isStepPanelOpen}
+            onOpenChange={setIsStepPanelOpen}
+            steps={stepsData ?? []}
+            highlightedStep={selectedStep}
+            campaignName={campaign?.name ?? ""}
           />
         </>
       )}

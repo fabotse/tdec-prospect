@@ -1,6 +1,7 @@
 /**
  * Campaign Steps Hook
  * Story 14.6: Tooltip com Preview do Email por Step
+ * Story 14.7: Painel lateral com preview dos steps
  *
  * AC: #3 — Cache with staleTime: Infinity (steps don't change during campaign)
  * AC: #6 — Non-blocking loading state
@@ -8,6 +9,7 @@
 
 "use client";
 
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { CampaignStep } from "@/types/tracking";
 
@@ -40,20 +42,29 @@ async function fetchCampaignSteps(campaignId: string): Promise<CampaignStep[]> {
 // ==============================================
 
 export function useCampaignSteps(campaignId: string, options?: { enabled?: boolean }) {
-  return useQuery({
+  const query = useQuery({
     queryKey: CAMPAIGN_STEPS_QUERY_KEY(campaignId),
     queryFn: () => fetchCampaignSteps(campaignId),
-    select: (steps) => {
-      const map = new Map<number, string>();
-      for (const step of steps) {
-        if (typeof step.stepNumber === "number" && typeof step.subject === "string" && step.subject) {
-          map.set(step.stepNumber, step.subject);
-        }
-      }
-      return map;
-    },
     staleTime: Infinity,
     gcTime: 30 * 60 * 1000,
     enabled: (options?.enabled ?? true) && !!campaignId,
   });
+
+  const stepsMap = useMemo(() => {
+    if (!query.data) return undefined;
+    const map = new Map<number, string>();
+    for (const step of query.data) {
+      if (typeof step.stepNumber === "number" && typeof step.subject === "string" && step.subject) {
+        map.set(step.stepNumber, step.subject);
+      }
+    }
+    return map;
+  }, [query.data]);
+
+  return {
+    stepsMap,
+    stepsData: query.data,
+    isLoading: query.isLoading,
+    isError: query.isError,
+  };
 }

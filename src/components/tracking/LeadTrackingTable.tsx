@@ -64,6 +64,7 @@ interface LeadTrackingTableProps {
   highInterestThreshold?: number;
   onHighInterestClick?: () => void;
   stepsMap?: Map<number, string>;
+  onStepClick?: (stepNumber: number) => void;
 }
 
 // ==============================================
@@ -76,7 +77,7 @@ function formatName(lead: LeadTracking): string {
 }
 
 function formatStep(step: number | undefined): string {
-  return typeof step === "number" ? `Step ${step}` : "-";
+  return typeof step === "number" ? `Step ${step + 1}` : "-";
 }
 
 function getStepTooltip(stepNumber: number | undefined, stepsMap?: Map<number, string>): string | undefined {
@@ -285,7 +286,7 @@ function ErrorState() {
 // LEAD TRACKING TABLE
 // ==============================================
 
-export function LeadTrackingTable({ leads, isLoading, isError, highInterestThreshold, onHighInterestClick, stepsMap }: LeadTrackingTableProps) {
+export function LeadTrackingTable({ leads, isLoading, isError, highInterestThreshold, onHighInterestClick, stepsMap, onStepClick }: LeadTrackingTableProps) {
   const [sort, setSort] = useState<SortState>({ column: null, direction: null });
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -383,12 +384,23 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
                   {(() => {
                     const subject = getStepTooltip(lead.emailOpenedStep, stepsMap);
                     if (typeof lead.emailOpenedStep !== "number") return "-";
+
+                    const stepText = formatStep(lead.emailOpenedStep);
+                    const handleClick = (e: React.MouseEvent) => {
+                      e.stopPropagation();
+                      onStepClick?.(lead.emailOpenedStep);
+                    };
+
                     if (subject) {
                       return (
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <span className="cursor-help underline decoration-dotted" data-testid="step-tooltip-trigger">
-                              {formatStep(lead.emailOpenedStep)}
+                            <span
+                              className="cursor-pointer underline decoration-dotted"
+                              data-testid="step-click-trigger"
+                              onClick={handleClick}
+                            >
+                              {stepText}
                             </span>
                           </TooltipTrigger>
                           <TooltipContent className="max-w-xs">
@@ -397,7 +409,15 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
                         </Tooltip>
                       );
                     }
-                    return formatStep(lead.emailOpenedStep);
+                    return (
+                      <span
+                        className="cursor-pointer underline decoration-dotted"
+                        data-testid="step-click-trigger"
+                        onClick={handleClick}
+                      >
+                        {stepText}
+                      </span>
+                    );
                   })()}
                 </TableCell>
                 <TableCell>

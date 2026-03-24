@@ -128,8 +128,10 @@ describe("CampaignAnalyticsPage (AC: #1, #2, #4, #5)", () => {
     });
 
     mockUseCampaignSteps.mockReturnValue({
-      data: undefined,
+      stepsMap: undefined,
+      stepsData: undefined,
       isLoading: false,
+      isError: false,
     });
 
     // Clear localStorage for toast tests
@@ -769,6 +771,84 @@ describe("CampaignAnalyticsPage (AC: #1, #2, #4, #5)", () => {
       // With threshold=5 from config, only openCount=5 should have badge
       const badges = screen.getAllByTestId("high-interest-badge");
       expect(badges).toHaveLength(1);
+    });
+  });
+
+  // ==============================================
+  // Story 14.7: StepPreviewPanel integration
+  // ==============================================
+
+  it("passa stepsData e onStepClick para LeadTrackingTable quando campanha exportada (14.7)", async () => {
+    const mockSteps = [
+      { stepNumber: 0, subject: "Primeiro", body: "Body 1" },
+      { stepNumber: 1, subject: "Segundo", body: "Body 2" },
+    ];
+    mockUseCampaign.mockReturnValue({
+      data: { id: campaignId, name: "Campanha X", externalCampaignId: "ext-123" },
+      isLoading: false,
+    });
+    mockUseCampaignAnalytics.mockReturnValue({
+      data: mockAnalytics,
+      isLoading: false,
+    });
+    mockUseLeadTracking.mockReturnValue({
+      data: [
+        createMockLeadTracking({ leadEmail: "a@test.com", emailOpenedStep: 0 }),
+      ],
+      isLoading: false,
+      isError: false,
+    });
+    mockUseCampaignSteps.mockReturnValue({
+      stepsMap: new Map([[0, "Primeiro"], [1, "Segundo"]]),
+      stepsData: mockSteps,
+      isLoading: false,
+      isError: false,
+    });
+
+    await renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-click-trigger")).toBeInTheDocument();
+    });
+  });
+
+  it("click em Step abre StepPreviewPanel com step destacado (14.7 AC #8)", async () => {
+    const user = userEvent.setup();
+    const mockSteps = [
+      { stepNumber: 0, subject: "Primeiro", body: "Body 1" },
+      { stepNumber: 1, subject: "Segundo", body: "Body 2" },
+    ];
+    mockUseCampaign.mockReturnValue({
+      data: { id: campaignId, name: "Campanha X", externalCampaignId: "ext-123" },
+      isLoading: false,
+    });
+    mockUseCampaignAnalytics.mockReturnValue({
+      data: mockAnalytics,
+      isLoading: false,
+    });
+    mockUseLeadTracking.mockReturnValue({
+      data: [
+        createMockLeadTracking({ leadEmail: "a@test.com", emailOpenedStep: 0 }),
+      ],
+      isLoading: false,
+      isError: false,
+    });
+    mockUseCampaignSteps.mockReturnValue({
+      stepsMap: new Map([[0, "Primeiro"], [1, "Segundo"]]),
+      stepsData: mockSteps,
+      isLoading: false,
+      isError: false,
+    });
+
+    await renderPage();
+
+    // Click the step trigger
+    const trigger = await screen.findByTestId("step-click-trigger");
+    await user.click(trigger);
+
+    // StepPreviewPanel should open
+    await waitFor(() => {
+      expect(screen.getByTestId("step-preview-panel")).toBeInTheDocument();
     });
   });
 });

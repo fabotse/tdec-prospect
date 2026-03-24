@@ -94,9 +94,9 @@ describe("GET /api/campaigns/[campaignId]/steps", () => {
 
     const emailBlocksChain = createChainBuilder({
       data: [
-        { position: 0, subject: "Olá {{firstName}}" },
-        { position: 1, subject: "Follow-up" },
-        { position: 2, subject: "Última tentativa" },
+        { position: 0, subject: "Olá {{firstName}}", body: "Corpo do email 1" },
+        { position: 1, subject: "Follow-up", body: "Corpo do follow-up" },
+        { position: 2, subject: "Última tentativa", body: "" },
       ],
       error: null,
     });
@@ -108,9 +108,9 @@ describe("GET /api/campaigns/[campaignId]/steps", () => {
 
     expect(response.status).toBe(200);
     expect(body.data).toEqual([
-      { stepNumber: 1, subject: "Olá {{firstName}}" },
-      { stepNumber: 2, subject: "Follow-up" },
-      { stepNumber: 3, subject: "Última tentativa" },
+      { stepNumber: 0, subject: "Olá {{firstName}}", body: "Corpo do email 1" },
+      { stepNumber: 1, subject: "Follow-up", body: "Corpo do follow-up" },
+      { stepNumber: 2, subject: "Última tentativa", body: "" },
     ]);
   });
 
@@ -189,8 +189,8 @@ describe("GET /api/campaigns/[campaignId]/steps", () => {
 
     expect(response.status).toBe(200);
     expect(body.data).toEqual([
-      { stepNumber: 1, subject: "Instantly Step 1" },
-      { stepNumber: 2, subject: "Instantly Step 2" },
+      { stepNumber: 0, subject: "Instantly Step 1", body: "<p>Body</p>" },
+      { stepNumber: 1, subject: "Instantly Step 2", body: "<p>Body 2</p>" },
     ]);
 
     expect(fetch).toHaveBeenCalledWith(
@@ -279,13 +279,13 @@ describe("GET /api/campaigns/[campaignId]/steps", () => {
     expect(body.error).toBe("Erro ao buscar email blocks");
   });
 
-  it("handles null subject in email_blocks gracefully", async () => {
+  it("handles null subject and body in email_blocks gracefully", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
 
     const blocksChain = createChainBuilder({
       data: [
-        { position: 0, subject: "Valid subject" },
-        { position: 1, subject: null },
+        { position: 0, subject: "Valid subject", body: "Valid body" },
+        { position: 1, subject: null, body: null },
       ],
       error: null,
     });
@@ -297,8 +297,8 @@ describe("GET /api/campaigns/[campaignId]/steps", () => {
 
     expect(response.status).toBe(200);
     expect(body.data).toEqual([
-      { stepNumber: 1, subject: "Valid subject" },
-      { stepNumber: 2, subject: "" },
+      { stepNumber: 0, subject: "Valid subject", body: "Valid body" },
+      { stepNumber: 1, subject: "", body: "" },
     ]);
   });
 });

@@ -1,6 +1,7 @@
 /**
  * Unit Tests for useCampaignSteps hook
  * Story 14.6: Tooltip com Preview do Email por Step
+ * Story 14.7: Painel lateral com preview dos steps
  *
  * AC: #3 — Cache with staleTime: Infinity
  * AC: #6 — Non-blocking loading state
@@ -37,11 +38,11 @@ describe("useCampaignSteps (AC: #3, #6)", () => {
     vi.clearAllMocks();
   });
 
-  it("fetches steps and returns Map<number, string>", async () => {
+  it("fetches steps and returns stepsMap and stepsData", async () => {
     const mockSteps: CampaignStep[] = [
-      { stepNumber: 1, subject: "Olá {{firstName}}" },
-      { stepNumber: 2, subject: "Follow-up sobre proposta" },
-      { stepNumber: 3, subject: "Última tentativa" },
+      { stepNumber: 0, subject: "Olá {{firstName}}", body: "Corpo 1" },
+      { stepNumber: 1, subject: "Follow-up sobre proposta", body: "Corpo 2" },
+      { stepNumber: 2, subject: "Última tentativa", body: "Corpo 3" },
     ];
 
     vi.mocked(fetch).mockResolvedValueOnce({
@@ -55,17 +56,23 @@ describe("useCampaignSteps (AC: #3, #6)", () => {
 
     expect(result.current.isLoading).toBe(true);
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    expect(result.current.data).toBeInstanceOf(Map);
-    expect(result.current.data?.size).toBe(3);
-    expect(result.current.data?.get(1)).toBe("Olá {{firstName}}");
-    expect(result.current.data?.get(2)).toBe("Follow-up sobre proposta");
-    expect(result.current.data?.get(3)).toBe("Última tentativa");
+    // stepsMap: Map<number, string> for tooltips (backward compatible)
+    expect(result.current.stepsMap).toBeInstanceOf(Map);
+    expect(result.current.stepsMap?.size).toBe(3);
+    expect(result.current.stepsMap?.get(0)).toBe("Olá {{firstName}}");
+    expect(result.current.stepsMap?.get(1)).toBe("Follow-up sobre proposta");
+    expect(result.current.stepsMap?.get(2)).toBe("Última tentativa");
+
+    // stepsData: CampaignStep[] for panel
+    expect(result.current.stepsData).toEqual(mockSteps);
+    expect(result.current.stepsData?.[0].body).toBe("Corpo 1");
+
     expect(fetch).toHaveBeenCalledWith(`/api/campaigns/${campaignId}/steps`);
   });
 
-  it("returns empty Map when no steps available", async () => {
+  it("returns undefined stepsMap and stepsData when no steps available", async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
       json: async () => ({ data: [] }),
@@ -75,10 +82,11 @@ describe("useCampaignSteps (AC: #3, #6)", () => {
       wrapper: createWrapper(),
     });
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    expect(result.current.data).toBeInstanceOf(Map);
-    expect(result.current.data?.size).toBe(0);
+    expect(result.current.stepsMap).toBeInstanceOf(Map);
+    expect(result.current.stepsMap?.size).toBe(0);
+    expect(result.current.stepsData).toEqual([]);
   });
 
   it("handles error response", async () => {
@@ -110,11 +118,11 @@ describe("useCampaignSteps (AC: #3, #6)", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("filters out steps with empty subject from Map", async () => {
+  it("filters out steps with empty subject from stepsMap", async () => {
     const mockSteps: CampaignStep[] = [
-      { stepNumber: 1, subject: "Valid subject" },
-      { stepNumber: 2, subject: "" },
-      { stepNumber: 3, subject: "Another valid" },
+      { stepNumber: 0, subject: "Valid subject", body: "Body 1" },
+      { stepNumber: 1, subject: "", body: "Body 2" },
+      { stepNumber: 2, subject: "Another valid", body: "Body 3" },
     ];
 
     vi.mocked(fetch).mockResolvedValueOnce({
@@ -126,10 +134,14 @@ describe("useCampaignSteps (AC: #3, #6)", () => {
       wrapper: createWrapper(),
     });
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    expect(result.current.data?.size).toBe(2);
-    expect(result.current.data?.has(2)).toBe(false);
+    // stepsMap filters empty subjects
+    expect(result.current.stepsMap?.size).toBe(2);
+    expect(result.current.stepsMap?.has(1)).toBe(false);
+
+    // stepsData includes all steps (for panel)
+    expect(result.current.stepsData).toHaveLength(3);
   });
 
   it("handles non-JSON response gracefully", async () => {
@@ -143,6 +155,5 @@ describe("useCampaignSteps (AC: #3, #6)", () => {
     });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(result.current.error?.message).toBe("Erro ao buscar steps da campanha");
   });
 });

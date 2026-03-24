@@ -3,10 +3,10 @@
  * Story 14.6: Tooltip com Preview do Email por Step
  *
  * GET /api/campaigns/[campaignId]/steps
- * Returns CampaignStep[] (stepNumber + subject) for tooltip display.
+ * Returns CampaignStep[] (stepNumber + subject + body) for tooltip and panel preview.
  *
- * AC: #2 — Primary source: local email_blocks. Fallback: Instantly API.
- * AC: #6 — Lightweight endpoint, no blocking.
+ * AC 14.6: #2 — Primary source: local email_blocks. Fallback: Instantly API.
+ * AC 14.7: #2 — Body field included for panel preview.
  */
 
 import { NextResponse } from "next/server";
@@ -48,7 +48,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     // Primary source: local email_blocks
     const { data: emailBlocks, error: blocksError } = await supabase
       .from("email_blocks")
-      .select("position, subject")
+      .select("position, subject, body")
       .eq("campaign_id", campaignId)
       .order("position", { ascending: true });
 
@@ -61,8 +61,9 @@ export async function GET(_request: Request, { params }: RouteParams) {
 
     if (emailBlocks && emailBlocks.length > 0) {
       const steps: CampaignStep[] = emailBlocks.map((block) => ({
-        stepNumber: block.position + 1,
+        stepNumber: block.position,
         subject: typeof block.subject === "string" ? block.subject : "",
+        body: typeof block.body === "string" ? block.body : "",
       }));
       return NextResponse.json({ data: steps });
     }
@@ -120,14 +121,13 @@ export async function GET(_request: Request, { params }: RouteParams) {
     }
 
     const steps: CampaignStep[] = rawSteps.map(
-      (step: { variants?: Array<{ subject?: string }> }, index: number) => {
-        const subject =
-          Array.isArray(step.variants) &&
-          step.variants.length > 0 &&
-          typeof step.variants[0]?.subject === "string"
-            ? step.variants[0].subject
-            : "";
-        return { stepNumber: index + 1, subject };
+      (step: { variants?: Array<{ subject?: string; body?: string }> }, index: number) => {
+        const variant = Array.isArray(step.variants) && step.variants.length > 0
+          ? step.variants[0]
+          : undefined;
+        const subject = typeof variant?.subject === "string" ? variant.subject : "";
+        const body = typeof variant?.body === "string" ? variant.body : "";
+        return { stepNumber: index, subject, body };
       }
     );
 

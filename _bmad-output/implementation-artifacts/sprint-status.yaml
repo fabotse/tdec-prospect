@@ -72,6 +72,7 @@ branches:
   epic/12-melhorias-ux-produtividade: "Epic 12 - Melhorias Avulsas — UX & Produtividade (IN-PROGRESS)"
   epic/13-monitoramento-inteligente-leads-linkedin: "Epic 13 - Monitoramento Inteligente de Leads LinkedIn (IN-PROGRESS)"
   epic/14-analytics-avancado-campanha: "Epic 14 - Analytics Avançado de Campanha (IN-PROGRESS)"
+  epic/15-technographic-prospecting: "Epic 15 - Technographic Prospecting (BACKLOG)"
 
 development_status:
   # Epic 1: Foundation & Authentication
@@ -343,4 +344,19 @@ development_status:
   14-4-detalhamento-aberturas-cliques-respostas-por-step: done  # Colunas step na LeadTrackingTable + status_summary badge + code review fixes. 279 files, 5092 tests passed
   14-5-email-provider-e-security-gateway: done  # Colunas esp_code/esg_code na LeadTrackingTable + code review fixes. 279 files, 5109 tests passed
   14-6-tooltip-preview-email-por-step: done  # Tooltip com subject do email ao hover em "Step N". Fonte primaria: email_blocks locais, fallback: API Instantly. Code review: 6 issues fixed, 2 tests added. 281 files, 5130 tests passed
+  14-7-painel-lateral-preview-steps-campanha: done  # Painel lateral (Sheet) com preview de todos os steps ao clicar em "Step N". Inclui fix off-by-one Step 0. Code review: 5 issues fixed, 1 test added. 138 tests nos 5 arquivos da story
   epic-14-retrospective: optional
+
+  # Epic 15: Technographic Prospecting
+  # Descoberta de empresas por stack tecnologica via theirStack API + Apollo Bridge para contatos.
+  # Feature 100% aditiva — nao modifica funcionalidades existentes.
+  # Dependencias: Epic 2 (IntegrationCard, API key storage), Epic 3 (ApolloService, lead creation)
+  # Product Brief: _bmad-output/planning-artifacts/product-brief-tdec-prospect-2026-03-24.md
+  # Documento: _bmad-output/planning-artifacts/epic-15-technographic-prospecting.md
+  epic-15: in-progress
+  15-1-integracao-theirstack-config-teste-credits: ready-for-dev  # Config API key, teste conexao, monitoramento credits. FR1-3
+  15-2-busca-technografica-autocomplete-filtros: backlog  # Autocomplete catalogo theirStack + filtros (pais, tamanho, industria, confianca). FR4-5
+  15-3-resultados-empresas-tabela-selecao: backlog  # Tabela resultados + score confianca + selecao individual/lote. FR6-7
+  15-4-apollo-bridge-busca-contatos: backlog  # Busca contatos via Apollo nas empresas selecionadas + filtro cargos. FR8-9
+  15-5-criacao-leads-integracao-pipeline: backlog  # Criar leads + adicionar segmentos + metadado tech origem. FR10-11
+  epic-15-retrospective: optional

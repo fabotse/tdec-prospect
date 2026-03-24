@@ -315,10 +315,11 @@ export interface InstantlyLeadListResponse {
 }
 
 // ==============================================
-// CAMPAIGN STEP (Story 14.6)
+// CAMPAIGN STEP (Story 14.6, 14.7)
 // ==============================================
 
 export interface CampaignStep {
   stepNumber: number;
   subject: string;
+  body: string;
 }

@@ -524,11 +524,11 @@ describe("LeadTrackingTable", () => {
   // ==============================================
 
   describe("coluna Step Abertura (Story 14.4)", () => {
-    it("exibe 'Step N' quando emailOpenedStep presente", () => {
+    it("exibe 'Step N' quando emailOpenedStep presente (display 1-based)", () => {
       const leads = [
         createMockLeadTracking({
           leadEmail: "test@x.com",
-          emailOpenedStep: 2,
+          emailOpenedStep: 1,
         }),
       ];
       render(<LeadTrackingTable leads={leads} isLoading={false} />);
@@ -989,9 +989,9 @@ describe("LeadTrackingTable", () => {
 
   describe("step tooltip (Story 14.6 AC #1, #4)", () => {
     const stepsMap = new Map<number, string>([
-      [1, "Olá {{firstName}}"],
-      [2, "Follow-up sobre proposta"],
-      [3, "Última tentativa de contato"],
+      [0, "Olá {{firstName}}"],
+      [1, "Follow-up sobre proposta"],
+      [2, "Última tentativa de contato"],
     ]);
 
     it("exibe tooltip com subject ao hover em 'Step N' quando stepsMap disponivel", async () => {
@@ -999,13 +999,13 @@ describe("LeadTrackingTable", () => {
       const leads = [
         createMockLeadTracking({
           leadEmail: "tooltip@test.com",
-          emailOpenedStep: 2,
+          emailOpenedStep: 1,
         }),
       ];
 
       render(<LeadTrackingTable leads={leads} isLoading={false} stepsMap={stepsMap} />);
 
-      const trigger = screen.getByTestId("step-tooltip-trigger");
+      const trigger = screen.getByTestId("step-click-trigger");
       expect(trigger).toHaveTextContent("Step 2");
 
       await user.hover(trigger);
@@ -1014,7 +1014,7 @@ describe("LeadTrackingTable", () => {
       expect(tooltip.textContent).toContain("Follow-up sobre proposta");
     });
 
-    it("exibe 'Step N' sem tooltip quando stepsMap nao tem o step", async () => {
+    it("exibe 'Step N' clicavel sem tooltip quando stepsMap nao tem o step", async () => {
       const leads = [
         createMockLeadTracking({
           leadEmail: "no-match@test.com",
@@ -1024,25 +1024,25 @@ describe("LeadTrackingTable", () => {
 
       render(<LeadTrackingTable leads={leads} isLoading={false} stepsMap={stepsMap} />);
 
-      expect(screen.queryByTestId("step-tooltip-trigger")).not.toBeInTheDocument();
-      expect(screen.getByText("Step 5")).toBeInTheDocument();
+      const trigger = screen.getByTestId("step-click-trigger");
+      expect(trigger).toHaveTextContent("Step 6");
     });
 
-    it("exibe 'Step N' sem tooltip quando stepsMap e undefined (AC #4)", () => {
+    it("exibe 'Step N' clicavel sem tooltip quando stepsMap e undefined (AC #4)", () => {
       const leads = [
         createMockLeadTracking({
           leadEmail: "no-map@test.com",
-          emailOpenedStep: 1,
+          emailOpenedStep: 0,
         }),
       ];
 
       render(<LeadTrackingTable leads={leads} isLoading={false} />);
 
-      expect(screen.queryByTestId("step-tooltip-trigger")).not.toBeInTheDocument();
-      expect(screen.getByText("Step 1")).toBeInTheDocument();
+      const trigger = screen.getByTestId("step-click-trigger");
+      expect(trigger).toHaveTextContent("Step 1");
     });
 
-    it("exibe '-' quando emailOpenedStep e undefined, mesmo com stepsMap", () => {
+    it("exibe '-' quando emailOpenedStep e undefined, mesmo com stepsMap (nao clicavel)", () => {
       const leads = [
         createMockLeadTracking({
           leadEmail: "no-step@test.com",
@@ -1052,21 +1052,21 @@ describe("LeadTrackingTable", () => {
 
       render(<LeadTrackingTable leads={leads} isLoading={false} stepsMap={stepsMap} />);
 
-      expect(screen.queryByTestId("step-tooltip-trigger")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("step-click-trigger")).not.toBeInTheDocument();
     });
 
-    it("exibe tooltip com subject para Step 1", async () => {
+    it("exibe tooltip com subject para Step 1 (emailOpenedStep 0-based)", async () => {
       const user = userEvent.setup();
       const leads = [
         createMockLeadTracking({
           leadEmail: "step1@test.com",
-          emailOpenedStep: 1,
+          emailOpenedStep: 0,
         }),
       ];
 
       render(<LeadTrackingTable leads={leads} isLoading={false} stepsMap={stepsMap} />);
 
-      const trigger = screen.getByTestId("step-tooltip-trigger");
+      const trigger = screen.getByTestId("step-click-trigger");
       expect(trigger).toHaveTextContent("Step 1");
 
       await user.hover(trigger);
@@ -1075,26 +1075,26 @@ describe("LeadTrackingTable", () => {
       expect(tooltip.textContent).toContain("Olá {{firstName}}");
     });
 
-    it("trigger tem cursor-help e underline decoracao dotted", () => {
+    it("trigger tem cursor-pointer e underline decoracao dotted", () => {
       const leads = [
         createMockLeadTracking({
           leadEmail: "style@test.com",
-          emailOpenedStep: 1,
+          emailOpenedStep: 0,
         }),
       ];
 
       render(<LeadTrackingTable leads={leads} isLoading={false} stepsMap={stepsMap} />);
 
-      const trigger = screen.getByTestId("step-tooltip-trigger");
-      expect(trigger.className).toContain("cursor-help");
+      const trigger = screen.getByTestId("step-click-trigger");
+      expect(trigger.className).toContain("cursor-pointer");
       expect(trigger.className).toContain("underline");
       expect(trigger.className).toContain("decoration-dotted");
     });
 
     it("nao bloqueia renderizacao da tabela quando stepsMap e empty (AC #6)", () => {
       const leads = [
-        createMockLeadTracking({ leadEmail: "a@test.com", emailOpenedStep: 1 }),
-        createMockLeadTracking({ leadEmail: "b@test.com", emailOpenedStep: 2 }),
+        createMockLeadTracking({ leadEmail: "a@test.com", emailOpenedStep: 0 }),
+        createMockLeadTracking({ leadEmail: "b@test.com", emailOpenedStep: 1 }),
       ];
 
       const emptyMap = new Map<number, string>();
@@ -1103,8 +1103,110 @@ describe("LeadTrackingTable", () => {
 
       const rows = screen.getAllByTestId("lead-row");
       expect(rows).toHaveLength(2);
-      expect(screen.getByText("Step 1")).toBeInTheDocument();
-      expect(screen.getByText("Step 2")).toBeInTheDocument();
+      const triggers = screen.getAllByTestId("step-click-trigger");
+      expect(triggers).toHaveLength(2);
+      expect(triggers[0]).toHaveTextContent("Step 1");
+      expect(triggers[1]).toHaveTextContent("Step 2");
+    });
+  });
+
+  // ==============================================
+  // Story 14.7: onStepClick
+  // ==============================================
+
+  describe("step click (Story 14.7 AC #1, #3)", () => {
+    it("click em 'Step N' chama onStepClick com stepNumber correto", async () => {
+      const user = userEvent.setup();
+      const onStepClick = vi.fn();
+      const leads = [
+        createMockLeadTracking({ leadEmail: "a@test.com", emailOpenedStep: 0 }),
+        createMockLeadTracking({ leadEmail: "b@test.com", emailOpenedStep: 2 }),
+      ];
+
+      render(
+        <LeadTrackingTable
+          leads={leads}
+          isLoading={false}
+          onStepClick={onStepClick}
+        />
+      );
+
+      const triggers = screen.getAllByTestId("step-click-trigger");
+      await user.click(triggers[0]);
+
+      expect(onStepClick).toHaveBeenCalledWith(0);
+
+      await user.click(triggers[1]);
+      expect(onStepClick).toHaveBeenCalledWith(2);
+    });
+
+    it("click funciona mesmo sem stepsMap (AC 14.7 #5)", async () => {
+      const user = userEvent.setup();
+      const onStepClick = vi.fn();
+      const leads = [
+        createMockLeadTracking({ leadEmail: "a@test.com", emailOpenedStep: 1 }),
+      ];
+
+      render(
+        <LeadTrackingTable
+          leads={leads}
+          isLoading={false}
+          onStepClick={onStepClick}
+        />
+      );
+
+      await user.click(screen.getByTestId("step-click-trigger"));
+
+      expect(onStepClick).toHaveBeenCalledWith(1);
+    });
+
+    it("click + tooltip coexistem (hover mostra subject, click chama handler)", async () => {
+      const user = userEvent.setup();
+      const onStepClick = vi.fn();
+      const stepsMap = new Map<number, string>([
+        [0, "Primeiro email"],
+      ]);
+      const leads = [
+        createMockLeadTracking({ leadEmail: "a@test.com", emailOpenedStep: 0 }),
+      ];
+
+      render(
+        <LeadTrackingTable
+          leads={leads}
+          isLoading={false}
+          stepsMap={stepsMap}
+          onStepClick={onStepClick}
+        />
+      );
+
+      const trigger = screen.getByTestId("step-click-trigger");
+
+      // Hover shows tooltip
+      await user.hover(trigger);
+      const tooltip = await screen.findByRole("tooltip");
+      expect(tooltip.textContent).toContain("Primeiro email");
+
+      // Click calls handler
+      await user.click(trigger);
+      expect(onStepClick).toHaveBeenCalledWith(0);
+    });
+
+    it("nao chama onStepClick quando emailOpenedStep e undefined", () => {
+      const onStepClick = vi.fn();
+      const leads = [
+        createMockLeadTracking({ leadEmail: "a@test.com", emailOpenedStep: undefined }),
+      ];
+
+      render(
+        <LeadTrackingTable
+          leads={leads}
+          isLoading={false}
+          onStepClick={onStepClick}
+        />
+      );
+
+      // No click trigger rendered for undefined step
+      expect(screen.queryByTestId("step-click-trigger")).not.toBeInTheDocument();
     });
   });
 });
