@@ -986,4 +986,125 @@ describe("LeadTrackingTable", () => {
       expect(tooltip.textContent).toContain("WhatsApp enviado em");
     });
   });
+
+  describe("step tooltip (Story 14.6 AC #1, #4)", () => {
+    const stepsMap = new Map<number, string>([
+      [1, "Olá {{firstName}}"],
+      [2, "Follow-up sobre proposta"],
+      [3, "Última tentativa de contato"],
+    ]);
+
+    it("exibe tooltip com subject ao hover em 'Step N' quando stepsMap disponivel", async () => {
+      const user = userEvent.setup();
+      const leads = [
+        createMockLeadTracking({
+          leadEmail: "tooltip@test.com",
+          emailOpenedStep: 2,
+        }),
+      ];
+
+      render(<LeadTrackingTable leads={leads} isLoading={false} stepsMap={stepsMap} />);
+
+      const trigger = screen.getByTestId("step-tooltip-trigger");
+      expect(trigger).toHaveTextContent("Step 2");
+
+      await user.hover(trigger);
+
+      const tooltip = await screen.findByRole("tooltip");
+      expect(tooltip.textContent).toContain("Follow-up sobre proposta");
+    });
+
+    it("exibe 'Step N' sem tooltip quando stepsMap nao tem o step", async () => {
+      const leads = [
+        createMockLeadTracking({
+          leadEmail: "no-match@test.com",
+          emailOpenedStep: 5,
+        }),
+      ];
+
+      render(<LeadTrackingTable leads={leads} isLoading={false} stepsMap={stepsMap} />);
+
+      expect(screen.queryByTestId("step-tooltip-trigger")).not.toBeInTheDocument();
+      expect(screen.getByText("Step 5")).toBeInTheDocument();
+    });
+
+    it("exibe 'Step N' sem tooltip quando stepsMap e undefined (AC #4)", () => {
+      const leads = [
+        createMockLeadTracking({
+          leadEmail: "no-map@test.com",
+          emailOpenedStep: 1,
+        }),
+      ];
+
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      expect(screen.queryByTestId("step-tooltip-trigger")).not.toBeInTheDocument();
+      expect(screen.getByText("Step 1")).toBeInTheDocument();
+    });
+
+    it("exibe '-' quando emailOpenedStep e undefined, mesmo com stepsMap", () => {
+      const leads = [
+        createMockLeadTracking({
+          leadEmail: "no-step@test.com",
+          emailOpenedStep: undefined,
+        }),
+      ];
+
+      render(<LeadTrackingTable leads={leads} isLoading={false} stepsMap={stepsMap} />);
+
+      expect(screen.queryByTestId("step-tooltip-trigger")).not.toBeInTheDocument();
+    });
+
+    it("exibe tooltip com subject para Step 1", async () => {
+      const user = userEvent.setup();
+      const leads = [
+        createMockLeadTracking({
+          leadEmail: "step1@test.com",
+          emailOpenedStep: 1,
+        }),
+      ];
+
+      render(<LeadTrackingTable leads={leads} isLoading={false} stepsMap={stepsMap} />);
+
+      const trigger = screen.getByTestId("step-tooltip-trigger");
+      expect(trigger).toHaveTextContent("Step 1");
+
+      await user.hover(trigger);
+
+      const tooltip = await screen.findByRole("tooltip");
+      expect(tooltip.textContent).toContain("Olá {{firstName}}");
+    });
+
+    it("trigger tem cursor-help e underline decoracao dotted", () => {
+      const leads = [
+        createMockLeadTracking({
+          leadEmail: "style@test.com",
+          emailOpenedStep: 1,
+        }),
+      ];
+
+      render(<LeadTrackingTable leads={leads} isLoading={false} stepsMap={stepsMap} />);
+
+      const trigger = screen.getByTestId("step-tooltip-trigger");
+      expect(trigger.className).toContain("cursor-help");
+      expect(trigger.className).toContain("underline");
+      expect(trigger.className).toContain("decoration-dotted");
+    });
+
+    it("nao bloqueia renderizacao da tabela quando stepsMap e empty (AC #6)", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "a@test.com", emailOpenedStep: 1 }),
+        createMockLeadTracking({ leadEmail: "b@test.com", emailOpenedStep: 2 }),
+      ];
+
+      const emptyMap = new Map<number, string>();
+
+      render(<LeadTrackingTable leads={leads} isLoading={false} stepsMap={emptyMap} />);
+
+      const rows = screen.getAllByTestId("lead-row");
+      expect(rows).toHaveLength(2);
+      expect(screen.getByText("Step 1")).toBeInTheDocument();
+      expect(screen.getByText("Step 2")).toBeInTheDocument();
+    });
+  });
 });

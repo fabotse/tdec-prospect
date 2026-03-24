@@ -63,6 +63,7 @@ interface LeadTrackingTableProps {
   isError?: boolean;
   highInterestThreshold?: number;
   onHighInterestClick?: () => void;
+  stepsMap?: Map<number, string>;
 }
 
 // ==============================================
@@ -76,6 +77,12 @@ function formatName(lead: LeadTracking): string {
 
 function formatStep(step: number | undefined): string {
   return typeof step === "number" ? `Step ${step}` : "-";
+}
+
+function getStepTooltip(stepNumber: number | undefined, stepsMap?: Map<number, string>): string | undefined {
+  if (typeof stepNumber !== "number" || !stepsMap) return undefined;
+  const subject = stepsMap.get(stepNumber);
+  return typeof subject === "string" ? subject : undefined;
 }
 
 // Story 14.5 — ESP Provider Map
@@ -278,7 +285,7 @@ function ErrorState() {
 // LEAD TRACKING TABLE
 // ==============================================
 
-export function LeadTrackingTable({ leads, isLoading, isError, highInterestThreshold, onHighInterestClick }: LeadTrackingTableProps) {
+export function LeadTrackingTable({ leads, isLoading, isError, highInterestThreshold, onHighInterestClick, stepsMap }: LeadTrackingTableProps) {
   const [sort, setSort] = useState<SortState>({ column: null, direction: null });
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -372,7 +379,27 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
                 <TableCell>{lead.clickCount}</TableCell>
                 <TableCell>{lead.hasReplied ? "Sim" : "Nao"}</TableCell>
                 <TableCell>{lead.lastOpenAt ? formatRelativeTime(lead.lastOpenAt) : "-"}</TableCell>
-                <TableCell>{formatStep(lead.emailOpenedStep)}</TableCell>
+                <TableCell>
+                  {(() => {
+                    const subject = getStepTooltip(lead.emailOpenedStep, stepsMap);
+                    if (typeof lead.emailOpenedStep !== "number") return "-";
+                    if (subject) {
+                      return (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-help underline decoration-dotted" data-testid="step-tooltip-trigger">
+                              {formatStep(lead.emailOpenedStep)}
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs">
+                            {subject}
+                          </TooltipContent>
+                        </Tooltip>
+                      );
+                    }
+                    return formatStep(lead.emailOpenedStep);
+                  })()}
+                </TableCell>
                 <TableCell>
                   <Badge variant="outline" data-testid="esp-provider-badge">
                     <span className="font-bold mr-1">{provider.shortLabel}</span>

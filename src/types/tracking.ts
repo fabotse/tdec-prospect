@@ -313,3 +313,12 @@ export interface InstantlyLeadListResponse {
   items: InstantlyLeadEntry[];
   next_starting_after?: string;
 }
+
+// ==============================================
+// CAMPAIGN STEP (Story 14.6)
+// ==============================================
+
+export interface CampaignStep {
+  stepNumber: number;
+  subject: string;
+}

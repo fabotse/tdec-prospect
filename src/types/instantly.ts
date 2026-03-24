@@ -147,6 +147,9 @@ export interface GetCampaignResponse {
   id: string;
   name: string;
   status: number;
+  sequences?: Array<{
+    steps: InstantlySequenceStep[];
+  }>;
 }
 
 // ==============================================

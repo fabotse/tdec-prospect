@@ -22,6 +22,7 @@ import { useCampaign } from "@/hooks/use-campaigns";
 import { useCampaignAnalytics, useSyncAnalytics } from "@/hooks/use-campaign-analytics";
 import { useLeadTracking, useSentLeadEmails } from "@/hooks/use-lead-tracking";
 import { useOpportunityConfig, useSaveOpportunityConfig, useOpportunityLeads } from "@/hooks/use-opportunity-window";
+import { useCampaignSteps } from "@/hooks/use-campaign-steps";
 import { DEFAULT_MIN_OPENS } from "@/lib/services/opportunity-engine";
 import { AnalyticsDashboard } from "@/components/tracking/AnalyticsDashboard";
 import { LeadTrackingTable } from "@/components/tracking/LeadTrackingTable";
@@ -72,6 +73,7 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
 
   const [dailyAnalytics, setDailyAnalytics] = useState<DailyAnalyticsEntry[]>([]);
   const { data: sentLeadEmails } = useSentLeadEmails(campaignId, { enabled: hasExternalId });
+  const { data: stepsMap } = useCampaignSteps(campaignId, { enabled: hasExternalId });
   const opportunityLeads = useOpportunityLeads(leads, opportunityConfig);
   const opportunityPanelRef = useRef<HTMLDivElement>(null);
 
@@ -200,6 +202,7 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
             isError={isLeadTrackingError}
             highInterestThreshold={opportunityConfig?.minOpens ?? DEFAULT_MIN_OPENS}
             onHighInterestClick={scrollToOpportunity}
+            stepsMap={stepsMap}
           />
         </>
       )}

@@ -48,6 +48,11 @@ vi.mock("@/hooks/use-opportunity-window", () => ({
   useOpportunityLeads: (...args: unknown[]) => mockUseOpportunityLeads(...args),
 }));
 
+const mockUseCampaignSteps = vi.fn();
+vi.mock("@/hooks/use-campaign-steps", () => ({
+  useCampaignSteps: (...args: unknown[]) => mockUseCampaignSteps(...args),
+}));
+
 vi.mock("@/lib/services/opportunity-engine", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/services/opportunity-engine")>();
   return {
@@ -118,6 +123,11 @@ describe("CampaignAnalyticsPage (AC: #1, #2, #4, #5)", () => {
     mockUseOpportunityLeads.mockReturnValue([]);
 
     mockUseSentLeadEmails.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+    });
+
+    mockUseCampaignSteps.mockReturnValue({
       data: undefined,
       isLoading: false,
     });

@@ -342,5 +342,5 @@ development_status:
   14-3-grafico-de-evolucao-diaria: done  # AreaChart com dailyAnalytics (sent/opened/replies). Code review: a11y teclado, CustomTooltip testado, gradient IDs unicos, formatDateBR defensivo. 279 files, 5076 tests passed
   14-4-detalhamento-aberturas-cliques-respostas-por-step: done  # Colunas step na LeadTrackingTable + status_summary badge + code review fixes. 279 files, 5092 tests passed
   14-5-email-provider-e-security-gateway: done  # Colunas esp_code/esg_code na LeadTrackingTable + code review fixes. 279 files, 5109 tests passed
-  14-6-tooltip-preview-email-por-step: backlog  # Tooltip com subject do email ao hover em "Step N". Novo endpoint API Instantly. Depende de 14.4
+  14-6-tooltip-preview-email-por-step: done  # Tooltip com subject do email ao hover em "Step N". Fonte primaria: email_blocks locais, fallback: API Instantly. Code review: 6 issues fixed, 2 tests added. 281 files, 5130 tests passed
   epic-14-retrospective: optional
