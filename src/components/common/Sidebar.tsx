@@ -13,6 +13,7 @@ import {
   Search,
   Database,
   Lightbulb,
+  Radar,
 } from "lucide-react";
 import {
   Tooltip,
@@ -43,6 +44,7 @@ const navItems: NavItem[] = [
       { label: "Meus Leads", href: "/leads/my-leads", icon: Database },
     ],
   },
+  { label: "Technographic", href: "/technographic", icon: Radar },
   { label: "Campanhas", href: "/campaigns", icon: Send },
   { label: "Insights", href: "/insights", icon: Lightbulb },
   { label: "Configurações", href: "/settings", icon: Settings },
