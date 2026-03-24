@@ -19,6 +19,7 @@ export const SERVICE_NAMES = [
   "instantly",
   "apify",
   "zapi",
+  "theirstack",
 ] as const;
 
 export type ServiceName = (typeof SERVICE_NAMES)[number];
@@ -33,6 +34,7 @@ export const SERVICE_LABELS: Record<ServiceName, string> = {
   instantly: "Instantly",
   apify: "Apify",
   zapi: "Z-API",
+  theirstack: "theirStack",
 };
 
 // ==============================================

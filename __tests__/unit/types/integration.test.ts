@@ -15,10 +15,11 @@ describe("integration types", () => {
       expect(SERVICE_NAMES).toContain("instantly");
       expect(SERVICE_NAMES).toContain("apify");
       expect(SERVICE_NAMES).toContain("zapi");
+      expect(SERVICE_NAMES).toContain("theirstack");
     });
 
-    it("should have exactly 6 services", () => {
-      expect(SERVICE_NAMES).toHaveLength(6);
+    it("should have exactly 7 services", () => {
+      expect(SERVICE_NAMES).toHaveLength(7);
     });
   });
 
@@ -30,6 +31,7 @@ describe("integration types", () => {
       expect(SERVICE_LABELS.instantly).toBe("Instantly");
       expect(SERVICE_LABELS.apify).toBe("Apify");
       expect(SERVICE_LABELS.zapi).toBe("Z-API");
+      expect(SERVICE_LABELS.theirstack).toBe("theirStack");
     });
 
     it("should have a label for every service name", () => {
@@ -48,6 +50,7 @@ describe("integration types", () => {
       expect(isValidServiceName("instantly")).toBe(true);
       expect(isValidServiceName("apify")).toBe(true);
       expect(isValidServiceName("zapi")).toBe(true);
+      expect(isValidServiceName("theirstack")).toBe(true);
     });
 
     it("should return false for invalid service names", () => {

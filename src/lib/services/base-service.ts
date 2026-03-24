@@ -35,6 +35,7 @@ export const ERROR_MESSAGES: Record<string, string> = {
   INSTANTLY_ERROR: "Erro na comunicação com Instantly.",
   APIFY_ERROR: "Erro na comunicação com Apify.",
   ZAPI_ERROR: "Erro na comunicação com Z-API.",
+  THEIRSTACK_ERROR: "Erro na comunicação com theirStack.",
 
   // Success
   SUCCESS: "Conexão estabelecida com sucesso",

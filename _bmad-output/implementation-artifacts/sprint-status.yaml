@@ -41,8 +41,8 @@ story_location: _bmad-output/implementation-artifacts
 
 # GIT BRANCH TRACKING
 # ===================
-current_branch: epic/14-analytics-avancado-campanha
-base_branch: epic/13-monitoramento-inteligente-leads-linkedin
+current_branch: epic/15-technographic-prospecting
+base_branch: epic/14-analytics-avancado-campanha
 
 branch_strategy:
   # Branch naming convention:
@@ -72,7 +72,7 @@ branches:
   epic/12-melhorias-ux-produtividade: "Epic 12 - Melhorias Avulsas — UX & Produtividade (IN-PROGRESS)"
   epic/13-monitoramento-inteligente-leads-linkedin: "Epic 13 - Monitoramento Inteligente de Leads LinkedIn (IN-PROGRESS)"
   epic/14-analytics-avancado-campanha: "Epic 14 - Analytics Avançado de Campanha (IN-PROGRESS)"
-  epic/15-technographic-prospecting: "Epic 15 - Technographic Prospecting (BACKLOG)"
+  epic/15-technographic-prospecting: "Epic 15 - Technographic Prospecting (IN-PROGRESS)"
 
 development_status:
   # Epic 1: Foundation & Authentication
@@ -345,7 +345,7 @@ development_status:
   14-5-email-provider-e-security-gateway: done  # Colunas esp_code/esg_code na LeadTrackingTable + code review fixes. 279 files, 5109 tests passed
   14-6-tooltip-preview-email-por-step: done  # Tooltip com subject do email ao hover em "Step N". Fonte primaria: email_blocks locais, fallback: API Instantly. Code review: 6 issues fixed, 2 tests added. 281 files, 5130 tests passed
   14-7-painel-lateral-preview-steps-campanha: done  # Painel lateral (Sheet) com preview de todos os steps ao clicar em "Step N". Inclui fix off-by-one Step 0. Code review: 5 issues fixed, 1 test added. 138 tests nos 5 arquivos da story
-  epic-14-retrospective: optional
+  epic-14-retrospective: done
 
   # Epic 15: Technographic Prospecting
   # Descoberta de empresas por stack tecnologica via theirStack API + Apollo Bridge para contatos.
@@ -353,10 +353,22 @@ development_status:
   # Dependencias: Epic 2 (IntegrationCard, API key storage), Epic 3 (ApolloService, lead creation)
   # Product Brief: _bmad-output/planning-artifacts/product-brief-tdec-prospect-2026-03-24.md
   # Documento: _bmad-output/planning-artifacts/epic-15-technographic-prospecting.md
+  #
+  # SPIKE DE VALIDACAO theirStack API (2026-03-24) — CONCLUIDO
+  # Chamadas reais aos 3 endpoints. 6/200 API credits consumidos.
+  # Divergencias criticas encontradas e documentadas na Story 15.1:
+  #   - Endpoint credits: /v1/account/credits NAO EXISTE (404) → correto: GET /v0/billing/credit-balance
+  #   - Response credits: { ui_credits, used_ui_credits, api_credits, used_api_credits } (sem resetDate)
+  #   - Confidence: retornado por empresa, NAO filtravel na API (client-side only)
+  #   - Busca usa SLUG (company_technology_slug_or), nao nome da tecnologia
+  #   - country pode ser null — typeof guard obrigatorio
+  #   - apollo_id disponivel no resultado — facilita Apollo Bridge (15.4)
+  # Detalhes completos: _bmad-output/implementation-artifacts/15-1-integracao-theirstack-config-teste-credits.md#Spike
+  #
   epic-15: in-progress
-  15-1-integracao-theirstack-config-teste-credits: ready-for-dev  # Config API key, teste conexao, monitoramento credits. FR1-3
-  15-2-busca-technografica-autocomplete-filtros: backlog  # Autocomplete catalogo theirStack + filtros (pais, tamanho, industria, confianca). FR4-5
+  15-1-integracao-theirstack-config-teste-credits: done  # Config API key, teste conexao, monitoramento credits. FR1-3. SPIKE CONCLUIDO — tipos validados com chamadas reais
+  15-2-busca-technografica-autocomplete-filtros: backlog  # Autocomplete catalogo theirStack + filtros (pais, tamanho, industria). FR4-5. NOTA: confidence NAO e filtravel na API (client-side)
   15-3-resultados-empresas-tabela-selecao: backlog  # Tabela resultados + score confianca + selecao individual/lote. FR6-7
-  15-4-apollo-bridge-busca-contatos: backlog  # Busca contatos via Apollo nas empresas selecionadas + filtro cargos. FR8-9
+  15-4-apollo-bridge-busca-contatos: backlog  # Busca contatos via Apollo nas empresas selecionadas + filtro cargos. FR8-9. NOTA: apollo_id ja vem no resultado theirStack
   15-5-criacao-leads-integracao-pipeline: backlog  # Criar leads + adicionar segmentos + metadado tech origem. FR10-11
   epic-15-retrospective: optional

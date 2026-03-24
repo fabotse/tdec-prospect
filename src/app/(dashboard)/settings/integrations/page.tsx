@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   IntegrationCard,
@@ -9,7 +9,10 @@ import {
 import { useIntegrationConfig } from "@/hooks/use-integration-config";
 import { useUser } from "@/hooks/use-user";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import type { ServiceName } from "@/types/integration";
+import type { TheirStackCredits } from "@/types/theirstack";
 
 interface IntegrationMeta {
   name: ServiceName;
@@ -73,7 +76,57 @@ const integrations: IntegrationMeta[] = [
       },
     ],
   },
+  {
+    name: "theirstack",
+    displayName: "theirStack",
+    icon: "🔍",
+    description: "Prospecção tecnográfica — descubra empresas por stack tecnológico",
+  },
 ];
+
+/**
+ * Credits badge for theirStack integration
+ * Story 15.1: AC #3 - Display credits utilizados vs disponiveis
+ */
+export function TheirStackCreditsBadge({ isConfigured }: { isConfigured: boolean }) {
+  const [credits, setCredits] = useState<TheirStackCredits | null>(null);
+
+  useEffect(() => {
+    if (!isConfigured) return;
+
+    let active = true;
+
+    fetch("/api/integrations/theirstack/credits")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (json && active) setCredits(json.data);
+      })
+      .catch(() => {
+        // Silently fail — credits badge is informational
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isConfigured]);
+
+  if (!isConfigured || !credits) return null;
+
+  const remaining = Math.max(0, credits.apiCredits - credits.usedApiCredits);
+  const isLow = credits.apiCredits > 0 && remaining / credits.apiCredits < 0.2;
+
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "text-caption",
+        isLow && "border-destructive text-destructive"
+      )}
+    >
+      {credits.usedApiCredits}/{credits.apiCredits} API credits
+    </Badge>
+  );
+}
 
 /**
  * Loading skeleton for integration cards
@@ -161,27 +214,32 @@ export default function IntegrationsPage() {
       <div className="grid gap-4 md:grid-cols-2">
         {integrations.map((integration) => {
           const config = configs[integration.name];
+          const isConfigured = config?.status === "configured";
 
           return (
-            <IntegrationCard
-              key={integration.name}
-              name={integration.name}
-              displayName={integration.displayName}
-              icon={integration.icon}
-              description={integration.description}
-              maskedKey={config?.maskedKey ?? null}
-              updatedAt={config?.updatedAt ?? null}
-              status={config?.status ?? "not_configured"}
-              isSaving={config?.isSaving ?? false}
-              onSave={(key) => saveConfig(integration.name, key)}
-              fields={integration.fields}
-              // Story 2.3 additions
-              connectionStatus={config?.connectionStatus ?? "untested"}
-              lastTestResult={config?.lastTestResult ?? null}
-              onTest={async () => {
-                await testConnection(integration.name);
-              }}
-            />
+            <div key={integration.name} className="flex flex-col gap-2">
+              <IntegrationCard
+                name={integration.name}
+                displayName={integration.displayName}
+                icon={integration.icon}
+                description={integration.description}
+                maskedKey={config?.maskedKey ?? null}
+                updatedAt={config?.updatedAt ?? null}
+                status={config?.status ?? "not_configured"}
+                isSaving={config?.isSaving ?? false}
+                onSave={(key) => saveConfig(integration.name, key)}
+                fields={integration.fields}
+                // Story 2.3 additions
+                connectionStatus={config?.connectionStatus ?? "untested"}
+                lastTestResult={config?.lastTestResult ?? null}
+                onTest={async () => {
+                  await testConnection(integration.name);
+                }}
+              />
+              {integration.name === "theirstack" && (
+                <TheirStackCreditsBadge isConfigured={isConfigured} />
+              )}
+            </div>
           );
         })}
       </div>
