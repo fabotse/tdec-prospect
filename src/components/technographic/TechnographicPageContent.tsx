@@ -1,8 +1,8 @@
 /**
  * Technographic Page Content
- * Story: 15.2 - Busca Technografica: Autocomplete e Filtros
+ * Story: 15.3 - Resultados de Empresas: Tabela e Selecao
  *
- * AC: #1, #2, #3 - Main client component orchestrating search, filters and results
+ * AC: #1-#6 - Main client component orchestrating search, filters, results and selection
  */
 
 "use client";
@@ -44,6 +44,7 @@ export function TechnographicPageContent() {
   >([]);
   const [filters, setFilters] = useState<TechnographicFilters>(INITIAL_FILTERS);
   const [hasSearched, setHasSearched] = useState(false);
+  const [selectedDomains, setSelectedDomains] = useState<string[]>([]);
 
   const {
     search,
@@ -71,6 +72,7 @@ export function TechnographicPageContent() {
 
       setHasSearched(true);
       setPage(searchPage);
+      setSelectedDomains([]);
 
       search({
         technologySlugs: selectedTechnologies.map((t) => t.slug),
@@ -89,6 +91,7 @@ export function TechnographicPageContent() {
 
   const handlePageChange = useCallback(
     (newPage: number) => {
+      setSelectedDomains([]);
       handleSearch(newPage);
     },
     [handleSearch]
@@ -156,6 +159,8 @@ export function TechnographicPageContent() {
         limit={DEFAULT_LIMIT}
         onPageChange={handlePageChange}
         creditsUsed={creditsUsed}
+        selectedDomains={selectedDomains}
+        onSelectionChange={setSelectedDomains}
       />
     </div>
   );

@@ -1,9 +1,8 @@
 /**
  * Company Results Table
- * Story: 15.2 - Busca Technografica: Autocomplete e Filtros
+ * Story: 15.3 - Resultados de Empresas: Tabela e Selecao
  *
- * AC: #3 - Results in table with company info and technologies found
- * Columns: name, domain, country, industry, size, techs found + confidence, score
+ * AC: #1-#6 - Table with company info, confidence badges, selection, pagination, empty state
  */
 
 "use client";
@@ -18,6 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { TheirStackCompany } from "@/types/theirstack";
 
@@ -35,6 +35,8 @@ interface CompanyResultsTableProps {
   limit: number;
   onPageChange: (page: number) => void;
   creditsUsed?: number;
+  selectedDomains: string[];
+  onSelectionChange: (domains: string[]) => void;
 }
 
 // ==============================================
@@ -43,8 +45,8 @@ interface CompanyResultsTableProps {
 
 const confidenceConfig = {
   high: { label: "Alto", className: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" },
-  medium: { label: "Médio", className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" },
-  low: { label: "Baixo", className: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200" },
+  medium: { label: "Médio", className: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200" },
+  low: { label: "Baixo", className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" },
 };
 
 function ConfidenceBadge({ confidence }: { confidence: "high" | "medium" | "low" }) {
@@ -123,6 +125,8 @@ export function CompanyResultsTable({
   limit,
   onPageChange,
   creditsUsed,
+  selectedDomains,
+  onSelectionChange,
 }: CompanyResultsTableProps) {
   if (isLoading) {
     return <TableSkeleton />;
@@ -136,14 +140,50 @@ export function CompanyResultsTable({
   const hasNextPage = page < totalPages - 1;
   const hasPrevPage = page > 0;
 
+  const companyDomains = new Set(companies.map((c) => c.domain));
+  const selectedInPage = selectedDomains.filter((d) => companyDomains.has(d));
+  const allSelected = companies.length > 0 && selectedInPage.length === companies.length;
+  const someSelected = selectedInPage.length > 0 && selectedInPage.length < companies.length;
+
+  const handleSelectAll = (checked: boolean) => {
+    onSelectionChange(checked ? companies.map((c) => c.domain) : []);
+  };
+
+  const handleSelectRow = (domain: string, checked: boolean) => {
+    onSelectionChange(
+      checked
+        ? [...selectedDomains, domain]
+        : selectedDomains.filter((d) => d !== domain)
+    );
+  };
+
   return (
     <div className="flex flex-col gap-3" data-testid="company-results">
       {/* Results info */}
       <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <span>
-          {totalCompanies.toLocaleString("pt-BR")} empresas encontradas
-          {creditsUsed !== undefined && ` (${creditsUsed} credits consumidos)`}
-        </span>
+        <div className="flex items-center gap-2">
+          <span>
+            {totalCompanies.toLocaleString("pt-BR")} empresas encontradas
+            {creditsUsed !== undefined && ` (${creditsUsed} credits consumidos)`}
+          </span>
+          {selectedDomains.length > 0 && (
+            <>
+              <span>|</span>
+              <span data-testid="selection-counter">
+                {selectedDomains.length} empresa{selectedDomains.length === 1 ? "" : "s"} selecionada{selectedDomains.length === 1 ? "" : "s"}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-auto px-1 py-0 text-sm underline"
+                onClick={() => onSelectionChange([])}
+                data-testid="clear-selection"
+              >
+                Limpar
+              </Button>
+            </>
+          )}
+        </div>
         <span>
           Página {page + 1} de {Math.max(totalPages, 1)}
         </span>
@@ -154,6 +194,14 @@ export function CompanyResultsTable({
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                  onCheckedChange={(checked) => handleSelectAll(checked === true)}
+                  aria-label="Selecionar todas as empresas"
+                  data-testid="select-all-checkbox"
+                />
+              </TableHead>
               <TableHead>Empresa</TableHead>
               <TableHead>Domínio</TableHead>
               <TableHead>País</TableHead>
@@ -165,11 +213,19 @@ export function CompanyResultsTable({
           </TableHeader>
           <TableBody>
             {companies.map((company) => (
-              <TableRow key={`${company.domain}-${company.name}`}>
+              <TableRow key={company.domain}>
+                <TableCell>
+                  <Checkbox
+                    checked={selectedDomains.includes(company.domain)}
+                    onCheckedChange={(checked) => handleSelectRow(company.domain, checked === true)}
+                    aria-label={`Selecionar ${company.name}`}
+                    data-testid={`select-row-${company.domain}`}
+                  />
+                </TableCell>
                 <TableCell className="font-medium">
                   <div className="flex items-center gap-1.5">
                     {company.name}
-                    {company.url && (
+                    {company.url && /^https?:\/\//i.test(company.url) && (
                       <a
                         href={company.url}
                         target="_blank"

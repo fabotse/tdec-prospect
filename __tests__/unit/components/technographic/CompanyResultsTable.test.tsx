@@ -1,8 +1,13 @@
 /**
  * CompanyResultsTable Component Tests
- * Story: 15.2 - Busca Technografica: Autocomplete e Filtros
+ * Story: 15.3 - Resultados de Empresas: Tabela e Selecao
  *
- * AC: #3 - Results table with company data, confidence badges, pagination
+ * AC: #1 - Table with columns, confidence badges
+ * AC: #2 - Confidence badge colors (low=amarelo, medium=laranja, high=verde)
+ * AC: #3 - Individual checkbox selection + counter
+ * AC: #4 - Header checkbox select-all/deselect-all + indeterminate
+ * AC: #5 - Pagination
+ * AC: #6 - Empty state
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -64,24 +69,31 @@ const mockCompanies: TheirStackCompany[] = [
 
 describe("CompanyResultsTable", () => {
   const mockOnPageChange = vi.fn();
+  const mockOnSelectionChange = vi.fn();
+
+  const defaultProps = {
+    companies: mockCompanies,
+    totalResults: 2,
+    totalCompanies: 2,
+    isLoading: false,
+    hasSearched: true,
+    page: 0,
+    limit: 10,
+    onPageChange: mockOnPageChange,
+    selectedDomains: [] as string[],
+    onSelectionChange: mockOnSelectionChange,
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
+  // =====================
+  // TABLE RENDERING (AC #1)
+  // =====================
+
   it("renders table with company data", () => {
-    render(
-      <CompanyResultsTable
-        companies={mockCompanies}
-        totalResults={2}
-        totalCompanies={2}
-        isLoading={false}
-        hasSearched={true}
-        page={0}
-        limit={10}
-        onPageChange={mockOnPageChange}
-      />
-    );
+    render(<CompanyResultsTable {...defaultProps} />);
 
     expect(screen.getByTestId("company-results")).toBeInTheDocument();
     expect(screen.getByText("Acme Corp")).toBeInTheDocument();
@@ -92,59 +104,14 @@ describe("CompanyResultsTable", () => {
   });
 
   it("renders null fields as dash", () => {
-    render(
-      <CompanyResultsTable
-        companies={mockCompanies}
-        totalResults={2}
-        totalCompanies={2}
-        isLoading={false}
-        hasSearched={true}
-        page={0}
-        limit={10}
-        onPageChange={mockOnPageChange}
-      />
-    );
+    render(<CompanyResultsTable {...defaultProps} />);
 
-    // Test Inc has null country, industry, employee_count_range
     const dashes = screen.getAllByText("-");
     expect(dashes.length).toBeGreaterThanOrEqual(3);
   });
 
-  it("renders confidence badges with correct types", () => {
-    render(
-      <CompanyResultsTable
-        companies={mockCompanies}
-        totalResults={2}
-        totalCompanies={2}
-        isLoading={false}
-        hasSearched={true}
-        page={0}
-        limit={10}
-        onPageChange={mockOnPageChange}
-      />
-    );
-
-    expect(screen.getByTestId("confidence-high")).toBeInTheDocument();
-    expect(screen.getByTestId("confidence-high")).toHaveTextContent("Alto");
-    expect(screen.getByTestId("confidence-medium")).toBeInTheDocument();
-    expect(screen.getByTestId("confidence-medium")).toHaveTextContent("Médio");
-    expect(screen.getByTestId("confidence-low")).toBeInTheDocument();
-    expect(screen.getByTestId("confidence-low")).toHaveTextContent("Baixo");
-  });
-
   it("renders technology names in results", () => {
-    render(
-      <CompanyResultsTable
-        companies={mockCompanies}
-        totalResults={2}
-        totalCompanies={2}
-        isLoading={false}
-        hasSearched={true}
-        page={0}
-        limit={10}
-        onPageChange={mockOnPageChange}
-      />
-    );
+    render(<CompanyResultsTable {...defaultProps} />);
 
     expect(screen.getByText("React")).toBeInTheDocument();
     expect(screen.getByText("Vue.js")).toBeInTheDocument();
@@ -152,89 +119,278 @@ describe("CompanyResultsTable", () => {
   });
 
   it("renders score with 2 decimal places for all technologies", () => {
-    render(
-      <CompanyResultsTable
-        companies={mockCompanies}
-        totalResults={2}
-        totalCompanies={2}
-        isLoading={false}
-        hasSearched={true}
-        page={0}
-        limit={10}
-        onPageChange={mockOnPageChange}
-      />
-    );
+    render(<CompanyResultsTable {...defaultProps} />);
 
     expect(screen.getByText("0.95")).toBeInTheDocument();
     expect(screen.getByText("0.72")).toBeInTheDocument();
-    // Test Inc has 2 techs — both scores should be visible now
     expect(screen.getByText("0.45")).toBeInTheDocument();
   });
 
   it("shows total results and credits info", () => {
-    render(
-      <CompanyResultsTable
-        companies={mockCompanies}
-        totalResults={2}
-        totalCompanies={2}
-        isLoading={false}
-        hasSearched={true}
-        page={0}
-        limit={10}
-        onPageChange={mockOnPageChange}
-        creditsUsed={6}
-      />
-    );
+    render(<CompanyResultsTable {...defaultProps} creditsUsed={6} />);
 
     expect(screen.getByText(/2 empresas encontradas/)).toBeInTheDocument();
     expect(screen.getByText(/6 credits consumidos/)).toBeInTheDocument();
   });
 
+  it("renders external link for companies with valid URL", () => {
+    render(<CompanyResultsTable {...defaultProps} />);
+
+    const link = screen.getByLabelText("Visitar Acme Corp");
+    expect(link).toHaveAttribute("href", "https://acme.com");
+    expect(link).toHaveAttribute("target", "_blank");
+  });
+
+  it("does not render external link for companies with invalid URL protocol", () => {
+    const companiesWithBadUrl: TheirStackCompany[] = [
+      {
+        ...mockCompanies[0],
+        domain: "evil.com",
+        name: "Evil Corp",
+        url: "javascript:alert(1)",
+      },
+    ];
+
+    render(
+      <CompanyResultsTable
+        {...defaultProps}
+        companies={companiesWithBadUrl}
+        totalResults={1}
+        totalCompanies={1}
+      />
+    );
+
+    expect(screen.queryByLabelText("Visitar Evil Corp")).not.toBeInTheDocument();
+  });
+
+  // =====================
+  // CONFIDENCE BADGES (AC #2)
+  // =====================
+
+  it("renders confidence badges with correct colors (high=green, medium=orange, low=yellow)", () => {
+    render(<CompanyResultsTable {...defaultProps} />);
+
+    const highBadge = screen.getByTestId("confidence-high");
+    expect(highBadge).toHaveTextContent("Alto");
+    expect(highBadge.className).toContain("bg-green-100");
+
+    const medBadge = screen.getByTestId("confidence-medium");
+    expect(medBadge).toHaveTextContent("Médio");
+    expect(medBadge.className).toContain("bg-orange-100");
+
+    const lowBadge = screen.getByTestId("confidence-low");
+    expect(lowBadge).toHaveTextContent("Baixo");
+    expect(lowBadge.className).toContain("bg-yellow-100");
+  });
+
+  // =====================
+  // INDIVIDUAL SELECTION (AC #3)
+  // =====================
+
+  it("renders checkbox for each company row", () => {
+    render(<CompanyResultsTable {...defaultProps} />);
+
+    expect(screen.getByTestId("select-row-acme.com")).toBeInTheDocument();
+    expect(screen.getByTestId("select-row-test.com")).toBeInTheDocument();
+  });
+
+  it("shows checkbox as checked when domain is in selectedDomains", () => {
+    render(
+      <CompanyResultsTable {...defaultProps} selectedDomains={["acme.com"]} />
+    );
+
+    const acmeCheckbox = screen.getByTestId("select-row-acme.com");
+    expect(acmeCheckbox).toHaveAttribute("data-state", "checked");
+
+    const testCheckbox = screen.getByTestId("select-row-test.com");
+    expect(testCheckbox).toHaveAttribute("data-state", "unchecked");
+  });
+
+  it("calls onSelectionChange with added domain when selecting a row", () => {
+    render(<CompanyResultsTable {...defaultProps} />);
+
+    fireEvent.click(screen.getByTestId("select-row-acme.com"));
+    expect(mockOnSelectionChange).toHaveBeenCalledWith(["acme.com"]);
+  });
+
+  it("calls onSelectionChange without domain when deselecting a row", () => {
+    render(
+      <CompanyResultsTable
+        {...defaultProps}
+        selectedDomains={["acme.com", "test.com"]}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("select-row-acme.com"));
+    expect(mockOnSelectionChange).toHaveBeenCalledWith(["test.com"]);
+  });
+
+  it("has correct aria-labels on row checkboxes", () => {
+    render(<CompanyResultsTable {...defaultProps} />);
+
+    expect(screen.getByLabelText("Selecionar Acme Corp")).toBeInTheDocument();
+    expect(screen.getByLabelText("Selecionar Test Inc")).toBeInTheDocument();
+  });
+
+  // =====================
+  // SELECT ALL / HEADER CHECKBOX (AC #4)
+  // =====================
+
+  it("renders select-all checkbox in header", () => {
+    render(<CompanyResultsTable {...defaultProps} />);
+
+    expect(screen.getByTestId("select-all-checkbox")).toBeInTheDocument();
+  });
+
+  it("select-all checkbox is unchecked when no domains selected", () => {
+    render(<CompanyResultsTable {...defaultProps} selectedDomains={[]} />);
+
+    const selectAll = screen.getByTestId("select-all-checkbox");
+    expect(selectAll).toHaveAttribute("data-state", "unchecked");
+  });
+
+  it("select-all checkbox is checked when all domains selected", () => {
+    render(
+      <CompanyResultsTable
+        {...defaultProps}
+        selectedDomains={["acme.com", "test.com"]}
+      />
+    );
+
+    const selectAll = screen.getByTestId("select-all-checkbox");
+    expect(selectAll).toHaveAttribute("data-state", "checked");
+  });
+
+  it("select-all checkbox is indeterminate when some domains selected", () => {
+    render(
+      <CompanyResultsTable {...defaultProps} selectedDomains={["acme.com"]} />
+    );
+
+    const selectAll = screen.getByTestId("select-all-checkbox");
+    expect(selectAll).toHaveAttribute("data-state", "indeterminate");
+  });
+
+  it("clicking select-all selects all visible company domains", () => {
+    render(<CompanyResultsTable {...defaultProps} selectedDomains={[]} />);
+
+    fireEvent.click(screen.getByTestId("select-all-checkbox"));
+    expect(mockOnSelectionChange).toHaveBeenCalledWith(["acme.com", "test.com"]);
+  });
+
+  it("clicking select-all when all selected deselects all", () => {
+    render(
+      <CompanyResultsTable
+        {...defaultProps}
+        selectedDomains={["acme.com", "test.com"]}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("select-all-checkbox"));
+    expect(mockOnSelectionChange).toHaveBeenCalledWith([]);
+  });
+
+  it("select-all has correct aria-label", () => {
+    render(<CompanyResultsTable {...defaultProps} />);
+
+    expect(screen.getByLabelText("Selecionar todas as empresas")).toBeInTheDocument();
+  });
+
+  // =====================
+  // SELECTION COUNTER (AC #3)
+  // =====================
+
+  it("does not show selection counter when no domains selected", () => {
+    render(<CompanyResultsTable {...defaultProps} selectedDomains={[]} />);
+
+    expect(screen.queryByTestId("selection-counter")).not.toBeInTheDocument();
+  });
+
+  it("shows selection counter with singular when 1 domain selected", () => {
+    render(
+      <CompanyResultsTable {...defaultProps} selectedDomains={["acme.com"]} />
+    );
+
+    expect(screen.getByTestId("selection-counter")).toHaveTextContent("1 empresa selecionada");
+  });
+
+  it("shows selection counter with plural when multiple domains selected", () => {
+    render(
+      <CompanyResultsTable
+        {...defaultProps}
+        selectedDomains={["acme.com", "test.com"]}
+      />
+    );
+
+    expect(screen.getByTestId("selection-counter")).toHaveTextContent("2 empresas selecionadas");
+  });
+
+  it("shows clear selection button when domains are selected", () => {
+    render(
+      <CompanyResultsTable {...defaultProps} selectedDomains={["acme.com"]} />
+    );
+
+    expect(screen.getByTestId("clear-selection")).toBeInTheDocument();
+  });
+
+  it("clicking clear selection calls onSelectionChange with empty array", () => {
+    render(
+      <CompanyResultsTable {...defaultProps} selectedDomains={["acme.com"]} />
+    );
+
+    fireEvent.click(screen.getByTestId("clear-selection"));
+    expect(mockOnSelectionChange).toHaveBeenCalledWith([]);
+  });
+
+  it("does not show clear selection button when no domains selected", () => {
+    render(<CompanyResultsTable {...defaultProps} selectedDomains={[]} />);
+
+    expect(screen.queryByTestId("clear-selection")).not.toBeInTheDocument();
+  });
+
+  // =====================
+  // LOADING & EMPTY (AC #5, #6)
+  // =====================
+
   it("shows loading skeleton when isLoading", () => {
     render(
       <CompanyResultsTable
+        {...defaultProps}
         companies={[]}
         totalResults={0}
         totalCompanies={0}
         isLoading={true}
-        hasSearched={true}
-        page={0}
-        limit={10}
-        onPageChange={mockOnPageChange}
       />
     );
 
     expect(screen.getByTestId("table-skeleton")).toBeInTheDocument();
   });
 
-  it("shows empty state when no results after search", () => {
+  it("shows empty state with guidance text when no results after search", () => {
     render(
       <CompanyResultsTable
+        {...defaultProps}
         companies={[]}
         totalResults={0}
         totalCompanies={0}
-        isLoading={false}
-        hasSearched={true}
-        page={0}
-        limit={10}
-        onPageChange={mockOnPageChange}
       />
     );
 
     expect(screen.getByTestId("empty-state")).toBeInTheDocument();
+    expect(screen.getByText("Nenhuma empresa encontrada")).toBeInTheDocument();
+    expect(screen.getByText(/Tente ajustar as tecnologias ou filtros/)).toBeInTheDocument();
   });
+
+  // =====================
+  // PAGINATION (AC #5)
+  // =====================
 
   it("renders pagination buttons when multiple pages", () => {
     render(
       <CompanyResultsTable
-        companies={mockCompanies}
+        {...defaultProps}
         totalResults={25}
         totalCompanies={25}
-        isLoading={false}
-        hasSearched={true}
         page={1}
-        limit={10}
-        onPageChange={mockOnPageChange}
       />
     );
 
@@ -246,14 +402,10 @@ describe("CompanyResultsTable", () => {
   it("disables prev button on first page", () => {
     render(
       <CompanyResultsTable
-        companies={mockCompanies}
+        {...defaultProps}
         totalResults={25}
         totalCompanies={25}
-        isLoading={false}
-        hasSearched={true}
         page={0}
-        limit={10}
-        onPageChange={mockOnPageChange}
       />
     );
 
@@ -264,14 +416,10 @@ describe("CompanyResultsTable", () => {
   it("disables next button on last page", () => {
     render(
       <CompanyResultsTable
-        companies={mockCompanies}
+        {...defaultProps}
         totalResults={25}
         totalCompanies={25}
-        isLoading={false}
-        hasSearched={true}
         page={2}
-        limit={10}
-        onPageChange={mockOnPageChange}
       />
     );
 
@@ -282,14 +430,10 @@ describe("CompanyResultsTable", () => {
   it("calls onPageChange on pagination click", () => {
     render(
       <CompanyResultsTable
-        companies={mockCompanies}
+        {...defaultProps}
         totalResults={25}
         totalCompanies={25}
-        isLoading={false}
-        hasSearched={true}
         page={1}
-        limit={10}
-        onPageChange={mockOnPageChange}
       />
     );
 
@@ -298,24 +442,5 @@ describe("CompanyResultsTable", () => {
 
     fireEvent.click(screen.getByTestId("prev-page"));
     expect(mockOnPageChange).toHaveBeenCalledWith(0);
-  });
-
-  it("renders external link for companies with URL", () => {
-    render(
-      <CompanyResultsTable
-        companies={mockCompanies}
-        totalResults={2}
-        totalCompanies={2}
-        isLoading={false}
-        hasSearched={true}
-        page={0}
-        limit={10}
-        onPageChange={mockOnPageChange}
-      />
-    );
-
-    const link = screen.getByLabelText("Visitar Acme Corp");
-    expect(link).toHaveAttribute("href", "https://acme.com");
-    expect(link).toHaveAttribute("target", "_blank");
   });
 });
