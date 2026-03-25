@@ -369,6 +369,6 @@ development_status:
   15-1-integracao-theirstack-config-teste-credits: done  # Config API key, teste conexao, monitoramento credits. FR1-3. SPIKE CONCLUIDO — tipos validados com chamadas reais
   15-2-busca-technografica-autocomplete-filtros: done  # Autocomplete catalogo theirStack + filtros (pais, tamanho, industria). FR4-5. NOTA: confidence NAO e filtravel na API (client-side)
   15-3-resultados-empresas-tabela-selecao: done  # Tabela resultados + score confianca + selecao individual/lote. FR6-7
-  15-4-apollo-bridge-busca-contatos: backlog  # Busca contatos via Apollo nas empresas selecionadas + filtro cargos. FR8-9. NOTA: apollo_id ja vem no resultado theirStack
+  15-4-apollo-bridge-busca-contatos: done  # Busca contatos via Apollo nas empresas selecionadas + filtro cargos. FR8-9. NOTA: apollo_id ja vem no resultado theirStack
   15-5-criacao-leads-integracao-pipeline: backlog  # Criar leads + adicionar segmentos + metadado tech origem. FR10-11
   epic-15-retrospective: optional
