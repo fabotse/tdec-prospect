@@ -3,6 +3,7 @@ stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8]
 inputDocuments:
   - prd.md
   - product-brief-tdec-prospect-2026-01-29.md
+  - product-brief-tdec-prospect-2026-03-25.md
   - ux-design-specification.md
 workflowType: 'architecture'
 project_name: 'tdec-prospect'
@@ -11,6 +12,14 @@ date: '2026-01-29'
 lastStep: 8
 status: 'complete'
 completedAt: '2026-01-29'
+updatedAt: '2026-03-25'
+updateReason: 'Agente TDEC - nova feature de orquestracao conversacional do pipeline de prospeccao'
+updateSections:
+  - 'Agente TDEC — Decisoes Arquiteturais'
+  - 'Agente TDEC — Padroes de Implementacao'
+  - 'Agente TDEC — Estrutura do Projeto'
+  - 'Agente TDEC — Analise de Contexto Arquitetural'
+  - 'Agente TDEC — Validacao da Arquitetura'
 ---
 
 # Architecture Decision Document
@@ -1281,7 +1290,564 @@ Polling (backup): TrackingService → Instantly API → campaign_events (DB)
 Janela de Oportunidade: OpportunityEngine ← campaign_events + opportunity_configs → OpportunityPanel
 ```
 
-## Architecture Validation Results
+## Agente TDEC — Decisoes Arquiteturais
+
+_Adicionado em 2026-03-25. Decisoes arquiteturais para a feature Agente TDEC._
+
+### Principio Arquitetural
+
+Minimizar dependencia de Vercel — logica e estado no Next.js + Supabase; Vercel apenas como plataforma de deploy. A arquitetura deve funcionar em qualquer host.
+
+### Decisoes Criticas
+
+| Decisao | Escolha | Rationale |
+|---------|---------|-----------|
+| Modelagem do Pipeline | Pipeline Sequencial com Steps + interface `IPipelineOrchestrator` | Deterministico na Fase 1, trocavel por agente AI na Fase 2 |
+| Persistencia | 3 tabelas: `agent_executions`, `agent_steps`, `agent_messages` | Checkpoint por step, retomada sem reprocessamento, historico de chat |
+| Comunicacao Realtime | Supabase Realtime (subscriptions) + mutations TanStack Query | Zero infra extra, leve para nosso scale (~10 usuarios) |
+| Execucao Server-Side | API Route por Step, orquestracao client-side | Sem problema de timeout, independente de Vercel |
+| Parsing de Briefing | OpenAI structured output (gpt-4o-mini) | Robusto para linguagem natural, custo irrisorio |
+| Estimativa de Custo | Tabela `cost_models` com precos unitarios por API | Transparencia sem teto rigido, admin configura |
+| Approval Gates | Status do step (`awaiting_approval`) como mecanismo de gate | Dados controlam o fluxo, sem middleware extra |
+
+### Data Models do Agente
+
+```sql
+-- Execucao do agente (uma por sessao de briefing)
+CREATE TABLE agent_executions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id),
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',  -- 'pending','running','paused','completed','failed'
+  mode VARCHAR(10) NOT NULL DEFAULT 'guided',      -- 'guided','autopilot'
+  briefing JSONB NOT NULL,                         -- Briefing parseado (tecnologia, cargo, localizacao, produto, etc.)
+  current_step INTEGER DEFAULT 0,                  -- Step atual do pipeline
+  total_steps INTEGER NOT NULL,                    -- Total de steps no pipeline
+  cost_estimate JSONB,                             -- Estimativa pre-execucao
+  cost_actual JSONB,                               -- Custo real acumulado
+  result_summary JSONB,                            -- Resumo final (leads, emails, custo total)
+  error_message TEXT,                              -- Mensagem de erro se falhou
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- RLS
+ALTER TABLE agent_executions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON agent_executions
+  FOR ALL USING (tenant_id = auth.jwt() ->> 'tenant_id');
+
+-- Steps individuais do pipeline (checkpoint por etapa)
+CREATE TABLE agent_steps (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  execution_id UUID NOT NULL REFERENCES agent_executions(id) ON DELETE CASCADE,
+  step_number INTEGER NOT NULL,
+  step_type VARCHAR(30) NOT NULL,                  -- 'search_companies','search_leads','create_campaign','export','activate'
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',   -- 'pending','running','awaiting_approval','approved','completed','failed','skipped'
+  input JSONB,                                     -- Input do step
+  output JSONB,                                    -- Output do step (resultado)
+  cost JSONB,                                      -- Custo deste step
+  error_message TEXT,
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(execution_id, step_number)
+);
+
+-- Indices
+CREATE INDEX idx_agent_steps_execution ON agent_steps(execution_id);
+
+-- Mensagens do chat (historico da conversa)
+CREATE TABLE agent_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  execution_id UUID NOT NULL REFERENCES agent_executions(id) ON DELETE CASCADE,
+  role VARCHAR(10) NOT NULL,                       -- 'user','agent','system'
+  content TEXT NOT NULL,
+  metadata JSONB DEFAULT '{}',                     -- Dados extras (step_number, approval_gate, etc.)
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Indices
+CREATE INDEX idx_agent_messages_execution ON agent_messages(execution_id);
+CREATE INDEX idx_agent_messages_created ON agent_messages(execution_id, created_at);
+```
+
+### Orquestrador — Interface Abstrata
+
+```typescript
+// Briefing parseado via OpenAI structured output
+interface ParsedBriefing {
+  technology: string | null;
+  jobTitles: string[];
+  location: string | null;
+  companySize: string | null;
+  industry: string | null;
+  productSlug: string | null;
+  mode: 'guided' | 'autopilot';
+  skipSteps: string[];
+}
+
+// Step do pipeline — cada step e uma classe isolada
+interface PipelineStep {
+  type: 'search_companies' | 'search_leads' | 'create_campaign' | 'export' | 'activate';
+  execute(input: StepInput): Promise<StepOutput>;
+  estimateCost(input: StepInput): CostEstimate;
+  shouldSkip(briefing: ParsedBriefing): boolean;
+}
+
+// Orquestrador — interface abstrata
+interface IPipelineOrchestrator {
+  planExecution(briefing: ParsedBriefing): ExecutionPlan;
+  executeStep(executionId: string, stepNumber: number): Promise<StepOutput>;
+  getExecution(executionId: string): Promise<AgentExecution>;
+}
+
+// Fase 1: implementacao deterministica
+class DeterministicOrchestrator implements IPipelineOrchestrator { ... }
+
+// Fase 2 (futuro): troca por agente com tool calling
+// class AIAgentOrchestrator implements IPipelineOrchestrator { ... }
+```
+
+### Modelo de Custo
+
+```typescript
+interface CostModel {
+  theirStack: { perSearch: number };
+  apollo: { perLeadLookup: number };
+  apify: { perLinkedInProfile: number };
+  openai: { perPromptAvg: number };
+  instantly: { perCampaignExport: number };
+}
+
+interface CostEstimate {
+  steps: Record<string, { estimated: number; description: string }>;
+  total: number;
+  currency: 'BRL';
+}
+```
+
+### Comunicacao Realtime
+
+```
+Frontend subscribe em:
+  - agent_messages (novas mensagens do agente)
+  - agent_steps (mudanca de status dos steps)
+
+Frontend envia via mutations:
+  - Aprovar/rejeitar gate
+  - Enviar mensagem do usuario
+  - Disparar proximo step
+  - Retry step com falha
+
+Fluxo do Approval Gate:
+  Step executa -> salva output -> status = 'awaiting_approval'
+                                       | (Realtime)
+                                 Frontend renderiza gate
+                                       |
+                   Usuario aprova -> status = 'approved' -> proximo step
+                   Usuario rejeita -> status = 'rejected' -> agente pergunta ajustes
+
+No modo Autopilot: steps vao direto de 'running' -> 'completed' (sem awaiting_approval)
+```
+
+### Decisoes Diferidas (Fase 2)
+
+- Vercel AI SDK / tool calling para agente semi-autonomo
+- Decisoes dinamicas do agente (expandir filtros, ajustar tom, pausar campanha)
+- Agente reativo a respostas de leads
+- Dashboard de execucoes com historico e replay
+
+## Agente TDEC — Padroes de Implementacao
+
+_Padroes especificos da camada de orquestracao para consistencia entre agentes de IA._
+
+### Naming do Agente
+
+| Elemento | Convencao | Exemplo |
+|----------|-----------|---------|
+| Tabelas do agente | `agent_` prefix, snake_case | `agent_executions`, `agent_steps`, `agent_messages` |
+| Step types | snake_case string literal | `'search_companies'`, `'create_campaign'` |
+| Status values | snake_case string literal | `'awaiting_approval'`, `'completed'` |
+| Classes de Step | PascalCase + Step suffix | `SearchCompaniesStep`, `CreateCampaignStep` |
+| Service | PascalCase + Service suffix | `PipelineOrchestratorService`, `BriefingParserService` |
+| Hooks | use + PascalCase | `useAgentExecution`, `useAgentMessages`, `useAgentSteps` |
+| API Routes | `/api/agent/...` | `/api/agent/executions`, `/api/agent/steps/[stepId]/execute` |
+| Components | PascalCase, prefixo `Agent` | `AgentChat`, `AgentStepProgress`, `AgentApprovalGate` |
+
+### Padrao de Step (cada step do pipeline)
+
+```typescript
+// Todos os steps seguem esta interface — sem excecao
+abstract class BaseStep implements PipelineStep {
+  abstract type: StepType;
+  abstract execute(input: StepInput): Promise<StepOutput>;
+  abstract estimateCost(input: StepInput): CostEstimate;
+  abstract shouldSkip(briefing: ParsedBriefing): boolean;
+
+  // Metodos herdados — nao sobrescrever
+  protected async saveCheckpoint(executionId: string, output: StepOutput): Promise<void>;
+  protected async logStep(executionId: string, input: StepInput, output: StepOutput): Promise<void>;
+}
+
+// Exemplo concreto
+class SearchCompaniesStep extends BaseStep {
+  type = 'search_companies' as const;
+  // ... implementacao especifica
+}
+```
+
+**Regra:** Cada step chama UM servico existente. Steps nao chamam outros steps. O orquestrador controla a sequencia.
+
+### Padrao de API Routes do Agente
+
+```
+POST /api/agent/executions                                    — criar nova execucao
+GET  /api/agent/executions                                    — listar execucoes do usuario
+GET  /api/agent/executions/[executionId]                      — detalhe de uma execucao
+
+POST /api/agent/executions/[executionId]/steps/[stepNumber]/execute  — executar step
+POST /api/agent/executions/[executionId]/steps/[stepNumber]/approve  — aprovar gate
+POST /api/agent/executions/[executionId]/steps/[stepNumber]/reject   — rejeitar gate
+
+POST /api/agent/briefing/parse                                — parsear briefing via OpenAI
+POST /api/agent/executions/[executionId]/messages              — enviar mensagem do usuario
+```
+
+**Regra:** Cada route faz UMA coisa. Executar step, aprovar gate e parsear briefing sao routes separadas.
+
+### Padrao de Realtime Subscriptions
+
+```typescript
+// Hook padrao para subscribe em mudancas de uma execucao
+function useAgentExecution(executionId: string) {
+  // Subscribe em agent_steps WHERE execution_id = executionId
+  // Subscribe em agent_messages WHERE execution_id = executionId
+  // Retorna: { steps, messages, execution, isConnected }
+}
+```
+
+**Regra:** Um unico hook gerencia todas as subscriptions de uma execucao. Componentes filhos consomem dados via props ou contexto — nao criam subscriptions proprias.
+
+### Padrao de Mensagens do Chat
+
+```typescript
+interface AgentMessage {
+  role: 'user' | 'agent' | 'system';
+  content: string;
+  metadata: {
+    stepNumber?: number;
+    messageType?: 'text' | 'approval_gate' | 'progress' | 'error' | 'cost_estimate' | 'summary';
+    approvalData?: {
+      stepType: StepType;
+      previewData: unknown;       // Dados para renderizar o gate (leads, campanha, etc.)
+    };
+  };
+}
+```
+
+**Regra:** O `messageType` determina como o frontend renderiza. `text` = bolha de chat normal. `approval_gate` = card interativo com botoes aprovar/rejeitar. `progress` = indicador de progresso. Nunca misturar tipos numa mesma mensagem.
+
+### Padrao de Error Handling do Pipeline
+
+```typescript
+interface PipelineError {
+  code: string;
+  message: string;                // Mensagem em portugues para o usuario
+  stepNumber: number;
+  stepType: StepType;
+  isRetryable: boolean;
+  externalService?: string;       // Qual API externa falhou (se aplicavel)
+}
+
+const AGENT_ERROR_CODES = {
+  BRIEFING_PARSE_ERROR: 'Nao consegui interpretar o briefing',
+  STEP_EXECUTION_ERROR: 'Erro ao executar etapa do pipeline',
+  STEP_TIMEOUT: 'Etapa demorou demais para responder',
+  APPROVAL_TIMEOUT: 'Aprovacao expirou',
+  COST_ESTIMATE_ERROR: 'Erro ao calcular estimativa de custo',
+  EXECUTION_RESUME_ERROR: 'Erro ao retomar execucao',
+} as const;
+```
+
+**Regra:** Todo erro de step deve indicar `isRetryable` e `externalService` (quando a falha e de API externa). O frontend usa isso para mostrar "Tentar novamente" ou "Retomar depois".
+
+## Agente TDEC — Estrutura do Projeto
+
+_Novos arquivos e diretorios adicionados ao projeto existente._
+
+### Directory Structure (Novos Arquivos)
+
+```
+src/
+├── app/
+│   ├── (dashboard)/
+│   │   └── agent/                          # Pagina do Agente TDEC
+│   │       ├── page.tsx                    # Interface principal (chat)
+│   │       └── loading.tsx
+│   │
+│   └── api/
+│       └── agent/                          # API Routes do agente
+│           ├── briefing/
+│           │   └── parse/
+│           │       └── route.ts            # POST — parsear briefing via OpenAI
+│           ├── executions/
+│           │   ├── route.ts                # GET (listar), POST (criar execucao)
+│           │   └── [executionId]/
+│           │       ├── route.ts            # GET (detalhe execucao)
+│           │       ├── messages/
+│           │       │   └── route.ts        # POST (enviar mensagem do usuario)
+│           │       └── steps/
+│           │           └── [stepNumber]/
+│           │               ├── execute/
+│           │               │   └── route.ts  # POST — executar step
+│           │               ├── approve/
+│           │               │   └── route.ts  # POST — aprovar gate
+│           │               └── reject/
+│           │                   └── route.ts  # POST — rejeitar gate
+│
+├── components/
+│   └── agent/                              # Componentes do agente
+│       ├── AgentChat.tsx                   # Container principal do chat
+│       ├── AgentMessageList.tsx            # Lista de mensagens
+│       ├── AgentMessageBubble.tsx          # Bolha de mensagem individual
+│       ├── AgentInput.tsx                  # Input de texto do usuario
+│       ├── AgentStepProgress.tsx           # Barra de progresso do pipeline
+│       ├── AgentApprovalGate.tsx           # Card interativo de aprovacao
+│       ├── AgentLeadReview.tsx             # Revisao/filtragem de leads no gate
+│       ├── AgentCampaignPreview.tsx        # Preview da campanha no gate
+│       ├── AgentCostEstimate.tsx           # Card de estimativa de custo
+│       ├── AgentExecutionSummary.tsx       # Resumo final da execucao
+│       ├── AgentPausedExecutions.tsx       # Lista de execucoes pausadas
+│       ├── AgentModeSelector.tsx           # Seletor Guiado/Autopilot
+│       ├── AgentOnboarding.tsx             # Mensagem de primeira vez
+│       └── index.ts
+│
+├── lib/
+│   ├── services/
+│   │   ├── agent-orchestrator.ts           # DeterministicOrchestrator
+│   │   ├── agent-briefing-parser.ts        # BriefingParserService (OpenAI)
+│   │   └── agent-cost-estimator.ts         # CostEstimatorService
+│   │
+│   └── agent/                              # Pipeline steps
+│       ├── steps/
+│       │   ├── base-step.ts                # BaseStep abstract class
+│       │   ├── search-companies-step.ts    # Step 1: theirStack
+│       │   ├── search-leads-step.ts        # Step 2: Apollo
+│       │   ├── create-campaign-step.ts     # Step 3: campanha + IA + icebreakers
+│       │   ├── export-step.ts              # Step 4: export Instantly
+│       │   ├── activate-step.ts            # Step 5: ativacao Instantly
+│       │   └── index.ts                    # Registry de steps
+│       └── types.ts                        # Tipos internos do pipeline
+│
+├── hooks/
+│   ├── use-agent-execution.ts              # Realtime subscription + dados
+│   ├── use-agent-messages.ts               # Mensagens do chat
+│   ├── use-agent-briefing.ts               # Mutation de parsing
+│   └── use-agent-step.ts                   # Mutation de executar/aprovar/rejeitar
+│
+├── stores/
+│   └── use-agent-store.ts                  # UI state do agente
+│
+├── types/
+│   └── agent.ts                            # Tipos do agente (ParsedBriefing, etc.)
+│
+└── supabase/
+    └── migrations/
+        ├── 000XX_create_agent_executions.sql
+        ├── 000XX_create_agent_steps.sql
+        └── 000XX_create_agent_messages.sql
+```
+
+### Mapeamento FR → Estrutura
+
+| Dominio FR | Diretorio Principal | Componentes Chave |
+|------------|---------------------|-------------------|
+| Briefing Conversacional (FR1-FR9) | `components/agent/`, `lib/services/agent-briefing-parser.ts` | AgentChat, AgentInput, AgentOnboarding, AgentModeSelector |
+| Orquestracao de Pipeline (FR10-FR15) | `lib/agent/steps/`, `lib/services/agent-orchestrator.ts` | DeterministicOrchestrator, BaseStep, steps individuais |
+| Approval Gates (FR16-FR22) | `components/agent/`, `app/api/agent/.../approve/` | AgentApprovalGate, AgentLeadReview, AgentCampaignPreview |
+| Criacao Inteligente (FR23-FR29) | `lib/agent/steps/create-campaign-step.ts` | Reutiliza servicos existentes (knowledge-base, AI, apify) |
+| Export e Ativacao (FR30-FR32) | `lib/agent/steps/export-step.ts`, `activate-step.ts` | Reutiliza `instantly.ts` existente |
+| Monitoramento de Execucao (FR33-FR39) | `components/agent/`, `hooks/use-agent-execution.ts` | AgentStepProgress, AgentPausedExecutions, AgentExecutionSummary |
+| Rastreamento de Custos (FR40-FR42) | `lib/services/agent-cost-estimator.ts`, `components/agent/` | AgentCostEstimate, CostEstimatorService |
+
+### Boundaries e Data Flow
+
+```
+                         ┌─────────────────────────────────┐
+                         │   Frontend (Agent Page)          │
+                         │                                  │
+                         │  AgentChat <- useAgentExecution   │
+                         │     |          (Realtime sub)    │
+                         │     |-- AgentMessageList         │
+                         │     |-- AgentStepProgress        │
+                         │     |-- AgentApprovalGate        │
+                         │     +-- AgentInput               │
+                         └────────────┬────────────────────┘
+                                      | mutations (TanStack Query)
+                              ┌───────┴───────┐
+                              │  API Routes   │
+                              │  /api/agent/* │
+                              └───────┬───────┘
+                                      |
+              ┌───────────────────────┼───────────────────────┐
+              │                       │                       │
+     ┌────────┴────────┐    ┌────────┴────────┐    ┌────────┴────────┐
+     │  Orchestrator   │    │ BriefingParser  │    │ CostEstimator   │
+     │ (step dispatch) │    │ (OpenAI parse)  │    │ (cost calc)     │
+     └────────┬────────┘    └─────────────────┘    └─────────────────┘
+              │
+     ┌────────┴────────┐
+     │  Pipeline Steps │  <- Cada step chama UM servico existente
+     |-- SearchCompanies -> theirstack.ts (existente)
+     |-- SearchLeads     -> apollo.ts (existente)
+     |-- CreateCampaign  -> AI + knowledge-base + apify (existentes)
+     |-- Export          -> instantly.ts (existente)
+     +-- Activate        -> instantly.ts (existente)
+              │
+     ┌────────┴────────┐
+     │    Supabase     │
+     │  agent_* tables │  <- Realtime subscriptions -> Frontend
+     └─────────────────┘
+```
+
+**Ponto chave:** Os pipeline steps sao wrappers finos sobre servicos que ja existem. O agente nao reimplementa nada — orquestra.
+
+### Servicos Existentes Reutilizados
+
+| Step do Pipeline | Servico Existente | Arquivo |
+|------------------|-------------------|---------|
+| SearchCompanies | TheirStackService | `lib/services/theirstack.ts` |
+| SearchLeads | ApolloService | `lib/services/apollo.ts` |
+| CreateCampaign (icebreakers) | ApifyService | `lib/services/apify.ts` |
+| CreateCampaign (conteudo) | AI providers | `lib/ai/` |
+| CreateCampaign (contexto) | KnowledgeBaseContext | `lib/services/knowledge-base-context.ts` |
+| Export | InstantlyService | `lib/services/instantly.ts` |
+| Activate | InstantlyService | `lib/services/instantly.ts` |
+
+## Agente TDEC — Analise de Contexto Arquitetural
+
+_Adicionado em 2026-03-25. Feature nova que requer decisoes arquiteturais adicionais._
+
+### Escopo da Feature
+
+O Agente TDEC e um agente conversacional que orquestra todo o pipeline de prospeccao outbound — da descoberta de leads ate o monitoramento de campanhas ativas. E uma camada de orquestracao + interface conversacional sobre os servicos ja existentes (15 epics implementadas).
+
+### Requisitos Funcionais (42 FRs)
+
+- **Briefing Conversacional (FR1-FR9):** Interface de chat, parsing de linguagem natural, perguntas guiadas, selecao de modo, plano de execucao, estimativa de custo, onboarding
+- **Orquestracao de Pipeline (FR10-FR15):** Pipeline completo de 5 etapas, adaptacao condicional, checkpointing, retomada, protecao de creditos, dois modos (Guiado/Autopilot)
+- **Approval Gates (FR16-FR22):** 4 gates no modo Guiado (empresas, leads, campanha, ativacao), filtragem granular de leads, edicao de conteudo
+- **Criacao Inteligente (FR23-FR29):** Uso da Knowledge Base, selecao de produto, icebreakers LinkedIn, estrutura otimizada, deteccao de produto nao cadastrado, cadastro inline
+- **Export e Ativacao (FR30-FR32):** Export para Instantly, sending accounts, ativacao
+- **Monitoramento de Execucao (FR33-FR39):** Feedback visual, resumo final, execution log, mensagem de falha, retry/retomada, lista de execucoes pausadas
+- **Rastreamento de Custos (FR40-FR42):** Estimativa pre-execucao, custo por etapa, custo total
+
+### Requisitos Nao-Funcionais (12 NFRs)
+
+- **Performance (NFR1-3):** Feedback visual durante processamento, pipeline < 15min para 100 leads, respostas do chat < 5s
+- **Integracao (NFR4-6):** Tratamento de erros de 5+ APIs, retry com backoff exponencial (3x), tolerancia a falha parcial
+- **Confiabilidade (NFR7-10):** Taxa de conclusao >= 90%, checkpoint persistido antes da proxima etapa, retomada >= 95%, sem reprocessamento de creditos
+- **Seguranca (NFR11-12):** API keys encriptadas (existente), logs sem tokens em texto plano
+
+### Aspectos Arquiteturais Chave
+
+1. **Orquestracao multi-servico:** O agente chama 6 servicos existentes (theirStack, Apollo, Apify, OpenAI, Instantly, Knowledge Base) em sequencia deterministica
+2. **State machine com checkpointing:** Cada etapa salva estado antes de avancar, permitindo retomada sem reprocessamento
+3. **Dois modos de interacao:** Guiado (com paradas) e Autopilot (continuo) — mesma engine, middleware diferente
+4. **Interface de chat:** Comunicacao bidirecional agente-usuario com streaming de progresso em tempo real
+5. **Estimativa de custo:** Modelo de precificacao por API baseado em volume
+6. **Cadastro inline:** Fluxo conversacional que cria entidade no meio do pipeline
+7. **Preparacao para Fase 2:** Interface abstrata do orquestrador para futura troca por agente com tool calling
+
+### Cross-Cutting Concerns (Novos)
+
+1. **Pipeline Resilience:** Checkpointing + retry + retomada — critico para orquestracao de 5+ APIs
+2. **Execution Logging:** Auditoria completa de cada step (input/output/decisao)
+3. **Cost Tracking:** Modelo de custo por API, estimativa pre-execucao, rastreamento real
+4. **Chat State Management:** Historico de mensagens, estado da conversa, parsing de briefing
+5. **Approval Gate Middleware:** Sistema configuravel de paradas entre steps
+
+### Complexidade
+
+- **Nivel:** Alto — orquestracao stateful de multiplos servicos com recovery
+- **Dominio:** Camada de orquestracao sobre full-stack existente
+- **Componentes novos estimados:** 15-20 (service, types, hooks, components, data models)
+
+## Agente TDEC — Validacao da Arquitetura
+
+### Coherence Validation (Agente TDEC)
+
+**Compatibilidade de Decisoes:**
+- Pipeline Sequencial + API Route por Step + Supabase Realtime — compatíveis
+- OpenAI structured output + PromptManager existente (ADR-001) — compatíveis
+- Zustand (UI) + TanStack Query (mutations) + Supabase Realtime (subscriptions) — coexistem sem conflito
+- Orquestracao client-side + independencia de Vercel — compatíveis
+
+**Consistencia de Padroes:**
+- Naming do agente alinhado com padroes existentes (snake_case DB, PascalCase componentes)
+- API Routes `/api/agent/` seguem padrao existente
+- Hooks `useAgent*` seguem padrao existente
+- Error codes estendem `ERROR_CODES` existentes
+
+**Resultado:** Sem conflitos ou contradicoes detectadas.
+
+### Requirements Coverage (Agente TDEC)
+
+**Requisitos Funcionais:** 42/42 cobertos
+
+| FR | Suporte Arquitetural |
+|----|---------------------|
+| FR1-FR9 (Briefing) | `AgentChat`, `AgentInput`, `BriefingParserService`, `AgentModeSelector`, `AgentOnboarding` |
+| FR10-FR15 (Pipeline) | `DeterministicOrchestrator`, `PipelineStep.shouldSkip()`, `BaseStep.saveCheckpoint()` |
+| FR16-FR22 (Gates) | `AgentApprovalGate`, `AgentLeadReview`, API approve/reject |
+| FR23-FR29 (Campanha) | `CreateCampaignStep` -> servicos existentes (KB, AI, Apify) |
+| FR30-FR32 (Export) | `ExportStep`, `ActivateStep` -> `InstantlyService` |
+| FR33-FR39 (Monitoramento) | `AgentStepProgress`, `AgentPausedExecutions`, `PipelineError` |
+| FR40-FR42 (Custo) | `CostEstimatorService`, `agent_steps.cost`, `AgentCostEstimate` |
+
+**Requisitos Nao-Funcionais:** 12/12 cobertos
+
+| NFR | Suporte |
+|-----|---------|
+| NFR1-3 (Performance) | Supabase Realtime, API Route por Step (sem timeout), gpt-4o-mini (rapido) |
+| NFR4-6 (Integracao) | `BaseStep` com retry, `PipelineError.isRetryable`, checkpoint preserva etapas |
+| NFR7-10 (Confiabilidade) | `agent_steps` com status persistido, `shouldSkip` para etapas concluidas |
+| NFR11-12 (Seguranca) | API keys em `api_configs` (existente), logs sem tokens |
+
+### Gap Analysis (Agente TDEC)
+
+**Gaps Criticos:** Nenhum
+
+**Gaps Importantes:**
+- Tabela `cost_models` mencionada mas SQL nao definido — sera criada durante implementacao das stories
+- Produto inline (FR27-29) e interacao conversacional dentro do briefing, nao um PipelineStep dedicado — intencional e correto
+
+**Nice-to-Have (Fase 2):**
+- Dashboard de execucoes com historico
+- Input por voz (Whisper ja existe)
+- Multi-campanha por sessao
+
+### Readiness Assessment (Agente TDEC)
+
+**Status:** READY FOR IMPLEMENTATION
+**Confianca:** HIGH
+
+**Pontos Fortes:**
+- Reutilizacao massiva de servicos existentes (zero reimplementacao)
+- Separacao clara: orquestracao nova, servicos estaveis
+- Checkpointing nativo via tabelas Supabase
+- Independencia de Vercel (portavel)
+- Preparacao para Fase 2 via `IPipelineOrchestrator`
+
+**Areas para Enhancement Futuro:**
+- Input por voz (Whisper ja existe)
+- Multi-campanha por sessao
+- Dashboard de historico de execucoes
+- Troca para agente AI com tool calling (Fase 2)
+
+## Architecture Validation Results (Original)
 
 ### Coherence Validation ✅
 
