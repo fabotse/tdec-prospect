@@ -382,13 +382,14 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
                 <TableCell>{lead.lastOpenAt ? formatRelativeTime(lead.lastOpenAt) : "-"}</TableCell>
                 <TableCell>
                   {(() => {
-                    const subject = getStepTooltip(lead.emailOpenedStep, stepsMap);
-                    if (typeof lead.emailOpenedStep !== "number") return "-";
+                    const step = lead.emailOpenedStep;
+                    const subject = getStepTooltip(step, stepsMap);
+                    if (typeof step !== "number") return "-";
 
-                    const stepText = formatStep(lead.emailOpenedStep);
+                    const stepText = formatStep(step);
                     const handleClick = (e: React.MouseEvent) => {
                       e.stopPropagation();
-                      onStepClick?.(lead.emailOpenedStep);
+                      onStepClick?.(step);
                     };
 
                     if (subject) {

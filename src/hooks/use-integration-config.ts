@@ -91,6 +91,7 @@ const initialConfigs: IntegrationConfigs = {
   instantly: { ...initialConfig },
   apify: { ...initialConfig },
   zapi: { ...initialConfig },
+  theirstack: { ...initialConfig },
 };
 
 /**
