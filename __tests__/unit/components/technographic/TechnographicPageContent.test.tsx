@@ -47,6 +47,34 @@ vi.mock("@/hooks/use-contact-search", () => ({
   })),
 }));
 
+// Mock useCreateTechLeads for Story 15.5
+vi.mock("@/hooks/use-create-tech-leads", () => ({
+  useCreateTechLeads: () => ({
+    createLeads: vi.fn(),
+    isLoading: false,
+    error: null,
+    data: null,
+    reset: vi.fn(),
+  }),
+}));
+
+// Mock segments hooks for Story 15.5
+vi.mock("@/hooks/use-segments", () => ({
+  useSegments: () => ({ data: [], isLoading: false }),
+  useAddLeadsToSegment: () => ({
+    mutateAsync: vi.fn().mockResolvedValue({ added: 0 }),
+    isPending: false,
+  }),
+  useCreateSegment: () => ({
+    mutateAsync: vi.fn().mockResolvedValue({ id: "seg-new", name: "Novo", leadCount: 0 }),
+    isPending: false,
+  }),
+}));
+
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
+
 const mockCompaniesData: TheirStackCompany[] = [
   {
     name: "Acme Corp",
@@ -532,5 +560,76 @@ describe("TechnographicPageContent", () => {
 
     // Contact reset should have been called
     expect(mockContactReset).toHaveBeenCalled();
+  });
+
+  // =====================
+  // CREATE LEADS INTEGRATION (Story 15.5: AC #1, #7)
+  // =====================
+
+  it("shows Criar Leads button when contacts are selected", () => {
+    setupWithCompaniesAndSelection();
+    vi.mocked(useContactSearch).mockReturnValue({
+      search: mockContactSearch,
+      data: { contacts: mockContactsData, total: 1, page: 1, totalPages: 1 },
+      isLoading: false,
+      error: null,
+      reset: mockContactReset,
+    });
+
+    render(<TechnographicPageContent />, { wrapper: createWrapper() });
+
+    // Select a company to see contacts
+    fireEvent.click(screen.getByTestId("select-row-acme.com"));
+
+    // No button yet (no contacts selected)
+    expect(screen.queryByTestId("create-leads-trigger")).not.toBeInTheDocument();
+
+    // Select a contact
+    fireEvent.click(screen.getByTestId("select-contact-lead-1"));
+
+    // Button should appear
+    expect(screen.getByTestId("create-leads-trigger")).toBeInTheDocument();
+    expect(screen.getByTestId("create-leads-trigger")).toHaveTextContent("Criar Leads");
+  });
+
+  it("hides Criar Leads button when no contacts selected", () => {
+    setupWithCompaniesAndSelection();
+    vi.mocked(useContactSearch).mockReturnValue({
+      search: mockContactSearch,
+      data: { contacts: mockContactsData, total: 1, page: 1, totalPages: 1 },
+      isLoading: false,
+      error: null,
+      reset: mockContactReset,
+    });
+
+    render(<TechnographicPageContent />, { wrapper: createWrapper() });
+
+    // Select company then contact
+    fireEvent.click(screen.getByTestId("select-row-acme.com"));
+    fireEvent.click(screen.getByTestId("select-contact-lead-1"));
+    expect(screen.getByTestId("create-leads-trigger")).toBeInTheDocument();
+
+    // Deselect contact
+    fireEvent.click(screen.getByTestId("select-contact-lead-1"));
+    expect(screen.queryByTestId("create-leads-trigger")).not.toBeInTheDocument();
+  });
+
+  it("opens CreateLeadsDialog when Criar Leads button clicked", () => {
+    setupWithCompaniesAndSelection();
+    vi.mocked(useContactSearch).mockReturnValue({
+      search: mockContactSearch,
+      data: { contacts: mockContactsData, total: 1, page: 1, totalPages: 1 },
+      isLoading: false,
+      error: null,
+      reset: mockContactReset,
+    });
+
+    render(<TechnographicPageContent />, { wrapper: createWrapper() });
+
+    fireEvent.click(screen.getByTestId("select-row-acme.com"));
+    fireEvent.click(screen.getByTestId("select-contact-lead-1"));
+    fireEvent.click(screen.getByTestId("create-leads-trigger"));
+
+    expect(screen.getByTestId("create-leads-dialog")).toBeInTheDocument();
   });
 });

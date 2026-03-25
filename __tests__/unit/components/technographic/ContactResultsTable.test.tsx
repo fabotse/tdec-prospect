@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { ContactResultsTable } from "@/components/technographic/ContactResultsTable";
 import type { Lead } from "@/types/lead";
 
@@ -245,5 +245,130 @@ describe("ContactResultsTable", () => {
     expect(screen.getByText("Email")).toBeInTheDocument();
     expect(screen.getByText("Empresa")).toBeInTheDocument();
     expect(screen.getByText("Telefone")).toBeInTheDocument();
+  });
+
+  // --- SELECTION (Story 15.5, AC #1) ---
+
+  describe("selection behavior", () => {
+    const mockOnSelectionChange = vi.fn();
+
+    it("renders checkboxes when selection props are provided", () => {
+      render(
+        <ContactResultsTable
+          contacts={mockContacts}
+          isLoading={false}
+          selectedIds={[]}
+          onSelectionChange={mockOnSelectionChange}
+        />
+      );
+
+      expect(screen.getByTestId("select-all-contacts")).toBeInTheDocument();
+      expect(screen.getByTestId("select-contact-lead-1")).toBeInTheDocument();
+      expect(screen.getByTestId("select-contact-lead-2")).toBeInTheDocument();
+    });
+
+    it("does not render checkboxes when selection props are not provided", () => {
+      render(
+        <ContactResultsTable contacts={mockContacts} isLoading={false} />
+      );
+
+      expect(screen.queryByTestId("select-all-contacts")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("select-contact-lead-1")).not.toBeInTheDocument();
+    });
+
+    it("calls onSelectionChange with contact id when individual checkbox is clicked", () => {
+      render(
+        <ContactResultsTable
+          contacts={mockContacts}
+          isLoading={false}
+          selectedIds={[]}
+          onSelectionChange={mockOnSelectionChange}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId("select-contact-lead-1"));
+      expect(mockOnSelectionChange).toHaveBeenCalledWith(["lead-1"]);
+    });
+
+    it("calls onSelectionChange removing id when checked contact is unchecked", () => {
+      render(
+        <ContactResultsTable
+          contacts={mockContacts}
+          isLoading={false}
+          selectedIds={["lead-1", "lead-2"]}
+          onSelectionChange={mockOnSelectionChange}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId("select-contact-lead-1"));
+      expect(mockOnSelectionChange).toHaveBeenCalledWith(["lead-2"]);
+    });
+
+    it("selects all contacts when header checkbox is clicked", () => {
+      render(
+        <ContactResultsTable
+          contacts={mockContacts}
+          isLoading={false}
+          selectedIds={[]}
+          onSelectionChange={mockOnSelectionChange}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId("select-all-contacts"));
+      expect(mockOnSelectionChange).toHaveBeenCalledWith(["lead-1", "lead-2"]);
+    });
+
+    it("deselects all contacts when header checkbox is clicked while all selected", () => {
+      render(
+        <ContactResultsTable
+          contacts={mockContacts}
+          isLoading={false}
+          selectedIds={["lead-1", "lead-2"]}
+          onSelectionChange={mockOnSelectionChange}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId("select-all-contacts"));
+      expect(mockOnSelectionChange).toHaveBeenCalledWith([]);
+    });
+
+    it("shows selection counter when contacts are selected", () => {
+      render(
+        <ContactResultsTable
+          contacts={mockContacts}
+          isLoading={false}
+          selectedIds={["lead-1"]}
+          onSelectionChange={mockOnSelectionChange}
+        />
+      );
+
+      expect(screen.getByTestId("contact-selection-counter")).toHaveTextContent("1 contato selecionado");
+    });
+
+    it("shows plural selection counter for multiple contacts", () => {
+      render(
+        <ContactResultsTable
+          contacts={mockContacts}
+          isLoading={false}
+          selectedIds={["lead-1", "lead-2"]}
+          onSelectionChange={mockOnSelectionChange}
+        />
+      );
+
+      expect(screen.getByTestId("contact-selection-counter")).toHaveTextContent("2 contatos selecionados");
+    });
+
+    it("does not show selection counter when no contacts selected", () => {
+      render(
+        <ContactResultsTable
+          contacts={mockContacts}
+          isLoading={false}
+          selectedIds={[]}
+          onSelectionChange={mockOnSelectionChange}
+        />
+      );
+
+      expect(screen.queryByTestId("contact-selection-counter")).not.toBeInTheDocument();
+    });
   });
 });

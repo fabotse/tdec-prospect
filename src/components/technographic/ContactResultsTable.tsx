@@ -18,6 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Lead } from "@/types/lead";
 
@@ -29,6 +30,8 @@ interface ContactResultsTableProps {
   contacts: Lead[];
   isLoading: boolean;
   total?: number;
+  selectedIds?: string[];
+  onSelectionChange?: (ids: string[]) => void;
 }
 
 // ==============================================
@@ -102,6 +105,8 @@ export function ContactResultsTable({
   contacts,
   isLoading,
   total,
+  selectedIds,
+  onSelectionChange,
 }: ContactResultsTableProps) {
   if (isLoading) {
     return <ContactTableSkeleton />;
@@ -111,11 +116,22 @@ export function ContactResultsTable({
     return <ContactEmptyState />;
   }
 
+  const hasSelection = selectedIds !== undefined && onSelectionChange !== undefined;
+  const allSelected = hasSelection && contacts.length > 0 && contacts.every((c) => selectedIds.includes(c.id));
+  const someSelected = hasSelection && selectedIds.length > 0 && !allSelected;
+
   return (
     <div className="flex flex-col gap-3" data-testid="contact-results">
       {/* Results info */}
-      <div className="text-sm text-muted-foreground">
-        {(total ?? contacts.length).toLocaleString("pt-BR")} contato{(total ?? contacts.length) === 1 ? "" : "s"} encontrado{(total ?? contacts.length) === 1 ? "" : "s"}
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <span>
+          {(total ?? contacts.length).toLocaleString("pt-BR")} contato{(total ?? contacts.length) === 1 ? "" : "s"} encontrado{(total ?? contacts.length) === 1 ? "" : "s"}
+        </span>
+        {hasSelection && selectedIds.length > 0 && (
+          <span data-testid="contact-selection-counter">
+            | {selectedIds.length} contato{selectedIds.length === 1 ? "" : "s"} selecionado{selectedIds.length === 1 ? "" : "s"}
+          </span>
+        )}
       </div>
 
       {/* Table */}
@@ -123,6 +139,22 @@ export function ContactResultsTable({
         <Table>
           <TableHeader>
             <TableRow>
+              {hasSelection && (
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        onSelectionChange(contacts.map((c) => c.id));
+                      } else {
+                        onSelectionChange([]);
+                      }
+                    }}
+                    aria-label="Selecionar todos os contatos"
+                    data-testid="select-all-contacts"
+                  />
+                </TableHead>
+              )}
               <TableHead>Nome</TableHead>
               <TableHead>Cargo</TableHead>
               <TableHead>Email</TableHead>
@@ -133,6 +165,22 @@ export function ContactResultsTable({
           <TableBody>
             {contacts.map((contact) => (
               <TableRow key={contact.id} data-testid={`contact-row-${contact.id}`}>
+                {hasSelection && (
+                  <TableCell>
+                    <Checkbox
+                      checked={selectedIds.includes(contact.id)}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          onSelectionChange([...selectedIds, contact.id]);
+                        } else {
+                          onSelectionChange(selectedIds.filter((id) => id !== contact.id));
+                        }
+                      }}
+                      aria-label={`Selecionar ${contact.firstName}`}
+                      data-testid={`select-contact-${contact.id}`}
+                    />
+                  </TableCell>
+                )}
                 <TableCell className="font-medium">
                   {contact.firstName}{contact.lastName ? ` ${contact.lastName}` : ""}
                 </TableCell>

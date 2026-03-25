@@ -10,7 +10,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Search, Loader2, RotateCcw } from "lucide-react";
+import { Search, Loader2, RotateCcw, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   TechnologyAutocomplete,
@@ -23,6 +23,7 @@ import {
 import { CompanyResultsTable } from "./CompanyResultsTable";
 import { ContactSearchDialog } from "./ContactSearchDialog";
 import { ContactResultsTable } from "./ContactResultsTable";
+import { CreateLeadsDialog } from "./CreateLeadsDialog";
 import { useCompanySearch } from "@/hooks/use-company-search";
 import { useContactSearch } from "@/hooks/use-contact-search";
 
@@ -50,6 +51,8 @@ export function TechnographicPageContent() {
   const [filters, setFilters] = useState<TechnographicFilters>(INITIAL_FILTERS);
   const [hasSearched, setHasSearched] = useState(false);
   const [selectedDomains, setSelectedDomains] = useState<string[]>([]);
+  const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
+  const [createLeadsOpen, setCreateLeadsOpen] = useState(false);
 
   const {
     search,
@@ -90,6 +93,7 @@ export function TechnographicPageContent() {
       setHasSearched(true);
       setPage(searchPage);
       setSelectedDomains([]);
+      setSelectedContactIds([]);
       contactReset();
       setLastContactParams(null);
 
@@ -111,6 +115,7 @@ export function TechnographicPageContent() {
   const handlePageChange = useCallback(
     (newPage: number) => {
       setSelectedDomains([]);
+      setSelectedContactIds([]);
       handleSearch(newPage);
     },
     [handleSearch]
@@ -135,6 +140,14 @@ export function TechnographicPageContent() {
       contactSearchFn(lastContactParams);
     }
   }, [lastContactParams, contactReset, contactSearchFn]);
+
+  const handleCreateLeadsSuccess = useCallback(() => {
+    setSelectedContactIds([]);
+  }, []);
+
+  const selectedContacts = (contactData?.contacts ?? []).filter(
+    (c) => selectedContactIds.includes(c.id)
+  );
 
   const canSearch = selectedTechnologies.length > 0;
   const creditsUsed = data
@@ -232,11 +245,37 @@ export function TechnographicPageContent() {
 
           {/* Contact results (AC: #3, #4) */}
           {(contactData || contactLoading) && (
-            <ContactResultsTable
-              contacts={contactData?.contacts ?? []}
-              isLoading={contactLoading}
-              total={contactData?.total}
-            />
+            <>
+              <ContactResultsTable
+                contacts={contactData?.contacts ?? []}
+                isLoading={contactLoading}
+                total={contactData?.total}
+                selectedIds={selectedContactIds}
+                onSelectionChange={setSelectedContactIds}
+              />
+
+              {/* Create Leads button (Story 15.5, AC: #1) */}
+              {selectedContactIds.length > 0 && (
+                <Button
+                  onClick={() => setCreateLeadsOpen(true)}
+                  data-testid="create-leads-trigger"
+                >
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Criar Leads ({selectedContactIds.length})
+                </Button>
+              )}
+
+              {/* Create Leads Dialog (Story 15.5) */}
+              {createLeadsOpen && (
+                <CreateLeadsDialog
+                  open={createLeadsOpen}
+                  onOpenChange={setCreateLeadsOpen}
+                  selectedContacts={selectedContacts}
+                  sourceTechnologies={selectedTechnologies.map((t) => t.name)}
+                  onSuccess={handleCreateLeadsSuccess}
+                />
+              )}
+            </>
           )}
         </div>
       )}
