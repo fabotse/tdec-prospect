@@ -48,6 +48,7 @@ describe('Sidebar', () => {
       expect(screen.getByRole('button', { name: /leads/i })).toBeInTheDocument()
       expect(screen.getByRole('link', { name: /campanhas/i })).toBeInTheDocument()
       expect(screen.getByRole('link', { name: /insights/i })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /agente tdec/i })).toBeInTheDocument()
       expect(screen.getByRole('link', { name: /configurações/i })).toBeInTheDocument()
     })
 
@@ -57,6 +58,7 @@ describe('Sidebar', () => {
       // Non-expandable items still have hrefs
       expect(screen.getByRole('link', { name: /campanhas/i })).toHaveAttribute('href', '/campaigns')
       expect(screen.getByRole('link', { name: /insights/i })).toHaveAttribute('href', '/insights')
+      expect(screen.getByRole('link', { name: /agente tdec/i })).toHaveAttribute('href', '/agent')
       expect(screen.getByRole('link', { name: /configurações/i })).toHaveAttribute('href', '/settings')
     })
 
@@ -99,6 +101,7 @@ describe('Sidebar', () => {
       // Check that text spans for labels are not present
       expect(screen.queryByText('Campanhas')).not.toBeInTheDocument()
       expect(screen.queryByText('Insights')).not.toBeInTheDocument()
+      expect(screen.queryByText('Agente TDEC')).not.toBeInTheDocument()
       expect(screen.queryByText('Configurações')).not.toBeInTheDocument()
     })
 
@@ -108,6 +111,7 @@ describe('Sidebar', () => {
       expect(screen.getByText('Leads')).toBeInTheDocument()
       expect(screen.getByText('Campanhas')).toBeInTheDocument()
       expect(screen.getByText('Insights')).toBeInTheDocument()
+      expect(screen.getByText('Agente TDEC')).toBeInTheDocument()
       expect(screen.getByText('Configurações')).toBeInTheDocument()
     })
   })
@@ -181,6 +185,31 @@ describe('Sidebar', () => {
 
       const sidebar = screen.getByRole('navigation', { name: /sidebar/i }).closest('aside')
       expect(sidebar).toHaveStyle({ transition: 'none' })
+    })
+  })
+
+  describe('Agente TDEC nav item (Story 16.1)', () => {
+    it('should render Agente TDEC link with /agent href', () => {
+      render(<Sidebar {...defaultProps} />)
+
+      const agentLink = screen.getByRole('link', { name: /agente tdec/i })
+      expect(agentLink).toHaveAttribute('href', '/agent')
+    })
+
+    it('should mark Agente TDEC as active when on /agent route', () => {
+      mockUsePathname.mockReturnValue('/agent')
+      render(<Sidebar {...defaultProps} />)
+
+      const agentLink = screen.getByRole('link', { name: /agente tdec/i })
+      expect(agentLink).toHaveAttribute('aria-current', 'page')
+    })
+
+    it('should not mark Agente TDEC as active on other routes', () => {
+      mockUsePathname.mockReturnValue('/leads')
+      render(<Sidebar {...defaultProps} />)
+
+      const agentLink = screen.getByRole('link', { name: /agente tdec/i })
+      expect(agentLink).not.toHaveAttribute('aria-current')
     })
   })
 

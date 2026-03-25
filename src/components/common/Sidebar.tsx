@@ -14,6 +14,7 @@ import {
   Database,
   Lightbulb,
   Radar,
+  Bot,
 } from "lucide-react";
 import {
   Tooltip,
@@ -47,6 +48,7 @@ const navItems: NavItem[] = [
   { label: "Technographic", href: "/technographic", icon: Radar },
   { label: "Campanhas", href: "/campaigns", icon: Send },
   { label: "Insights", href: "/insights", icon: Lightbulb },
+  { label: "Agente TDEC", href: "/agent", icon: Bot },
   { label: "Configurações", href: "/settings", icon: Settings },
 ];
 

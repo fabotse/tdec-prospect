@@ -1,4 +1,4 @@
-# generated: 2026-02-27
+# generated: 2026-03-25
 # project: tdec-prospect
 # project_key: NOKEY
 # tracking_system: file-system
@@ -33,7 +33,7 @@
 # - SM typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
-generated: 2026-02-27
+generated: 2026-03-25
 project: tdec-prospect
 project_key: NOKEY
 tracking_system: file-system
@@ -365,10 +365,49 @@ development_status:
   #   - apollo_id disponivel no resultado — facilita Apollo Bridge (15.4)
   # Detalhes completos: _bmad-output/implementation-artifacts/15-1-integracao-theirstack-config-teste-credits.md#Spike
   #
-  epic-15: in-progress
+  epic-15: done
   15-1-integracao-theirstack-config-teste-credits: done  # Config API key, teste conexao, monitoramento credits. FR1-3. SPIKE CONCLUIDO — tipos validados com chamadas reais
   15-2-busca-technografica-autocomplete-filtros: done  # Autocomplete catalogo theirStack + filtros (pais, tamanho, industria). FR4-5. NOTA: confidence NAO e filtravel na API (client-side)
   15-3-resultados-empresas-tabela-selecao: done  # Tabela resultados + score confianca + selecao individual/lote. FR6-7
   15-4-apollo-bridge-busca-contatos: done  # Busca contatos via Apollo nas empresas selecionadas + filtro cargos. FR8-9. NOTA: apollo_id ja vem no resultado theirStack
   15-5-criacao-leads-integracao-pipeline: done  # Criar leads + adicionar segmentos + metadado tech origem. FR10-11. CODE REVIEW: 6 issues corrigidos (H1+M1-M3+L1-L2)
-  epic-15-retrospective: optional
+  epic-15-retrospective: done  # Completed 2026-03-25 -- 5/5 stories (100%), +211 novos testes, 5 code reviews, 0 blockers. Spike de validacao API preveniu 100% dos bugs de divergencia. Key insight: spike obrigatorio para APIs externas.
+
+  # ============================================================
+  # EPIC 16: Agent Foundation & Briefing Conversacional
+  # Documento: _bmad-output/planning-artifacts/epics-agente-tdec.md
+  #
+  epic-16: in-progress
+  16-1-data-models-tipos-e-pagina-do-agente: done
+  16-2-sistema-de-mensagens-do-chat: backlog
+  16-3-briefing-parser-linguagem-natural: backlog
+  16-4-onboarding-selecao-de-modo: backlog
+  16-5-plano-de-execucao-estimativa-de-custo: backlog
+  16-6-cadastro-de-produto-inline: backlog
+  epic-16-retrospective: optional
+
+  # ============================================================
+  # EPIC 17: Pipeline Execution & Approval Gates
+  # Documento: _bmad-output/planning-artifacts/epics-agente-tdec.md
+  #
+  epic-17: backlog
+  17-1-pipeline-orchestrator-step-de-busca-de-empresas: backlog
+  17-2-step-de-busca-de-leads: backlog
+  17-3-step-de-criacao-de-campanha: backlog
+  17-4-steps-de-export-ativacao: backlog
+  17-5-approval-gates-empresas-leads: backlog
+  17-6-approval-gates-campanha-ativacao: backlog
+  17-7-logica-guiado-vs-autopilot-adaptacao-de-pipeline: backlog
+  epic-17-retrospective: optional
+
+  # ============================================================
+  # EPIC 18: Resilience, Recovery & Execution Analytics
+  # Documento: _bmad-output/planning-artifacts/epics-agente-tdec.md
+  #
+  epic-18: backlog
+  18-1-error-handling-retry: backlog
+  18-2-checkpoint-resume-protecao-de-creditos: backlog
+  18-3-lista-de-execucoes-pausadas-retomada: backlog
+  18-4-resumo-final-rastreamento-de-custos: backlog
+  18-5-execution-log-auditoria: backlog
+  epic-18-retrospective: optional
