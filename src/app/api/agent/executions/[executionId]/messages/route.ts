@@ -65,9 +65,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     );
   }
 
-  if (role && role !== "user") {
+  const validRoles = ["user", "agent", "system"];
+  const messageRole = role || "user";
+  if (!validRoles.includes(messageRole)) {
     return NextResponse.json(
-      { error: { code: "VALIDATION_ERROR", message: "Role deve ser 'user'" } },
+      { error: { code: "VALIDATION_ERROR", message: "Role deve ser 'user', 'agent' ou 'system'" } },
       { status: 400 }
     );
   }
@@ -77,7 +79,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     .from("agent_messages")
     .insert({
       execution_id: executionId,
-      role: "user",
+      role: messageRole,
       content: content.trim(),
       metadata: { messageType: "text" },
     })

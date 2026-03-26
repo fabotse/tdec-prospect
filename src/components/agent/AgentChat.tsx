@@ -2,8 +2,10 @@
  * AgentChat
  * Story 16.1: Composicao basica
  * Story 16.2: Orquestracao de execucao + mensagens
+ * Story 16.3: Briefing parser + fluxo conversacional
  *
  * AC: #1-#5 - Orquestra estado do chat completo
+ * AC 16.3: #1,#3,#4 - Intercepta mensagens para fluxo de briefing
  */
 
 "use client";
@@ -14,15 +16,50 @@ import { AgentMessageList } from "./AgentMessageList";
 import { AgentInput } from "./AgentInput";
 import { useAgentMessages, useSendMessage } from "@/hooks/use-agent-messages";
 import { useAgentStore } from "@/stores/use-agent-store";
+import { useBriefingFlow } from "@/hooks/use-briefing-flow";
 
 export function AgentChat() {
   const currentExecutionId = useAgentStore((s) => s.currentExecutionId);
   const setCurrentExecutionId = useAgentStore((s) => s.setCurrentExecutionId);
   const isAgentProcessing = useAgentStore((s) => s.isAgentProcessing);
+  const setAgentProcessing = useAgentStore((s) => s.setAgentProcessing);
 
   const { messages } = useAgentMessages(currentExecutionId);
   // Fix #1: useSendMessage sem parametro — executionId passado no mutate
   const sendMessageMutation = useSendMessage();
+
+  const { state: briefingState, processMessage: processBriefing } = useBriefingFlow();
+
+  // Helper: inserir mensagem do agente via API
+  const sendAgentMessage = useCallback(
+    async (executionId: string, content: string) => {
+      const response = await fetch(`/api/agent/executions/${executionId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content, role: "agent" }),
+      });
+      if (!response.ok) {
+        toast.error("Erro ao enviar resposta do agente.");
+      }
+    },
+    []
+  );
+
+  // Helper: salvar briefing confirmado na execucao
+  const saveBriefing = useCallback(
+    async (executionId: string) => {
+      if (!briefingState.briefing) return;
+      const response = await fetch(`/api/agent/executions/${executionId}/briefing`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(briefingState.briefing),
+      });
+      if (!response.ok) {
+        toast.error("Erro ao salvar briefing. Tente novamente.");
+      }
+    },
+    [briefingState.briefing]
+  );
 
   const handleSendMessage = useCallback(
     async (content: string) => {
@@ -46,10 +83,46 @@ export function AgentChat() {
         }
       }
 
-      // Fix #1: executionId passado direto no mutate — sem race condition
-      sendMessageMutation.mutate({ executionId: execId!, content });
+      // Guard: execId must be defined after creation block
+      if (!execId) return;
+
+      // Story 16.3: Rotear para fluxo de briefing se nao confirmado
+      if (briefingState.status !== "confirmed") {
+        // Enviar mensagem do usuario primeiro
+        sendMessageMutation.mutate({ executionId: execId, content });
+
+        // Indicar que agente esta processando
+        setAgentProcessing(true);
+
+        const result = await processBriefing(content, execId, sendAgentMessage);
+
+        setAgentProcessing(false);
+
+        if (result.confirmed) {
+          await saveBriefing(execId);
+          await sendAgentMessage(
+            execId,
+            "Briefing confirmado! Iniciando prospeccao..."
+          );
+        }
+
+        // Mensagem ja enviada acima — nao duplicar
+        return;
+      }
+
+      // Briefing confirmado — fluxo normal de mensagens
+      sendMessageMutation.mutate({ executionId: execId, content });
     },
-    [currentExecutionId, setCurrentExecutionId, sendMessageMutation]
+    [
+      currentExecutionId,
+      setCurrentExecutionId,
+      sendMessageMutation,
+      briefingState.status,
+      processBriefing,
+      sendAgentMessage,
+      saveBriefing,
+      setAgentProcessing,
+    ]
   );
 
   return (

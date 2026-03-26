@@ -143,7 +143,7 @@ describe("Agent Messages API", () => {
       expect(response.status).toBe(400);
     });
 
-    it("should return 400 when role is not user", async () => {
+    it("should return 400 when role is invalid", async () => {
       mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
       const executionChain = createChainBuilder({ data: { id: mockExecutionId }, error: null });
       mockFrom.mockImplementation((table: string) => {
@@ -151,11 +151,37 @@ describe("Agent Messages API", () => {
         return createChainBuilder();
       });
 
-      const request = createPostRequest({ content: "Teste", role: "agent" });
+      const request = createPostRequest({ content: "Teste", role: "admin" });
       const response = await POST(request, createParams());
       expect(response.status).toBe(400);
       const json = await response.json();
       expect(json.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("should accept agent role for agent messages (Story 16.3)", async () => {
+      mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+      const executionChain = createChainBuilder({ data: { id: mockExecutionId }, error: null });
+      const messagesChain = createChainBuilder({
+        data: {
+          id: "msg-002",
+          execution_id: mockExecutionId,
+          role: "agent",
+          content: "Entendi seu briefing",
+          metadata: { messageType: "text" },
+          created_at: "2026-03-26T10:00:00Z",
+        },
+        error: null,
+      });
+
+      mockFrom.mockImplementation((table: string) => {
+        if (table === "agent_executions") return executionChain;
+        if (table === "agent_messages") return messagesChain;
+        return createChainBuilder();
+      });
+
+      const request = createPostRequest({ content: "Entendi seu briefing", role: "agent" });
+      const response = await POST(request, createParams());
+      expect(response.status).toBe(201);
     });
 
     it("should create message and return 201", async () => {
