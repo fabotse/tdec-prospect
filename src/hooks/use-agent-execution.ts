@@ -63,10 +63,21 @@ export function useAgentExecution(executionId: string | null) {
   const setAgentProcessing = useAgentStore((s) => s.setAgentProcessing);
 
   // Refetch manual — cobre race condition quando Realtime ainda nao esta conectado
-  const refetchMessages = useCallback(() => {
-    if (!executionId) return;
-    queryClient.invalidateQueries({ queryKey: messagesQueryKey(executionId) });
-  }, [executionId, queryClient]);
+  // overrideId: usado quando executionId do closure esta stale (ex: primeira mensagem cria execucao)
+  const refetchMessages = useCallback(
+    async (overrideId?: string) => {
+      const id = overrideId || executionId;
+      if (!id) return;
+      // fetchQuery popula o cache mesmo se a query nao esta observada ainda
+      // staleTime: 0 forca fetch fresco do API
+      await queryClient.fetchQuery({
+        queryKey: messagesQueryKey(id),
+        queryFn: () => fetchMessages(id),
+        staleTime: 0,
+      });
+    },
+    [executionId, queryClient]
+  );
 
   const msgKey = useMemo(() => messagesQueryKey(executionId || ""), [executionId]);
   const stepKey = useMemo(() => stepsQueryKey(executionId || ""), [executionId]);

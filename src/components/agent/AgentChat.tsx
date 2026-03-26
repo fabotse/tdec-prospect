@@ -134,8 +134,6 @@ export function AgentChat() {
 
         const result = await processBriefing(content, execId, sendAgentMessage, createProduct);
 
-        setAgentProcessing(false);
-
         if (result.confirmed) {
           await saveBriefing(execId);
           await sendAgentMessage(
@@ -153,9 +151,11 @@ export function AgentChat() {
           );
         }
 
-        // Refetch para garantir que mensagens do agente aparecam
-        // (cobre race condition quando Realtime ainda nao esta conectado)
-        refetchMessages();
+        // Refetch com execId explicito — cobre race condition quando closure
+        // ainda tem executionId stale (null) antes do re-render.
+        // Await garante que mensagens estao no cache ANTES de esconder typing.
+        await refetchMessages(execId);
+        setAgentProcessing(false);
 
         // Mensagem ja enviada acima — nao duplicar
         return;
