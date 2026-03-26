@@ -621,7 +621,78 @@ describe("DeterministicOrchestrator (AC #5)", () => {
 
   // 5.22 - Execution marked as 'completed' after activate (last step)
   describe("execution completion (Story 17.4 - 5.22)", () => {
-    it("marks execution as completed when last step (activate) succeeds", async () => {
+    it("marks execution as completed when last step succeeds in autopilot mode", async () => {
+      // Override execution to autopilot mode
+      const autopilotExecution = createChainBuilder({
+        data: {
+          id: "exec-001",
+          tenant_id: "tenant-1",
+          user_id: "user-1",
+          status: "running",
+          mode: "autopilot",
+          briefing: mockBriefing,
+          current_step: 1,
+          total_steps: 5,
+          cost_estimate: null,
+          cost_actual: null,
+          result_summary: null,
+          error_message: null,
+          started_at: "2026-03-26T10:00:00Z",
+          completed_at: null,
+          created_at: "2026-03-26T10:00:00Z",
+          updated_at: "2026-03-26T10:00:00Z",
+        },
+        error: null,
+      });
+
+      const prevStepChain = createChainBuilder({
+        data: { output: { externalCampaignId: "camp-123", campaignName: "Test" } },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-5",
+          execution_id: "exec-001",
+          step_number: 5,
+          step_type: "activate",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return autopilotExecution;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      mockActivateRun.mockResolvedValue({
+        success: true,
+        data: { activated: true },
+        cost: { instantly_activate: 1 },
+      });
+
+      await orchestrator.executeStep("exec-001", 5);
+
+      // Verify execution was updated to 'completed'
+      expect(autopilotExecution.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "completed",
+          completed_at: expect.any(String),
+        })
+      );
+    });
+
+    it("does NOT mark execution as completed for last step in guided mode", async () => {
+      // Default mock execution has mode: "guided"
       const prevStepChain = createChainBuilder({
         data: { output: { externalCampaignId: "camp-123", campaignName: "Test" } },
         error: null,
@@ -659,13 +730,12 @@ describe("DeterministicOrchestrator (AC #5)", () => {
 
       await orchestrator.executeStep("exec-001", 5);
 
-      // Verify execution was updated to 'completed'
-      expect(mockSupabase.executionsChain.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          status: "completed",
-          completed_at: expect.any(String),
-        })
+      // Should NOT mark as completed — guided mode waits for user approval
+      const updateCalls = mockSupabase.executionsChain.update.mock.calls;
+      const completedCalls = updateCalls.filter(
+        (call: unknown[]) => (call[0] as Record<string, unknown>).status === "completed"
       );
+      expect(completedCalls).toHaveLength(0);
     });
 
     it("does NOT mark execution as completed for non-last steps", async () => {
@@ -677,6 +747,120 @@ describe("DeterministicOrchestrator (AC #5)", () => {
         (call: unknown[]) => (call[0] as Record<string, unknown>).status === "completed"
       );
       expect(completedCalls).toHaveLength(0);
+    });
+  });
+
+  // ==============================================
+  // Story 17.5 Tests
+  // ==============================================
+
+  // 9.10 - previousStepOutput accepts 'approved' status
+  describe("previousStepOutput with approved status (Story 17.5 - 9.10)", () => {
+    it("accepts step with status 'approved' as previousStepOutput", async () => {
+      const prevStepChain = createChainBuilder({
+        data: { output: { companies: [{ domain: "acme.com" }], totalFound: 1 }, status: "approved" },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-2",
+          execution_id: "exec-001",
+          step_number: 2,
+          step_type: "search_leads",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      mockSearchLeadsRun.mockResolvedValue({
+        success: true,
+        data: { leads: [], totalFound: 0 },
+      });
+
+      const result = await orchestrator.executeStep("exec-001", 2);
+      expect(result.success).toBe(true);
+      expect(mockSearchLeadsRun).toHaveBeenCalled();
+    });
+  });
+
+  // 9.11 - previousStepOutput with approvedLeads uses filtered leads
+  describe("previousStepOutput with approvedLeads (Story 17.5 - 9.11)", () => {
+    it("replaces leads with approvedLeads when present", async () => {
+      const approvedLeads = [{ name: "Alice", email: "alice@acme.com" }];
+      const prevStepChain = createChainBuilder({
+        data: {
+          output: {
+            leads: [
+              { name: "Alice", email: "alice@acme.com" },
+              { name: "Bob", email: "bob@tech.com" },
+            ],
+            totalFound: 2,
+            approvedLeads,
+          },
+          status: "approved",
+        },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-3",
+          execution_id: "exec-001",
+          step_number: 3,
+          step_type: "create_campaign",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      mockCreateCampaignRun.mockResolvedValue({
+        success: true,
+        data: { campaignName: "Test" },
+      });
+
+      await orchestrator.executeStep("exec-001", 3);
+
+      // Verify leads were replaced with approvedLeads
+      const runCallArg = mockCreateCampaignRun.mock.calls[0][0];
+      expect(runCallArg.previousStepOutput.leads).toEqual(approvedLeads);
+      expect(runCallArg.previousStepOutput.totalFound).toBe(1);
+    });
+  });
+
+  // 9.12 - Orchestrator passes mode in StepInput
+  describe("mode in StepInput (Story 17.5 - 9.12)", () => {
+    it("passes execution.mode in StepInput", async () => {
+      await orchestrator.executeStep("exec-001", 1);
+
+      const runCallArg = mockSearchCompaniesRun.mock.calls[0][0];
+      expect(runCallArg.mode).toBe("guided");
     });
   });
 });

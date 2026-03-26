@@ -13,6 +13,7 @@ import type {
   StepType,
   StepStatus,
 } from "@/types/agent";
+import { STEP_LABELS } from "@/types/agent";
 import { ExternalServiceError } from "@/lib/services/base-service";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -49,7 +50,13 @@ export abstract class BaseStep {
     try {
       const result = await this.executeInternal(input);
 
-      await this.saveCheckpoint(db, input.executionId, result);
+      if (input.mode === "guided") {
+        await this.saveAwaitingApproval(db, input.executionId, result);
+        await this.sendApprovalGateMessage(db, input.executionId, result);
+      } else {
+        await this.saveCheckpoint(db, input.executionId, result);
+      }
+
       await this.logStep(db, input.executionId, input, result);
 
       return result;
@@ -95,6 +102,63 @@ export abstract class BaseStep {
       isRetryable: false,
       externalService: undefined,
     };
+  }
+
+  /**
+   * Save step in awaiting_approval state (guided mode).
+   * Similar to saveCheckpoint but without completed_at.
+   * Story 17.5 - Task 1.2
+   */
+  private async saveAwaitingApproval(
+    db: SupabaseClient,
+    executionId: string,
+    result: StepOutput
+  ): Promise<void> {
+    await db
+      .from("agent_steps")
+      .update({
+        output: result.data,
+        status: "awaiting_approval" as StepStatus,
+        cost: result.cost ?? null,
+      })
+      .eq("execution_id", executionId)
+      .eq("step_number", this.stepNumber);
+  }
+
+  /**
+   * Send approval gate message with preview data for frontend rendering.
+   * Story 17.5 - Task 1.1
+   */
+  private async sendApprovalGateMessage(
+    db: SupabaseClient,
+    executionId: string,
+    result: StepOutput
+  ): Promise<void> {
+    const previewData = this.buildPreviewData(result);
+    const stepLabel = STEP_LABELS[this.stepType];
+
+    await db.from("agent_messages").insert({
+      execution_id: executionId,
+      role: "agent",
+      content: `Etapa "${stepLabel}" concluida. Revise os resultados e aprove para continuar.`,
+      metadata: {
+        stepNumber: this.stepNumber,
+        messageType: "approval_gate",
+        approvalData: {
+          stepType: this.stepType,
+          previewData,
+        },
+      },
+    });
+  }
+
+  /**
+   * Build preview data for approval gate message.
+   * Subclasses can override to send minimal preview instead of full data.
+   * Story 17.5 - Task 1.1
+   */
+  protected buildPreviewData(result: StepOutput): unknown {
+    return result.data;
   }
 
   /**

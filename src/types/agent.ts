@@ -122,6 +122,7 @@ export interface StepInput {
   executionId: string;
   briefing: ParsedBriefing;
   previousStepOutput?: Record<string, unknown>;
+  mode?: ExecutionMode;
 }
 
 export interface StepOutput {

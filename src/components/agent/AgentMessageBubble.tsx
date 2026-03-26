@@ -12,7 +12,9 @@ import { Bot, Loader2, AlertCircle, DollarSign, BarChart3, ShieldCheck } from "l
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
-import type { AgentMessage, MessageType } from "@/types/agent";
+import type { AgentMessage, MessageType, StepType } from "@/types/agent";
+import { AgentApprovalGate } from "./AgentApprovalGate";
+import { AgentLeadReview } from "./AgentLeadReview";
 
 interface AgentMessageBubbleProps {
   message: AgentMessage;
@@ -50,6 +52,14 @@ export function AgentMessageBubble({ message }: AgentMessageBubbleProps) {
 
       {/* Bubble */}
       <div className="flex flex-col gap-1">
+        {/* Approval gate interactive component */}
+        {messageType === "approval_gate" && message.metadata?.approvalData ? (
+          <ApprovalGateRenderer
+            approvalData={message.metadata.approvalData}
+            executionId={message.execution_id}
+            stepNumber={message.metadata.stepNumber ?? 1}
+          />
+        ) : (
         <div
           className={cn(
             "rounded-2xl px-4 py-2.5 text-body-small",
@@ -78,6 +88,7 @@ export function AgentMessageBubble({ message }: AgentMessageBubbleProps) {
 
           <p className="whitespace-pre-wrap break-words">{message.content}</p>
         </div>
+        )}
 
         {/* Timestamp */}
         <span
@@ -92,6 +103,37 @@ export function AgentMessageBubble({ message }: AgentMessageBubbleProps) {
       </div>
     </div>
   );
+}
+
+function ApprovalGateRenderer({
+  approvalData,
+  executionId,
+  stepNumber,
+}: {
+  approvalData: { stepType: StepType; previewData: unknown };
+  executionId: string;
+  stepNumber: number;
+}) {
+  switch (approvalData.stepType) {
+    case "search_companies":
+      return (
+        <AgentApprovalGate
+          data={approvalData.previewData as Parameters<typeof AgentApprovalGate>[0]["data"]}
+          executionId={executionId}
+          stepNumber={stepNumber}
+        />
+      );
+    case "search_leads":
+      return (
+        <AgentLeadReview
+          data={approvalData.previewData as Parameters<typeof AgentLeadReview>[0]["data"]}
+          executionId={executionId}
+          stepNumber={stepNumber}
+        />
+      );
+    default:
+      return null;
+  }
 }
 
 function MessageTypeIcon({ messageType }: { messageType: MessageType }) {

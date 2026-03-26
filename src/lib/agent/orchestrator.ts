@@ -112,10 +112,10 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
     if (stepNumber > 1) {
       const { data: prevStep } = await this.supabase
         .from("agent_steps")
-        .select("output")
+        .select("output, status")
         .eq("execution_id", executionId)
         .eq("step_number", stepNumber - 1)
-        .eq("status", "completed")
+        .in("status", ["completed", "approved"])
         .single();
 
       if (!prevStep?.output) {
@@ -127,12 +127,20 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
         );
       }
       previousStepOutput = prevStep.output as Record<string, unknown>;
+
+      // Story 17.5 - Task 5.2: Use approvedLeads when user filtered leads
+      if (previousStepOutput?.approvedLeads) {
+        previousStepOutput.leads = previousStepOutput.approvedLeads;
+        previousStepOutput.totalFound = (previousStepOutput.approvedLeads as unknown[]).length;
+      }
     }
 
+    const executionData = execution as AgentExecution;
     const input: StepInput = {
       executionId,
-      briefing: execution.briefing as ParsedBriefing,
+      briefing: executionData.briefing,
       previousStepOutput,
+      mode: executionData.mode,
     };
 
     // Dispatch to step from registry (4.2)
@@ -142,8 +150,10 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
       const result = await stepInstance.run(input);
 
       // 4.3 - Mark execution as 'completed' when last step succeeds
-      const totalSteps = (execution as AgentExecution).total_steps;
-      if (stepNumber === totalSteps) {
+      // In guided mode, step ends as 'awaiting_approval' — don't mark execution completed yet.
+      // Execution completion in guided mode happens after the user approves the last step.
+      const totalSteps = executionData.total_steps;
+      if (stepNumber === totalSteps && executionData.mode !== "guided") {
         await this.supabase
           .from("agent_executions")
           .update({
