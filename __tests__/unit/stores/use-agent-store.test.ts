@@ -1,8 +1,10 @@
 /**
  * Agent UI Store Tests
- * Story: 16.1 - Data Models, Tipos e Pagina do Agente
+ * Story 16.1: Data Models, Tipos e Pagina do Agente
+ * Story 16.2: Sistema de Mensagens do Chat
  *
- * AC: #4 - Estado da UI do agente
+ * AC 16.1: #4 - Estado da UI do agente
+ * AC 16.2: #5 - Indicador de agente processando
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -15,6 +17,7 @@ describe("useAgentStore", () => {
       useAgentStore.setState({
         currentExecutionId: null,
         isInputDisabled: false,
+        isAgentProcessing: false,
       });
     });
   });
@@ -27,6 +30,11 @@ describe("useAgentStore", () => {
   it("initializes with isInputDisabled false", () => {
     const state = useAgentStore.getState();
     expect(state.isInputDisabled).toBe(false);
+  });
+
+  it("initializes with isAgentProcessing false", () => {
+    const state = useAgentStore.getState();
+    expect(state.isAgentProcessing).toBe(false);
   });
 
   it("sets currentExecutionId", () => {
@@ -65,5 +73,24 @@ describe("useAgentStore", () => {
     });
 
     expect(useAgentStore.getState().isInputDisabled).toBe(false);
+  });
+
+  it("sets isAgentProcessing to true", () => {
+    act(() => {
+      useAgentStore.getState().setAgentProcessing(true);
+    });
+
+    expect(useAgentStore.getState().isAgentProcessing).toBe(true);
+  });
+
+  it("sets isAgentProcessing back to false", () => {
+    act(() => {
+      useAgentStore.getState().setAgentProcessing(true);
+    });
+    act(() => {
+      useAgentStore.getState().setAgentProcessing(false);
+    });
+
+    expect(useAgentStore.getState().isAgentProcessing).toBe(false);
   });
 });

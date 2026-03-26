@@ -379,7 +379,7 @@ development_status:
   #
   epic-16: in-progress
   16-1-data-models-tipos-e-pagina-do-agente: done
-  16-2-sistema-de-mensagens-do-chat: backlog
+  16-2-sistema-de-mensagens-do-chat: done
   16-3-briefing-parser-linguagem-natural: backlog
   16-4-onboarding-selecao-de-modo: backlog
   16-5-plano-de-execucao-estimativa-de-custo: backlog

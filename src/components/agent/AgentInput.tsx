@@ -1,3 +1,11 @@
+/**
+ * AgentInput
+ * Story 16.1: Input basico
+ * Story 16.2: Integrar com useSendMessage
+ *
+ * AC: #1 - Enviar mensagem ao pressionar Enter ou clicar no botao
+ */
+
 "use client";
 
 import { useState } from "react";
@@ -6,21 +14,29 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAgentStore } from "@/stores/use-agent-store";
 
-export function AgentInput() {
+interface AgentInputProps {
+  onSendMessage: (content: string) => void;
+  isSending: boolean;
+}
+
+export function AgentInput({ onSendMessage, isSending }: AgentInputProps) {
   const [message, setMessage] = useState("");
   const isInputDisabled = useAgentStore((s) => s.isInputDisabled);
+  const isAgentProcessing = useAgentStore((s) => s.isAgentProcessing);
+
+  const disabled = isInputDisabled || isSending || isAgentProcessing;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!message.trim() || isInputDisabled) return;
-    // Envio de mensagens sera implementado na Story 16.2
+    if (!message.trim() || disabled) return;
+    onSendMessage(message.trim());
     setMessage("");
   };
 
   return (
     <form
       onSubmit={handleSubmit}
-      className="border-t border-border px-6 py-4 flex items-center gap-3"
+      className="border-t border-border px-6 py-3.5 flex items-center gap-3"
       data-testid="agent-input"
     >
       <Input
@@ -28,7 +44,7 @@ export function AgentInput() {
         value={message}
         onChange={(e) => setMessage(e.target.value)}
         placeholder="Descreva sua campanha de prospeccao..."
-        disabled={isInputDisabled}
+        disabled={disabled}
         className="flex-1 border-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 bg-transparent text-foreground text-body"
         aria-label="Mensagem para o agente"
       />
@@ -36,7 +52,7 @@ export function AgentInput() {
         type="submit"
         size="icon"
         variant="ghost"
-        disabled={!message.trim() || isInputDisabled}
+        disabled={!message.trim() || disabled}
         aria-label="Enviar mensagem"
       >
         <SendHorizontal className="h-5 w-5" />
