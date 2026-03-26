@@ -250,7 +250,7 @@ export class CreateCampaignStep extends BaseStep {
     }
 
     const hasEmail = parsed.items.some(
-      (item: Record<string, unknown>) => item.type === "email"
+      (item) => (item as Record<string, unknown>).type === "email"
     );
     if (!hasEmail) {
       throw new ExternalServiceError("openai", 502, "Formato invalido na resposta do AI: estrutura sem emails");
