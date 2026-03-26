@@ -98,6 +98,24 @@ export interface CostEstimate {
   currency: 'BRL';
 }
 
+// === Execution Plan Types ===
+
+export interface PlannedStep {
+  stepNumber: number;
+  stepType: StepType;
+  title: string;
+  description: string;
+  skipped: boolean;
+  estimatedCost: number;
+  costDescription: string;
+}
+
+export interface ExecutionPlan {
+  steps: PlannedStep[];
+  costEstimate: CostEstimate;
+  totalActiveSteps: number;
+}
+
 // === Pipeline Types ===
 
 export interface StepInput {

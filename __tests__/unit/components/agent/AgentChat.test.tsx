@@ -4,11 +4,13 @@
  * Story 16.2: Orquestracao de execucao + mensagens
  * Story 16.3: Briefing parser + fluxo conversacional
  * Story 16.4: Onboarding + selecao de modo
+ * Story 16.5: Plano de execucao & estimativa de custo
  *
  * AC 16.1: #4 - AgentChat renderiza area de mensagens e input
  * AC 16.2: #1-#5 - Orquestracao completa do chat
  * AC 16.3: #1,#3,#4 - Intercepta mensagens para fluxo de briefing
  * AC 16.4: #1-#4 - Onboarding, deteccao first-time, selecao de modo
+ * AC 16.5: #1-#5 - Plano de execucao, confirmar/cancelar
  */
 
 import { render, screen, act } from "@testing-library/react";
@@ -23,6 +25,7 @@ const mockMutate = vi.fn();
 const mockSetCurrentExecutionId = vi.fn();
 const mockSetAgentProcessing = vi.fn();
 const mockSetShowModeSelector = vi.fn();
+const mockSetShowExecutionPlan = vi.fn();
 const mockProcessMessage = vi.fn().mockResolvedValue({ handled: true });
 const mockToastError = vi.fn();
 
@@ -30,6 +33,7 @@ let capturedOnSendMessage: ((content: string) => Promise<void>) | null = null;
 let capturedMessageListProps: Record<string, unknown> = {};
 let capturedInputProps: Record<string, unknown> = {};
 let capturedModeSelectorProps: Record<string, unknown> | null = null;
+let capturedExecutionPlanProps: Record<string, unknown> | null = null;
 let mockStoreState: Record<string, unknown> = {};
 let mockBriefingState: Record<string, unknown> = {};
 
@@ -81,6 +85,13 @@ vi.mock("@/components/agent/AgentModeSelector", () => ({
   },
 }));
 
+vi.mock("@/components/agent/AgentExecutionPlan", () => ({
+  AgentExecutionPlan: (props: Record<string, unknown>) => {
+    capturedExecutionPlanProps = props;
+    return <div data-testid="agent-execution-plan">execution plan</div>;
+  },
+}));
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -90,6 +101,7 @@ function setupDefaults(overrides?: {
   briefingStatus?: string;
   briefing?: Record<string, unknown> | null;
   showModeSelector?: boolean;
+  showExecutionPlan?: boolean;
 }) {
   mockStoreState = {
     currentExecutionId: overrides?.executionId ?? null,
@@ -99,6 +111,8 @@ function setupDefaults(overrides?: {
     isInputDisabled: false,
     showModeSelector: overrides?.showModeSelector ?? false,
     setShowModeSelector: mockSetShowModeSelector,
+    showExecutionPlan: overrides?.showExecutionPlan ?? false,
+    setShowExecutionPlan: mockSetShowExecutionPlan,
   };
   mockBriefingState = {
     status: overrides?.briefingStatus ?? "idle",
@@ -107,6 +121,7 @@ function setupDefaults(overrides?: {
     isComplete: false,
   };
   capturedModeSelectorProps = null;
+  capturedExecutionPlanProps = null;
 }
 
 // ==============================================
@@ -489,6 +504,202 @@ describe("AgentChat", () => {
       setupDefaults({ executionId: "exec-123", showModeSelector: true });
       render(<AgentChat />);
       expect(capturedModeSelectorProps?.isSubmitting).toBe(false);
+    });
+
+    it("handleModeSelect ativa showExecutionPlan apos sucesso", async () => {
+      setupDefaults({ executionId: "exec-123", showModeSelector: true });
+
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: {} }),
+      });
+
+      render(<AgentChat />);
+
+      const onModeSelect = capturedModeSelectorProps?.onModeSelect as (mode: string) => Promise<void>;
+
+      await act(async () => {
+        await onModeSelect("guided");
+      });
+
+      expect(mockSetShowExecutionPlan).toHaveBeenCalledWith(true);
+    });
+  });
+
+  // --- Story 16.5: Execution Plan ---
+
+  describe("execution plan (Story 16.5)", () => {
+    it("renderiza execution plan quando showExecutionPlan e true e executionId existe", () => {
+      setupDefaults({ executionId: "exec-123", showExecutionPlan: true });
+      render(<AgentChat />);
+      expect(screen.getByTestId("agent-execution-plan")).toBeInTheDocument();
+    });
+
+    it("nao renderiza execution plan quando showExecutionPlan e false", () => {
+      setupDefaults({ executionId: "exec-123", showExecutionPlan: false });
+      render(<AgentChat />);
+      expect(screen.queryByTestId("agent-execution-plan")).not.toBeInTheDocument();
+    });
+
+    it("nao renderiza execution plan quando executionId e null", () => {
+      setupDefaults({ executionId: null, showExecutionPlan: true });
+      render(<AgentChat />);
+      expect(screen.queryByTestId("agent-execution-plan")).not.toBeInTheDocument();
+    });
+
+    it("passa disabled para AgentInput quando showExecutionPlan e true", () => {
+      setupDefaults({ executionId: "exec-123", showExecutionPlan: true });
+      render(<AgentChat />);
+      expect(capturedInputProps.disabled).toBe(true);
+    });
+
+    it("handleConfirmPlan chama POST confirm e envia mensagem de confirmacao", async () => {
+      setupDefaults({ executionId: "exec-123", showExecutionPlan: true });
+
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: {} }),
+      });
+
+      render(<AgentChat />);
+
+      const onConfirm = capturedExecutionPlanProps?.onConfirm as () => Promise<void>;
+      expect(onConfirm).toBeTruthy();
+
+      await act(async () => {
+        await onConfirm();
+      });
+
+      // POST confirm
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/agent/executions/exec-123/confirm",
+        expect.objectContaining({ method: "POST" })
+      );
+      // Agent message confirming start
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/agent/executions/exec-123/messages",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining("Execucao iniciada"),
+        })
+      );
+      // Hide execution plan
+      expect(mockSetShowExecutionPlan).toHaveBeenCalledWith(false);
+    });
+
+    it("handleConfirmPlan mostra toast quando POST confirm falha", async () => {
+      setupDefaults({ executionId: "exec-123", showExecutionPlan: true });
+
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: false,
+        status: 500,
+      });
+
+      render(<AgentChat />);
+
+      const onConfirm = capturedExecutionPlanProps?.onConfirm as () => Promise<void>;
+
+      await act(async () => {
+        await onConfirm();
+      });
+
+      expect(mockToastError).toHaveBeenCalledWith(
+        "Erro ao confirmar execucao. Tente novamente."
+      );
+      // Should NOT hide plan on failure
+      expect(mockSetShowExecutionPlan).not.toHaveBeenCalledWith(false);
+    });
+
+    it("handleCancelPlan envia mensagem e esconde plan", async () => {
+      setupDefaults({ executionId: "exec-123", showExecutionPlan: true });
+
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: {} }),
+      });
+
+      render(<AgentChat />);
+
+      const onCancel = capturedExecutionPlanProps?.onCancel as () => Promise<void>;
+      expect(onCancel).toBeTruthy();
+
+      await act(async () => {
+        await onCancel();
+      });
+
+      // Agent message for cancel
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/agent/executions/exec-123/messages",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining("Tudo bem"),
+        })
+      );
+      // Hide execution plan
+      expect(mockSetShowExecutionPlan).toHaveBeenCalledWith(false);
+    });
+
+    it("handleCancelPlan fecha plan mesmo quando sendAgentMessage falha", async () => {
+      setupDefaults({ executionId: "exec-123", showExecutionPlan: true });
+
+      (global.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("Network error")
+      );
+
+      render(<AgentChat />);
+
+      const onCancel = capturedExecutionPlanProps?.onCancel as () => Promise<void>;
+
+      await act(async () => {
+        await onCancel();
+      });
+
+      // Plan should still be hidden despite error
+      expect(mockSetShowExecutionPlan).toHaveBeenCalledWith(false);
+      // Toast shown for the error
+      expect(mockToastError).toHaveBeenCalledWith(
+        "Erro ao enviar mensagem. Tente novamente."
+      );
+    });
+
+    it("handleConfirmPlan fecha plan antes de enviar mensagem (resiliente a falha de mensagem)", async () => {
+      setupDefaults({ executionId: "exec-123", showExecutionPlan: true });
+
+      let fetchCallCount = 0;
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        fetchCallCount++;
+        if (fetchCallCount === 1) {
+          // POST /confirm succeeds
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ data: {} }),
+          });
+        }
+        // sendAgentMessage throws
+        return Promise.reject(new Error("Network error"));
+      });
+
+      render(<AgentChat />);
+
+      const onConfirm = capturedExecutionPlanProps?.onConfirm as () => Promise<void>;
+
+      await act(async () => {
+        await onConfirm();
+      });
+
+      // Plan closed even though message failed
+      expect(mockSetShowExecutionPlan).toHaveBeenCalledWith(false);
+      // Toast shown for the catch
+      expect(mockToastError).toHaveBeenCalledWith(
+        "Erro ao confirmar execucao. Tente novamente."
+      );
+    });
+
+    it("passa executionId e isSubmitting para AgentExecutionPlan", () => {
+      setupDefaults({ executionId: "exec-123", showExecutionPlan: true });
+      render(<AgentChat />);
+      expect(capturedExecutionPlanProps?.executionId).toBe("exec-123");
+      expect(capturedExecutionPlanProps?.isSubmitting).toBe(false);
     });
   });
 });
