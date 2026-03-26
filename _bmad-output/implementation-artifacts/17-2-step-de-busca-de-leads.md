@@ -1,6 +1,6 @@
 # Story 17.2: Step de Busca de Leads
 
-Status: review
+Status: done
 
 ## Story
 

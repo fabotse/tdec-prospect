@@ -41,8 +41,8 @@ story_location: _bmad-output/implementation-artifacts
 
 # GIT BRANCH TRACKING
 # ===================
-current_branch: epic/15-technographic-prospecting
-base_branch: epic/14-analytics-avancado-campanha
+current_branch: epic/17-pipeline-execution-approval-gates
+base_branch: epic/16-agent-foundation-briefing-conversacional
 
 branch_strategy:
   # Branch naming convention:
@@ -72,7 +72,9 @@ branches:
   epic/12-melhorias-ux-produtividade: "Epic 12 - Melhorias Avulsas — UX & Produtividade (IN-PROGRESS)"
   epic/13-monitoramento-inteligente-leads-linkedin: "Epic 13 - Monitoramento Inteligente de Leads LinkedIn (IN-PROGRESS)"
   epic/14-analytics-avancado-campanha: "Epic 14 - Analytics Avançado de Campanha (IN-PROGRESS)"
-  epic/15-technographic-prospecting: "Epic 15 - Technographic Prospecting (IN-PROGRESS)"
+  epic/15-technographic-prospecting: "Epic 15 - Technographic Prospecting (DONE)"
+  epic/16-agent-foundation-briefing-conversacional: "Epic 16 - Agent Foundation & Briefing Conversacional (DONE)"
+  epic/17-pipeline-execution-approval-gates: "Epic 17 - Pipeline Execution & Approval Gates (IN-PROGRESS)"
 
 development_status:
   # Epic 1: Foundation & Authentication
@@ -401,7 +403,7 @@ development_status:
   #
   epic-17: in-progress
   17-1-pipeline-orchestrator-step-de-busca-de-empresas: done
-  17-2-step-de-busca-de-leads: review
+  17-2-step-de-busca-de-leads: done
   17-3-step-de-criacao-de-campanha: backlog
   17-4-steps-de-export-ativacao: backlog
   17-5-approval-gates-empresas-leads: backlog
