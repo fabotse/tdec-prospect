@@ -20,6 +20,8 @@ import { STEP_LABELS } from "@/types/agent";
 import { SearchCompaniesStep } from "./steps/search-companies-step";
 import { SearchLeadsStep } from "./steps/search-leads-step";
 import { CreateCampaignStep } from "./steps/create-campaign-step";
+import { ExportStep } from "./steps/export-step";
+import { ActivateStep } from "./steps/activate-step";
 import { PlanGeneratorService } from "@/lib/services/agent-plan-generator";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -137,7 +139,21 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
     const stepInstance = this.getStepInstance(stepNumber, stepType, tenantId);
 
     try {
-      return await stepInstance.run(input);
+      const result = await stepInstance.run(input);
+
+      // 4.3 - Mark execution as 'completed' when last step succeeds
+      const totalSteps = (execution as AgentExecution).total_steps;
+      if (stepNumber === totalSteps) {
+        await this.supabase
+          .from("agent_executions")
+          .update({
+            status: "completed",
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", executionId);
+      }
+
+      return result;
     } catch (error) {
       const pipelineError = isPipelineError(error)
         ? error
@@ -184,13 +200,9 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
       case "create_campaign":
         return new CreateCampaignStep(stepNumber, this.supabase, tenantId);
       case "export":
+        return new ExportStep(stepNumber, this.supabase, tenantId);
       case "activate":
-        throw this.createPipelineError(
-          "ORCHESTRATOR_STEP_NOT_READY",
-          `Step '${stepType}' ainda nao implementado`,
-          stepNumber,
-          stepType
-        );
+        return new ActivateStep(stepNumber, this.supabase, tenantId);
       default:
         throw this.createPipelineError(
           "ORCHESTRATOR_INVALID_STEP",

@@ -29,6 +29,8 @@ import {
   type SearchCompaniesOutput,
   type SearchLeadsOutput,
   type SearchLeadResult,
+  type ExportStepOutput,
+  type ActivateStepOutput,
 } from "@/types/agent";
 
 describe("Agent Types (AC: #3)", () => {
@@ -281,8 +283,13 @@ describe("Agent Types (AC: #3)", () => {
       expect(AGENT_ERROR_CODES.CHECKPOINT_SAVE_ERROR).toBe("Erro ao salvar checkpoint");
     });
 
-    it("has 13 error codes", () => {
-      expect(Object.keys(AGENT_ERROR_CODES)).toHaveLength(13);
+    it("has export and activate error codes (Story 17.4)", () => {
+      expect(AGENT_ERROR_CODES.STEP_EXPORT_ERROR).toBe("Erro na exportacao da campanha");
+      expect(AGENT_ERROR_CODES.STEP_ACTIVATE_ERROR).toBe("Erro na ativacao da campanha");
+    });
+
+    it("has 15 error codes", () => {
+      expect(Object.keys(AGENT_ERROR_CODES)).toHaveLength(15);
     });
   });
 
@@ -372,6 +379,38 @@ describe("Agent Types (AC: #3)", () => {
       expect(lead.companyName).toBe("Beta Inc");
       expect(lead.email).toBe("john@beta.io");
       expect(lead.linkedinUrl).toBe("https://linkedin.com/in/john");
+    });
+  });
+
+  describe("ExportStepOutput interface (Story 17.4 AC #1, #2)", () => {
+    it("can be instantiated with all required fields", () => {
+      const output: ExportStepOutput = {
+        externalCampaignId: "camp-123",
+        campaignName: "Campanha React",
+        leadsUploaded: 50,
+        duplicatedLeads: 2,
+        invalidEmails: 1,
+        accountsAdded: 3,
+        platform: "instantly",
+      };
+
+      expect(output.externalCampaignId).toBe("camp-123");
+      expect(output.platform).toBe("instantly");
+      expect(output.leadsUploaded).toBe(50);
+    });
+  });
+
+  describe("ActivateStepOutput interface (Story 17.4 AC #3, #4)", () => {
+    it("can be instantiated with all required fields", () => {
+      const output: ActivateStepOutput = {
+        externalCampaignId: "camp-123",
+        campaignName: "Campanha React",
+        activated: true,
+        activatedAt: "2026-03-26T10:00:00Z",
+      };
+
+      expect(output.activated).toBe(true);
+      expect(output.activatedAt).toBe("2026-03-26T10:00:00Z");
     });
   });
 

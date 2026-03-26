@@ -18,6 +18,8 @@ import type { PipelineError, ParsedBriefing } from "@/types/agent";
 const mockSearchCompaniesRun = vi.fn();
 const mockSearchLeadsRun = vi.fn();
 const mockCreateCampaignRun = vi.fn();
+const mockExportRun = vi.fn();
+const mockActivateRun = vi.fn();
 
 vi.mock("@/lib/agent/steps/search-companies-step", () => {
   return {
@@ -56,6 +58,34 @@ vi.mock("@/lib/agent/steps/create-campaign-step", () => {
       constructor(stepNumber: number) {
         this.stepNumber = stepNumber;
         this.stepType = "create_campaign";
+      }
+    },
+  };
+});
+
+vi.mock("@/lib/agent/steps/export-step", () => {
+  return {
+    ExportStep: class MockExportStep {
+      run = mockExportRun;
+      stepNumber: number;
+      stepType: string;
+      constructor(stepNumber: number) {
+        this.stepNumber = stepNumber;
+        this.stepType = "export";
+      }
+    },
+  };
+});
+
+vi.mock("@/lib/agent/steps/activate-step", () => {
+  return {
+    ActivateStep: class MockActivateStep {
+      run = mockActivateRun;
+      stepNumber: number;
+      stepType: string;
+      constructor(stepNumber: number) {
+        this.stepNumber = stepNumber;
+        this.stepType = "activate";
       }
     },
   };
@@ -165,14 +195,13 @@ describe("DeterministicOrchestrator (AC #5)", () => {
       expect(mockSearchCompaniesRun).toHaveBeenCalled();
     });
 
-    it("throws for unimplemented step types", async () => {
-      // Mock step with step_type = 'export' (not yet implemented)
+    it("throws for unknown step types", async () => {
       mockSupabase.stepsChain = createChainBuilder({
         data: {
-          id: "step-4",
+          id: "step-99",
           execution_id: "exec-001",
           step_number: 1,
-          step_type: "export",
+          step_type: "unknown_type",
           status: "pending",
         },
         error: null,
@@ -185,7 +214,7 @@ describe("DeterministicOrchestrator (AC #5)", () => {
       });
 
       await expect(orchestrator.executeStep("exec-001", 1)).rejects.toMatchObject({
-        code: "ORCHESTRATOR_STEP_NOT_READY",
+        code: "ORCHESTRATOR_INVALID_STEP",
       });
     });
   });
@@ -493,6 +522,161 @@ describe("DeterministicOrchestrator (AC #5)", () => {
         code: "ORCHESTRATOR_STEP_NOT_READY",
         message: "Step anterior nao concluido",
       });
+    });
+  });
+
+  // ==============================================
+  // Story 17.4 Tests
+  // ==============================================
+
+  // 5.20 - Dispatch export
+  describe("export dispatch (Story 17.4 - 5.20)", () => {
+    it("dispatches to ExportStep for step_type export", async () => {
+      const prevStepChain = createChainBuilder({
+        data: { output: { campaignName: "Test", emailBlocks: [], leadsWithIcebreakers: [] } },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-4",
+          execution_id: "exec-001",
+          step_number: 4,
+          step_type: "export",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      mockExportRun.mockResolvedValue({
+        success: true,
+        data: { externalCampaignId: "camp-123", platform: "instantly" },
+        cost: { instantly_create: 1, instantly_leads: 10 },
+      });
+
+      const result = await orchestrator.executeStep("exec-001", 4);
+
+      expect(mockExportRun).toHaveBeenCalled();
+      expect(result.success).toBe(true);
+    });
+  });
+
+  // 5.21 - Dispatch activate
+  describe("activate dispatch (Story 17.4 - 5.21)", () => {
+    it("dispatches to ActivateStep for step_type activate", async () => {
+      const prevStepChain = createChainBuilder({
+        data: { output: { externalCampaignId: "camp-123", campaignName: "Test" } },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-5",
+          execution_id: "exec-001",
+          step_number: 5,
+          step_type: "activate",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      mockActivateRun.mockResolvedValue({
+        success: true,
+        data: { externalCampaignId: "camp-123", activated: true },
+        cost: { instantly_activate: 1 },
+      });
+
+      const result = await orchestrator.executeStep("exec-001", 5);
+
+      expect(mockActivateRun).toHaveBeenCalled();
+      expect(result.success).toBe(true);
+    });
+  });
+
+  // 5.22 - Execution marked as 'completed' after activate (last step)
+  describe("execution completion (Story 17.4 - 5.22)", () => {
+    it("marks execution as completed when last step (activate) succeeds", async () => {
+      const prevStepChain = createChainBuilder({
+        data: { output: { externalCampaignId: "camp-123", campaignName: "Test" } },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-5",
+          execution_id: "exec-001",
+          step_number: 5,
+          step_type: "activate",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      mockActivateRun.mockResolvedValue({
+        success: true,
+        data: { activated: true },
+        cost: { instantly_activate: 1 },
+      });
+
+      await orchestrator.executeStep("exec-001", 5);
+
+      // Verify execution was updated to 'completed'
+      expect(mockSupabase.executionsChain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "completed",
+          completed_at: expect.any(String),
+        })
+      );
+    });
+
+    it("does NOT mark execution as completed for non-last steps", async () => {
+      // Step 1 of 5 — should NOT mark as completed
+      await orchestrator.executeStep("exec-001", 1);
+
+      const updateCalls = mockSupabase.executionsChain.update.mock.calls;
+      const completedCalls = updateCalls.filter(
+        (call: unknown[]) => (call[0] as Record<string, unknown>).status === "completed"
+      );
+      expect(completedCalls).toHaveLength(0);
     });
   });
 });

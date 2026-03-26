@@ -158,6 +158,8 @@ export const AGENT_ERROR_CODES = {
   STEP_SEARCH_COMPANIES_ERROR: 'Erro ao buscar empresas',
   STEP_SEARCH_LEADS_ERROR: 'Erro ao buscar leads',
   STEP_CREATE_CAMPAIGN_ERROR: 'Erro na criacao da campanha',
+  STEP_EXPORT_ERROR: 'Erro na exportacao da campanha',
+  STEP_ACTIVATE_ERROR: 'Erro na ativacao da campanha',
   ORCHESTRATOR_INVALID_STEP: 'Step invalido no pipeline',
   ORCHESTRATOR_STEP_NOT_READY: 'Step nao esta pronto para execucao',
   CHECKPOINT_SAVE_ERROR: 'Erro ao salvar checkpoint',
@@ -235,6 +237,27 @@ export interface CreateCampaignOutput {
     skipped: number;
   };
   totalLeads: number;
+}
+
+// === Export Step Output (Story 17.4 AC #1, #2) ===
+
+export interface ExportStepOutput {
+  externalCampaignId: string;
+  campaignName: string;
+  leadsUploaded: number;
+  duplicatedLeads: number;
+  invalidEmails: number;
+  accountsAdded: number;
+  platform: 'instantly';
+}
+
+// === Activate Step Output (Story 17.4 AC #3, #4) ===
+
+export interface ActivateStepOutput {
+  externalCampaignId: string;
+  campaignName: string;
+  activated: boolean;
+  activatedAt: string;
 }
 
 // === Step Labels (Story 17.1 AC #5) ===
