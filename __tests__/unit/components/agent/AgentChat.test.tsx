@@ -41,8 +41,10 @@ vi.mock("sonner", () => ({
   toast: { error: (...args: unknown[]) => mockToastError(...args) },
 }));
 
+const mockRefetchMessages = vi.fn();
+
 vi.mock("@/hooks/use-agent-execution", () => ({
-  useAgentExecution: () => ({ messages: [], steps: [], isLoading: false, isConnected: false }),
+  useAgentExecution: () => ({ messages: [], steps: [], isLoading: false, isConnected: false, refetchMessages: mockRefetchMessages }),
   useSendMessage: () => ({ mutate: mockMutate, isPending: false }),
 }));
 

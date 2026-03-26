@@ -9,7 +9,7 @@
 
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useAgentStore } from "@/stores/use-agent-store";
@@ -61,6 +61,12 @@ export function useAgentExecution(executionId: string | null) {
   const [isConnected, setIsConnected] = useState(false);
   const queryClient = useQueryClient();
   const setAgentProcessing = useAgentStore((s) => s.setAgentProcessing);
+
+  // Refetch manual — cobre race condition quando Realtime ainda nao esta conectado
+  const refetchMessages = useCallback(() => {
+    if (!executionId) return;
+    queryClient.invalidateQueries({ queryKey: messagesQueryKey(executionId) });
+  }, [executionId, queryClient]);
 
   const msgKey = useMemo(() => messagesQueryKey(executionId || ""), [executionId]);
   const stepKey = useMemo(() => stepsQueryKey(executionId || ""), [executionId]);
@@ -124,6 +130,9 @@ export function useAgentExecution(executionId: string | null) {
     [executionId, queryClient]
   );
 
+  // Ref para controlar retry do Realtime
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Single consolidated Realtime channel
   useEffect(() => {
     if (!executionId) return;
@@ -167,18 +176,37 @@ export function useAgentExecution(executionId: string | null) {
       )
       .subscribe((status: string) => {
         setIsConnected(status === "SUBSCRIBED");
+
+        // Ao conectar, refetch para recuperar mensagens perdidas durante subscribe
+        if (status === "SUBSCRIBED") {
+          queryClient.invalidateQueries({ queryKey: messagesQueryKey(executionId) });
+        }
+
+        // Retry em caso de falha na conexao
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          retryTimeoutRef.current = setTimeout(() => {
+            supabase.removeChannel(channel);
+            // O useEffect sera re-executado pelo React ao re-render
+            setIsConnected(false);
+          }, 3000);
+        }
       });
 
     return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
       supabase.removeChannel(channel);
     };
-  }, [executionId, handleRealtimeMessage, handleRealtimeStep]);
+  }, [executionId, handleRealtimeMessage, handleRealtimeStep, queryClient]);
 
   return {
     messages: messages || [],
     steps: steps || [],
     isLoading: isLoadingMessages,
     isConnected,
+    refetchMessages,
   };
 }
 

@@ -43,7 +43,7 @@ export function AgentChat() {
 
   const { isFirstTime } = useAgentOnboarding();
 
-  const { messages, steps } = useAgentExecution(currentExecutionId);
+  const { messages, steps, refetchMessages } = useAgentExecution(currentExecutionId);
   // Fix #1: useSendMessage sem parametro — executionId passado no mutate
   const sendMessageMutation = useSendMessage();
 
@@ -145,6 +145,18 @@ export function AgentChat() {
           setShowModeSelector(true);
         }
 
+        // Se briefing nao conseguiu processar, informar usuario
+        if (!result.handled && !result.confirmed) {
+          await sendAgentMessage(
+            execId,
+            "Desculpe, nao consegui processar sua mensagem. Pode tentar novamente?"
+          );
+        }
+
+        // Refetch para garantir que mensagens do agente aparecam
+        // (cobre race condition quando Realtime ainda nao esta conectado)
+        refetchMessages();
+
         // Mensagem ja enviada acima — nao duplicar
         return;
       }
@@ -163,6 +175,7 @@ export function AgentChat() {
       createProduct,
       setAgentProcessing,
       setShowModeSelector,
+      refetchMessages,
     ]
   );
 
@@ -188,6 +201,7 @@ export function AgentChat() {
           currentExecutionId,
           `Modo ${label} selecionado. Preparando plano de execucao...`
         );
+        refetchMessages();
         setShowModeSelector(false);
         setShowExecutionPlan(true);
       } catch {
@@ -196,7 +210,7 @@ export function AgentChat() {
         setIsModeSubmitting(false);
       }
     },
-    [currentExecutionId, sendAgentMessage, setShowModeSelector, setShowExecutionPlan]
+    [currentExecutionId, sendAgentMessage, setShowModeSelector, setShowExecutionPlan, refetchMessages]
   );
 
   const handleConfirmPlan = useCallback(async () => {
@@ -218,12 +232,13 @@ export function AgentChat() {
         currentExecutionId,
         "Execucao iniciada! Vou comecar pelo primeiro passo..."
       );
+      refetchMessages();
     } catch {
       toast.error("Erro ao confirmar execucao. Tente novamente.");
     } finally {
       setIsPlanSubmitting(false);
     }
-  }, [currentExecutionId, sendAgentMessage, setShowExecutionPlan]);
+  }, [currentExecutionId, sendAgentMessage, setShowExecutionPlan, refetchMessages]);
 
   const handleCancelPlan = useCallback(async () => {
     if (!currentExecutionId) return;
@@ -233,10 +248,11 @@ export function AgentChat() {
         currentExecutionId,
         "Tudo bem! Quando quiser tentar de novo, e so me dizer"
       );
+      refetchMessages();
     } catch {
       toast.error("Erro ao enviar mensagem. Tente novamente.");
     }
-  }, [currentExecutionId, sendAgentMessage, setShowExecutionPlan]);
+  }, [currentExecutionId, sendAgentMessage, setShowExecutionPlan, refetchMessages]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0" data-testid="agent-chat">
