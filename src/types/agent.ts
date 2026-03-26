@@ -245,6 +245,7 @@ export interface CreateCampaignOutput {
 export interface ExportStepOutput {
   externalCampaignId: string;
   campaignName: string;
+  totalEmails: number;
   leadsUploaded: number;
   duplicatedLeads: number;
   invalidEmails: number;

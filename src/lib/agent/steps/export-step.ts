@@ -76,6 +76,22 @@ export class ExportStep extends BaseStep {
     this.tenantId = tenantId;
   }
 
+  /**
+   * Story 17.6 Task 7: Send summary data for activation gate.
+   * Only confirmation-level data, no editing needed.
+   */
+  protected buildPreviewData(result: StepOutput): unknown {
+    const data = result.data as unknown as ExportStepOutput;
+    return {
+      externalCampaignId: data.externalCampaignId,
+      campaignName: data.campaignName,
+      totalEmails: data.totalEmails,
+      leadsUploaded: data.leadsUploaded,
+      accountsAdded: data.accountsAdded,
+      platform: data.platform,
+    };
+  }
+
   protected async executeInternal(input: StepInput): Promise<StepOutput> {
     const { previousStepOutput } = input;
 
@@ -169,6 +185,7 @@ export class ExportStep extends BaseStep {
     const data: ExportStepOutput = {
       externalCampaignId,
       campaignName,
+      totalEmails: emailBlocks.length,
       leadsUploaded: addLeadsResult.leadsUploaded,
       duplicatedLeads: addLeadsResult.duplicatedLeads,
       invalidEmails: addLeadsResult.invalidEmails,

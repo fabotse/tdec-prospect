@@ -143,6 +143,60 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
       mode: executionData.mode,
     };
 
+    // Story 17.6 Task 9: Skip activate step if activation deferred
+    if (stepType === "activate" && previousStepOutput?.activationDeferred === true) {
+      const { error: skipError } = await this.supabase
+        .from("agent_steps")
+        .update({
+          status: "skipped",
+          output: { skipped: true, reason: "activation_deferred" },
+          completed_at: new Date().toISOString(),
+        })
+        .eq("execution_id", executionId)
+        .eq("step_number", stepNumber);
+
+      if (skipError) {
+        throw this.createPipelineError(
+          "ORCHESTRATOR_SKIP_FAILED",
+          "Erro ao marcar step como skipped",
+          stepNumber,
+          stepType
+        );
+      }
+
+      // Complete execution with deferred note
+      const { error: completionError } = await this.supabase
+        .from("agent_executions")
+        .update({
+          status: "completed",
+          completed_at: new Date().toISOString(),
+          result_summary: { activationDeferred: true },
+        })
+        .eq("id", executionId);
+
+      if (completionError) {
+        throw this.createPipelineError(
+          "ORCHESTRATOR_COMPLETION_FAILED",
+          "Erro ao completar execucao apos skip",
+          stepNumber,
+          stepType
+        );
+      }
+
+      const campaignName = (previousStepOutput.campaignName as string) ?? "campanha";
+      await this.supabase.from("agent_messages").insert({
+        execution_id: executionId,
+        role: "agent",
+        content: `Campanha "${campaignName}" exportada no Instantly. Ativacao adiada — ative manualmente quando desejar.`,
+        metadata: {
+          stepNumber,
+          messageType: "summary",
+        },
+      });
+
+      return { success: true, data: { skipped: true, reason: "activation_deferred" } };
+    }
+
     // Dispatch to step from registry (4.2)
     const stepInstance = this.getStepInstance(stepNumber, stepType, tenantId);
 

@@ -863,4 +863,214 @@ describe("DeterministicOrchestrator (AC #5)", () => {
       expect(runCallArg.mode).toBe("guided");
     });
   });
+
+  // ==============================================
+  // Story 17.6 Tests
+  // ==============================================
+
+  // Task 9 - Activation deferred: skip activate step
+  describe("activation deferred (Story 17.6 - Task 9)", () => {
+    it("skips ActivateStep when previousStepOutput has activationDeferred:true", async () => {
+      const prevStepChain = createChainBuilder({
+        data: {
+          output: {
+            externalCampaignId: "camp-123",
+            campaignName: "Test Campaign",
+            activationDeferred: true,
+          },
+          status: "approved",
+        },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-5",
+          execution_id: "exec-001",
+          step_number: 5,
+          step_type: "activate",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      const result = await orchestrator.executeStep("exec-001", 5);
+
+      // ActivateStep.run() should NOT have been called
+      expect(mockActivateRun).not.toHaveBeenCalled();
+      expect(result.data).toMatchObject({ skipped: true, reason: "activation_deferred" });
+    });
+
+    it("marks step as skipped and execution as completed when activation deferred", async () => {
+      const prevStepChain = createChainBuilder({
+        data: {
+          output: {
+            externalCampaignId: "camp-123",
+            campaignName: "Test Campaign",
+            activationDeferred: true,
+          },
+          status: "approved",
+        },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-5",
+          execution_id: "exec-001",
+          step_number: 5,
+          step_type: "activate",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      // Track all update calls from agent_steps
+      const stepsUpdateChain = createChainBuilder({ data: null, error: null });
+      const stepsUpdateFn = vi.fn().mockReturnValue(stepsUpdateChain);
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          // Third call is the update for marking as skipped
+          return { update: stepsUpdateFn };
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      await orchestrator.executeStep("exec-001", 5);
+
+      // Step marked as skipped
+      expect(stepsUpdateFn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "skipped",
+          output: { skipped: true, reason: "activation_deferred" },
+        })
+      );
+
+      // Execution marked as completed with activationDeferred
+      expect(mockSupabase.executionsChain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "completed",
+          completed_at: expect.any(String),
+          result_summary: { activationDeferred: true },
+        })
+      );
+    });
+
+    it("sends summary message when activation is deferred", async () => {
+      const prevStepChain = createChainBuilder({
+        data: {
+          output: {
+            externalCampaignId: "camp-123",
+            campaignName: "Test Campaign",
+            activationDeferred: true,
+          },
+          status: "approved",
+        },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-5",
+          execution_id: "exec-001",
+          step_number: 5,
+          step_type: "activate",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      await orchestrator.executeStep("exec-001", 5);
+
+      // Summary message sent
+      expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: expect.stringContaining("Ativacao adiada"),
+          metadata: expect.objectContaining({ messageType: "summary" }),
+        })
+      );
+    });
+
+    it("executes ActivateStep normally when activation NOT deferred", async () => {
+      const prevStepChain = createChainBuilder({
+        data: {
+          output: {
+            externalCampaignId: "camp-123",
+            campaignName: "Test Campaign",
+            // no activationDeferred flag
+          },
+          status: "approved",
+        },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-5",
+          execution_id: "exec-001",
+          step_number: 5,
+          step_type: "activate",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      mockActivateRun.mockResolvedValue({
+        success: true,
+        data: { activated: true },
+        cost: { instantly_activate: 1 },
+      });
+
+      await orchestrator.executeStep("exec-001", 5);
+
+      // ActivateStep.run() should have been called
+      expect(mockActivateRun).toHaveBeenCalled();
+    });
+  });
 });

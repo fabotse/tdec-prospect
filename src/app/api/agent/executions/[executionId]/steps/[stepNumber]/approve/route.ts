@@ -58,7 +58,7 @@ export async function POST(
   // Verify execution exists and belongs to tenant
   const { data: execution } = await supabase
     .from("agent_executions")
-    .select("id, tenant_id")
+    .select("id, tenant_id, total_steps, status")
     .eq("id", executionId)
     .single();
 
@@ -120,9 +120,22 @@ export async function POST(
 
   // Build updated output (merge approvedData if present)
   const existingOutput = (stepRecord.output as Record<string, unknown>) ?? {};
-  const updatedOutput = approvedData
-    ? { ...existingOutput, approvedLeads: approvedData.leads }
-    : existingOutput;
+  let updatedOutput = existingOutput;
+
+  if (approvedData) {
+    // Story 17.5: leads filtrados
+    if (approvedData.leads) {
+      updatedOutput = { ...updatedOutput, approvedLeads: approvedData.leads };
+    }
+    // Story 17.6 Task 3.1: merge emailBlocks editados
+    if (approvedData.emailBlocks) {
+      updatedOutput = { ...updatedOutput, emailBlocks: approvedData.emailBlocks };
+    }
+    // Story 17.6 Task 3.2: activation deferred
+    if (approvedData.activate === false && approvedData.deferred) {
+      updatedOutput = { ...updatedOutput, activationDeferred: true };
+    }
+  }
 
   // Update step: status='approved', completed_at, merged output
   const { error: updateError } = await supabase
@@ -147,9 +160,43 @@ export async function POST(
     );
   }
 
+  // Story 17.6 Task 4: Complete execution when approving last step
+  const totalSteps = (execution as Record<string, unknown>).total_steps as number;
+  const isLastStep = stepNumber === totalSteps;
+  const isActivationDeferred = updatedOutput.activationDeferred === true;
+
+  if (isLastStep) {
+    const campaignName = (updatedOutput.campaignName as string) ?? "campanha";
+    const resultSummary: Record<string, unknown> = { campaignName };
+    if (isActivationDeferred) {
+      resultSummary.activationDeferred = true;
+    }
+
+    const { error: completionError } = await supabase
+      .from("agent_executions")
+      .update({
+        status: "completed",
+        completed_at: new Date().toISOString(),
+        result_summary: resultSummary,
+      })
+      .eq("id", executionId);
+
+    if (completionError) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "COMPLETION_FAILED",
+            message: "Step aprovado mas erro ao completar execucao",
+          },
+        },
+        { status: 500 }
+      );
+    }
+  }
+
   // Insert approval confirmation message
   const stepLabel = STEP_LABELS[stepRecord.step_type as StepType] ?? stepRecord.step_type;
-  const { error: insertError } = await supabase.from("agent_messages").insert({
+  await supabase.from("agent_messages").insert({
     execution_id: executionId,
     role: "agent",
     content: `Etapa "${stepLabel}" aprovada pelo usuario.`,
@@ -159,16 +206,24 @@ export async function POST(
     },
   });
 
-  if (insertError) {
-    return NextResponse.json(
-      {
-        error: {
-          code: "MESSAGE_INSERT_FAILED",
-          message: "Step aprovado, mas erro ao inserir mensagem de confirmacao",
-        },
+  // Story 17.6 Task 4.3: Insert summary message when execution completes
+  // Skip summary for activate step — ActivateStep already sends its own summary in executeInternal
+  const stepType = stepRecord.step_type as StepType;
+  if (isLastStep && stepType !== "activate") {
+    const campaignName = (updatedOutput.campaignName as string) ?? "campanha";
+    const summaryContent = isActivationDeferred
+      ? `Campanha "${campaignName}" exportada no Instantly. Ativacao adiada — ative manualmente quando desejar.`
+      : `Campanha "${campaignName}" ativada com sucesso no Instantly.`;
+
+    await supabase.from("agent_messages").insert({
+      execution_id: executionId,
+      role: "agent",
+      content: summaryContent,
+      metadata: {
+        stepNumber,
+        messageType: "summary",
       },
-      { status: 500 }
-    );
+    });
   }
 
   return NextResponse.json({

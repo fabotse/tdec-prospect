@@ -227,4 +227,182 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/approve", 
     expect(res.status).toBe(404);
     expect(json.error.code).toBe("NOT_FOUND");
   });
+
+  // ==============================================
+  // Story 17.6 Tests
+  // ==============================================
+
+  // Task 3.1 - Merge emailBlocks editados
+  it("merges approvedData.emailBlocks into output (Story 17.6 Task 3.1)", async () => {
+    const editedEmailBlocks = [
+      { position: 0, subject: "Assunto editado", body: "Corpo editado", emailMode: "initial" },
+    ];
+
+    // Mock steps chain to return update method
+    const mockUpdate = vi.fn().mockReturnValue(updateChain);
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "agent_executions") return executionsChain;
+      if (table === "agent_steps") {
+        return {
+          ...stepsChain,
+          update: mockUpdate,
+        };
+      }
+      if (table === "agent_messages") return messagesChain;
+      return createChainBuilder();
+    });
+
+    await POST(
+      createRequest({ approvedData: { emailBlocks: editedEmailBlocks } }),
+      createParams()
+    );
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "approved",
+        output: expect.objectContaining({
+          emailBlocks: editedEmailBlocks,
+        }),
+      })
+    );
+  });
+
+  // Task 3.2 - Activation deferred
+  it("sets activationDeferred in output when activate:false and deferred:true (Story 17.6 Task 3.2)", async () => {
+    const mockUpdate = vi.fn().mockReturnValue(updateChain);
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "agent_executions") return executionsChain;
+      if (table === "agent_steps") {
+        return {
+          ...stepsChain,
+          update: mockUpdate,
+        };
+      }
+      if (table === "agent_messages") return messagesChain;
+      return createChainBuilder();
+    });
+
+    await POST(
+      createRequest({ approvedData: { activate: false, deferred: true } }),
+      createParams()
+    );
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        output: expect.objectContaining({
+          activationDeferred: true,
+        }),
+      })
+    );
+  });
+
+  // Task 3.3 - Retrocompatibilidade: sem approvedData, comportamento identico ao 17-5
+  it("preserves existing behavior when approvedData has no emailBlocks or activation flags (Story 17.6 Task 3.3)", async () => {
+    const mockUpdate = vi.fn().mockReturnValue(updateChain);
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "agent_executions") return executionsChain;
+      if (table === "agent_steps") {
+        return {
+          ...stepsChain,
+          update: mockUpdate,
+        };
+      }
+      if (table === "agent_messages") return messagesChain;
+      return createChainBuilder();
+    });
+
+    // No body at all
+    await POST(createRequest(), createParams());
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "approved",
+        output: expect.objectContaining({
+          companies: [{ name: "Acme" }],
+          totalFound: 1,
+        }),
+      })
+    );
+  });
+
+  // Task 4.1 - Completion on last step
+  it("marks execution as completed when approving the last step (Story 17.6 Task 4.1)", async () => {
+    // Override execution to have total_steps = 1 so stepNumber 1 is the last step
+    executionsChain.then = (resolve: (v: unknown) => unknown) =>
+      Promise.resolve({
+        data: { id: VALID_UUID, tenant_id: "tenant-1", total_steps: 1, status: "running" },
+        error: null,
+      }).then(resolve);
+
+    const executionUpdate = vi.fn().mockReturnValue(createChainBuilder({ data: null, error: null }));
+    const stepsUpdate = vi.fn().mockReturnValue(updateChain);
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "agent_executions") {
+        return {
+          ...executionsChain,
+          update: executionUpdate,
+        };
+      }
+      if (table === "agent_steps") {
+        return {
+          ...stepsChain,
+          update: stepsUpdate,
+        };
+      }
+      if (table === "agent_messages") return messagesChain;
+      return createChainBuilder();
+    });
+
+    const res = await POST(createRequest(), createParams(VALID_UUID, "1"));
+    expect(res.status).toBe(200);
+
+    // Verify execution was updated to completed
+    expect(executionUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "completed",
+        completed_at: expect.any(String),
+      })
+    );
+  });
+
+  // Task 4.2 - Activation deferred in result_summary
+  it("includes activationDeferred and campaignName in result_summary when deferred on last step (Story 17.6 Task 4.2)", async () => {
+    executionsChain.then = (resolve: (v: unknown) => unknown) =>
+      Promise.resolve({
+        data: { id: VALID_UUID, tenant_id: "tenant-1", total_steps: 1, status: "running" },
+        error: null,
+      }).then(resolve);
+
+    const executionUpdate = vi.fn().mockReturnValue(createChainBuilder({ data: null, error: null }));
+    const stepsUpdate = vi.fn().mockReturnValue(updateChain);
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "agent_executions") {
+        return {
+          ...executionsChain,
+          update: executionUpdate,
+        };
+      }
+      if (table === "agent_steps") {
+        return {
+          ...stepsChain,
+          update: stepsUpdate,
+        };
+      }
+      if (table === "agent_messages") return messagesChain;
+      return createChainBuilder();
+    });
+
+    await POST(
+      createRequest({ approvedData: { activate: false, deferred: true } }),
+      createParams(VALID_UUID, "1")
+    );
+
+    expect(executionUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        result_summary: expect.objectContaining({ activationDeferred: true, campaignName: expect.any(String) }),
+      })
+    );
+  });
 });

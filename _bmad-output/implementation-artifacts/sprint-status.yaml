@@ -407,7 +407,7 @@ development_status:
   17-3-step-de-criacao-de-campanha: done
   17-4-steps-de-export-ativacao: done
   17-5-approval-gates-empresas-leads: done
-  17-6-approval-gates-campanha-ativacao: backlog
+  17-6-approval-gates-campanha-ativacao: done
   17-7-logica-guiado-vs-autopilot-adaptacao-de-pipeline: backlog
   17-8-briefing-conversacional-inteligente: ready-for-dev
   epic-17-retrospective: optional

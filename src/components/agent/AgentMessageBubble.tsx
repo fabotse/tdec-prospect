@@ -15,6 +15,8 @@ import { cn } from "@/lib/utils";
 import type { AgentMessage, MessageType, StepType } from "@/types/agent";
 import { AgentApprovalGate } from "./AgentApprovalGate";
 import { AgentLeadReview } from "./AgentLeadReview";
+import { AgentCampaignPreview } from "./AgentCampaignPreview";
+import { AgentActivationGate } from "./AgentActivationGate";
 
 interface AgentMessageBubbleProps {
   message: AgentMessage;
@@ -127,6 +129,22 @@ function ApprovalGateRenderer({
       return (
         <AgentLeadReview
           data={approvalData.previewData as Parameters<typeof AgentLeadReview>[0]["data"]}
+          executionId={executionId}
+          stepNumber={stepNumber}
+        />
+      );
+    case "create_campaign":
+      return (
+        <AgentCampaignPreview
+          data={approvalData.previewData as Parameters<typeof AgentCampaignPreview>[0]["data"]}
+          executionId={executionId}
+          stepNumber={stepNumber}
+        />
+      );
+    case "export":
+      return (
+        <AgentActivationGate
+          data={approvalData.previewData as Parameters<typeof AgentActivationGate>[0]["data"]}
           executionId={executionId}
           stepNumber={stepNumber}
         />

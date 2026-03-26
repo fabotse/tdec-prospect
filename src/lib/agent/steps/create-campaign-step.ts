@@ -54,6 +54,22 @@ export class CreateCampaignStep extends BaseStep {
     this.tenantId = tenantId;
   }
 
+  /**
+   * Story 17.6 Task 6: Send complete data for campaign preview.
+   * User needs full emailBlocks to edit inline, plus icebreakers and structure.
+   */
+  protected buildPreviewData(result: StepOutput): unknown {
+    const data = result.data as unknown as CreateCampaignOutput;
+    return {
+      campaignName: data.campaignName,
+      structure: { totalEmails: data.structure.totalEmails, totalDays: data.structure.totalDays },
+      emailBlocks: data.emailBlocks,
+      leadsWithIcebreakers: data.leadsWithIcebreakers,
+      icebreakerStats: data.icebreakerStats,
+      totalLeads: data.totalLeads,
+    };
+  }
+
   protected async executeInternal(input: StepInput): Promise<StepOutput> {
     const { briefing, previousStepOutput } = input;
 
