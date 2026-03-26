@@ -41,8 +41,8 @@ vi.mock("sonner", () => ({
   toast: { error: (...args: unknown[]) => mockToastError(...args) },
 }));
 
-vi.mock("@/hooks/use-agent-messages", () => ({
-  useAgentMessages: () => ({ messages: [], isLoading: false, isConnected: false }),
+vi.mock("@/hooks/use-agent-execution", () => ({
+  useAgentExecution: () => ({ messages: [], steps: [], isLoading: false, isConnected: false }),
   useSendMessage: () => ({ mutate: mockMutate, isPending: false }),
 }));
 
@@ -188,10 +188,11 @@ describe("AgentChat", () => {
         executionId: "exec-new",
         content: "Quero prospectar CTOs que usam Netskope",
       });
-      // Processou briefing
+      // Processou briefing (4 args: content, execId, sendAgentMessage, createProduct)
       expect(mockProcessMessage).toHaveBeenCalledWith(
         "Quero prospectar CTOs que usam Netskope",
         "exec-new",
+        expect.any(Function),
         expect.any(Function)
       );
       // Ligou/desligou processing
@@ -523,6 +524,135 @@ describe("AgentChat", () => {
       });
 
       expect(mockSetShowExecutionPlan).toHaveBeenCalledWith(true);
+    });
+  });
+
+  // --- Story 16.6: Product creation ---
+
+  describe("product creation (Story 16.6)", () => {
+    it("deve passar createProduct como 4o argumento ao processBriefing", async () => {
+      setupDefaults({ executionId: "exec-123", briefingStatus: "idle" });
+      mockProcessMessage.mockResolvedValueOnce({ handled: true });
+
+      render(<AgentChat />);
+
+      await act(async () => {
+        await capturedOnSendMessage!("Quero prospectar pro TDEC Analytics");
+      });
+
+      // processMessage should have been called with 4 args: content, execId, sendAgentMessage, createProduct
+      expect(mockProcessMessage).toHaveBeenCalledWith(
+        "Quero prospectar pro TDEC Analytics",
+        "exec-123",
+        expect.any(Function),
+        expect.any(Function)
+      );
+    });
+
+    it("createProduct chama POST /api/products e retorna id", async () => {
+      setupDefaults({ executionId: "exec-123", briefingStatus: "idle" });
+
+      // Capture the createProduct callback
+      let capturedCreateProduct: ((product: Record<string, unknown>) => Promise<string | null>) | null = null;
+      mockProcessMessage.mockImplementationOnce(
+        async (
+          _content: string,
+          _execId: string,
+          _sendAgentMsg: unknown,
+          createProduct?: (product: Record<string, unknown>) => Promise<string | null>
+        ) => {
+          capturedCreateProduct = createProduct ?? null;
+          return { handled: true };
+        }
+      );
+
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string, options?: RequestInit) => {
+        if (typeof url === "string" && url === "/api/products" && options?.method === "POST") {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ data: { id: "new-prod-123" } }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ data: { id: "exec-123" } }),
+        });
+      });
+
+      render(<AgentChat />);
+
+      await act(async () => {
+        await capturedOnSendMessage!("Quero prospectar pro TDEC Analytics");
+      });
+
+      expect(capturedCreateProduct).toBeTruthy();
+
+      let productId: string | null = null;
+      await act(async () => {
+        productId = await capturedCreateProduct!({
+          name: "TDEC Analytics",
+          description: "Plataforma de analytics",
+        });
+      });
+
+      expect(productId).toBe("new-prod-123");
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/products",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            name: "TDEC Analytics",
+            description: "Plataforma de analytics",
+          }),
+        })
+      );
+    });
+
+    it("createProduct retorna null quando API falha", async () => {
+      setupDefaults({ executionId: "exec-123", briefingStatus: "idle" });
+
+      let capturedCreateProduct: ((product: Record<string, unknown>) => Promise<string | null>) | null = null;
+      mockProcessMessage.mockImplementationOnce(
+        async (
+          _content: string,
+          _execId: string,
+          _sendAgentMsg: unknown,
+          createProduct?: (product: Record<string, unknown>) => Promise<string | null>
+        ) => {
+          capturedCreateProduct = createProduct ?? null;
+          return { handled: true };
+        }
+      );
+
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (typeof url === "string" && url === "/api/products") {
+          return Promise.resolve({
+            ok: false,
+            status: 500,
+            json: () => Promise.resolve({ error: "Server error" }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ data: { id: "exec-123" } }),
+        });
+      });
+
+      render(<AgentChat />);
+
+      await act(async () => {
+        await capturedOnSendMessage!("mensagem");
+      });
+
+      let productId: string | null = "not-null";
+      await act(async () => {
+        productId = await capturedCreateProduct!({
+          name: "Test",
+          description: "Test",
+        });
+      });
+
+      expect(productId).toBeNull();
     });
   });
 

@@ -1,18 +1,17 @@
 /**
- * Unit Tests for useAgentMessages and useSendMessage (backward compat)
- * Story 16.2: Sistema de Mensagens do Chat
- * Refator: Agora delega para useAgentExecution
+ * Unit Tests for useAgentExecution and useSendMessage hooks
+ * Refator: useAgentMessages → useAgentExecution (Retro Epic 16)
  *
- * AC: #1 - Enviar mensagem com optimistic update
- * AC: #2 - Receber mensagens via Supabase Realtime
- * AC: #4 - Carregar historico de mensagens
+ * AC: Canal Realtime consolidado (agent_messages + agent_steps)
+ * AC: Backward compat — mesma API de messages que useAgentMessages
+ * AC: Steps via Realtime (INSERT + UPDATE)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ReactNode } from "react";
-import { useAgentMessages, useSendMessage } from "@/hooks/use-agent-messages";
+import { useAgentExecution, useSendMessage } from "@/hooks/use-agent-execution";
 import {
   createMockFetch,
   mockJsonResponse,
@@ -26,8 +25,11 @@ const mockSubscribe = vi.fn().mockImplementation((callback) => {
   callback("SUBSCRIBED");
   return { unsubscribe: vi.fn() };
 });
-const mockOn: ReturnType<typeof vi.fn> = vi.fn();
-mockOn.mockReturnValue({ on: mockOn, subscribe: mockSubscribe });
+const mockOnHandlers: Array<{ table: string; event: string; callback: (payload: unknown) => void }> = [];
+const mockOn = vi.fn().mockImplementation((_type, config, callback) => {
+  mockOnHandlers.push({ table: config.table, event: config.event, callback });
+  return { on: mockOn, subscribe: mockSubscribe };
+});
 const mockChannel = vi.fn().mockReturnValue({ on: mockOn, subscribe: mockSubscribe });
 const mockRemoveChannel = vi.fn();
 
@@ -79,9 +81,10 @@ const mockMessages: AgentMessage[] = [
   },
 ];
 
-describe("useAgentMessages (AC: #2, #4)", () => {
+describe("useAgentExecution — messages", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockOnHandlers.length = 0;
     createMockFetch([
       {
         url: /\/api\/agent\/executions\/exec-001\/messages/,
@@ -93,17 +96,18 @@ describe("useAgentMessages (AC: #2, #4)", () => {
 
   afterEach(() => restoreFetch());
 
-  it("should return empty messages when executionId is null", () => {
-    const { result } = renderHook(() => useAgentMessages(null), {
+  it("should return empty messages and steps when executionId is null", () => {
+    const { result } = renderHook(() => useAgentExecution(null), {
       wrapper: createWrapper(),
     });
 
     expect(result.current.messages).toEqual([]);
+    expect(result.current.steps).toEqual([]);
     expect(result.current.isLoading).toBe(false);
   });
 
   it("should fetch messages for a given executionId", async () => {
-    const { result } = renderHook(() => useAgentMessages("exec-001"), {
+    const { result } = renderHook(() => useAgentExecution("exec-001"), {
       wrapper: createWrapper(),
     });
 
@@ -113,29 +117,19 @@ describe("useAgentMessages (AC: #2, #4)", () => {
     expect(result.current.messages[0].content).toBe("Buscar leads");
   });
 
-  it("should setup Supabase Realtime subscription via consolidated channel", async () => {
-    renderHook(() => useAgentMessages("exec-001"), {
+  it("should return empty steps initially", async () => {
+    const { result } = renderHook(() => useAgentExecution("exec-001"), {
       wrapper: createWrapper(),
     });
 
     await waitFor(() => {
-      // Consolidated channel name (delegated to useAgentExecution)
-      expect(mockChannel).toHaveBeenCalledWith("agent-execution-exec-001");
+      expect(result.current.messages).toHaveLength(2);
     });
-    expect(mockOn).toHaveBeenCalledWith(
-      "postgres_changes",
-      expect.objectContaining({
-        event: "INSERT",
-        schema: "public",
-        table: "agent_messages",
-        filter: "execution_id=eq.exec-001",
-      }),
-      expect.any(Function)
-    );
+    expect(result.current.steps).toEqual([]);
   });
 
   it("should set isConnected when subscription is active", async () => {
-    const { result } = renderHook(() => useAgentMessages("exec-001"), {
+    const { result } = renderHook(() => useAgentExecution("exec-001"), {
       wrapper: createWrapper(),
     });
 
@@ -145,7 +139,7 @@ describe("useAgentMessages (AC: #2, #4)", () => {
   });
 
   it("should cleanup channel on unmount", async () => {
-    const { unmount } = renderHook(() => useAgentMessages("exec-001"), {
+    const { unmount } = renderHook(() => useAgentExecution("exec-001"), {
       wrapper: createWrapper(),
     });
 
@@ -158,7 +152,7 @@ describe("useAgentMessages (AC: #2, #4)", () => {
   });
 
   it("should not subscribe when executionId is null", () => {
-    renderHook(() => useAgentMessages(null), {
+    renderHook(() => useAgentExecution(null), {
       wrapper: createWrapper(),
     });
 
@@ -166,7 +160,80 @@ describe("useAgentMessages (AC: #2, #4)", () => {
   });
 });
 
-describe("useSendMessage (AC: #1)", () => {
+describe("useAgentExecution — consolidated Realtime channel", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockOnHandlers.length = 0;
+    createMockFetch([
+      {
+        url: /\/api\/agent\/executions\/exec-001\/messages/,
+        method: "GET",
+        response: mockJsonResponse({ data: [] }),
+      },
+    ]);
+  });
+
+  afterEach(() => restoreFetch());
+
+  it("should create a single channel with execution-scoped name", async () => {
+    renderHook(() => useAgentExecution("exec-001"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(mockChannel).toHaveBeenCalledWith("agent-execution-exec-001");
+    });
+    // Single channel call, not two separate channels
+    expect(mockChannel).toHaveBeenCalledTimes(1);
+  });
+
+  it("should subscribe to agent_messages INSERT and agent_steps INSERT+UPDATE", async () => {
+    renderHook(() => useAgentExecution("exec-001"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(mockOn).toHaveBeenCalledTimes(3);
+    });
+
+    // Verify all 3 subscriptions on the same channel
+    const tables = mockOnHandlers.map((h) => `${h.table}:${h.event}`);
+    expect(tables).toContain("agent_messages:INSERT");
+    expect(tables).toContain("agent_steps:INSERT");
+    expect(tables).toContain("agent_steps:UPDATE");
+  });
+
+  it("should turn off agent processing when agent message arrives via Realtime", async () => {
+    renderHook(() => useAgentExecution("exec-001"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(mockOnHandlers.length).toBe(3);
+    });
+
+    const messageHandler = mockOnHandlers.find(
+      (h) => h.table === "agent_messages" && h.event === "INSERT"
+    );
+
+    act(() => {
+      messageHandler?.callback({
+        new: {
+          id: "msg-rt-001",
+          execution_id: "exec-001",
+          role: "agent",
+          content: "Resposta do agente",
+          metadata: { messageType: "text" },
+          created_at: "2026-03-26T10:00:05Z",
+        },
+      });
+    });
+
+    expect(mockSetAgentProcessing).toHaveBeenCalledWith(false);
+  });
+});
+
+describe("useSendMessage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     createMockFetch([

@@ -19,12 +19,14 @@ import { toast } from "sonner";
 import { AgentMessageList } from "./AgentMessageList";
 import { AgentModeSelector } from "./AgentModeSelector";
 import { AgentExecutionPlan } from "./AgentExecutionPlan";
+import { AgentStepProgress } from "./AgentStepProgress";
 import { AgentInput } from "./AgentInput";
-import { useAgentMessages, useSendMessage } from "@/hooks/use-agent-messages";
+import { useAgentExecution, useSendMessage } from "@/hooks/use-agent-execution";
 import { useAgentOnboarding } from "@/hooks/use-agent-onboarding";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { useBriefingFlow } from "@/hooks/use-briefing-flow";
 import type { ExecutionMode } from "@/types/agent";
+import type { CreateProductInput } from "@/types/product";
 
 export function AgentChat() {
   const currentExecutionId = useAgentStore((s) => s.currentExecutionId);
@@ -41,7 +43,7 @@ export function AgentChat() {
 
   const { isFirstTime } = useAgentOnboarding();
 
-  const { messages } = useAgentMessages(currentExecutionId);
+  const { messages, steps } = useAgentExecution(currentExecutionId);
   // Fix #1: useSendMessage sem parametro — executionId passado no mutate
   const sendMessageMutation = useSendMessage();
 
@@ -57,6 +59,25 @@ export function AgentChat() {
       });
       if (!response.ok) {
         toast.error("Erro ao enviar resposta do agente.");
+      }
+    },
+    []
+  );
+
+  // Helper: criar produto via API existente
+  const createProduct = useCallback(
+    async (product: CreateProductInput): Promise<string | null> => {
+      try {
+        const response = await fetch("/api/products", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(product),
+        });
+        if (!response.ok) return null;
+        const result = await response.json();
+        return result.data.id;
+      } catch {
+        return null;
       }
     },
     []
@@ -111,7 +132,7 @@ export function AgentChat() {
         // Indicar que agente esta processando
         setAgentProcessing(true);
 
-        const result = await processBriefing(content, execId, sendAgentMessage);
+        const result = await processBriefing(content, execId, sendAgentMessage, createProduct);
 
         setAgentProcessing(false);
 
@@ -139,6 +160,7 @@ export function AgentChat() {
       processBriefing,
       sendAgentMessage,
       saveBriefing,
+      createProduct,
       setAgentProcessing,
       setShowModeSelector,
     ]
@@ -236,6 +258,12 @@ export function AgentChat() {
           onConfirm={handleConfirmPlan}
           onCancel={handleCancelPlan}
           isSubmitting={isPlanSubmitting}
+        />
+      )}
+      {steps.length > 0 && (
+        <AgentStepProgress
+          steps={steps}
+          currentStep={steps.find((s) => s.status === "running")?.step_number ?? 0}
         />
       )}
       <AgentInput

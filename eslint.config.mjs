@@ -19,6 +19,8 @@ const eslintConfig = defineConfig([
     rules: {
       // Prevent console.log (allow warn/error for legitimate logging)
       "no-console": ["error", { allow: ["warn", "error"] }],
+      // Banir non-null assertions (!) — warn em codigo existente, code review bloqueia em codigo novo (Epic 16 retro)
+      "@typescript-eslint/no-non-null-assertion": "warn",
     },
   },
 ]);

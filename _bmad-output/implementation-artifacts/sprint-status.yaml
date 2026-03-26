@@ -377,21 +377,30 @@ development_status:
   # EPIC 16: Agent Foundation & Briefing Conversacional
   # Documento: _bmad-output/planning-artifacts/epics-agente-tdec.md
   #
-  epic-16: in-progress
+  epic-16: done
   16-1-data-models-tipos-e-pagina-do-agente: done
   16-2-sistema-de-mensagens-do-chat: done
   16-3-briefing-parser-linguagem-natural: done
   16-4-onboarding-selecao-de-modo: done
   16-5-plano-de-execucao-estimativa-de-custo: done
-  16-6-cadastro-de-produto-inline: backlog
-  epic-16-retrospective: optional
+  16-6-cadastro-de-produto-inline: done
+  epic-16-retrospective: done  # Completed 2026-03-26 -- 6/6 stories (100%), +312 novos testes, 6 code reviews (~25 issues corrigidos), 0 blockers. Key insights: error handling silencioso recorrente (3/6 stories), null guards obrigatorios, testes de fluxos alternativos como requisito.
 
   # ============================================================
   # EPIC 17: Pipeline Execution & Approval Gates
   # Documento: _bmad-output/planning-artifacts/epics-agente-tdec.md
+  # Convenção Error Handling: _bmad-output/implementation-artifacts/epic-17-error-handling-convention.md
+  # Spike APIs: _bmad-output/implementation-artifacts/epic-17-api-validation-spike-2026-03-26.md
   #
-  epic-17: backlog
-  17-1-pipeline-orchestrator-step-de-busca-de-empresas: backlog
+  # Pre-sprint (2026-03-26):
+  #   - [DONE] Convenção error handling documentada (4 camadas, checklist code review)
+  #   - [DONE] Spike validação APIs (10 gaps identificados, 3 críticos resolvidos)
+  #   - [DONE] Refator useAgentMessages → useAgentExecution (canal Realtime consolidado)
+  #   - [DONE] ESLint no-non-null-assertion habilitada
+  #   - [DONE] npm run build validado
+  #
+  epic-17: in-progress
+  17-1-pipeline-orchestrator-step-de-busca-de-empresas: done
   17-2-step-de-busca-de-leads: backlog
   17-3-step-de-criacao-de-campanha: backlog
   17-4-steps-de-export-ativacao: backlog

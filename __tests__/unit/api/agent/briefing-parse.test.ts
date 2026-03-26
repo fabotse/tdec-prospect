@@ -309,6 +309,43 @@ describe("POST /api/agent/briefing/parse", () => {
     expect(json.briefing.productSlug).toBeNull();
   });
 
+  it("deve retornar productMentioned quando produto detectado mas nao resolvido (16.6)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      briefing: { ...FULL_PARSE_RESULT.briefing },
+      rawResponse: { ...FULL_PARSE_RESULT.rawResponse, productMentioned: "TDEC Analytics" },
+    });
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "agent_executions") {
+        return createChainBuilder({ data: { id: VALID_BODY.executionId }, error: null });
+      }
+      if (table === "api_configs") {
+        return createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null });
+      }
+      if (table === "products") {
+        return createChainBuilder({ data: [], error: null });
+      }
+      return createChainBuilder();
+    });
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(json.productMentioned).toBe("TDEC Analytics");
+    expect(json.briefing.productSlug).toBeNull();
+  });
+
+  it("deve retornar productMentioned null quando nenhum produto mencionado (16.6)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue(FULL_PARSE_RESULT);
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(json.productMentioned).toBeNull();
+  });
+
   it("deve retornar productSlug null quando nenhum produto faz match", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
     mockParse.mockResolvedValue({

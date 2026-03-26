@@ -8,6 +8,7 @@
 import { describe, it, expect } from "vitest";
 import {
   AGENT_ERROR_CODES,
+  STEP_LABELS,
   type AgentExecution,
   type AgentStep,
   type AgentMessage,
@@ -24,6 +25,8 @@ import {
   type StepStatus,
   type MessageRole,
   type MessageType,
+  type IPipelineOrchestrator,
+  type SearchCompaniesOutput,
 } from "@/types/agent";
 
 describe("Agent Types (AC: #3)", () => {
@@ -261,6 +264,7 @@ describe("Agent Types (AC: #3)", () => {
   describe("AGENT_ERROR_CODES", () => {
     it("has all expected error codes", () => {
       expect(AGENT_ERROR_CODES.BRIEFING_PARSE_ERROR).toBe("Nao consegui interpretar o briefing");
+      expect(AGENT_ERROR_CODES.PRODUCT_PARSE_ERROR).toBe("Nao consegui extrair dados do produto");
       expect(AGENT_ERROR_CODES.STEP_EXECUTION_ERROR).toBe("Erro ao executar etapa do pipeline");
       expect(AGENT_ERROR_CODES.STEP_TIMEOUT).toBe("Etapa demorou demais para responder");
       expect(AGENT_ERROR_CODES.APPROVAL_TIMEOUT).toBe("Aprovacao expirou");
@@ -268,8 +272,61 @@ describe("Agent Types (AC: #3)", () => {
       expect(AGENT_ERROR_CODES.EXECUTION_RESUME_ERROR).toBe("Erro ao retomar execucao");
     });
 
-    it("has 6 error codes", () => {
-      expect(Object.keys(AGENT_ERROR_CODES)).toHaveLength(6);
+    it("has pipeline error codes (Story 17.1)", () => {
+      expect(AGENT_ERROR_CODES.STEP_SEARCH_COMPANIES_ERROR).toBe("Erro ao buscar empresas");
+      expect(AGENT_ERROR_CODES.ORCHESTRATOR_INVALID_STEP).toBe("Step invalido no pipeline");
+      expect(AGENT_ERROR_CODES.ORCHESTRATOR_STEP_NOT_READY).toBe("Step nao esta pronto para execucao");
+      expect(AGENT_ERROR_CODES.CHECKPOINT_SAVE_ERROR).toBe("Erro ao salvar checkpoint");
+    });
+
+    it("has 11 error codes", () => {
+      expect(Object.keys(AGENT_ERROR_CODES)).toHaveLength(11);
+    });
+  });
+
+  describe("IPipelineOrchestrator interface (Story 17.1 AC #5)", () => {
+    it("can be type-checked with required methods", () => {
+      const mockOrchestrator: IPipelineOrchestrator = {
+        planExecution: async () => [],
+        executeStep: async () => ({ success: true, data: {} }),
+        getExecution: async () => null,
+      };
+
+      expect(mockOrchestrator.planExecution).toBeDefined();
+      expect(mockOrchestrator.executeStep).toBeDefined();
+      expect(mockOrchestrator.getExecution).toBeDefined();
+    });
+  });
+
+  describe("SearchCompaniesOutput interface (Story 17.1 AC #3)", () => {
+    it("can be instantiated with required fields", () => {
+      const output: SearchCompaniesOutput = {
+        companies: [],
+        totalFound: 0,
+        technologySlug: "react",
+        filtersApplied: {
+          technologySlugs: ["react"],
+        },
+      };
+
+      expect(output.companies).toEqual([]);
+      expect(output.totalFound).toBe(0);
+      expect(output.technologySlug).toBe("react");
+      expect(output.filtersApplied.technologySlugs).toEqual(["react"]);
+    });
+  });
+
+  describe("STEP_LABELS (Story 17.1 AC #5)", () => {
+    it("maps all 5 step types to PT-BR labels", () => {
+      expect(STEP_LABELS.search_companies).toBe("Busca de Empresas");
+      expect(STEP_LABELS.search_leads).toBe("Busca de Leads");
+      expect(STEP_LABELS.create_campaign).toBe("Criacao de Campanha");
+      expect(STEP_LABELS.export).toBe("Exportacao");
+      expect(STEP_LABELS.activate).toBe("Ativacao");
+    });
+
+    it("has exactly 5 entries", () => {
+      expect(Object.keys(STEP_LABELS)).toHaveLength(5);
     });
   });
 });

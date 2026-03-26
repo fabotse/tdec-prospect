@@ -1,15 +1,18 @@
 /**
  * useBriefingFlow Hook
  * Story: 16.3 - Briefing Parser & Linguagem Natural
+ * Story: 16.6 - Cadastro de Produto Inline
  *
  * AC: #3 - Perguntas guiadas para campos faltantes
  * AC: #4 - Consolidacao e confirmacao do briefing
+ * AC 16.6 #1-#5 - Fluxo de cadastro de produto inline
  */
 
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { ParsedBriefing } from "@/types/agent";
+import type { ParsedBriefing, ExtractedProduct } from "@/types/agent";
+import type { CreateProductInput } from "@/types/product";
 import type { BriefingParseResponse } from "@/app/api/agent/briefing/parse/route";
 
 // ==============================================
@@ -21,13 +24,18 @@ export type BriefingFlowStatus =
   | "parsing"
   | "awaiting_fields"
   | "confirming"
-  | "confirmed";
+  | "confirmed"
+  | "awaiting_product_decision"
+  | "awaiting_product_details"
+  | "confirming_product";
 
 export interface BriefingFlowState {
   status: BriefingFlowStatus;
   briefing: ParsedBriefing | null;
   missingFields: string[];
   isComplete: boolean;
+  productMentioned: string | null;
+  pendingProduct: ExtractedProduct | null;
 }
 
 // ==============================================
@@ -51,6 +59,15 @@ const CONFIRMATION_KEYWORDS = [
   "bora",
   "manda",
   "vamos",
+];
+
+const PRODUCT_REJECTION_KEYWORDS = [
+  "nao",
+  "depois",
+  "sem produto",
+  "pular",
+  "outro",
+  "skip",
 ];
 
 // ==============================================
@@ -90,9 +107,18 @@ function generateBriefingSummary(briefing: ParsedBriefing): string {
   return lines.join("\n");
 }
 
+function generateProductSummary(product: ExtractedProduct): string {
+  return `Cadastrei o ${product.name} com os seguintes dados:\n- Descricao: ${product.description}\n- Features: ${product.features || "nao informado"}\n- Diferenciais: ${product.differentials || "nao informado"}\n- Publico-alvo: ${product.targetAudience || "nao informado"}\n\nEsta correto?`;
+}
+
 function isConfirmation(message: string): boolean {
   const normalized = message.toLowerCase().trim();
   return CONFIRMATION_KEYWORDS.some((kw) => normalized.includes(kw));
+}
+
+function isProductRejection(message: string): boolean {
+  const normalized = message.toLowerCase().trim();
+  return PRODUCT_REJECTION_KEYWORDS.some((kw) => normalized.includes(kw));
 }
 
 // ==============================================
@@ -104,7 +130,8 @@ export interface UseBriefingFlowReturn {
   processMessage: (
     content: string,
     executionId: string,
-    sendAgentMessage: (executionId: string, content: string) => Promise<void>
+    sendAgentMessage: (executionId: string, content: string) => Promise<void>,
+    createProduct?: (product: CreateProductInput) => Promise<string | null>
   ) => Promise<{ handled: boolean; confirmed?: boolean }>;
   reset: () => void;
 }
@@ -115,6 +142,8 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
     briefing: null,
     missingFields: [],
     isComplete: false,
+    productMentioned: null,
+    pendingProduct: null,
   });
 
   const messageHistoryRef = useRef<string[]>([]);
@@ -137,13 +166,233 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
     []
   );
 
+  const callParseProductAPI = useCallback(
+    async (
+      message: string,
+      executionId: string,
+      productName: string
+    ): Promise<{ product: ExtractedProduct }> => {
+      const response = await fetch("/api/agent/briefing/parse-product", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ executionId, message, productName }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || "Erro ao parsear produto");
+      }
+
+      return response.json();
+    },
+    []
+  );
+
+  const handleParseResult = useCallback(
+    async (
+      result: BriefingParseResponse,
+      executionId: string,
+      sendAgentMessage: (executionId: string, content: string) => Promise<void>
+    ): Promise<{ handled: boolean }> => {
+      if (result.isComplete) {
+        // Check if product was mentioned but not found
+        if (result.productMentioned && result.briefing.productSlug === null) {
+          setState((prev) => ({
+            ...prev,
+            status: "awaiting_product_decision",
+            briefing: result.briefing,
+            missingFields: result.missingFields,
+            isComplete: result.isComplete,
+            productMentioned: result.productMentioned,
+          }));
+          await sendAgentMessage(
+            executionId,
+            `Nao encontrei o produto '${result.productMentioned}' na base de conhecimento. Quer cadastrar agora? Vou precisar de: nome, descricao, features, diferenciais e publico-alvo.`
+          );
+          return { handled: true };
+        }
+
+        // Normal flow — show summary
+        setState((prev) => ({
+          ...prev,
+          status: "confirming",
+          briefing: result.briefing,
+          missingFields: result.missingFields,
+          isComplete: result.isComplete,
+        }));
+        await sendAgentMessage(executionId, generateBriefingSummary(result.briefing));
+      } else {
+        setState((prev) => ({
+          ...prev,
+          status: "awaiting_fields",
+          briefing: result.briefing,
+          missingFields: result.missingFields,
+          isComplete: result.isComplete,
+        }));
+        await sendAgentMessage(executionId, generateGuidedQuestions(result.missingFields));
+      }
+
+      return { handled: true };
+    },
+    []
+  );
+
   const processMessage = useCallback(
     async (
       content: string,
       executionId: string,
-      sendAgentMessage: (executionId: string, content: string) => Promise<void>
+      sendAgentMessage: (executionId: string, content: string) => Promise<void>,
+      createProduct?: (product: CreateProductInput) => Promise<string | null>
     ): Promise<{ handled: boolean; confirmed?: boolean }> => {
       const currentStatus = state.status;
+
+      // === PRODUCT FLOW HANDLERS ===
+
+      // Handler: awaiting_product_decision (AC: #1, #5)
+      if (currentStatus === "awaiting_product_decision") {
+        const rejected = isProductRejection(content);
+        const confirmed = isConfirmation(content);
+
+        if (rejected && !confirmed) {
+          setState((prev) => ({
+            ...prev,
+            status: "confirming",
+            productMentioned: null,
+          }));
+          if (state.briefing) {
+            await sendAgentMessage(
+              executionId,
+              generateBriefingSummary(state.briefing)
+            );
+          }
+          return { handled: true };
+        }
+
+        if (confirmed && !rejected) {
+          setState((prev) => ({ ...prev, status: "awaiting_product_details" }));
+          await sendAgentMessage(
+            executionId,
+            "Otimo! Me descreva o produto em linguagem natural. Pode incluir o que ele faz, funcionalidades, diferenciais e para quem e voltado."
+          );
+          return { handled: true };
+        }
+
+        // Ambiguous (both or neither matched)
+        await sendAgentMessage(
+          executionId,
+          `Quer cadastrar o produto '${state.productMentioned ?? ""}' agora? Responda 'sim' para cadastrar ou 'nao' para continuar sem produto.`
+        );
+        return { handled: true };
+      }
+
+      // Handler: awaiting_product_details (AC: #2)
+      if (currentStatus === "awaiting_product_details") {
+        setState((prev) => ({ ...prev, status: "parsing" }));
+
+        try {
+          const result = await callParseProductAPI(
+            content,
+            executionId,
+            state.productMentioned ?? ""
+          );
+          setState((prev) => ({
+            ...prev,
+            status: "confirming_product",
+            pendingProduct: result.product,
+          }));
+          await sendAgentMessage(
+            executionId,
+            generateProductSummary(result.product)
+          );
+          return { handled: true };
+        } catch {
+          setState((prev) => ({ ...prev, status: "awaiting_product_details" }));
+          await sendAgentMessage(
+            executionId,
+            "Nao consegui extrair os dados. Tente descrever novamente o produto, incluindo nome, o que faz e para quem."
+          );
+          return { handled: true };
+        }
+      }
+
+      // Handler: confirming_product (AC: #2, #3)
+      if (currentStatus === "confirming_product") {
+        const confirmed = isConfirmation(content);
+        const rejected = isProductRejection(content);
+
+        if (confirmed && !rejected) {
+          if (createProduct && state.pendingProduct) {
+            const productId = await createProduct(state.pendingProduct);
+            if (productId && state.briefing) {
+              const updatedBriefing: ParsedBriefing = {
+                ...state.briefing,
+                productSlug: productId,
+              };
+              setState((prev) => ({
+                ...prev,
+                status: "confirming",
+                briefing: updatedBriefing,
+                pendingProduct: null,
+                productMentioned: null,
+              }));
+              await sendAgentMessage(
+                executionId,
+                `Produto cadastrado! ${generateBriefingSummary(updatedBriefing)}`
+              );
+              return { handled: true };
+            }
+
+            // Creation failed
+            await sendAgentMessage(
+              executionId,
+              "Erro ao cadastrar produto. Quer tentar novamente?"
+            );
+            setState((prev) => ({
+              ...prev,
+              status: "awaiting_product_decision",
+            }));
+            return { handled: true };
+          }
+
+          // No createProduct callback — skip product
+          setState((prev) => ({
+            ...prev,
+            status: "confirming",
+            pendingProduct: null,
+            productMentioned: null,
+          }));
+          if (state.briefing) {
+            await sendAgentMessage(
+              executionId,
+              generateBriefingSummary(state.briefing)
+            );
+          }
+          return { handled: true };
+        }
+
+        if (rejected && !confirmed) {
+          // Rejection — re-describe product
+          setState((prev) => ({
+            ...prev,
+            status: "awaiting_product_details",
+            pendingProduct: null,
+          }));
+          await sendAgentMessage(
+            executionId,
+            "OK, me descreva o produto novamente."
+          );
+          return { handled: true };
+        }
+
+        // Ambiguous — ask for clarification
+        await sendAgentMessage(
+          executionId,
+          "Os dados estao corretos? Responda 'sim' para confirmar ou 'nao' para descrever novamente."
+        );
+        return { handled: true };
+      }
+
+      // === ORIGINAL FLOW HANDLERS ===
 
       // Confirming state — check for confirmation or correction
       if (currentStatus === "confirming") {
@@ -160,24 +409,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
 
         try {
           const result = await callParseAPI(fullMessage, executionId);
-
-          setState({
-            status: result.isComplete ? "confirming" : "awaiting_fields",
-            briefing: result.briefing,
-            missingFields: result.missingFields,
-            isComplete: result.isComplete,
-          });
-
-          if (result.isComplete) {
-            await sendAgentMessage(executionId, generateBriefingSummary(result.briefing));
-          } else {
-            await sendAgentMessage(
-              executionId,
-              generateGuidedQuestions(result.missingFields)
-            );
-          }
-
-          return { handled: true };
+          return handleParseResult(result, executionId, sendAgentMessage);
         } catch {
           setState((prev) => ({ ...prev, status: "confirming" }));
           return { handled: false };
@@ -193,24 +425,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
 
         try {
           const result = await callParseAPI(fullMessage, executionId);
-
-          setState({
-            status: result.isComplete ? "confirming" : "awaiting_fields",
-            briefing: result.briefing,
-            missingFields: result.missingFields,
-            isComplete: result.isComplete,
-          });
-
-          if (result.isComplete) {
-            await sendAgentMessage(executionId, generateBriefingSummary(result.briefing));
-          } else {
-            await sendAgentMessage(
-              executionId,
-              generateGuidedQuestions(result.missingFields)
-            );
-          }
-
-          return { handled: true };
+          return handleParseResult(result, executionId, sendAgentMessage);
         } catch {
           setState((prev) => ({ ...prev, status: "awaiting_fields" }));
           return { handled: false };
@@ -225,30 +440,15 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
 
         try {
           const result = await callParseAPI(content, executionId);
-
-          setState({
-            status: result.isComplete ? "confirming" : "awaiting_fields",
-            briefing: result.briefing,
-            missingFields: result.missingFields,
-            isComplete: result.isComplete,
-          });
-
-          if (result.isComplete) {
-            await sendAgentMessage(executionId, generateBriefingSummary(result.briefing));
-          } else {
-            await sendAgentMessage(
-              executionId,
-              generateGuidedQuestions(result.missingFields)
-            );
-          }
-
-          return { handled: true };
+          return handleParseResult(result, executionId, sendAgentMessage);
         } catch {
           setState({
             status: "idle",
             briefing: null,
             missingFields: [],
             isComplete: false,
+            productMentioned: null,
+            pendingProduct: null,
           });
           return { handled: false };
         }
@@ -257,7 +457,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       // Confirmed or parsing — don't handle
       return { handled: false };
     },
-    [state.status, callParseAPI]
+    [state.status, state.briefing, state.productMentioned, state.pendingProduct, callParseAPI, callParseProductAPI, handleParseResult]
   );
 
   const reset = useCallback(() => {
@@ -266,6 +466,8 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       briefing: null,
       missingFields: [],
       isComplete: false,
+      productMentioned: null,
+      pendingProduct: null,
     });
     messageHistoryRef.current = [];
   }, []);

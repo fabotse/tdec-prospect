@@ -139,11 +139,51 @@ export interface PipelineError {
   externalService?: string;
 }
 
+export interface ExtractedProduct {
+  name: string;
+  description: string;
+  features: string | null;
+  differentials: string | null;
+  targetAudience: string | null;
+}
+
 export const AGENT_ERROR_CODES = {
   BRIEFING_PARSE_ERROR: 'Nao consegui interpretar o briefing',
+  PRODUCT_PARSE_ERROR: 'Nao consegui extrair dados do produto',
   STEP_EXECUTION_ERROR: 'Erro ao executar etapa do pipeline',
   STEP_TIMEOUT: 'Etapa demorou demais para responder',
   APPROVAL_TIMEOUT: 'Aprovacao expirou',
   COST_ESTIMATE_ERROR: 'Erro ao calcular estimativa de custo',
   EXECUTION_RESUME_ERROR: 'Erro ao retomar execucao',
+  STEP_SEARCH_COMPANIES_ERROR: 'Erro ao buscar empresas',
+  ORCHESTRATOR_INVALID_STEP: 'Step invalido no pipeline',
+  ORCHESTRATOR_STEP_NOT_READY: 'Step nao esta pronto para execucao',
+  CHECKPOINT_SAVE_ERROR: 'Erro ao salvar checkpoint',
 } as const;
+
+// === Pipeline Orchestrator Interface (Story 17.1 AC #5) ===
+
+export interface IPipelineOrchestrator {
+  planExecution(briefing: ParsedBriefing): Promise<PlannedStep[]>;
+  executeStep(executionId: string, stepNumber: number): Promise<StepOutput>;
+  getExecution(executionId: string): Promise<AgentExecution | null>;
+}
+
+// === Search Companies Output (Story 17.1 AC #3) ===
+
+export interface SearchCompaniesOutput {
+  companies: Record<string, unknown>[];
+  totalFound: number;
+  technologySlug: string;
+  filtersApplied: Record<string, unknown>;
+}
+
+// === Step Labels (Story 17.1 AC #5) ===
+
+export const STEP_LABELS: Record<StepType, string> = {
+  search_companies: 'Busca de Empresas',
+  search_leads: 'Busca de Leads',
+  create_campaign: 'Criacao de Campanha',
+  export: 'Exportacao',
+  activate: 'Ativacao',
+};

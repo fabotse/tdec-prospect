@@ -31,6 +31,7 @@ export interface BriefingParseResponse {
   briefing: ParsedBriefing;
   missingFields: string[];
   isComplete: boolean;
+  productMentioned: string | null;
 }
 
 // ==============================================
@@ -197,6 +198,7 @@ export async function POST(request: Request) {
       briefing: resolvedBriefing,
       missingFields,
       isComplete,
+      productMentioned: rawResponse.productMentioned,
     };
 
     return NextResponse.json(response);

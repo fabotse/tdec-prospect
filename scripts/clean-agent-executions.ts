@@ -40,9 +40,9 @@ async function clean() {
 
   const { data, error, count } = await supabase
     .from("agent_executions")
-    .delete()
+    .delete({ count: "exact" })
     .neq("id", "00000000-0000-0000-0000-000000000000") // deleta tudo (workaround: delete precisa de filtro)
-    .select("id", { count: "exact" });
+    .select("id");
 
   if (error) {
     console.error("Erro ao limpar:", error.message);
