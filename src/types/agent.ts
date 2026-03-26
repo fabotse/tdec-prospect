@@ -156,6 +156,7 @@ export const AGENT_ERROR_CODES = {
   COST_ESTIMATE_ERROR: 'Erro ao calcular estimativa de custo',
   EXECUTION_RESUME_ERROR: 'Erro ao retomar execucao',
   STEP_SEARCH_COMPANIES_ERROR: 'Erro ao buscar empresas',
+  STEP_SEARCH_LEADS_ERROR: 'Erro ao buscar leads',
   ORCHESTRATOR_INVALID_STEP: 'Step invalido no pipeline',
   ORCHESTRATOR_STEP_NOT_READY: 'Step nao esta pronto para execucao',
   CHECKPOINT_SAVE_ERROR: 'Erro ao salvar checkpoint',
@@ -176,6 +177,23 @@ export interface SearchCompaniesOutput {
   totalFound: number;
   technologySlug: string;
   filtersApplied: Record<string, unknown>;
+}
+
+// === Search Leads Output (Story 17.2 AC #2, #3) ===
+
+export interface SearchLeadResult {
+  name: string;
+  title: string | null;
+  companyName: string | null;
+  email: string | null;
+  linkedinUrl: string | null;
+}
+
+export interface SearchLeadsOutput {
+  leads: SearchLeadResult[];
+  totalFound: number;
+  jobTitles: string[];
+  domainsSearched: string[];
 }
 
 // === Step Labels (Story 17.1 AC #5) ===

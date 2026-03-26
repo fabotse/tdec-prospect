@@ -27,6 +27,8 @@ import {
   type MessageType,
   type IPipelineOrchestrator,
   type SearchCompaniesOutput,
+  type SearchLeadsOutput,
+  type SearchLeadResult,
 } from "@/types/agent";
 
 describe("Agent Types (AC: #3)", () => {
@@ -279,8 +281,8 @@ describe("Agent Types (AC: #3)", () => {
       expect(AGENT_ERROR_CODES.CHECKPOINT_SAVE_ERROR).toBe("Erro ao salvar checkpoint");
     });
 
-    it("has 11 error codes", () => {
-      expect(Object.keys(AGENT_ERROR_CODES)).toHaveLength(11);
+    it("has 12 error codes", () => {
+      expect(Object.keys(AGENT_ERROR_CODES)).toHaveLength(12);
     });
   });
 
@@ -313,6 +315,63 @@ describe("Agent Types (AC: #3)", () => {
       expect(output.totalFound).toBe(0);
       expect(output.technologySlug).toBe("react");
       expect(output.filtersApplied.technologySlugs).toEqual(["react"]);
+    });
+  });
+
+  describe("SearchLeadsOutput interface (Story 17.2 AC #2, #3)", () => {
+    it("can be instantiated with required fields", () => {
+      const output: SearchLeadsOutput = {
+        leads: [
+          {
+            name: "John Doe",
+            title: "CTO",
+            companyName: "Acme Corp",
+            email: null,
+            linkedinUrl: "https://linkedin.com/in/johndoe",
+          },
+        ],
+        totalFound: 1,
+        jobTitles: ["CTO"],
+        domainsSearched: ["acme.com"],
+      };
+
+      expect(output.leads).toHaveLength(1);
+      expect(output.totalFound).toBe(1);
+      expect(output.jobTitles).toEqual(["CTO"]);
+      expect(output.domainsSearched).toEqual(["acme.com"]);
+    });
+  });
+
+  describe("SearchLeadResult interface (Story 17.2 AC #3)", () => {
+    it("can be instantiated with all nullable fields", () => {
+      const lead: SearchLeadResult = {
+        name: "Jane",
+        title: null,
+        companyName: null,
+        email: null,
+        linkedinUrl: null,
+      };
+
+      expect(lead.name).toBe("Jane");
+      expect(lead.title).toBeNull();
+      expect(lead.email).toBeNull();
+      expect(lead.linkedinUrl).toBeNull();
+    });
+
+    it("can be instantiated with all fields populated", () => {
+      const lead: SearchLeadResult = {
+        name: "John Doe",
+        title: "VP Engineering",
+        companyName: "Beta Inc",
+        email: "john@beta.io",
+        linkedinUrl: "https://linkedin.com/in/john",
+      };
+
+      expect(lead.name).toBe("John Doe");
+      expect(lead.title).toBe("VP Engineering");
+      expect(lead.companyName).toBe("Beta Inc");
+      expect(lead.email).toBe("john@beta.io");
+      expect(lead.linkedinUrl).toBe("https://linkedin.com/in/john");
     });
   });
 

@@ -1,6 +1,7 @@
 /**
  * Unit Tests for DeterministicOrchestrator
  * Story 17.1 - AC: #5
+ * Story 17.2 - AC: #1 (search_leads dispatch + previousStepOutput)
  *
  * Tests: dispatch, sendErrorMessage, status 'paused' on failure, step registry
  */
@@ -15,6 +16,7 @@ import type { PipelineError, ParsedBriefing } from "@/types/agent";
 // ==============================================
 
 const mockSearchCompaniesRun = vi.fn();
+const mockSearchLeadsRun = vi.fn();
 
 vi.mock("@/lib/agent/steps/search-companies-step", () => {
   return {
@@ -25,6 +27,20 @@ vi.mock("@/lib/agent/steps/search-companies-step", () => {
       constructor(stepNumber: number) {
         this.stepNumber = stepNumber;
         this.stepType = "search_companies";
+      }
+    },
+  };
+});
+
+vi.mock("@/lib/agent/steps/search-leads-step", () => {
+  return {
+    SearchLeadsStep: class MockSearchLeadsStep {
+      run = mockSearchLeadsRun;
+      stepNumber: number;
+      stepType: string;
+      constructor(stepNumber: number) {
+        this.stepNumber = stepNumber;
+        this.stepType = "search_leads";
       }
     },
   };
@@ -135,13 +151,13 @@ describe("DeterministicOrchestrator (AC #5)", () => {
     });
 
     it("throws for unimplemented step types", async () => {
-      // Mock step with step_type = 'search_leads' (not implemented)
+      // Mock step with step_type = 'create_campaign' (not yet implemented)
       mockSupabase.stepsChain = createChainBuilder({
         data: {
-          id: "step-2",
+          id: "step-3",
           execution_id: "exec-001",
-          step_number: 2,
-          step_type: "search_leads",
+          step_number: 1,
+          step_type: "create_campaign",
           status: "pending",
         },
         error: null,
@@ -153,7 +169,7 @@ describe("DeterministicOrchestrator (AC #5)", () => {
         return createChainBuilder();
       });
 
-      await expect(orchestrator.executeStep("exec-001", 2)).rejects.toMatchObject({
+      await expect(orchestrator.executeStep("exec-001", 1)).rejects.toMatchObject({
         code: "ORCHESTRATOR_STEP_NOT_READY",
       });
     });
@@ -270,6 +286,150 @@ describe("DeterministicOrchestrator (AC #5)", () => {
       );
       expect(statusUpdates).not.toContain("failed");
       expect(statusUpdates).toContain("paused");
+    });
+  });
+
+  // ==============================================
+  // Story 17.2 Tests
+  // ==============================================
+
+  describe("search_leads dispatch (Story 17.2 - 4.9)", () => {
+    it("dispatches to SearchLeadsStep for step_type search_leads", async () => {
+      // Configure step 2 as search_leads with previousStepOutput
+      const prevStepChain = createChainBuilder({
+        data: { output: { companies: [{ domain: "acme.com" }], totalFound: 1 } },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-2",
+          execution_id: "exec-001",
+          step_number: 2,
+          step_type: "search_leads",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      // Track call count to return different chains
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          // First call: fetch step record; Second call: fetch previous step output
+          // Third+: BaseStep internal calls (updateStepStatus, saveCheckpoint, etc.)
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      mockSearchLeadsRun.mockResolvedValue({
+        success: true,
+        data: { leads: [], totalFound: 0 },
+        cost: { apollo_search: 0 },
+      });
+
+      const result = await orchestrator.executeStep("exec-001", 2);
+
+      expect(mockSearchLeadsRun).toHaveBeenCalled();
+      expect(result.success).toBe(true);
+
+      // Verify StepInput was constructed correctly with previousStepOutput
+      const runCallArg = mockSearchLeadsRun.mock.calls[0][0];
+      expect(runCallArg.executionId).toBe("exec-001");
+      expect(runCallArg.briefing).toBeDefined();
+      expect(runCallArg.previousStepOutput).toEqual({
+        companies: [{ domain: "acme.com" }],
+        totalFound: 1,
+      });
+    });
+  });
+
+  describe("previousStepOutput (Story 17.2 - 4.10)", () => {
+    it("passes previousStepOutput in StepInput for step > 1", async () => {
+      const prevOutput = { companies: [{ domain: "acme.com" }], totalFound: 1 };
+      const prevStepChain = createChainBuilder({
+        data: { output: prevOutput },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-2",
+          execution_id: "exec-001",
+          step_number: 2,
+          step_type: "search_leads",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      mockSearchLeadsRun.mockResolvedValue({
+        success: true,
+        data: { leads: [], totalFound: 0 },
+      });
+
+      await orchestrator.executeStep("exec-001", 2);
+
+      // Verify run() was called with input containing previousStepOutput
+      const runCallArg = mockSearchLeadsRun.mock.calls[0][0];
+      expect(runCallArg.previousStepOutput).toEqual(prevOutput);
+    });
+  });
+
+  describe("previousStepOutput missing (Story 17.2 - 4.11)", () => {
+    it("throws ORCHESTRATOR_STEP_NOT_READY when previous step not completed", async () => {
+      const prevStepChain = createChainBuilder({
+        data: null,
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-2",
+          execution_id: "exec-001",
+          step_number: 2,
+          step_type: "search_leads",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      await expect(orchestrator.executeStep("exec-001", 2)).rejects.toMatchObject({
+        code: "ORCHESTRATOR_STEP_NOT_READY",
+        message: "Step anterior nao concluido",
+      });
     });
   });
 });

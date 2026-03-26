@@ -401,7 +401,7 @@ development_status:
   #
   epic-17: in-progress
   17-1-pipeline-orchestrator-step-de-busca-de-empresas: done
-  17-2-step-de-busca-de-leads: backlog
+  17-2-step-de-busca-de-leads: review
   17-3-step-de-criacao-de-campanha: backlog
   17-4-steps-de-export-ativacao: backlog
   17-5-approval-gates-empresas-leads: backlog

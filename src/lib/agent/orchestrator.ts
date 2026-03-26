@@ -18,6 +18,7 @@ import type {
 } from "@/types/agent";
 import { STEP_LABELS } from "@/types/agent";
 import { SearchCompaniesStep } from "./steps/search-companies-step";
+import { SearchLeadsStep } from "./steps/search-leads-step";
 import { PlanGeneratorService } from "@/lib/services/agent-plan-generator";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -78,7 +79,7 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
         "ORCHESTRATOR_INVALID_STEP",
         "Execucao nao encontrada",
         stepNumber,
-        "search_companies"
+        "search_companies" as StepType
       );
     }
 
@@ -90,25 +91,49 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
       .eq("step_number", stepNumber)
       .single();
 
+    const stepType = (stepRecord?.step_type as StepType) ?? ("search_companies" as StepType);
+
     if (!stepRecord) {
       throw this.createPipelineError(
         "ORCHESTRATOR_INVALID_STEP",
         "Step nao encontrado",
         stepNumber,
-        "search_companies"
+        stepType
       );
     }
 
-    const stepType = stepRecord.step_type as StepType;
+    const tenantId = (execution as AgentExecution).tenant_id;
 
-    // Build step input
+    // Build step input with previousStepOutput (Story 17.2 - 3.3)
+    let previousStepOutput: Record<string, unknown> | undefined;
+    if (stepNumber > 1) {
+      const { data: prevStep } = await this.supabase
+        .from("agent_steps")
+        .select("output")
+        .eq("execution_id", executionId)
+        .eq("step_number", stepNumber - 1)
+        .eq("status", "completed")
+        .single();
+
+      if (!prevStep?.output) {
+        throw this.createPipelineError(
+          "ORCHESTRATOR_STEP_NOT_READY",
+          "Step anterior nao concluido",
+          stepNumber,
+          stepType
+        );
+      }
+      previousStepOutput = prevStep.output as Record<string, unknown>;
+    }
+
     const input: StepInput = {
       executionId,
       briefing: execution.briefing as ParsedBriefing,
+      previousStepOutput,
     };
 
     // Dispatch to step from registry (4.2)
-    const stepInstance = this.getStepInstance(stepNumber, stepType);
+    const stepInstance = this.getStepInstance(stepNumber, stepType, tenantId);
 
     try {
       return await stepInstance.run(input);
@@ -149,11 +174,12 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
    * search_companies is implemented, others throw 'not implemented'.
    * (4.2)
    */
-  private getStepInstance(stepNumber: number, stepType: StepType) {
+  private getStepInstance(stepNumber: number, stepType: StepType, tenantId: string) {
     switch (stepType) {
       case "search_companies":
         return new SearchCompaniesStep(stepNumber, this.supabase, this.apiKey);
       case "search_leads":
+        return new SearchLeadsStep(stepNumber, this.supabase, tenantId);
       case "create_campaign":
       case "export":
       case "activate":
