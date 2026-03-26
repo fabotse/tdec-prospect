@@ -267,4 +267,94 @@ describe("MyLeadsFilterBar", () => {
       expect(button).toBeInTheDocument();
     });
   });
+
+  // ==============================================
+  // Quick filter "Monitorados"
+  // ==============================================
+
+  describe("Monitorados Quick Filter", () => {
+    it("should render Monitorados button", () => {
+      render(<MyLeadsFilterBar {...defaultProps} />, {
+        wrapper: createWrapper(),
+      });
+
+      expect(screen.getByTestId("monitored-filter-button")).toBeInTheDocument();
+      expect(screen.getByText("Monitorados")).toBeInTheDocument();
+    });
+
+    it("should show count badge when monitoredCount > 0", () => {
+      render(
+        <MyLeadsFilterBar {...defaultProps} monitoredCount={7} />,
+        { wrapper: createWrapper() }
+      );
+
+      expect(screen.getByText("7")).toBeInTheDocument();
+    });
+
+    it("should not show count badge when monitoredCount is 0", () => {
+      render(
+        <MyLeadsFilterBar {...defaultProps} monitoredCount={0} />,
+        { wrapper: createWrapper() }
+      );
+
+      expect(screen.getByTestId("monitored-filter-button")).toBeInTheDocument();
+      // No badge with "0" should be rendered
+      const button = screen.getByTestId("monitored-filter-button");
+      expect(button.querySelector("[class*='badge']")).toBeNull();
+    });
+
+    it("should call onFiltersChange with isMonitored true when clicked", async () => {
+      const user = userEvent.setup();
+      render(
+        <MyLeadsFilterBar {...defaultProps} monitoredCount={5} />,
+        { wrapper: createWrapper() }
+      );
+
+      await user.click(screen.getByTestId("monitored-filter-button"));
+
+      expect(mockOnFiltersChange).toHaveBeenCalledWith({ isMonitored: true });
+    });
+
+    it("should clear filter when clicked again (toggle off)", async () => {
+      const user = userEvent.setup();
+      render(
+        <MyLeadsFilterBar
+          {...defaultProps}
+          filters={{ isMonitored: true }}
+          monitoredCount={5}
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      await user.click(screen.getByTestId("monitored-filter-button"));
+
+      expect(mockOnFiltersChange).toHaveBeenCalledWith({ isMonitored: undefined });
+    });
+
+    it("should show active state when monitored filter is active", () => {
+      render(
+        <MyLeadsFilterBar
+          {...defaultProps}
+          filters={{ isMonitored: true }}
+          monitoredCount={5}
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      const button = screen.getByTestId("monitored-filter-button");
+      expect(button).not.toHaveClass("border-input");
+    });
+
+    it("should count isMonitored as active filter for clear button", () => {
+      render(
+        <MyLeadsFilterBar
+          {...defaultProps}
+          filters={{ isMonitored: true }}
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      expect(screen.getByTestId("clear-filters-button")).toBeInTheDocument();
+    });
+  });
 });

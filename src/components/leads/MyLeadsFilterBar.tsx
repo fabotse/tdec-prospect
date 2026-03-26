@@ -10,7 +10,8 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
-import { Search, X, Filter, Sparkles } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Search, X, Filter, Sparkles, Eye } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +40,8 @@ interface MyLeadsFilterBarProps {
   onClearFilters: () => void;
   /** Story 4.6: AC #2 - Count of interested leads for quick filter badge */
   interestedCount?: number;
+  /** Count of monitored leads for quick filter badge */
+  monitoredCount?: number;
 }
 
 /**
@@ -51,6 +54,7 @@ export function MyLeadsFilterBar({
   onFiltersChange,
   onClearFilters,
   interestedCount = 0,
+  monitoredCount = 0,
 }: MyLeadsFilterBarProps) {
   const { data: segments, isLoading: segmentsLoading } = useSegments();
 
@@ -69,6 +73,14 @@ export function MyLeadsFilterBar({
       onFiltersChange({ statuses: ["interessado"] });
     }
   }, [isInterestedFilterActive, onFiltersChange]);
+
+  // Check if monitored filter is active
+  const isMonitoredFilterActive = filters.isMonitored === true;
+
+  // Toggle monitored filter
+  const handleMonitoredToggle = useCallback(() => {
+    onFiltersChange({ isMonitored: isMonitoredFilterActive ? undefined : true });
+  }, [isMonitoredFilterActive, onFiltersChange]);
 
   // Fully controlled input - value comes from parent's filters.search
   // Parent (useMyLeads) updates filters.search immediately on each keystroke
@@ -109,6 +121,7 @@ export function MyLeadsFilterBar({
     if (filters.statuses && filters.statuses.length > 0) count++;
     if (filters.segmentId) count++;
     if (filters.search) count++;
+    if (filters.isMonitored !== undefined) count++;
     return count;
   }, [filters]);
 
@@ -133,6 +146,29 @@ export function MyLeadsFilterBar({
             className="ml-1 h-5 min-w-[20px] px-1.5"
           >
             {interestedCount}
+          </Badge>
+        )}
+      </Button>
+
+      {/* Quick filter "Monitorados" */}
+      <Button
+        variant={isMonitoredFilterActive ? "default" : "outline"}
+        size="sm"
+        onClick={handleMonitoredToggle}
+        className="gap-1.5"
+        data-testid="monitored-filter-button"
+      >
+        <Eye className="h-4 w-4" />
+        Monitorados
+        {monitoredCount > 0 && (
+          <Badge
+            variant={isMonitoredFilterActive ? "outline" : "secondary"}
+            className={cn(
+              "ml-1 h-5 min-w-[20px] px-1.5",
+              isMonitoredFilterActive && "border-primary-foreground text-primary-foreground"
+            )}
+          >
+            {monitoredCount}
           </Badge>
         )}
       </Button>
@@ -203,7 +239,7 @@ export function MyLeadsFilterBar({
         >
           <SelectValue placeholder="Todos os segmentos" />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent position="popper" side="bottom" className="max-h-60">
           <SelectItem value="all">Todos os segmentos</SelectItem>
           {segments?.map((segment) => (
             <SelectItem key={segment.id} value={segment.id}>

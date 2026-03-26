@@ -179,7 +179,8 @@ export function MyLeadsPageContent() {
     return Boolean(
       (filters.statuses && filters.statuses.length > 0) ||
       filters.segmentId ||
-      filters.search
+      filters.search ||
+      filters.isMonitored !== undefined
     );
   }
 
@@ -201,6 +202,7 @@ export function MyLeadsPageContent() {
         onFiltersChange={updateFilters}
         onClearFilters={clearFilters}
         interestedCount={interestedCount}
+        monitoredCount={monitoredCountData?.current ?? 0}
       />
 
       {/* Loading State */}

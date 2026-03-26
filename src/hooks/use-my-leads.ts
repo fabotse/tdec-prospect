@@ -31,6 +31,7 @@ export interface MyLeadsFilters {
   statuses?: string[];
   segmentId?: string | null;
   search?: string;
+  isMonitored?: boolean;
 }
 
 /**
@@ -69,6 +70,9 @@ async function fetchMyLeads(
   }
   if (filters.search) {
     params.set("search", filters.search);
+  }
+  if (filters.isMonitored !== undefined) {
+    params.set("is_monitored", String(filters.isMonitored));
   }
   params.set("page", page.toString());
   params.set("per_page", perPage.toString());

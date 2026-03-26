@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
   const statusParam = searchParams.get("status");
   const segmentId = searchParams.get("segment_id");
   const search = searchParams.get("search");
+  const isMonitored = searchParams.get("is_monitored");
   const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
   const perPage = Math.min(
     100,
@@ -81,6 +82,13 @@ export async function GET(request: NextRequest) {
   // Filter by segment (lead IDs from subquery)
   if (leadIdsInSegment) {
     query = query.in("id", leadIdsInSegment);
+  }
+
+  // Filter by monitoring status
+  if (isMonitored === "true") {
+    query = query.eq("is_monitored", true);
+  } else if (isMonitored === "false") {
+    query = query.eq("is_monitored", false);
   }
 
   // Search by name or company (case-insensitive)
