@@ -281,8 +281,8 @@ describe("Agent Types (AC: #3)", () => {
       expect(AGENT_ERROR_CODES.CHECKPOINT_SAVE_ERROR).toBe("Erro ao salvar checkpoint");
     });
 
-    it("has 12 error codes", () => {
-      expect(Object.keys(AGENT_ERROR_CODES)).toHaveLength(12);
+    it("has 13 error codes", () => {
+      expect(Object.keys(AGENT_ERROR_CODES)).toHaveLength(13);
     });
   });
 

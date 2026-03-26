@@ -17,6 +17,7 @@ import type { PipelineError, ParsedBriefing } from "@/types/agent";
 
 const mockSearchCompaniesRun = vi.fn();
 const mockSearchLeadsRun = vi.fn();
+const mockCreateCampaignRun = vi.fn();
 
 vi.mock("@/lib/agent/steps/search-companies-step", () => {
   return {
@@ -41,6 +42,20 @@ vi.mock("@/lib/agent/steps/search-leads-step", () => {
       constructor(stepNumber: number) {
         this.stepNumber = stepNumber;
         this.stepType = "search_leads";
+      }
+    },
+  };
+});
+
+vi.mock("@/lib/agent/steps/create-campaign-step", () => {
+  return {
+    CreateCampaignStep: class MockCreateCampaignStep {
+      run = mockCreateCampaignRun;
+      stepNumber: number;
+      stepType: string;
+      constructor(stepNumber: number) {
+        this.stepNumber = stepNumber;
+        this.stepType = "create_campaign";
       }
     },
   };
@@ -151,13 +166,13 @@ describe("DeterministicOrchestrator (AC #5)", () => {
     });
 
     it("throws for unimplemented step types", async () => {
-      // Mock step with step_type = 'create_campaign' (not yet implemented)
+      // Mock step with step_type = 'export' (not yet implemented)
       mockSupabase.stepsChain = createChainBuilder({
         data: {
-          id: "step-3",
+          id: "step-4",
           execution_id: "exec-001",
           step_number: 1,
-          step_type: "create_campaign",
+          step_type: "export",
           status: "pending",
         },
         error: null,
@@ -392,6 +407,54 @@ describe("DeterministicOrchestrator (AC #5)", () => {
       // Verify run() was called with input containing previousStepOutput
       const runCallArg = mockSearchLeadsRun.mock.calls[0][0];
       expect(runCallArg.previousStepOutput).toEqual(prevOutput);
+    });
+  });
+
+  // ==============================================
+  // Story 17.3 Tests
+  // ==============================================
+
+  describe("create_campaign dispatch (Story 17.3 - 4.16)", () => {
+    it("dispatches to CreateCampaignStep for step_type create_campaign", async () => {
+      const prevStepChain = createChainBuilder({
+        data: { output: { leads: [{ name: "John" }], totalFound: 1 } },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-3",
+          execution_id: "exec-001",
+          step_number: 3,
+          step_type: "create_campaign",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      mockCreateCampaignRun.mockResolvedValue({
+        success: true,
+        data: { campaignName: "Test Campaign", totalLeads: 1 },
+        cost: { openai_structure: 1, openai_emails: 3, openai_icebreakers: 1 },
+      });
+
+      const result = await orchestrator.executeStep("exec-001", 3);
+
+      expect(mockCreateCampaignRun).toHaveBeenCalled();
+      expect(result.success).toBe(true);
     });
   });
 

@@ -19,6 +19,7 @@ import type {
 import { STEP_LABELS } from "@/types/agent";
 import { SearchCompaniesStep } from "./steps/search-companies-step";
 import { SearchLeadsStep } from "./steps/search-leads-step";
+import { CreateCampaignStep } from "./steps/create-campaign-step";
 import { PlanGeneratorService } from "@/lib/services/agent-plan-generator";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -181,6 +182,7 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
       case "search_leads":
         return new SearchLeadsStep(stepNumber, this.supabase, tenantId);
       case "create_campaign":
+        return new CreateCampaignStep(stepNumber, this.supabase, tenantId);
       case "export":
       case "activate":
         throw this.createPipelineError(

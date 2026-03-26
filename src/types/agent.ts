@@ -157,6 +157,7 @@ export const AGENT_ERROR_CODES = {
   EXECUTION_RESUME_ERROR: 'Erro ao retomar execucao',
   STEP_SEARCH_COMPANIES_ERROR: 'Erro ao buscar empresas',
   STEP_SEARCH_LEADS_ERROR: 'Erro ao buscar leads',
+  STEP_CREATE_CAMPAIGN_ERROR: 'Erro na criacao da campanha',
   ORCHESTRATOR_INVALID_STEP: 'Step invalido no pipeline',
   ORCHESTRATOR_STEP_NOT_READY: 'Step nao esta pronto para execucao',
   CHECKPOINT_SAVE_ERROR: 'Erro ao salvar checkpoint',
@@ -194,6 +195,46 @@ export interface SearchLeadsOutput {
   totalFound: number;
   jobTitles: string[];
   domainsSearched: string[];
+}
+
+// === Create Campaign Output (Story 17.3 AC #4) ===
+
+export interface CampaignStructureItem {
+  position: number;
+  type: 'email' | 'delay';
+  context?: string;
+  days?: number;
+  emailMode?: 'initial' | 'follow-up';
+}
+
+export interface LeadWithIcebreaker extends SearchLeadResult {
+  icebreaker: string | null;
+}
+
+export interface CreateCampaignOutput {
+  campaignName: string;
+  structure: {
+    totalEmails: number;
+    totalDays: number;
+    items: CampaignStructureItem[];
+  };
+  emailBlocks: Array<{
+    position: number;
+    subject: string;
+    body: string;
+    emailMode: 'initial' | 'follow-up';
+  }>;
+  delayBlocks: Array<{
+    position: number;
+    delayDays: number;
+  }>;
+  leadsWithIcebreakers: LeadWithIcebreaker[];
+  icebreakerStats: {
+    generated: number;
+    failed: number;
+    skipped: number;
+  };
+  totalLeads: number;
 }
 
 // === Step Labels (Story 17.1 AC #5) ===
