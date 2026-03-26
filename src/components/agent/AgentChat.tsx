@@ -3,26 +3,37 @@
  * Story 16.1: Composicao basica
  * Story 16.2: Orquestracao de execucao + mensagens
  * Story 16.3: Briefing parser + fluxo conversacional
+ * Story 16.4: Onboarding + selecao de modo
  *
  * AC: #1-#5 - Orquestra estado do chat completo
  * AC 16.3: #1,#3,#4 - Intercepta mensagens para fluxo de briefing
+ * AC 16.4: #1-#4 - Onboarding, deteccao first-time, selecao de modo
  */
 
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { AgentMessageList } from "./AgentMessageList";
+import { AgentModeSelector } from "./AgentModeSelector";
 import { AgentInput } from "./AgentInput";
 import { useAgentMessages, useSendMessage } from "@/hooks/use-agent-messages";
+import { useAgentOnboarding } from "@/hooks/use-agent-onboarding";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { useBriefingFlow } from "@/hooks/use-briefing-flow";
+import type { ExecutionMode } from "@/types/agent";
 
 export function AgentChat() {
   const currentExecutionId = useAgentStore((s) => s.currentExecutionId);
   const setCurrentExecutionId = useAgentStore((s) => s.setCurrentExecutionId);
   const isAgentProcessing = useAgentStore((s) => s.isAgentProcessing);
   const setAgentProcessing = useAgentStore((s) => s.setAgentProcessing);
+  const showModeSelector = useAgentStore((s) => s.showModeSelector);
+  const setShowModeSelector = useAgentStore((s) => s.setShowModeSelector);
+
+  const [isModeSubmitting, setIsModeSubmitting] = useState(false);
+
+  const { isFirstTime } = useAgentOnboarding();
 
   const { messages } = useAgentMessages(currentExecutionId);
   // Fix #1: useSendMessage sem parametro — executionId passado no mutate
@@ -102,8 +113,9 @@ export function AgentChat() {
           await saveBriefing(execId);
           await sendAgentMessage(
             execId,
-            "Briefing confirmado! Iniciando prospeccao..."
+            "Briefing confirmado! Agora escolha o modo de operacao:"
           );
+          setShowModeSelector(true);
         }
 
         // Mensagem ja enviada acima — nao duplicar
@@ -122,7 +134,40 @@ export function AgentChat() {
       sendAgentMessage,
       saveBriefing,
       setAgentProcessing,
+      setShowModeSelector,
     ]
+  );
+
+  const handleModeSelect = useCallback(
+    async (mode: ExecutionMode) => {
+      if (!currentExecutionId) return;
+      setIsModeSubmitting(true);
+      try {
+        const response = await fetch(
+          `/api/agent/executions/${currentExecutionId}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode }),
+          }
+        );
+        if (!response.ok) {
+          toast.error("Erro ao salvar modo. Tente novamente.");
+          return;
+        }
+        const label = mode === "guided" ? "Guiado" : "Autopilot";
+        await sendAgentMessage(
+          currentExecutionId,
+          `Modo ${label} selecionado. Preparando plano de execucao...`
+        );
+        setShowModeSelector(false);
+      } catch {
+        toast.error("Erro ao salvar modo. Tente novamente.");
+      } finally {
+        setIsModeSubmitting(false);
+      }
+    },
+    [currentExecutionId, sendAgentMessage, setShowModeSelector]
   );
 
   return (
@@ -130,10 +175,19 @@ export function AgentChat() {
       <AgentMessageList
         messages={messages}
         isAgentProcessing={isAgentProcessing}
+        isFirstTime={isFirstTime}
       />
+      {showModeSelector && (
+        <AgentModeSelector
+          onModeSelect={handleModeSelect}
+          defaultMode={briefingState.briefing?.mode}
+          isSubmitting={isModeSubmitting}
+        />
+      )}
       <AgentInput
         onSendMessage={handleSendMessage}
         isSending={sendMessageMutation.isPending}
+        disabled={showModeSelector}
       />
     </div>
   );

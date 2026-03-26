@@ -2,17 +2,20 @@
  * AgentMessageList
  * Story 16.1: Placeholder inicial
  * Story 16.2: Renderizar mensagens reais + auto-scroll + typing indicator
+ * Story 16.4: Onboarding diferenciado para first-time users
  *
  * AC: #2 - Lista rola automaticamente para a mensagem mais recente
  * AC: #3 - Cada tipo tem estilo visual distinto
  * AC: #4 - Historico completo carregado na ordem cronologica
  * AC: #5 - Indicador de "agente digitando"
+ * AC 16.4: #1, #2 - Onboarding para first-time, saudacao breve para returning
  */
 
 "use client";
 
 import { useRef, useEffect } from "react";
 import { Bot } from "lucide-react";
+import { AgentOnboarding } from "./AgentOnboarding";
 import { AgentMessageBubble } from "./AgentMessageBubble";
 import { AgentTypingIndicator } from "./AgentTypingIndicator";
 import type { AgentMessage } from "@/types/agent";
@@ -20,9 +23,10 @@ import type { AgentMessage } from "@/types/agent";
 interface AgentMessageListProps {
   messages: AgentMessage[];
   isAgentProcessing: boolean;
+  isFirstTime?: boolean;
 }
 
-export function AgentMessageList({ messages, isAgentProcessing }: AgentMessageListProps) {
+export function AgentMessageList({ messages, isAgentProcessing, isFirstTime }: AgentMessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll para o final quando nova mensagem chega
@@ -30,8 +34,18 @@ export function AgentMessageList({ messages, isAgentProcessing }: AgentMessageLi
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isAgentProcessing]);
 
-  // Placeholder quando nao ha mensagens
+  // Empty state: onboarding para first-time, placeholder breve para returning
   if (messages.length === 0) {
+    // First-time user: onboarding completo
+    if (isFirstTime === true) {
+      return (
+        <div className="flex-1 flex flex-col min-h-0" data-testid="agent-message-list">
+          <AgentOnboarding />
+        </div>
+      );
+    }
+
+    // Returning user ou loading (isFirstTime === false ou undefined): placeholder breve
     return (
       <div
         className="flex-1 overflow-y-auto flex items-center justify-center"

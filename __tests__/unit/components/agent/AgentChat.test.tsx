@@ -3,10 +3,12 @@
  * Story 16.1: Composicao basica
  * Story 16.2: Orquestracao de execucao + mensagens
  * Story 16.3: Briefing parser + fluxo conversacional
+ * Story 16.4: Onboarding + selecao de modo
  *
  * AC 16.1: #4 - AgentChat renderiza area de mensagens e input
  * AC 16.2: #1-#5 - Orquestracao completa do chat
  * AC 16.3: #1,#3,#4 - Intercepta mensagens para fluxo de briefing
+ * AC 16.4: #1-#4 - Onboarding, deteccao first-time, selecao de modo
  */
 
 import { render, screen, act } from "@testing-library/react";
@@ -20,10 +22,14 @@ import { AgentChat } from "@/components/agent/AgentChat";
 const mockMutate = vi.fn();
 const mockSetCurrentExecutionId = vi.fn();
 const mockSetAgentProcessing = vi.fn();
+const mockSetShowModeSelector = vi.fn();
 const mockProcessMessage = vi.fn().mockResolvedValue({ handled: true });
 const mockToastError = vi.fn();
 
 let capturedOnSendMessage: ((content: string) => Promise<void>) | null = null;
+let capturedMessageListProps: Record<string, unknown> = {};
+let capturedInputProps: Record<string, unknown> = {};
+let capturedModeSelectorProps: Record<string, unknown> | null = null;
 let mockStoreState: Record<string, unknown> = {};
 let mockBriefingState: Record<string, unknown> = {};
 
@@ -34,6 +40,10 @@ vi.mock("sonner", () => ({
 vi.mock("@/hooks/use-agent-messages", () => ({
   useAgentMessages: () => ({ messages: [], isLoading: false, isConnected: false }),
   useSendMessage: () => ({ mutate: mockMutate, isPending: false }),
+}));
+
+vi.mock("@/hooks/use-agent-onboarding", () => ({
+  useAgentOnboarding: () => ({ isFirstTime: true, isLoading: false }),
 }));
 
 vi.mock("@/stores/use-agent-store", () => ({
@@ -50,13 +60,24 @@ vi.mock("@/hooks/use-briefing-flow", () => ({
 }));
 
 vi.mock("@/components/agent/AgentMessageList", () => ({
-  AgentMessageList: () => <div data-testid="agent-message-list">messages</div>,
+  AgentMessageList: (props: Record<string, unknown>) => {
+    capturedMessageListProps = props;
+    return <div data-testid="agent-message-list">messages</div>;
+  },
 }));
 
 vi.mock("@/components/agent/AgentInput", () => ({
-  AgentInput: ({ onSendMessage }: { onSendMessage: (content: string) => Promise<void> }) => {
-    capturedOnSendMessage = onSendMessage;
+  AgentInput: (props: { onSendMessage: (content: string) => Promise<void>; disabled?: boolean }) => {
+    capturedOnSendMessage = props.onSendMessage;
+    capturedInputProps = props as unknown as Record<string, unknown>;
     return <div data-testid="agent-input">input</div>;
+  },
+}));
+
+vi.mock("@/components/agent/AgentModeSelector", () => ({
+  AgentModeSelector: (props: Record<string, unknown>) => {
+    capturedModeSelectorProps = props;
+    return <div data-testid="agent-mode-selector">mode selector</div>;
   },
 }));
 
@@ -68,6 +89,7 @@ function setupDefaults(overrides?: {
   executionId?: string | null;
   briefingStatus?: string;
   briefing?: Record<string, unknown> | null;
+  showModeSelector?: boolean;
 }) {
   mockStoreState = {
     currentExecutionId: overrides?.executionId ?? null,
@@ -75,6 +97,8 @@ function setupDefaults(overrides?: {
     isAgentProcessing: false,
     setAgentProcessing: mockSetAgentProcessing,
     isInputDisabled: false,
+    showModeSelector: overrides?.showModeSelector ?? false,
+    setShowModeSelector: mockSetShowModeSelector,
   };
   mockBriefingState = {
     status: overrides?.briefingStatus ?? "idle",
@@ -82,6 +106,7 @@ function setupDefaults(overrides?: {
     missingFields: [],
     isComplete: false,
   };
+  capturedModeSelectorProps = null;
 }
 
 // ==============================================
@@ -182,7 +207,7 @@ describe("AgentChat", () => {
       expect(mockProcessMessage).toHaveBeenCalled();
     });
 
-    it("deve salvar briefing e enviar confirmacao quando confirmado", async () => {
+    it("deve salvar briefing, enviar confirmacao e mostrar mode selector quando confirmado", async () => {
       const confirmedBriefing = {
         technology: "Netskope",
         jobTitles: ["CTO"],
@@ -217,14 +242,16 @@ describe("AgentChat", () => {
         "/api/agent/executions/exec-123/briefing",
         expect.objectContaining({ method: "PATCH" })
       );
-      // sendAgentMessage with confirmation
+      // sendAgentMessage with mode selection prompt
       expect(global.fetch).toHaveBeenCalledWith(
         "/api/agent/executions/exec-123/messages",
         expect.objectContaining({
           method: "POST",
-          body: expect.stringContaining("Briefing confirmado"),
+          body: expect.stringContaining("escolha o modo"),
         })
       );
+      // setShowModeSelector(true)
+      expect(mockSetShowModeSelector).toHaveBeenCalledWith(true);
     });
 
     it("deve enviar pelo fluxo normal quando briefing ja confirmado", async () => {
@@ -340,6 +367,128 @@ describe("AgentChat", () => {
       expect(mockToastError).toHaveBeenCalledWith(
         "Erro ao salvar briefing. Tente novamente."
       );
+    });
+  });
+
+  // --- Story 16.4: Onboarding + Mode Selector ---
+
+  describe("onboarding + mode selector (Story 16.4)", () => {
+    it("passa isFirstTime para AgentMessageList", () => {
+      setupDefaults();
+      render(<AgentChat />);
+      expect(capturedMessageListProps.isFirstTime).toBe(true);
+    });
+
+    it("renderiza mode selector quando showModeSelector e true", () => {
+      setupDefaults({ showModeSelector: true });
+      render(<AgentChat />);
+      expect(screen.getByTestId("agent-mode-selector")).toBeInTheDocument();
+    });
+
+    it("nao renderiza mode selector quando showModeSelector e false", () => {
+      setupDefaults({ showModeSelector: false });
+      render(<AgentChat />);
+      expect(screen.queryByTestId("agent-mode-selector")).not.toBeInTheDocument();
+    });
+
+    it("passa disabled para AgentInput quando showModeSelector e true", () => {
+      setupDefaults({ showModeSelector: true });
+      render(<AgentChat />);
+      expect(capturedInputProps.disabled).toBe(true);
+    });
+
+    it("nao desabilita AgentInput quando showModeSelector e false", () => {
+      setupDefaults({ showModeSelector: false });
+      render(<AgentChat />);
+      expect(capturedInputProps.disabled).toBe(false);
+    });
+
+    it("handleModeSelect salva modo via API e envia mensagem de confirmacao", async () => {
+      setupDefaults({ executionId: "exec-123", showModeSelector: true });
+
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: {} }),
+      });
+
+      render(<AgentChat />);
+
+      // Invoke onModeSelect from captured mode selector props
+      const onModeSelect = capturedModeSelectorProps?.onModeSelect as (mode: string) => Promise<void>;
+      expect(onModeSelect).toBeTruthy();
+
+      await act(async () => {
+        await onModeSelect("guided");
+      });
+
+      // PATCH mode
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/agent/executions/exec-123",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ mode: "guided" }),
+        })
+      );
+      // Agent message confirming mode
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/agent/executions/exec-123/messages",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining("Modo Guiado selecionado"),
+        })
+      );
+      // Hide mode selector
+      expect(mockSetShowModeSelector).toHaveBeenCalledWith(false);
+    });
+
+    it("handleModeSelect mostra toast quando PATCH falha", async () => {
+      setupDefaults({ executionId: "exec-123", showModeSelector: true });
+
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ error: { message: "DB error" } }),
+      });
+
+      render(<AgentChat />);
+
+      const onModeSelect = capturedModeSelectorProps?.onModeSelect as (mode: string) => Promise<void>;
+
+      await act(async () => {
+        await onModeSelect("autopilot");
+      });
+
+      expect(mockToastError).toHaveBeenCalledWith(
+        "Erro ao salvar modo. Tente novamente."
+      );
+      // Should NOT hide mode selector on failure
+      expect(mockSetShowModeSelector).not.toHaveBeenCalledWith(false);
+    });
+
+    it("handleModeSelect mostra toast quando fetch lanca excecao", async () => {
+      setupDefaults({ executionId: "exec-123", showModeSelector: true });
+
+      (global.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("Network error")
+      );
+
+      render(<AgentChat />);
+
+      const onModeSelect = capturedModeSelectorProps?.onModeSelect as (mode: string) => Promise<void>;
+
+      await act(async () => {
+        await onModeSelect("guided");
+      });
+
+      expect(mockToastError).toHaveBeenCalledWith(
+        "Erro ao salvar modo. Tente novamente."
+      );
+    });
+
+    it("passa isSubmitting para AgentModeSelector", () => {
+      setupDefaults({ executionId: "exec-123", showModeSelector: true });
+      render(<AgentChat />);
+      expect(capturedModeSelectorProps?.isSubmitting).toBe(false);
     });
   });
 });

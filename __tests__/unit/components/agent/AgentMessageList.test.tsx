@@ -2,12 +2,14 @@
  * AgentMessageList Tests
  * Story 16.1: Placeholder inicial
  * Story 16.2: Lista de mensagens reais + auto-scroll + typing indicator
+ * Story 16.4: Onboarding diferenciado para first-time users
  *
  * AC 16.1: #4 - Lista de mensagens vazia com placeholder
  * AC 16.2: #2 - Auto-scroll para mensagem mais recente
  * AC 16.2: #3 - Renderizar mensagens com estilos distintos
  * AC 16.2: #4 - Historico completo na ordem cronologica
  * AC 16.2: #5 - Typing indicator
+ * AC 16.4: #1, #2 - Onboarding para first-time, saudacao breve para returning
  */
 
 import { render, screen } from "@testing-library/react";
@@ -27,6 +29,10 @@ vi.mock("@/components/agent/AgentMessageBubble", () => ({
 vi.mock("@/components/agent/AgentTypingIndicator", () => ({
   AgentTypingIndicator: ({ isVisible }: { isVisible: boolean }) =>
     isVisible ? <div data-testid="agent-typing-indicator">typing...</div> : null,
+}));
+
+vi.mock("@/components/agent/AgentOnboarding", () => ({
+  AgentOnboarding: () => <div data-testid="agent-onboarding">onboarding</div>,
 }));
 
 function createMessage(overrides: Partial<AgentMessage> = {}): AgentMessage {
@@ -139,6 +145,42 @@ describe("AgentMessageList", () => {
       );
 
       expect(scrollIntoViewMock).toHaveBeenCalled();
+    });
+  });
+
+  describe("Onboarding (AC 16.4: #1, #2)", () => {
+    it("renderiza AgentOnboarding quando isFirstTime=true e sem mensagens", () => {
+      render(
+        <AgentMessageList messages={[]} isAgentProcessing={false} isFirstTime={true} />
+      );
+      expect(screen.getByTestId("agent-onboarding")).toBeInTheDocument();
+    });
+
+    it("renderiza placeholder breve quando isFirstTime=false e sem mensagens", () => {
+      render(
+        <AgentMessageList messages={[]} isAgentProcessing={false} isFirstTime={false} />
+      );
+      expect(screen.queryByTestId("agent-onboarding")).not.toBeInTheDocument();
+      expect(screen.getByText(/descreva o que voce precisa/i)).toBeInTheDocument();
+    });
+
+    it("renderiza placeholder quando isFirstTime=undefined (loading)", () => {
+      render(
+        <AgentMessageList messages={[]} isAgentProcessing={false} />
+      );
+      expect(screen.queryByTestId("agent-onboarding")).not.toBeInTheDocument();
+      expect(screen.getByText(/descreva o que voce precisa/i)).toBeInTheDocument();
+    });
+
+    it("nao renderiza onboarding quando tem mensagens", () => {
+      render(
+        <AgentMessageList
+          messages={[createMessage()]}
+          isAgentProcessing={false}
+          isFirstTime={true}
+        />
+      );
+      expect(screen.queryByTestId("agent-onboarding")).not.toBeInTheDocument();
     });
   });
 });

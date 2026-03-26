@@ -2,8 +2,10 @@
  * AgentInput
  * Story 16.1: Input basico
  * Story 16.2: Integrar com useSendMessage
+ * Story 16.4: Prop disabled para bloquear durante selecao de modo
  *
  * AC: #1 - Enviar mensagem ao pressionar Enter ou clicar no botao
+ * AC 16.4: #3 - Input desabilitado durante selecao de modo
  */
 
 "use client";
@@ -17,14 +19,15 @@ import { useAgentStore } from "@/stores/use-agent-store";
 interface AgentInputProps {
   onSendMessage: (content: string) => void;
   isSending: boolean;
+  disabled?: boolean;
 }
 
-export function AgentInput({ onSendMessage, isSending }: AgentInputProps) {
+export function AgentInput({ onSendMessage, isSending, disabled: externalDisabled }: AgentInputProps) {
   const [message, setMessage] = useState("");
   const isInputDisabled = useAgentStore((s) => s.isInputDisabled);
   const isAgentProcessing = useAgentStore((s) => s.isAgentProcessing);
 
-  const disabled = isInputDisabled || isSending || isAgentProcessing;
+  const disabled = isInputDisabled || isSending || isAgentProcessing || externalDisabled;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,7 +46,7 @@ export function AgentInput({ onSendMessage, isSending }: AgentInputProps) {
         type="text"
         value={message}
         onChange={(e) => setMessage(e.target.value)}
-        placeholder="Descreva sua campanha de prospeccao..."
+        placeholder={externalDisabled ? "Selecione o modo acima..." : "Descreva sua campanha de prospeccao..."}
         disabled={disabled}
         className="flex-1 border-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 bg-transparent text-foreground text-body"
         aria-label="Mensagem para o agente"
