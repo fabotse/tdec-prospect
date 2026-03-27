@@ -22,7 +22,9 @@ import { SearchLeadsStep } from "./steps/search-leads-step";
 import { CreateCampaignStep } from "./steps/create-campaign-step";
 import { ExportStep } from "./steps/export-step";
 import { ActivateStep } from "./steps/activate-step";
+import { InstantlyService } from "@/lib/services/instantly";
 import { PlanGeneratorService } from "@/lib/services/agent-plan-generator";
+import { getServiceApiKey } from "./steps/step-utils";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ==============================================
@@ -208,6 +210,19 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
     // Story 17.6 Task 9: Skip activate step if activation deferred
     if (stepType === "activate" && previousStepOutput?.activationDeferred === true) {
       try {
+        // Story 17.9: Add selected accounts to campaign even when deferring activation.
+        // Without this, campaign stays in Instantly with zero sending accounts.
+        const selectedAccounts = previousStepOutput.selectedAccounts as string[] | undefined;
+        if (selectedAccounts && selectedAccounts.length > 0 && previousStepOutput.externalCampaignId) {
+          const apiKey = await getServiceApiKey(this.supabase, tenantId, "instantly");
+          const service = new InstantlyService();
+          await service.addAccountsToCampaign({
+            apiKey,
+            campaignId: previousStepOutput.externalCampaignId as string,
+            accountEmails: selectedAccounts,
+          });
+        }
+
         const { error: skipError } = await this.supabase
           .from("agent_steps")
           .update({

@@ -99,6 +99,20 @@ vi.mock("@/lib/services/agent-plan-generator", () => ({
   },
 }));
 
+const mockAddAccountsToCampaign = vi.fn();
+
+vi.mock("@/lib/services/instantly", () => ({
+  InstantlyService: class MockInstantlyService {
+    addAccountsToCampaign = mockAddAccountsToCampaign;
+  },
+}));
+
+const mockGetServiceApiKey = vi.fn().mockResolvedValue("decrypted-instantly-key");
+
+vi.mock("@/lib/agent/steps/step-utils", () => ({
+  getServiceApiKey: (...args: unknown[]) => mockGetServiceApiKey(...args),
+}));
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -1031,6 +1045,101 @@ describe("DeterministicOrchestrator (AC #5)", () => {
           metadata: expect.objectContaining({ messageType: "summary" }),
         })
       );
+    });
+
+    it("calls addAccountsToCampaign with selectedAccounts before skipping (Story 17.9)", async () => {
+      mockAddAccountsToCampaign.mockResolvedValue({ success: true, accountsAdded: 1 });
+
+      const prevStepChain = createChainBuilder({
+        data: {
+          output: {
+            externalCampaignId: "camp-123",
+            campaignName: "Test Campaign",
+            activationDeferred: true,
+            selectedAccounts: ["sender1@company.com"],
+          },
+          status: "approved",
+        },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-5",
+          execution_id: "exec-001",
+          step_number: 5,
+          step_type: "activate",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      await orchestrator.executeStep("exec-001", 5);
+
+      // addAccountsToCampaign called with selected accounts
+      expect(mockAddAccountsToCampaign).toHaveBeenCalledWith({
+        apiKey: "decrypted-instantly-key",
+        campaignId: "camp-123",
+        accountEmails: ["sender1@company.com"],
+      });
+
+      // ActivateStep.run() should NOT have been called (still skipped)
+      expect(mockActivateRun).not.toHaveBeenCalled();
+    });
+
+    it("does NOT call addAccountsToCampaign when no selectedAccounts in deferred output", async () => {
+      const prevStepChain = createChainBuilder({
+        data: {
+          output: {
+            externalCampaignId: "camp-123",
+            campaignName: "Test Campaign",
+            activationDeferred: true,
+          },
+          status: "approved",
+        },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-5",
+          execution_id: "exec-001",
+          step_number: 5,
+          step_type: "activate",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      await orchestrator.executeStep("exec-001", 5);
+
+      expect(mockAddAccountsToCampaign).not.toHaveBeenCalled();
     });
 
     it("keeps activationDeferred logic intact even with empty skipSteps", async () => {
