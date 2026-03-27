@@ -353,13 +353,13 @@ src/components/agent/AgentChat.tsx                     <- Nao precisa mudar (orq
 ### Checklist de Code Review (Epic 17)
 
 Toda story deve passar:
-- [ ] Todo `fetch` tem check de `response.ok`
-- [ ] Todo handler/callback tem `try/catch`
-- [ ] Todo `catch` propaga ou exibe o erro (nunca engole)
-- [ ] Nenhum console.log (usar toast.error para erros no frontend)
-- [ ] Nenhuma non-null assertion (!)
-- [ ] Mensagens do agente em portugues (pt-BR)
-- [ ] Testes cobrem: happy path + sugestoes + help keywords + canProceed logic + campos opcionais
+- [x] Todo `fetch` tem check de `response.ok`
+- [x] Todo handler/callback tem `try/catch`
+- [x] Todo `catch` propaga ou exibe o erro (nunca engole)
+- [x] Nenhum console.log (usar toast.error para erros no frontend)
+- [x] Nenhuma non-null assertion (!)
+- [x] Mensagens do agente em portugues (pt-BR)
+- [x] Testes cobrem: happy path + sugestoes + help keywords + canProceed logic + campos opcionais
 
 ### References
 
@@ -403,6 +403,14 @@ Claude Opus 4.6 (1M context)
   - L3: Industry aliases adicionados (healthcare→saude, financial services→fintech, etc.)
   - L4: Labels pt-BR adicionados para location, industry, companySize em generateSmartQuestion
   - 6 novos testes: diacriticos, aliases, normalizeKey. Suite: 350 files, 5968 tests, 0 failures
+- 2026-03-27: Code Review #2 fixes (6 issues — 3M, 3L):
+  - M1: `callParseAPI`/`callParseProductAPI` error response JSON parsing agora com try/catch — protege contra respostas HTML (502/503)
+  - M2: `generateBriefingSummary` agora nota todos os campos opcionais faltantes (industry, location, companySize) — alinhado com AC #3
+  - M3: `generateSmartQuestion` para technology agora contextualiza por industria (ex: "no setor de fintech" em vez de "no setor")
+  - L1: Removido param `suggestions` desnecessario de `analyzeBriefingCompleteness` — caller ja tem o valor
+  - L2: Test fixtures `COMPLETE_PARSE_RESPONSE` et al. corrigidos para refletir isComplete/missingFields consistentes com companySize:null
+  - L3: Adicionado teste para `normalizeKey("")` edge case
+  - 1 novo teste. Suite: 350 files, 5984 tests, 0 failures
 
 ### File List
 

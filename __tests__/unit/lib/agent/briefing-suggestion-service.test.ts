@@ -177,4 +177,8 @@ describe("BriefingSuggestionService", () => {
     expect(normalizeKey("FINTECH")).toBe("fintech");
     expect(normalizeKey("Logística")).toBe("logistica");
   });
+
+  it("normalizeKey deve retornar string vazia para input vazio", () => {
+    expect(normalizeKey("")).toBe("");
+  });
 });

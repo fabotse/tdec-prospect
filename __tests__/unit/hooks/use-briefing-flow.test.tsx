@@ -31,8 +31,8 @@ const COMPLETE_PARSE_RESPONSE = {
     mode: "guided",
     skipSteps: [],
   },
-  missingFields: [],
-  isComplete: true,
+  missingFields: ["companySize"],
+  isComplete: false,
   canProceed: true,
   suggestions: {},
   productMentioned: null,
@@ -70,8 +70,8 @@ const COMPLETE_WITH_PRODUCT_NOT_FOUND = {
     mode: "guided",
     skipSteps: [],
   },
-  missingFields: [],
-  isComplete: true,
+  missingFields: ["companySize"],
+  isComplete: false,
   canProceed: true,
   suggestions: {},
   productMentioned: "TDEC Analytics",
@@ -88,8 +88,8 @@ const COMPLETE_WITH_PRODUCT_FOUND = {
     mode: "guided",
     skipSteps: [],
   },
-  missingFields: [],
-  isComplete: true,
+  missingFields: ["companySize"],
+  isComplete: false,
   canProceed: true,
   suggestions: {},
   productMentioned: "TDEC Analytics",
@@ -148,7 +148,7 @@ describe("useBriefingFlow", () => {
 
     expect(result.current.state.status).toBe("confirming");
     expect(result.current.state.briefing?.technology).toBe("Netskope");
-    expect(result.current.state.isComplete).toBe(true);
+    expect(result.current.state.isComplete).toBe(false);
     expect(mockSendAgentMessage).toHaveBeenCalledWith(
       EXEC_ID,
       expect.stringContaining("Netskope")

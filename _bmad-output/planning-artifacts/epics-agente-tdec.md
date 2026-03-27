@@ -616,6 +616,102 @@ So that eu tenha flexibilidade entre controle total e execucao rapida conforme m
 **Then** etapas puladas aparecem com visual distinto (ex: riscadas ou cinza) mas visiveis
 **And** a numeracao de "Etapa X de Y" reflete apenas as etapas ativas
 
+### Story 17.9: Selecao de Conta Instantly no Export
+
+As a usuario do Agente TDEC,
+I want escolher qual conta de email (sending account) usar ao exportar a campanha para o Instantly,
+So that eu tenha controle sobre qual remetente sera usado na campanha, evitando enviar de contas erradas ou saturadas.
+
+**Acceptance Criteria:**
+
+**Given** o pipeline atinge o step de Export e o modo e Guiado
+**When** o approval gate do export e apresentado ao usuario
+**Then** o gate exibe a lista de sending accounts disponiveis na conta Instantly do usuario
+**And** o usuario pode selecionar uma ou mais contas para usar como remetente
+**And** a selecao padrao e nenhuma conta pre-selecionada (usuario deve escolher explicitamente)
+
+**Given** o usuario selecionou as contas de envio no approval gate
+**When** o usuario aprova o step de export
+**Then** o ExportStep usa APENAS as contas selecionadas pelo usuario no parametro `email_list` da criacao da campanha no Instantly
+**And** as contas nao selecionadas NAO sao incluidas
+
+**Given** o modo e Autopilot
+**When** o step de export executa sem intervencao do usuario
+**Then** o sistema usa TODAS as sending accounts disponiveis (comportamento atual mantido)
+**And** o resumo final informa quais contas foram usadas
+
+**Given** nenhuma sending account esta disponivel no Instantly
+**When** o step de export tenta listar as contas
+**Then** o step falha com mensagem clara: "Nenhuma conta de envio encontrada no Instantly. Configure ao menos uma conta antes de exportar."
+
+### Story 17.10: Pipeline Flexivel — Entrada Direta em Busca de Leads (Skip Empresas)
+
+As a usuario do Agente TDEC,
+I want poder iniciar o pipeline diretamente na busca de leads sem precisar buscar empresas por tecnologia,
+So that eu possa prospectar leads por cargo/industria/localizacao sem depender de uma tecnologia especifica como filtro inicial.
+
+**Acceptance Criteria:**
+
+**Given** o usuario inicia o briefing e NAO menciona tecnologia nem deseja buscar empresas
+**When** o agente consolida o briefing e apresenta o resumo
+**Then** o resumo indica claramente: "Etapa de busca de empresas sera pulada — leads serao buscados diretamente por [cargo/industria/localizacao]"
+**And** o usuario confirma ou ajusta antes de prosseguir
+
+**Given** o briefing confirmado tem skip de busca de empresas
+**When** o DeterministicOrchestrator monta o pipeline
+**Then** o step `search_companies` recebe status 'skipped'
+**And** o pipeline inicia diretamente no step `search_leads`
+**And** o SearchLeadsStep recebe os parametros de busca (cargos, industria, localizacao) diretamente do briefing em vez de depender do output do step anterior
+
+**Given** o step de busca de empresas foi pulado
+**When** o SearchLeadsStep executa
+**Then** a busca no Apollo usa os filtros do briefing (jobTitles obrigatorio + industry e/ou location)
+**And** NAO depende de uma lista de empresas previa — busca leads no mercado aberto
+**And** o resultado segue o mesmo formato de output (leads com empresa associada)
+
+**Given** o pipeline pulou o step de empresas
+**When** o AgentStepProgress renderiza
+**Then** o step de empresas aparece como 'skipped' com visual distinto
+**And** a numeracao reflete "Etapa 1 de 4" (em vez de 5)
+**And** os demais steps (leads, campanha, export, ativacao) seguem normalmente
+
+### Story 17.11: Pipeline Flexivel — Entrada Direta em Criacao de Campanha (Leads Proprios)
+
+As a usuario do Agente TDEC,
+I want poder fornecer minha propria lista de leads e iniciar o pipeline diretamente na criacao de campanha,
+So that eu possa usar o agente apenas para gerar e enviar campanhas para contatos que ja possuo, sem gastar creditos de busca.
+
+**Acceptance Criteria:**
+
+**Given** o usuario indica no briefing que ja possui leads (ex: "ja tenho os contatos", "quero importar meus leads")
+**When** o agente detecta a intencao de pular busca
+**Then** o agente solicita a lista de leads em formato estruturado (CSV, lista de emails, ou input manual)
+**And** orienta o formato minimo esperado: email (obrigatorio), nome, empresa, cargo
+**And** NAO exige tecnologia, industria nem localizacao no briefing
+
+**Given** o usuario forneceu a lista de leads
+**When** o agente valida a lista
+**Then** valida que cada lead tem ao menos email valido
+**And** informa quantos leads foram aceitos vs rejeitados (emails invalidos)
+**And** apresenta preview dos leads importados no mesmo formato do approval gate de leads
+
+**Given** leads proprios foram aceitos e o pipeline e montado
+**When** o DeterministicOrchestrator configura os steps
+**Then** os steps `search_companies` e `search_leads` recebem status 'skipped'
+**And** o pipeline inicia diretamente no step `create_campaign`
+**And** o CreateCampaignStep recebe os leads importados no mesmo formato que receberia do SearchLeadsStep
+
+**Given** o pipeline pulou empresas e leads
+**When** o AgentStepProgress renderiza
+**Then** os dois primeiros steps aparecem como 'skipped'
+**And** a numeracao reflete "Etapa 1 de 3" (campanha, export, ativacao)
+**And** os leads importados ficam visiveis no contexto da execucao
+
+**Given** os leads importados nao tem empresa associada
+**When** o CreateCampaignStep gera icebreakers
+**Then** os icebreakers sao gerados com base nos dados disponiveis (nome, cargo, email domain)
+**And** se nao houver dados suficientes para icebreaker personalizado, usa um icebreaker generico baseado no tom de voz configurado
+
 ---
 
 ## Epic 18: Resilience, Recovery & Execution Analytics

@@ -107,7 +107,10 @@ export function generateSmartQuestion(
   }
 
   if (field === "technology" && suggestions.length > 0) {
-    return `Algumas tecnologias comuns no setor seriam: ${suggestions.join(", ")}. Quer filtrar por alguma ou prefere buscar sem filtro de tecnologia?`;
+    const sectorContext = briefing.industry
+      ? `no setor de ${briefing.industry}`
+      : "no setor";
+    return `Algumas tecnologias comuns ${sectorContext} seriam: ${suggestions.join(", ")}. Quer filtrar por alguma ou prefere buscar sem filtro de tecnologia?`;
   }
 
   // Fallback generico
@@ -158,13 +161,19 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
 
   // Notas sobre campos nao informados (Story 17.8 AC: #3)
   if (missingFields && missingFields.length > 0) {
-    const noteableFields = missingFields.filter((f) => f === "technology");
-    if (noteableFields.length > 0) {
+    const fieldNotes: Record<string, string> = {
+      technology: "Sem tecnologia especifica — busca mais ampla por industria/localizacao.",
+      industry: "Sem industria especifica — busca em todos os setores.",
+      location: "Sem localizacao especifica — busca em todas as regioes.",
+      companySize: "Sem filtro de tamanho de empresa.",
+    };
+    const notes = missingFields
+      .map((f) => fieldNotes[f])
+      .filter(Boolean);
+    if (notes.length > 0) {
       lines.push("");
-      for (const field of noteableFields) {
-        if (field === "technology") {
-          lines.push("Sem tecnologia especifica — busca mais ampla por industria/localizacao.");
-        }
+      for (const note of notes) {
+        lines.push(note);
       }
     }
   }
@@ -224,8 +233,14 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error?.message || "Erro ao parsear briefing");
+        let errorMessage = "Erro ao parsear briefing";
+        try {
+          const error = await response.json();
+          errorMessage = error.error?.message || errorMessage;
+        } catch {
+          // Non-JSON error response (e.g. 502 HTML) — use default message
+        }
+        throw new Error(errorMessage);
       }
 
       return response.json();
@@ -246,8 +261,14 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error?.message || "Erro ao parsear produto");
+        let errorMessage = "Erro ao parsear produto";
+        try {
+          const error = await response.json();
+          errorMessage = error.error?.message || errorMessage;
+        } catch {
+          // Non-JSON error response (e.g. 502 HTML) — use default message
+        }
+        throw new Error(errorMessage);
       }
 
       return response.json();

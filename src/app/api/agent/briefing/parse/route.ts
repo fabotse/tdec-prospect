@@ -43,13 +43,11 @@ export interface BriefingParseResponse {
 
 interface BriefingCompletenessResult {
   missingFields: string[];
-  suggestions: Record<string, string[]>;
   canProceed: boolean;
 }
 
 function analyzeBriefingCompleteness(
-  briefing: ParsedBriefing,
-  suggestions: Record<string, string[]>
+  briefing: ParsedBriefing
 ): BriefingCompletenessResult {
   const missingFields: string[] = [];
 
@@ -80,7 +78,7 @@ function analyzeBriefingCompleteness(
   const hasSearchParam = Boolean(briefing.technology || briefing.industry || briefing.location);
   const canProceed = Boolean(hasJobTitles && hasSearchParam);
 
-  return { missingFields, suggestions, canProceed };
+  return { missingFields, canProceed };
 }
 
 // ==============================================
@@ -223,7 +221,7 @@ export async function POST(request: Request) {
 
     // Analyze briefing completeness with contextual suggestions
     const suggestions = BriefingSuggestionService.generateSuggestions(resolvedBriefing);
-    const { missingFields, canProceed } = analyzeBriefingCompleteness(resolvedBriefing, suggestions);
+    const { missingFields, canProceed } = analyzeBriefingCompleteness(resolvedBriefing);
     const isComplete = missingFields.length === 0;
 
     const response: BriefingParseResponse = {
