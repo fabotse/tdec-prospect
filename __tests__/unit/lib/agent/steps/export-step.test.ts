@@ -463,18 +463,15 @@ describe("convertToInstantlySequences", () => {
     expect(result[1].delayDays).toBe(1);
   });
 
-  // 5.11 - textToEmailHtml applied to body
-  it("applies textToEmailHtml to email bodies", () => {
-    mockTextToEmailHtml.mockImplementation((text: string) => `<p>${text}</p>`);
-
+  // 5.11 - body passed as plain text (HTML conversion happens in createCampaign)
+  it("passes body as plain text without HTML conversion", () => {
     const emailBlocks = [
       { position: 0, subject: "Sub", body: "Plain text body", emailMode: "initial" },
     ];
 
     const result = convertToInstantlySequences(emailBlocks, []);
 
-    expect(mockTextToEmailHtml).toHaveBeenCalledWith("Plain text body");
-    expect(result[0].body).toBe("<p>Plain text body</p>");
+    expect(result[0].body).toBe("Plain text body");
   });
 
   it("sorts emails by position", () => {

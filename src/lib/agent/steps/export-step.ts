@@ -12,7 +12,7 @@
  */
 
 import { BaseStep } from "./base-step";
-import { InstantlyService, textToEmailHtml } from "@/lib/services/instantly";
+import { InstantlyService } from "@/lib/services/instantly";
 import { getServiceApiKey } from "./step-utils";
 import type {
   StepInput,
@@ -48,7 +48,7 @@ interface DelayBlock {
  *
  * - First email: delayDays = 0
  * - Follow-ups: delayDays from delay block at position before the email
- * - Body: converted to HTML via textToEmailHtml
+ * - Body: passed as plain text (HTML conversion happens in createCampaign)
  */
 export function convertToInstantlySequences(
   emailBlocks: EmailBlock[],
@@ -59,7 +59,7 @@ export function convertToInstantlySequences(
 
   return sortedEmails.map((email, index) => ({
     subject: email.subject,
-    body: textToEmailHtml(email.body),
+    body: email.body,
     delayDays: index === 0 ? 0 : (delayMap.get(email.position - 1) ?? 1),
   }));
 }
