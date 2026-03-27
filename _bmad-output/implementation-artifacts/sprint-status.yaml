@@ -409,7 +409,16 @@ development_status:
   17-5-approval-gates-empresas-leads: done
   17-6-approval-gates-campanha-ativacao: done
   17-7-logica-guiado-vs-autopilot-adaptacao-de-pipeline: done
-  17-8-briefing-conversacional-inteligente: ready-for-dev
+  17-8-briefing-conversacional-inteligente: done
+  #
+  # Novas stories (2026-03-27):
+  #   - 17-9: Seleção de conta Instantly no export
+  #   - 17-10: Skip empresas — entrada direta em leads
+  #   - 17-11: Skip empresas+leads — entrada direta em campanha com leads próprios
+  #
+  17-9-selecao-conta-instantly-export: ready-for-dev
+  17-10-pipeline-flexivel-entrada-direta-leads: backlog
+  17-11-pipeline-flexivel-entrada-direta-campanha: backlog
   epic-17-retrospective: optional
 
   # ============================================================

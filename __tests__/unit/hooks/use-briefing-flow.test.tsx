@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useBriefingFlow } from "@/hooks/use-briefing-flow";
+import { useBriefingFlow, generateSmartQuestion } from "@/hooks/use-briefing-flow";
 import {
   createMockFetch,
   mockJsonResponse,
@@ -33,6 +33,8 @@ const COMPLETE_PARSE_RESPONSE = {
   },
   missingFields: [],
   isComplete: true,
+  canProceed: true,
+  suggestions: {},
   productMentioned: null,
 };
 
@@ -49,6 +51,11 @@ const INCOMPLETE_PARSE_RESPONSE = {
   },
   missingFields: ["technology", "jobTitles"],
   isComplete: false,
+  canProceed: false,
+  suggestions: {
+    jobTitles: ["CTO", "VP Engineering", "Head de Produto", "CPO"],
+    technology: ["AWS", "Azure", "GCP", "Datadog"],
+  },
   productMentioned: null,
 };
 
@@ -65,6 +72,8 @@ const COMPLETE_WITH_PRODUCT_NOT_FOUND = {
   },
   missingFields: [],
   isComplete: true,
+  canProceed: true,
+  suggestions: {},
   productMentioned: "TDEC Analytics",
 };
 
@@ -81,6 +90,8 @@ const COMPLETE_WITH_PRODUCT_FOUND = {
   },
   missingFields: [],
   isComplete: true,
+  canProceed: true,
+  suggestions: {},
   productMentioned: "TDEC Analytics",
 };
 
@@ -165,13 +176,14 @@ describe("useBriefingFlow", () => {
 
     expect(result.current.state.status).toBe("awaiting_fields");
     expect(result.current.state.missingFields).toContain("technology");
+    // Story 17.8: smart questions with suggestions
     expect(mockSendAgentMessage).toHaveBeenCalledWith(
       EXEC_ID,
-      expect.stringContaining("Qual tecnologia")
+      expect.stringContaining("tecnologias comuns no setor")
     );
   });
 
-  it("deve gerar perguntas guiadas para campos faltantes (AC: #3)", async () => {
+  it("deve gerar perguntas inteligentes com sugestoes para campos faltantes (AC: #3, 17.8)", async () => {
     createMockFetch([
       {
         url: /\/api\/agent\/briefing\/parse$/,
@@ -191,8 +203,9 @@ describe("useBriefingFlow", () => {
     });
 
     const agentMsg = mockSendAgentMessage.mock.calls[0][1] as string;
-    expect(agentMsg).toContain("Qual tecnologia");
-    expect(agentMsg).toContain("Quais cargos");
+    // Story 17.8: smart questions include suggestions inline
+    expect(agentMsg).toContain("tecnologias comuns no setor");
+    expect(agentMsg).toContain("cargos comuns");
   });
 
   it("deve re-parsear com contexto acumulado quando usuario responde (AC: #3)", async () => {
@@ -871,6 +884,11 @@ describe("useBriefingFlow", () => {
         },
         missingFields: ["technology", "jobTitles"],
         isComplete: false,
+        canProceed: false,
+        suggestions: {
+          jobTitles: ["CTO", "CPO"],
+          technology: ["Stripe", "Plaid"],
+        },
         productMentioned: "TDEC Analytics",
       };
 
@@ -895,9 +913,10 @@ describe("useBriefingFlow", () => {
       // Should ask for missing fields first, NOT jump to product decision
       expect(result.current.state.status).toBe("awaiting_fields");
       expect(result.current.state.missingFields).toContain("technology");
+      // Story 17.8: smart questions with suggestions
       expect(mockSendAgentMessage).toHaveBeenCalledWith(
         EXEC_ID,
-        expect.stringContaining("Qual tecnologia")
+        expect.stringContaining("tecnologias comuns no setor")
       );
 
       // Now provide missing fields — briefing completes with product not found
@@ -1117,6 +1136,249 @@ describe("useBriefingFlow", () => {
       });
       expect(result.current.state.status).toBe("confirmed");
       expect(outcome?.confirmed).toBe(true);
+    });
+  });
+
+  // ==============================================
+  // Story 17.8: Briefing Conversacional Inteligente
+  // ==============================================
+
+  describe("Briefing Conversacional (Story 17.8)", () => {
+    // 6.12: canProceed=true com missingFields → vai para 'confirming'
+    it("deve ir para confirming quando canProceed=true mesmo com missingFields (6.12)", async () => {
+      const canProceedWithMissing = {
+        briefing: {
+          technology: null,
+          jobTitles: ["CTO"],
+          location: "Sao Paulo",
+          companySize: null,
+          industry: "fintech",
+          productSlug: null,
+          mode: "guided",
+          skipSteps: [],
+        },
+        missingFields: ["technology"],
+        isComplete: false,
+        canProceed: true,
+        suggestions: { technology: ["Stripe", "Plaid"] },
+        productMentioned: null,
+      };
+
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(canProceedWithMissing),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "Quero prospectar CTOs de fintechs em SP",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      expect(result.current.state.isComplete).toBe(false);
+    });
+
+    // 6.13: canProceed=false com suggestions → gera perguntas com sugestoes inline
+    it("deve gerar perguntas com sugestoes inline quando canProceed=false (6.13)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(INCOMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "Quero prospectar empresas de tecnologia",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("awaiting_fields");
+      const agentMsg = mockSendAgentMessage.mock.calls[0][1] as string;
+      // Suggestions should be inline in the question
+      expect(agentMsg).toContain("cargos comuns");
+      expect(agentMsg).toContain("CTO");
+    });
+
+    // 6.14: usuario envia HELP_KEYWORD → agente responde com sugestoes
+    it("deve responder com sugestoes quando usuario envia HELP_KEYWORD (6.14)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(INCOMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      // First: get into awaiting_fields
+      await act(async () => {
+        await result.current.processMessage(
+          "Quero prospectar empresas de tecnologia",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("awaiting_fields");
+      mockSendAgentMessage.mockClear();
+
+      // User asks for help
+      await act(async () => {
+        const outcome = await result.current.processMessage(
+          "me sugere os cargos",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+        expect(outcome.handled).toBe(true);
+      });
+
+      // Should respond with suggestions, NOT re-parse
+      expect(mockSendAgentMessage).toHaveBeenCalledTimes(1);
+      const helpMsg = mockSendAgentMessage.mock.calls[0][1] as string;
+      expect(helpMsg).toContain("cargos comuns");
+    });
+
+    // 6.15: usuario aceita sugestao → re-parse com contexto acumulado extrai os cargos
+    it("deve re-parsear quando usuario aceita sugestao (6.15)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(INCOMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "Quero prospectar empresas de tecnologia",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      // User provides actual answer (not a help keyword)
+      restoreFetch();
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      await act(async () => {
+        await result.current.processMessage(
+          "usa CTO e Head de TI, com Netskope",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      expect(result.current.state.briefing?.jobTitles).toContain("CTO");
+    });
+
+    // 6.16: briefing summary inclui nota sobre campos nao informados
+    it("deve incluir nota sobre campos opcionais nao informados no summary (6.16)", async () => {
+      const canProceedWithMissing = {
+        briefing: {
+          technology: null,
+          jobTitles: ["CTO"],
+          location: "Sao Paulo",
+          companySize: null,
+          industry: "fintech",
+          productSlug: null,
+          mode: "guided",
+          skipSteps: [],
+        },
+        missingFields: ["technology"],
+        isComplete: false,
+        canProceed: true,
+        suggestions: { technology: ["Stripe"] },
+        productMentioned: null,
+      };
+
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(canProceedWithMissing),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "Quero prospectar CTOs de fintechs em SP",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      const summaryMsg = mockSendAgentMessage.mock.calls[0][1] as string;
+      expect(summaryMsg).toContain("Sem tecnologia especifica");
+      expect(summaryMsg).toContain("busca mais ampla");
+    });
+
+    // 6.17: generateSmartQuestion com sugestoes → pergunta inclui opcoes inline
+    it("deve gerar pergunta com opcoes inline quando sugestoes disponiveis (6.17)", () => {
+      const briefing = {
+        technology: "Netskope",
+        jobTitles: [],
+        location: null,
+        companySize: null,
+        industry: null,
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: [],
+      };
+
+      const question = generateSmartQuestion("jobTitles", ["CISO", "Head de Seguranca"], briefing);
+
+      expect(question).toContain("Para empresas que usam Netskope");
+      expect(question).toContain("CISO");
+      expect(question).toContain("Head de Seguranca");
+      expect(question).toContain("Quer usar algum desses");
+    });
+
+    // 6.18: generateSmartQuestion sem sugestoes → pergunta generica amigavel
+    it("deve gerar pergunta generica amigavel sem sugestoes (6.18)", () => {
+      const briefing = {
+        technology: null,
+        jobTitles: [],
+        location: null,
+        companySize: null,
+        industry: null,
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: [],
+      };
+
+      const question = generateSmartQuestion("technology", [], briefing);
+
+      expect(question).toContain("tecnologia ou ferramenta");
+      expect(question).toContain("posso sugerir opcoes");
+      // Should NOT contain empty list artifacts
+      expect(question).not.toContain("[]");
     });
   });
 });

@@ -13,6 +13,7 @@ import { decryptApiKey } from "@/lib/crypto/encryption";
 import { BriefingParserService } from "@/lib/agent/briefing-parser-service";
 import type { ParsedBriefing } from "@/types/agent";
 import { AGENT_ERROR_CODES } from "@/types/agent";
+import { BriefingSuggestionService } from "@/lib/agent/briefing-suggestion-service";
 
 // ==============================================
 // REQUEST VALIDATION
@@ -24,32 +25,62 @@ const parseRequestSchema = z.object({
 });
 
 // ==============================================
-// RESPONSE TYPE
+// RESPONSE TYPE (Story 17.8: expanded with suggestions + canProceed)
 // ==============================================
 
 export interface BriefingParseResponse {
   briefing: ParsedBriefing;
   missingFields: string[];
   isComplete: boolean;
+  canProceed: boolean;
+  suggestions: Record<string, string[]>;
   productMentioned: string | null;
 }
 
 // ==============================================
-// MISSING FIELDS DETECTION (Task 4 placeholder — full logic in Task 4)
+// BRIEFING COMPLETENESS ANALYSIS (Story 17.8 — replaces detectMissingFields)
 // ==============================================
 
-function detectMissingFields(briefing: ParsedBriefing): string[] {
-  const missing: string[] = [];
+interface BriefingCompletenessResult {
+  missingFields: string[];
+  suggestions: Record<string, string[]>;
+  canProceed: boolean;
+}
+
+function analyzeBriefingCompleteness(
+  briefing: ParsedBriefing,
+  suggestions: Record<string, string[]>
+): BriefingCompletenessResult {
+  const missingFields: string[] = [];
 
   if (!briefing.technology) {
-    missing.push("technology");
+    missingFields.push("technology");
   }
 
   if (!briefing.jobTitles || briefing.jobTitles.length === 0) {
-    missing.push("jobTitles");
+    missingFields.push("jobTitles");
   }
 
-  return missing;
+  if (!briefing.location) {
+    missingFields.push("location");
+  }
+
+  if (!briefing.industry) {
+    missingFields.push("industry");
+  }
+
+  if (!briefing.companySize) {
+    missingFields.push("companySize");
+  }
+
+  // canProceed logic:
+  // - jobTitles must be present (required for lead search)
+  // - At least one search parameter (technology OR industry OR location) must be present
+  const hasJobTitles = briefing.jobTitles && briefing.jobTitles.length > 0;
+  const hasSearchParam = Boolean(briefing.technology || briefing.industry || briefing.location);
+  const canProceed = Boolean(hasJobTitles && hasSearchParam);
+
+  return { missingFields, suggestions, canProceed };
 }
 
 // ==============================================
@@ -190,14 +221,17 @@ export async function POST(request: Request) {
       productSlug: resolvedProductSlug,
     };
 
-    // Detect missing required fields
-    const missingFields = detectMissingFields(resolvedBriefing);
+    // Analyze briefing completeness with contextual suggestions
+    const suggestions = BriefingSuggestionService.generateSuggestions(resolvedBriefing);
+    const { missingFields, canProceed } = analyzeBriefingCompleteness(resolvedBriefing, suggestions);
     const isComplete = missingFields.length === 0;
 
     const response: BriefingParseResponse = {
       briefing: resolvedBriefing,
       missingFields,
       isComplete,
+      canProceed,
+      suggestions,
       productMentioned: rawResponse.productMentioned,
     };
 

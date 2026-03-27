@@ -14,6 +14,7 @@ import { useCallback, useRef, useState } from "react";
 import type { ParsedBriefing, ExtractedProduct } from "@/types/agent";
 import type { CreateProductInput } from "@/types/product";
 import type { BriefingParseResponse } from "@/app/api/agent/briefing/parse/route";
+import { BriefingSuggestionService } from "@/lib/agent/briefing-suggestion-service";
 
 // ==============================================
 // TYPES
@@ -71,20 +72,68 @@ const PRODUCT_REJECTION_KEYWORDS = [
 ];
 
 // ==============================================
-// GUIDED QUESTIONS
+// HELP KEYWORDS (Story 17.8 AC: #2)
 // ==============================================
 
-const FIELD_QUESTIONS: Record<string, string> = {
-  technology:
-    "Qual tecnologia ou ferramenta essas empresas devem usar? (ex: Netskope, AWS, Salesforce)",
-  jobTitles:
-    "Quais cargos voce quer atingir? (ex: CTOs, Heads de TI, CISOs)",
-};
+export const HELP_KEYWORDS: string[] = [
+  "sugere",
+  "sugestao",
+  "me ajuda",
+  "nao sei",
+  "qual deveria",
+  "recomenda",
+  "indica",
+  "quais cargos",
+  "quais tecnologias",
+  "quais opcoes",
+];
 
-function generateGuidedQuestions(missingFields: string[]): string {
-  const questions = missingFields
-    .map((field) => FIELD_QUESTIONS[field])
-    .filter(Boolean);
+// ==============================================
+// SMART QUESTIONS (Story 17.8 — replaces FIELD_QUESTIONS)
+// ==============================================
+
+export function generateSmartQuestion(
+  field: string,
+  suggestions: string[],
+  briefing: ParsedBriefing
+): string {
+  if (field === "jobTitles" && suggestions.length > 0) {
+    const context = briefing.technology
+      ? `Para empresas que usam ${briefing.technology}`
+      : briefing.industry
+        ? `No setor de ${briefing.industry}`
+        : "Para prospeccao B2B";
+    return `${context}, cargos comuns seriam: ${suggestions.join(", ")}. Quer usar algum desses ou tem outra preferencia?`;
+  }
+
+  if (field === "technology" && suggestions.length > 0) {
+    return `Algumas tecnologias comuns no setor seriam: ${suggestions.join(", ")}. Quer filtrar por alguma ou prefere buscar sem filtro de tecnologia?`;
+  }
+
+  // Fallback generico
+  const fieldLabels: Record<string, string> = {
+    technology: "tecnologia ou ferramenta",
+    jobTitles: "cargos-alvo",
+    location: "localizacao",
+    industry: "industria ou setor",
+    companySize: "tamanho de empresa",
+  };
+  return `Qual ${fieldLabels[field] ?? field} voce tem em mente? Se nao souber, posso sugerir opcoes.`;
+}
+
+// Fields that the agent actively asks about (technology + jobTitles)
+// Other fields (location, industry, companySize) are optional context — tracked in missingFields
+// for isComplete accuracy but NOT asked about in guided questions
+const QUESTIONABLE_FIELDS = ["technology", "jobTitles"];
+
+function generateSmartQuestions(
+  missingFields: string[],
+  suggestions: Record<string, string[]>,
+  briefing: ParsedBriefing
+): string {
+  const questionableFields = missingFields.filter((f) => QUESTIONABLE_FIELDS.includes(f));
+  const questions = questionableFields
+    .map((field) => generateSmartQuestion(field, suggestions[field] ?? [], briefing));
 
   if (questions.length === 0) return "";
 
@@ -93,7 +142,12 @@ function generateGuidedQuestions(missingFields: string[]): string {
     .join("\n")}`;
 }
 
-function generateBriefingSummary(briefing: ParsedBriefing): string {
+function isHelpRequest(message: string): boolean {
+  const normalized = message.toLowerCase().trim();
+  return HELP_KEYWORDS.some((kw) => normalized.includes(kw));
+}
+
+function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: string[]): string {
   const lines: string[] = ["Entendi! Vou prospectar com os seguintes parametros:"];
 
   if (briefing.technology) lines.push(`- Tecnologia: ${briefing.technology}`);
@@ -101,6 +155,19 @@ function generateBriefingSummary(briefing: ParsedBriefing): string {
   if (briefing.location) lines.push(`- Localizacao: ${briefing.location}`);
   if (briefing.companySize) lines.push(`- Tamanho: ${briefing.companySize}`);
   if (briefing.industry) lines.push(`- Industria: ${briefing.industry}`);
+
+  // Notas sobre campos nao informados (Story 17.8 AC: #3)
+  if (missingFields && missingFields.length > 0) {
+    const noteableFields = missingFields.filter((f) => f === "technology");
+    if (noteableFields.length > 0) {
+      lines.push("");
+      for (const field of noteableFields) {
+        if (field === "technology") {
+          lines.push("Sem tecnologia especifica — busca mais ampla por industria/localizacao.");
+        }
+      }
+    }
+  }
 
   lines.push("\nConfirma esses parametros?");
 
@@ -194,7 +261,8 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       executionId: string,
       sendAgentMessage: (executionId: string, content: string) => Promise<void>
     ): Promise<{ handled: boolean }> => {
-      if (result.isComplete) {
+      // Story 17.8: Use canProceed instead of isComplete for flow decisions
+      if (result.canProceed) {
         // Check if product was mentioned but not found
         if (result.productMentioned && result.briefing.productSlug === null) {
           setState((prev) => ({
@@ -212,7 +280,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
           return { handled: true };
         }
 
-        // Normal flow — show summary
+        // canProceed but may have missing optional fields — show summary with notes
         setState((prev) => ({
           ...prev,
           status: "confirming",
@@ -220,8 +288,12 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
           missingFields: result.missingFields,
           isComplete: result.isComplete,
         }));
-        await sendAgentMessage(executionId, generateBriefingSummary(result.briefing));
+        await sendAgentMessage(
+          executionId,
+          generateBriefingSummary(result.briefing, result.missingFields)
+        );
       } else {
+        // Cannot proceed — ask smart questions with suggestions
         setState((prev) => ({
           ...prev,
           status: "awaiting_fields",
@@ -229,7 +301,10 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
           missingFields: result.missingFields,
           isComplete: result.isComplete,
         }));
-        await sendAgentMessage(executionId, generateGuidedQuestions(result.missingFields));
+        await sendAgentMessage(
+          executionId,
+          generateSmartQuestions(result.missingFields, result.suggestions, result.briefing)
+        );
       }
 
       return { handled: true };
@@ -416,8 +491,19 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
         }
       }
 
-      // Awaiting fields — re-parse with accumulated context
+      // Awaiting fields — check for help request or re-parse with accumulated context
       if (currentStatus === "awaiting_fields") {
+        // Story 17.8 AC: #2 — detect help keywords and respond with suggestions
+        if (isHelpRequest(content) && state.briefing) {
+          const suggestions = BriefingSuggestionService.generateSuggestions(state.briefing);
+          const missingFields = state.missingFields;
+          const helpResponse = generateSmartQuestions(missingFields, suggestions, state.briefing);
+          if (helpResponse) {
+            await sendAgentMessage(executionId, helpResponse);
+            return { handled: true };
+          }
+        }
+
         messageHistoryRef.current.push(content);
         const fullMessage = messageHistoryRef.current.join("\n");
 
@@ -457,7 +543,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       // Confirmed or parsing — don't handle
       return { handled: false };
     },
-    [state.status, state.briefing, state.productMentioned, state.pendingProduct, callParseAPI, callParseProductAPI, handleParseResult]
+    [state.status, state.briefing, state.missingFields, state.productMentioned, state.pendingProduct, callParseAPI, callParseProductAPI, handleParseResult]
   );
 
   const reset = useCallback(() => {
