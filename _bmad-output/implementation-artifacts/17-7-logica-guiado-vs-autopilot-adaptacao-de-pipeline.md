@@ -291,22 +291,47 @@ Claude Opus 4.6 (1M context)
 - **L2**: AgentStepProgress mostra contagem "Etapa X/Y" para awaiting_approval alem de running
 - Full regression post-review: 349 test files, 5936 tests passing, 0 failures.
 
+### Pipeline Bugfixes — Testes E2E (2026-03-27)
+
+Bugs encontrados e corrigidos durante testes manuais E2E do pipeline completo:
+
+- **BF1 (Story 17.1)**: `SearchCompaniesStep` — location "São Paulo" passada como country code → TheirStack 400. Fix: COUNTRY_MAP expandido com cidades/estados brasileiros + validacao ISO 2-letter. Valores invalidos ignorados ao inves de enviados. `search-companies-step.ts`
+- **BF2 (Story 17.1)**: `SearchCompaniesStep` — `MVP_LIMIT` reduzido de 50 para 2 empresas (economia de creditos TheirStack em ambiente de teste). `search-companies-step.ts`
+- **BF3 (Story 17.3)**: `CreateCampaignStep.parseStructureJSON()` — AI retorna JSON em markdown fences (` ```json ``` `) ou formato `{ structure: { items } }` ao inves de `{ items }`. Fix: strip fences + aceita ambos os formatos. `create-campaign-step.ts`
+- **BF4 (Story 17.4)**: `ExportStep` — endpoint `POST /api/v2/account-campaign-mappings` do Instantly deprecado (404). Fix: sending accounts passadas via `email_list` no `createCampaign`. `export-step.ts`
+- **BF5 (Story 17.2)**: `SearchLeadsStep` — leads da Apollo sem email (nao enriquecidos). Fix: enriquecimento movido para `CreateCampaignStep` — so enriquece leads APROVADOS pelo usuario (email + nome completo sem asteriscos). `search-leads-step.ts`, `create-campaign-step.ts`, `agent.ts` (apolloId em SearchLeadResult)
+- **BF6 (Infra)**: `useSendMessage.onMutate` setava `isAgentProcessing(true)` em toda mensagem — "Agente digitando..." ficava travado apos briefing confirmado. Fix: removido, gerenciamento explicito pelo briefing flow. `use-agent-execution.ts`
+- **BF7 (Infra)**: `useAgentExecution` — steps query usava `Promise.resolve([])` (so Realtime). Realtime reporta SUBSCRIBED mas nao entrega eventos. Fix: GET `/api/agent/executions/[id]/steps` route criada + polling 3s para messages e steps. `use-agent-execution.ts`, `steps/route.ts`
+- **BF8 (Story 17.6)**: `AgentActivationGate.handleDefer` nao disparava `triggerNextStep` — execucao ficava pendurada apos "Ativar Depois". Fix: triggerNextStep adicionado para que orchestrator processe `activationDeferred` skip. `AgentActivationGate.tsx`
+- **BF9 (Infra)**: Error logging adicionado na execute route e `ExternalService.executeRequest` — HTTP status + body do servico externo visivel no terminal. `execute/route.ts`, `base-service.ts`
+- Full regression post-bugfixes: 349 test files, 5939 tests passing, 0 failures.
+
 ### Change Log
 
 - 2026-03-27: Story 17.7 implementada — logica guiado vs autopilot completa
 - 2026-03-27: Code review adversarial — 4 MEDIUM + 2 LOW issues found and fixed
+- 2026-03-27: 9 pipeline bugfixes via testes E2E manuais
 
 ### File List
 
 **Novos:**
 - src/hooks/use-auto-trigger.ts
 - src/lib/agent/client-utils.ts
+- src/app/api/agent/executions/[executionId]/steps/route.ts
 - __tests__/unit/hooks/use-auto-trigger.test.ts
 - __tests__/unit/lib/agent/client-utils.test.ts
 
 **Modificados:**
 - src/lib/agent/orchestrator.ts
+- src/lib/agent/steps/search-companies-step.ts
+- src/lib/agent/steps/search-leads-step.ts
+- src/lib/agent/steps/create-campaign-step.ts
+- src/lib/agent/steps/export-step.ts
+- src/lib/services/base-service.ts
 - src/stores/use-agent-store.ts
+- src/types/agent.ts
+- src/hooks/use-agent-execution.ts
+- src/app/api/agent/executions/[executionId]/steps/[stepNumber]/execute/route.ts
 - src/components/agent/AgentChat.tsx
 - src/components/agent/AgentStepProgress.tsx
 - src/components/agent/AgentApprovalGate.tsx
@@ -315,5 +340,11 @@ Claude Opus 4.6 (1M context)
 - src/components/agent/AgentActivationGate.tsx
 - src/components/agent/AgentMessageBubble.tsx
 - __tests__/unit/lib/agent/orchestrator.test.ts
+- __tests__/unit/lib/agent/steps/search-companies-step.test.ts
+- __tests__/unit/lib/agent/steps/search-leads-step.test.ts
+- __tests__/unit/lib/agent/steps/create-campaign-preview.test.ts
+- __tests__/unit/lib/agent/steps/export-step.test.ts
+- __tests__/unit/hooks/use-agent-execution.test.tsx
+- __tests__/unit/hooks/use-agent-messages.test.tsx
 - __tests__/unit/components/agent/AgentStepProgress.test.tsx
 - __tests__/unit/components/agent/AgentChat.test.tsx
