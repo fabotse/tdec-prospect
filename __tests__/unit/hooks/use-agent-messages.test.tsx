@@ -211,7 +211,7 @@ describe("useSendMessage (AC: #1)", () => {
     });
   });
 
-  it("should set isAgentProcessing to true on send", async () => {
+  it("should NOT set isAgentProcessing on send (managed by briefing flow)", async () => {
     const { result } = renderHook(() => useSendMessage(), {
       wrapper: createWrapper(),
     });
@@ -220,7 +220,7 @@ describe("useSendMessage (AC: #1)", () => {
       result.current.mutate({ executionId: "exec-001", content: "Teste" });
     });
 
-    expect(mockSetAgentProcessing).toHaveBeenCalledWith(true);
+    expect(mockSetAgentProcessing).not.toHaveBeenCalledWith(true);
   });
 
   it("should reset isAgentProcessing on error", async () => {

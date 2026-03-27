@@ -278,7 +278,7 @@ describe("useSendMessage", () => {
     });
   });
 
-  it("should set isAgentProcessing to true on send", async () => {
+  it("should NOT set isAgentProcessing on send (managed by briefing flow)", async () => {
     const { result } = renderHook(() => useSendMessage(), {
       wrapper: createWrapper(),
     });
@@ -287,7 +287,9 @@ describe("useSendMessage", () => {
       result.current.mutate({ executionId: "exec-001", content: "Teste" });
     });
 
-    expect(mockSetAgentProcessing).toHaveBeenCalledWith(true);
+    // isAgentProcessing is now managed explicitly by the briefing flow in AgentChat,
+    // not by useSendMessage — prevents getting stuck after briefing confirmation.
+    expect(mockSetAgentProcessing).not.toHaveBeenCalledWith(true);
   });
 
   it("should reset isAgentProcessing on error", async () => {

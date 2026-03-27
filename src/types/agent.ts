@@ -191,6 +191,7 @@ export interface SearchLeadResult {
   companyName: string | null;
   email: string | null;
   linkedinUrl: string | null;
+  apolloId: string | null;
 }
 
 export interface SearchLeadsOutput {

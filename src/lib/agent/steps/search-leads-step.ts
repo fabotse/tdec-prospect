@@ -115,9 +115,10 @@ export class SearchLeadsStep extends BaseStep {
       companyName: lead.company_name,
       email: lead.email,
       linkedinUrl: lead.linkedin_url,
+      apolloId: lead.apollo_id,
     }));
 
-    // 2.10 - Calculate cost
+    // 2.10 - Calculate cost (enrichment moved to CreateCampaignStep — only enrich approved leads)
     const cost = { apollo_search: leads.length * CREDITS_PER_LEAD };
 
     // 2.9 - Return StepOutput

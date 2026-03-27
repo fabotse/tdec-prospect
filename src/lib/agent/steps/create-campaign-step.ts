@@ -15,6 +15,7 @@ import {
   buildAIVariables,
   type KnowledgeBaseContext,
 } from "@/lib/services/knowledge-base-context";
+import { ApolloService } from "@/lib/services/apollo";
 import { createAIProvider, promptManager } from "@/lib/ai";
 import { ExternalServiceError } from "@/lib/services/base-service";
 import { decryptApiKey } from "@/lib/crypto/encryption";
@@ -81,6 +82,29 @@ export class CreateCampaignStep extends BaseStep {
     const leads = previousStepOutput.leads as SearchLeadResult[] | undefined;
     if (!leads || !Array.isArray(leads) || leads.length === 0) {
       throw new Error("Lista de leads do step anterior e obrigatoria para criacao de campanha");
+    }
+
+    // 2.3b - Enrich approved leads (email + full name) before campaign creation
+    const apolloService = new ApolloService(this.tenantId);
+    let enrichCredits = 0;
+    for (const lead of leads) {
+      const typedLead = lead as SearchLeadResult & { apolloId?: string | null };
+      if (typedLead.apolloId && (!typedLead.email || typedLead.name.includes("*"))) {
+        try {
+          const enriched = await apolloService.enrichPerson(typedLead.apolloId, {
+            revealPersonalEmails: true,
+          });
+          const person = enriched.person;
+          if (person) {
+            if (person.email) typedLead.email = person.email;
+            const fullName = [person.first_name, person.last_name].filter(Boolean).join(" ");
+            if (fullName && !fullName.includes("*")) typedLead.name = fullName;
+            enrichCredits++;
+          }
+        } catch {
+          // Enrichment failed — continue with existing data
+        }
+      }
     }
 
     const totalLeads = leads.length;
@@ -176,6 +200,7 @@ export class CreateCampaignStep extends BaseStep {
 
     // 2.13 - Calculate cost
     const cost = {
+      apollo_enrich: enrichCredits,
       openai_structure: 1,
       openai_emails: totalEmails,
       openai_icebreakers: icebreakerStats.generated,
@@ -256,23 +281,41 @@ export class CreateCampaignStep extends BaseStep {
   private parseStructureJSON(text: string): { items: CampaignStructureItem[] } {
     let parsed: { items?: unknown[] };
     try {
-      parsed = JSON.parse(text);
+      // Strip markdown code fences and surrounding text — LLMs often wrap JSON in ```json ... ```
+      let cleaned = text.trim();
+      const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (fenceMatch) {
+        cleaned = fenceMatch[1].trim();
+      } else {
+        // Fallback: extract first { ... last }
+        const firstBrace = cleaned.indexOf("{");
+        const lastBrace = cleaned.lastIndexOf("}");
+        if (firstBrace !== -1 && lastBrace > firstBrace) {
+          cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+        }
+      }
+      parsed = JSON.parse(cleaned);
     } catch {
       throw new ExternalServiceError("openai", 502, "Formato invalido na resposta do AI: JSON parse falhou");
     }
 
-    if (!parsed.items || !Array.isArray(parsed.items) || parsed.items.length === 0) {
+    // Handle both formats: { items: [...] } and { structure: { items: [...] } }
+    const rawParsed = parsed as Record<string, unknown>;
+    const nestedStructure = rawParsed.structure as { items?: unknown[] } | undefined;
+    const items: unknown[] | undefined = parsed.items ?? nestedStructure?.items;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
       throw new ExternalServiceError("openai", 502, "Formato invalido na resposta do AI: estrutura sem emails");
     }
 
-    const hasEmail = parsed.items.some(
+    const hasEmail = items.some(
       (item) => (item as Record<string, unknown>).type === "email"
     );
     if (!hasEmail) {
       throw new ExternalServiceError("openai", 502, "Formato invalido na resposta do AI: estrutura sem emails");
     }
 
-    return { items: parsed.items as CampaignStructureItem[] };
+    return { items: items as CampaignStructureItem[] };
   }
 
   private async loadIcebreakerExamples(): Promise<IcebreakerExample[]> {

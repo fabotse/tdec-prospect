@@ -176,20 +176,15 @@ describe("ExportStep (Story 17.4 AC #1, #2)", () => {
         TENANT_ID,
         "instantly"
       );
+      // Accounts fetched first, then passed to createCampaign via sendingAccounts
+      expect(mockListAccounts).toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: "decrypted-instantly-key" })
+      );
       expect(mockCreateCampaign).toHaveBeenCalledWith(
         expect.objectContaining({
           apiKey: "decrypted-instantly-key",
           name: "Campanha React Outbound",
-        })
-      );
-      expect(mockListAccounts).toHaveBeenCalledWith(
-        expect.objectContaining({ apiKey: "decrypted-instantly-key" })
-      );
-      expect(mockAddAccountsToCampaign).toHaveBeenCalledWith(
-        expect.objectContaining({
-          apiKey: "decrypted-instantly-key",
-          campaignId: "instantly-camp-123",
-          accountEmails: ["sender1@company.com", "sender2@company.com"],
+          sendingAccounts: ["sender1@company.com", "sender2@company.com"],
         })
       );
       expect(mockAddLeadsToCampaign).toHaveBeenCalledWith(

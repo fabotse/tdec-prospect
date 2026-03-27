@@ -26,6 +26,8 @@ const mockSetCurrentExecutionId = vi.fn();
 const mockSetAgentProcessing = vi.fn();
 const mockSetShowModeSelector = vi.fn();
 const mockSetShowExecutionPlan = vi.fn();
+const mockSetExecutionMode = vi.fn();
+const mockSetTotalSteps = vi.fn();
 const mockProcessMessage = vi.fn().mockResolvedValue({ handled: true });
 const mockToastError = vi.fn();
 
@@ -55,6 +57,10 @@ vi.mock("@/hooks/use-agent-onboarding", () => ({
 vi.mock("@/stores/use-agent-store", () => ({
   useAgentStore: (selector: (s: Record<string, unknown>) => unknown) =>
     selector(mockStoreState),
+}));
+
+vi.mock("@/hooks/use-auto-trigger", () => ({
+  useAutoTrigger: () => {},
 }));
 
 vi.mock("@/hooks/use-briefing-flow", () => ({
@@ -115,6 +121,10 @@ function setupDefaults(overrides?: {
     setShowModeSelector: mockSetShowModeSelector,
     showExecutionPlan: overrides?.showExecutionPlan ?? false,
     setShowExecutionPlan: mockSetShowExecutionPlan,
+    executionMode: null,
+    setExecutionMode: mockSetExecutionMode,
+    totalSteps: 0,
+    setTotalSteps: mockSetTotalSteps,
   };
   mockBriefingState = {
     status: overrides?.briefingStatus ?? "idle",

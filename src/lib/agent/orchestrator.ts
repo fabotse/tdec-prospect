@@ -64,6 +64,15 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
   }
 
   /**
+   * Check if a step should be skipped based on briefing.skipSteps.
+   * (Story 17.7 - AC #3)
+   */
+  shouldSkip(stepType: StepType, briefing: ParsedBriefing): boolean {
+    if (!briefing.skipSteps || briefing.skipSteps.length === 0) return false;
+    return briefing.skipSteps.includes(stepType);
+  }
+
+  /**
    * Execute a specific step by number.
    * Fetches step from DB, dispatches to correct step class.
    * On error: paused + sendErrorMessage + throw.
@@ -107,15 +116,18 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
 
     const tenantId = (execution as AgentExecution).tenant_id;
 
-    // Build step input with previousStepOutput (Story 17.2 - 3.3)
+    // Build step input with previousStepOutput (Story 17.2 - 3.3, Story 17.7 - skip-aware)
     let previousStepOutput: Record<string, unknown> | undefined;
     if (stepNumber > 1) {
+      // Story 17.7: Find last non-skipped step (may not be stepNumber-1 if previous was skipped)
       const { data: prevStep } = await this.supabase
         .from("agent_steps")
         .select("output, status")
         .eq("execution_id", executionId)
-        .eq("step_number", stepNumber - 1)
+        .lt("step_number", stepNumber)
         .in("status", ["completed", "approved"])
+        .order("step_number", { ascending: false })
+        .limit(1)
         .single();
 
       if (!prevStep?.output) {
@@ -136,6 +148,56 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
     }
 
     const executionData = execution as AgentExecution;
+
+    // Story 17.7 Task 1.2: Generic skip based on briefing.skipSteps
+    if (this.shouldSkip(stepType, executionData.briefing)) {
+      try {
+        const { error: skipError } = await this.supabase
+          .from("agent_steps")
+          .update({
+            status: "skipped",
+            output: { skipped: true, reason: "briefing_skip" },
+            completed_at: new Date().toISOString(),
+          })
+          .eq("execution_id", executionId)
+          .eq("step_number", stepNumber);
+
+        if (skipError) {
+          throw this.createPipelineError(
+            "ORCHESTRATOR_SKIP_FAILED",
+            "Erro ao marcar step como skipped",
+            stepNumber,
+            stepType
+          );
+        }
+
+        const stepLabel = STEP_LABELS[stepType] ?? stepType;
+        await this.supabase.from("agent_messages").insert({
+          execution_id: executionId,
+          role: "agent",
+          content: `Etapa "${stepLabel}" pulada — nao aplicavel conforme briefing.`,
+          metadata: {
+            stepNumber,
+            messageType: "skip",
+          },
+        });
+
+        return { success: true, data: { skipped: true, reason: "briefing_skip" } };
+      } catch (error) {
+        const pipelineError = isPipelineError(error)
+          ? error
+          : this.createPipelineError(
+              "ORCHESTRATOR_SKIP_FAILED",
+              error instanceof Error ? error.message : "Erro ao skipar step",
+              stepNumber,
+              stepType
+            );
+        await this.updateExecutionStatus(executionId, "paused");
+        await this.sendErrorMessage(executionId, pipelineError);
+        throw pipelineError;
+      }
+    }
+
     const input: StepInput = {
       executionId,
       briefing: executionData.briefing,
@@ -145,56 +207,70 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
 
     // Story 17.6 Task 9: Skip activate step if activation deferred
     if (stepType === "activate" && previousStepOutput?.activationDeferred === true) {
-      const { error: skipError } = await this.supabase
-        .from("agent_steps")
-        .update({
-          status: "skipped",
-          output: { skipped: true, reason: "activation_deferred" },
-          completed_at: new Date().toISOString(),
-        })
-        .eq("execution_id", executionId)
-        .eq("step_number", stepNumber);
+      try {
+        const { error: skipError } = await this.supabase
+          .from("agent_steps")
+          .update({
+            status: "skipped",
+            output: { skipped: true, reason: "activation_deferred" },
+            completed_at: new Date().toISOString(),
+          })
+          .eq("execution_id", executionId)
+          .eq("step_number", stepNumber);
 
-      if (skipError) {
-        throw this.createPipelineError(
-          "ORCHESTRATOR_SKIP_FAILED",
-          "Erro ao marcar step como skipped",
-          stepNumber,
-          stepType
-        );
+        if (skipError) {
+          throw this.createPipelineError(
+            "ORCHESTRATOR_SKIP_FAILED",
+            "Erro ao marcar step como skipped",
+            stepNumber,
+            stepType
+          );
+        }
+
+        // Complete execution with deferred note
+        const { error: completionError } = await this.supabase
+          .from("agent_executions")
+          .update({
+            status: "completed",
+            completed_at: new Date().toISOString(),
+            result_summary: { activationDeferred: true },
+          })
+          .eq("id", executionId);
+
+        if (completionError) {
+          throw this.createPipelineError(
+            "ORCHESTRATOR_COMPLETION_FAILED",
+            "Erro ao completar execucao apos skip",
+            stepNumber,
+            stepType
+          );
+        }
+
+        const campaignName = (previousStepOutput.campaignName as string) ?? "campanha";
+        await this.supabase.from("agent_messages").insert({
+          execution_id: executionId,
+          role: "agent",
+          content: `Campanha "${campaignName}" exportada no Instantly. Ativacao adiada — ative manualmente quando desejar.`,
+          metadata: {
+            stepNumber,
+            messageType: "summary",
+          },
+        });
+
+        return { success: true, data: { skipped: true, reason: "activation_deferred" } };
+      } catch (error) {
+        const pipelineError = isPipelineError(error)
+          ? error
+          : this.createPipelineError(
+              "ORCHESTRATOR_SKIP_FAILED",
+              error instanceof Error ? error.message : "Erro ao skipar ativacao",
+              stepNumber,
+              stepType
+            );
+        await this.updateExecutionStatus(executionId, "paused");
+        await this.sendErrorMessage(executionId, pipelineError);
+        throw pipelineError;
       }
-
-      // Complete execution with deferred note
-      const { error: completionError } = await this.supabase
-        .from("agent_executions")
-        .update({
-          status: "completed",
-          completed_at: new Date().toISOString(),
-          result_summary: { activationDeferred: true },
-        })
-        .eq("id", executionId);
-
-      if (completionError) {
-        throw this.createPipelineError(
-          "ORCHESTRATOR_COMPLETION_FAILED",
-          "Erro ao completar execucao apos skip",
-          stepNumber,
-          stepType
-        );
-      }
-
-      const campaignName = (previousStepOutput.campaignName as string) ?? "campanha";
-      await this.supabase.from("agent_messages").insert({
-        execution_id: executionId,
-        role: "agent",
-        content: `Campanha "${campaignName}" exportada no Instantly. Ativacao adiada — ative manualmente quando desejar.`,
-        metadata: {
-          stepNumber,
-          messageType: "summary",
-        },
-      });
-
-      return { success: true, data: { skipped: true, reason: "activation_deferred" } };
     }
 
     // Dispatch to step from registry (4.2)
@@ -215,6 +291,9 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
             completed_at: new Date().toISOString(),
           })
           .eq("id", executionId);
+
+        // Story 17.7 - AC #2: Summary message in autopilot mode
+        await this.sendSummaryMessage(executionId, totalSteps);
       }
 
       return result;
@@ -320,6 +399,73 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
           isRetryable: error.isRetryable,
           externalService: error.externalService,
         },
+      },
+    });
+  }
+
+  /**
+   * Send autopilot summary message with consolidated results from all steps.
+   * (Story 17.7 - AC #2)
+   */
+  private async sendSummaryMessage(
+    executionId: string,
+    totalSteps: number
+  ): Promise<void> {
+    // Fetch all steps with outputs
+    const { data: allSteps } = await this.supabase
+      .from("agent_steps")
+      .select("step_number, step_type, status, output")
+      .eq("execution_id", executionId)
+      .order("step_number", { ascending: true });
+
+    if (!allSteps) return;
+
+    const lines: string[] = ["Pipeline concluido com sucesso!", "", "Resumo:"];
+
+    for (const step of allSteps) {
+      const output = step.output as Record<string, unknown> | null;
+      const stepType = step.step_type as string;
+
+      if (step.status === "skipped") {
+        const label = STEP_LABELS[stepType as StepType] ?? stepType;
+        lines.push(`• ${label}: Etapa pulada — nao aplicavel`);
+        continue;
+      }
+
+      switch (stepType) {
+        case "search_companies":
+          lines.push(`• Empresas: ${output?.totalFound ?? 0} encontradas via TheirStack`);
+          break;
+        case "search_leads":
+          lines.push(`• Leads: ${output?.totalFound ?? 0} contatos encontrados via Apollo`);
+          break;
+        case "create_campaign":
+          lines.push(
+            `• Campanha: "${output?.campaignName ?? "—"}" criada com ${output?.structure && typeof output.structure === "object" && "totalEmails" in (output.structure as Record<string, unknown>) ? (output.structure as Record<string, unknown>).totalEmails : 0} emails na sequencia`
+          );
+          break;
+        case "export":
+          lines.push(
+            `• Export: Campanha exportada para Instantly com ${output?.leadsUploaded ?? 0} leads`
+          );
+          break;
+        case "activate":
+          lines.push(
+            output?.activated
+              ? `• Ativacao: Campanha ativada`
+              : `• Ativacao: Etapa pulada — nao aplicavel`
+          );
+          break;
+      }
+    }
+
+    await this.supabase.from("agent_messages").insert({
+      execution_id: executionId,
+      role: "agent",
+      content: lines.join("\n"),
+      metadata: {
+        stepNumber: totalSteps,
+        messageType: "summary",
       },
     });
   }

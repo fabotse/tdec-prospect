@@ -36,6 +36,15 @@ async function fetchMessages(executionId: string): Promise<AgentMessage[]> {
   return result.data;
 }
 
+async function fetchSteps(executionId: string): Promise<AgentStep[]> {
+  const response = await fetch(`/api/agent/executions/${executionId}/steps`);
+  const result = await response.json();
+  if (!response.ok) {
+    throw new Error(result.error?.message || "Erro ao buscar steps");
+  }
+  return result.data ?? [];
+}
+
 async function postMessage(executionId: string, content: string): Promise<AgentMessage> {
   const response = await fetch(`/api/agent/executions/${executionId}/messages`, {
     method: "POST",
@@ -82,21 +91,22 @@ export function useAgentExecution(executionId: string | null) {
   const msgKey = useMemo(() => messagesQueryKey(executionId || ""), [executionId]);
   const stepKey = useMemo(() => stepsQueryKey(executionId || ""), [executionId]);
 
-  // Fetch messages
+  // Fetch messages — poll every 3s as Realtime delivery is unreliable
   const { data: messages, isLoading: isLoadingMessages } = useQuery({
     queryKey: msgKey,
     queryFn: () => fetchMessages(executionId || ""),
     enabled: !!executionId,
-    staleTime: 60_000,
+    staleTime: 3_000,
+    refetchInterval: 3_000,
   });
 
-  // Steps: populated via Realtime only (EP17 will add fetch)
-  // Initialized as empty array in query cache
+  // Fetch steps — poll every 3s as Realtime delivery is unreliable
   const { data: steps } = useQuery<AgentStep[]>({
     queryKey: stepKey,
-    queryFn: () => Promise.resolve([]),
+    queryFn: () => fetchSteps(executionId || ""),
     enabled: !!executionId,
-    staleTime: Infinity,
+    staleTime: 3_000,
+    refetchInterval: 3_000,
   });
 
   // Realtime handler: new message
@@ -255,7 +265,9 @@ export function useSendMessage() {
       };
 
       queryClient.setQueryData<AgentMessage[]>(queryKey, (old) => [...(old || []), optimistic]);
-      setAgentProcessing(true);
+      // Note: isAgentProcessing is managed explicitly by the briefing flow in AgentChat.
+      // Do NOT set it here — post-briefing messages don't generate agent responses,
+      // so it would get stuck as true forever (no Realtime agent message to clear it).
 
       return { previous, tempId, queryKey };
     },

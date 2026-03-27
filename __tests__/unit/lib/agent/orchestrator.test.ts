@@ -661,6 +661,14 @@ describe("DeterministicOrchestrator (AC #5)", () => {
         error: null,
       });
 
+      // Summary query fetches all steps as array
+      const allStepsChain = createChainBuilder({
+        data: [
+          { step_number: 5, step_type: "activate", status: "completed", output: { activated: true } },
+        ],
+        error: null,
+      });
+
       let stepsCallCount = 0;
       mockSupabase.from.mockImplementation((table: string) => {
         if (table === "agent_executions") return autopilotExecution;
@@ -668,6 +676,7 @@ describe("DeterministicOrchestrator (AC #5)", () => {
           stepsCallCount++;
           if (stepsCallCount === 1) return stepsChain;
           if (stepsCallCount === 2) return prevStepChain;
+          if (stepsCallCount === 3) return allStepsChain;
           return createChainBuilder({ data: { id: "step-x" }, error: null });
         }
         if (table === "agent_messages") return mockSupabase.messagesChain;
@@ -1024,7 +1033,7 @@ describe("DeterministicOrchestrator (AC #5)", () => {
       );
     });
 
-    it("executes ActivateStep normally when activation NOT deferred", async () => {
+    it("keeps activationDeferred logic intact even with empty skipSteps", async () => {
       const prevStepChain = createChainBuilder({
         data: {
           output: {
@@ -1071,6 +1080,312 @@ describe("DeterministicOrchestrator (AC #5)", () => {
 
       // ActivateStep.run() should have been called
       expect(mockActivateRun).toHaveBeenCalled();
+    });
+  });
+
+  // ==============================================
+  // Story 17.7 Tests
+  // ==============================================
+
+  describe("shouldSkip() (Story 17.7 - AC #3)", () => {
+    it("returns true when stepType is in briefing.skipSteps", () => {
+      const briefing: ParsedBriefing = { ...mockBriefing, skipSteps: ["export", "activate"] };
+      expect(orchestrator.shouldSkip("export", briefing)).toBe(true);
+      expect(orchestrator.shouldSkip("activate", briefing)).toBe(true);
+    });
+
+    it("returns false when stepType is NOT in briefing.skipSteps", () => {
+      const briefing: ParsedBriefing = { ...mockBriefing, skipSteps: ["export"] };
+      expect(orchestrator.shouldSkip("search_companies", briefing)).toBe(false);
+    });
+
+    it("returns false when skipSteps is empty", () => {
+      const briefing: ParsedBriefing = { ...mockBriefing, skipSteps: [] };
+      expect(orchestrator.shouldSkip("search_companies", briefing)).toBe(false);
+    });
+
+    it("returns false when skipSteps is undefined", () => {
+      const briefing = { ...mockBriefing, skipSteps: undefined as unknown as string[] };
+      expect(orchestrator.shouldSkip("search_companies", briefing)).toBe(false);
+    });
+  });
+
+  describe("generic skip via briefing.skipSteps (Story 17.7 - Task 1.2)", () => {
+    it("skips step and inserts skip message when step in skipSteps", async () => {
+      const skipBriefing: ParsedBriefing = { ...mockBriefing, skipSteps: ["search_companies"] };
+      const executionWithSkip = createChainBuilder({
+        data: {
+          id: "exec-001",
+          tenant_id: "tenant-1",
+          user_id: "user-1",
+          status: "running",
+          mode: "guided",
+          briefing: skipBriefing,
+          current_step: 1,
+          total_steps: 5,
+          cost_estimate: null,
+          cost_actual: null,
+          result_summary: null,
+          error_message: null,
+          started_at: "2026-03-26T10:00:00Z",
+          completed_at: null,
+          created_at: "2026-03-26T10:00:00Z",
+          updated_at: "2026-03-26T10:00:00Z",
+        },
+        error: null,
+      });
+
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return executionWithSkip;
+        if (table === "agent_steps") return mockSupabase.stepsChain;
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      const result = await orchestrator.executeStep("exec-001", 1);
+
+      // Step should be skipped — run() NOT called
+      expect(mockSearchCompaniesRun).not.toHaveBeenCalled();
+      expect(result.data).toMatchObject({ skipped: true, reason: "briefing_skip" });
+
+      // Step marked as skipped in DB
+      expect(mockSupabase.stepsChain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "skipped",
+          output: { skipped: true, reason: "briefing_skip" },
+        })
+      );
+
+      // Skip message inserted
+      expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: expect.stringContaining("pulada"),
+          metadata: expect.objectContaining({ messageType: "skip" }),
+        })
+      );
+    });
+
+    it("executes step normally when NOT in skipSteps", async () => {
+      // Default mockBriefing has skipSteps: []
+      const result = await orchestrator.executeStep("exec-001", 1);
+
+      expect(mockSearchCompaniesRun).toHaveBeenCalled();
+      expect(result.success).toBe(true);
+    });
+
+    it("skipped step does not break previousStepOutput for next step", async () => {
+      // Step 1 was completed, step 2 was skipped, now executing step 3
+      // Step 3 should get output from step 1 (last non-skipped)
+      const skipBriefing: ParsedBriefing = { ...mockBriefing, skipSteps: [] };
+      const executionChain = createChainBuilder({
+        data: {
+          id: "exec-001",
+          tenant_id: "tenant-1",
+          user_id: "user-1",
+          status: "running",
+          mode: "guided",
+          briefing: skipBriefing,
+          current_step: 3,
+          total_steps: 5,
+          cost_estimate: null,
+          cost_actual: null,
+          result_summary: null,
+          error_message: null,
+          started_at: "2026-03-26T10:00:00Z",
+          completed_at: null,
+          created_at: "2026-03-26T10:00:00Z",
+          updated_at: "2026-03-26T10:00:00Z",
+        },
+        error: null,
+      });
+
+      // The prev step query now uses lt + order + limit to find last completed/approved
+      const prevStepChain = createChainBuilder({
+        data: { output: { leads: [{ name: "Alice" }], totalFound: 1 }, status: "completed" },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-3",
+          execution_id: "exec-001",
+          step_number: 3,
+          step_type: "create_campaign",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return executionChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      mockCreateCampaignRun.mockResolvedValue({
+        success: true,
+        data: { campaignName: "Test" },
+      });
+
+      await orchestrator.executeStep("exec-001", 3);
+
+      const runCallArg = mockCreateCampaignRun.mock.calls[0][0];
+      expect(runCallArg.previousStepOutput).toEqual({
+        leads: [{ name: "Alice" }],
+        totalFound: 1,
+      });
+    });
+  });
+
+  describe("autopilot summary message (Story 17.7 - AC #2)", () => {
+    it("sends summary message when last step completes in autopilot mode", async () => {
+      const autopilotExecution = createChainBuilder({
+        data: {
+          id: "exec-001",
+          tenant_id: "tenant-1",
+          user_id: "user-1",
+          status: "running",
+          mode: "autopilot",
+          briefing: mockBriefing,
+          current_step: 1,
+          total_steps: 1,
+          cost_estimate: null,
+          cost_actual: null,
+          result_summary: null,
+          error_message: null,
+          started_at: "2026-03-26T10:00:00Z",
+          completed_at: null,
+          created_at: "2026-03-26T10:00:00Z",
+          updated_at: "2026-03-26T10:00:00Z",
+        },
+        error: null,
+      });
+
+      // Summary fetches all steps
+      const allStepsChain = createChainBuilder({
+        data: [
+          {
+            step_number: 1,
+            step_type: "search_companies",
+            status: "completed",
+            output: { totalFound: 10 },
+          },
+        ],
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return autopilotExecution;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          // First call: fetch step record (step 1)
+          if (stepsCallCount === 1) return mockSupabase.stepsChain;
+          // Second call: sendSummaryMessage fetches all steps
+          if (stepsCallCount === 2) return allStepsChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      mockSearchCompaniesRun.mockResolvedValue({
+        success: true,
+        data: { companies: [], totalFound: 10 },
+      });
+
+      await orchestrator.executeStep("exec-001", 1);
+
+      // Summary message should be inserted
+      expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: expect.stringContaining("Pipeline concluido"),
+          metadata: expect.objectContaining({ messageType: "summary" }),
+        })
+      );
+    });
+
+    it("does NOT send summary message in guided mode", async () => {
+      // Default mock execution is guided, total_steps=5
+      // Step 1 of 5 = not last step → no summary regardless
+      await orchestrator.executeStep("exec-001", 1);
+
+      const insertCalls = mockSupabase.messagesChain.insert.mock.calls;
+      const summaryCalls = insertCalls.filter(
+        (call: unknown[]) =>
+          (call[0] as Record<string, unknown>).metadata &&
+          ((call[0] as Record<string, unknown>).metadata as Record<string, unknown>).messageType === "summary"
+      );
+      expect(summaryCalls).toHaveLength(0);
+    });
+
+    it("includes skipped steps in summary", async () => {
+      const autopilotExecution = createChainBuilder({
+        data: {
+          id: "exec-001",
+          tenant_id: "tenant-1",
+          user_id: "user-1",
+          status: "running",
+          mode: "autopilot",
+          briefing: mockBriefing,
+          current_step: 1,
+          total_steps: 1,
+          cost_estimate: null,
+          cost_actual: null,
+          result_summary: null,
+          error_message: null,
+          started_at: "2026-03-26T10:00:00Z",
+          completed_at: null,
+          created_at: "2026-03-26T10:00:00Z",
+          updated_at: "2026-03-26T10:00:00Z",
+        },
+        error: null,
+      });
+
+      const allStepsChain = createChainBuilder({
+        data: [
+          {
+            step_number: 1,
+            step_type: "search_companies",
+            status: "skipped",
+            output: { skipped: true, reason: "briefing_skip" },
+          },
+        ],
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return autopilotExecution;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return mockSupabase.stepsChain;
+          if (stepsCallCount === 2) return allStepsChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      mockSearchCompaniesRun.mockResolvedValue({
+        success: true,
+        data: { companies: [], totalFound: 0 },
+      });
+
+      await orchestrator.executeStep("exec-001", 1);
+
+      expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: expect.stringContaining("pulada"),
+        })
+      );
     });
   });
 });

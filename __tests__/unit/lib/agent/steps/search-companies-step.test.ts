@@ -150,13 +150,43 @@ describe("SearchCompaniesStep (AC #1, #3)", () => {
       );
     });
 
-    it("passes through unknown location as-is", async () => {
+    it("omits countryCodes for unknown location that is not a valid ISO code", async () => {
       const input = createInput({ location: "Singapura" });
       await step.run(input);
 
       expect(mockSearchCompanies).toHaveBeenCalledWith(
         API_KEY,
-        expect.objectContaining({ countryCodes: ["Singapura"] })
+        expect.objectContaining({ countryCodes: undefined })
+      );
+    });
+
+    it("accepts valid 2-letter ISO code directly", async () => {
+      const input = createInput({ location: "SG" });
+      await step.run(input);
+
+      expect(mockSearchCompanies).toHaveBeenCalledWith(
+        API_KEY,
+        expect.objectContaining({ countryCodes: ["SG"] })
+      );
+    });
+
+    it("maps Brazilian city 'São Paulo' to BR", async () => {
+      const input = createInput({ location: "São Paulo" });
+      await step.run(input);
+
+      expect(mockSearchCompanies).toHaveBeenCalledWith(
+        API_KEY,
+        expect.objectContaining({ countryCodes: ["BR"] })
+      );
+    });
+
+    it("omits countryCodes for city name not in map", async () => {
+      const input = createInput({ location: "Tóquio" });
+      await step.run(input);
+
+      expect(mockSearchCompanies).toHaveBeenCalledWith(
+        API_KEY,
+        expect.objectContaining({ countryCodes: undefined })
       );
     });
 

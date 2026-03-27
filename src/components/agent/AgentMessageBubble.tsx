@@ -8,10 +8,11 @@
 
 "use client";
 
-import { Bot, Loader2, AlertCircle, DollarSign, BarChart3, ShieldCheck } from "lucide-react";
+import { Bot, Loader2, AlertCircle, DollarSign, BarChart3, ShieldCheck, SkipForward } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { useAgentStore } from "@/stores/use-agent-store";
 import type { AgentMessage, MessageType, StepType } from "@/types/agent";
 import { AgentApprovalGate } from "./AgentApprovalGate";
 import { AgentLeadReview } from "./AgentLeadReview";
@@ -37,6 +38,7 @@ function getTimestamp(dateStr: string): string {
 export function AgentMessageBubble({ message }: AgentMessageBubbleProps) {
   const isUser = message.role === "user";
   const messageType = getMessageType(message);
+  const totalSteps = useAgentStore((s) => s.totalSteps);
 
   return (
     <div
@@ -60,6 +62,7 @@ export function AgentMessageBubble({ message }: AgentMessageBubbleProps) {
             approvalData={message.metadata.approvalData}
             executionId={message.execution_id}
             stepNumber={message.metadata.stepNumber ?? 1}
+            totalSteps={totalSteps}
           />
         ) : (
         <div
@@ -84,6 +87,7 @@ export function AgentMessageBubble({ message }: AgentMessageBubbleProps) {
                 {messageType === "cost_estimate" && "Estimativa de Custo"}
                 {messageType === "summary" && "Resumo"}
                 {messageType === "approval_gate" && "Aprovacao"}
+                {messageType === "skip" && "Etapa Pulada"}
               </span>
             </div>
           )}
@@ -111,10 +115,12 @@ function ApprovalGateRenderer({
   approvalData,
   executionId,
   stepNumber,
+  totalSteps,
 }: {
   approvalData: { stepType: StepType; previewData: unknown };
   executionId: string;
   stepNumber: number;
+  totalSteps: number;
 }) {
   switch (approvalData.stepType) {
     case "search_companies":
@@ -123,6 +129,7 @@ function ApprovalGateRenderer({
           data={approvalData.previewData as Parameters<typeof AgentApprovalGate>[0]["data"]}
           executionId={executionId}
           stepNumber={stepNumber}
+          totalSteps={totalSteps}
         />
       );
     case "search_leads":
@@ -131,6 +138,7 @@ function ApprovalGateRenderer({
           data={approvalData.previewData as Parameters<typeof AgentLeadReview>[0]["data"]}
           executionId={executionId}
           stepNumber={stepNumber}
+          totalSteps={totalSteps}
         />
       );
     case "create_campaign":
@@ -139,6 +147,7 @@ function ApprovalGateRenderer({
           data={approvalData.previewData as Parameters<typeof AgentCampaignPreview>[0]["data"]}
           executionId={executionId}
           stepNumber={stepNumber}
+          totalSteps={totalSteps}
         />
       );
     case "export":
@@ -147,6 +156,7 @@ function ApprovalGateRenderer({
           data={approvalData.previewData as Parameters<typeof AgentActivationGate>[0]["data"]}
           executionId={executionId}
           stepNumber={stepNumber}
+          totalSteps={totalSteps}
         />
       );
     default:
@@ -166,6 +176,8 @@ function MessageTypeIcon({ messageType }: { messageType: MessageType }) {
       return <BarChart3 className="h-3.5 w-3.5" />;
     case "approval_gate":
       return <ShieldCheck className="h-3.5 w-3.5" />;
+    case "skip":
+      return <SkipForward className="h-3.5 w-3.5" />;
     default:
       return null;
   }

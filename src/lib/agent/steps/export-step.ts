@@ -132,26 +132,25 @@ export class ExportStep extends BaseStep {
     // 2.6 - Sub-step B: Converter emailBlocks + delayBlocks para sequences
     const sequences = convertToInstantlySequences(emailBlocks, delayBlocks ?? []);
 
-    // 2.7 - Sub-step C: Criar campanha no Instantly
+    // 2.7 - Sub-step C: Buscar sending accounts + Criar campanha no Instantly
     const service = new InstantlyService();
-    const createResult = await service.createCampaign({
-      apiKey,
-      name: campaignName,
-      sequences,
-    });
-    const externalCampaignId = createResult.campaignId;
 
-    // 2.8 - Sub-step D: Buscar e associar sending accounts
     const accountsResult = await service.listAccounts({ apiKey });
     if (accountsResult.accounts.length === 0) {
       throw new Error("Nenhuma sending account configurada no Instantly");
     }
+    const accountEmails = accountsResult.accounts.map((a) => a.email);
 
-    const addAccountsResult = await service.addAccountsToCampaign({
+    // Create campaign with sending accounts included (email_list)
+    // Replaces separate addAccountsToCampaign call (deprecated endpoint)
+    const createResult = await service.createCampaign({
       apiKey,
-      campaignId: externalCampaignId,
-      accountEmails: accountsResult.accounts.map((a) => a.email),
+      name: campaignName,
+      sequences,
+      sendingAccounts: accountEmails,
     });
+    const externalCampaignId = createResult.campaignId;
+    const accountsAdded = accountEmails.length;
 
     // 2.9 - Sub-step E: Adicionar leads com icebreakers
     const mappedLeads = leadsWithIcebreakers
@@ -189,7 +188,7 @@ export class ExportStep extends BaseStep {
       leadsUploaded: addLeadsResult.leadsUploaded,
       duplicatedLeads: addLeadsResult.duplicatedLeads,
       invalidEmails: addLeadsResult.invalidEmails,
-      accountsAdded: addAccountsResult.accountsAdded,
+      accountsAdded,
       platform: "instantly",
     };
 

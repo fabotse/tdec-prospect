@@ -16,6 +16,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // ==============================================
 
 const COUNTRY_MAP: Record<string, string> = {
+  // Countries — PT-BR names
   brasil: "BR",
   brazil: "BR",
   eua: "US",
@@ -37,7 +38,45 @@ const COUNTRY_MAP: Record<string, string> = {
   india: "IN",
   australia: "AU",
   japao: "JP",
+  // Brazilian cities & states — resolve to BR
+  "sao paulo": "BR",
+  "são paulo": "BR",
+  "rio de janeiro": "BR",
+  "belo horizonte": "BR",
+  curitiba: "BR",
+  "porto alegre": "BR",
+  brasilia: "BR",
+  "brasília": "BR",
+  salvador: "BR",
+  recife: "BR",
+  fortaleza: "BR",
+  florianopolis: "BR",
+  "florianópolis": "BR",
+  campinas: "BR",
+  sp: "BR",
+  rj: "BR",
+  mg: "BR",
+  pr: "BR",
+  rs: "BR",
+  sc: "BR",
+  ba: "BR",
+  df: "BR",
+  // US cities
+  "new york": "US",
+  "san francisco": "US",
+  "los angeles": "US",
+  chicago: "US",
+  miami: "US",
+  austin: "US",
+  seattle: "US",
+  boston: "US",
+  // UK cities
+  london: "GB",
+  londres: "GB",
 };
+
+/** Validate that a resolved value is a valid 2-letter ISO country code */
+const ISO_CODE_REGEX = /^[A-Z]{2}$/;
 
 const INDUSTRY_MAP: Record<string, number> = {
   saas: 5,
@@ -49,7 +88,7 @@ const INDUSTRY_MAP: Record<string, number> = {
   logistica: 18,
 };
 
-const MVP_LIMIT = 50;
+const MVP_LIMIT = 2;
 
 // ==============================================
 // SEARCH COMPANIES STEP
@@ -86,9 +125,17 @@ export class SearchCompaniesStep extends BaseStep {
     const technologySlugs = techs.length > 0 ? [techs[0].slug] : [];
 
     // 3.2 - Resolve location -> country code
-    const countryCodes = briefing.location
-      ? [COUNTRY_MAP[briefing.location.toLowerCase()] ?? briefing.location]
-      : undefined;
+    // Map known names/cities to ISO codes; if unknown, only use if already a valid 2-letter code
+    let countryCodes: string[] | undefined;
+    if (briefing.location) {
+      const mapped = COUNTRY_MAP[briefing.location.toLowerCase()];
+      if (mapped) {
+        countryCodes = [mapped];
+      } else if (ISO_CODE_REGEX.test(briefing.location.toUpperCase())) {
+        countryCodes = [briefing.location.toUpperCase()];
+      }
+      // If neither mapped nor valid ISO code, skip filter (don't send invalid value)
+    }
 
     // 3.2 - Resolve company size -> min/max
     const sizeMatch = briefing.companySize?.match(/(\d+)\s*[-–a]\s*(\d+)/);

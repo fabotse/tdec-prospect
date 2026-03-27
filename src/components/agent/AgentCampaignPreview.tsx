@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { triggerNextStep } from "@/lib/agent/client-utils";
 
 // === Types ===
 
@@ -48,6 +49,7 @@ interface AgentCampaignPreviewProps {
   data: CampaignPreviewData;
   executionId: string;
   stepNumber: number;
+  totalSteps: number;
   onAction?: () => void;
 }
 
@@ -61,6 +63,7 @@ export function AgentCampaignPreview({
   data,
   executionId,
   stepNumber,
+  totalSteps,
   onAction,
 }: AgentCampaignPreviewProps) {
   const [editedBlocks, setEditedBlocks] = useState<EmailBlock[]>(
@@ -114,6 +117,9 @@ export function AgentCampaignPreview({
       }
       setActionTaken("approved");
       onAction?.();
+      // Story 17.7 - AC #6: Auto-advance to next step after approval
+      // Fire-and-forget: approval already saved, don't let trigger failure affect UI
+      triggerNextStep(executionId, stepNumber, totalSteps).catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao aprovar");
       setLoading(null);

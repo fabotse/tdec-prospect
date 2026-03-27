@@ -14,7 +14,7 @@
 
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AgentMessageList } from "./AgentMessageList";
 import { AgentModeSelector } from "./AgentModeSelector";
@@ -23,6 +23,7 @@ import { AgentStepProgress } from "./AgentStepProgress";
 import { AgentInput } from "./AgentInput";
 import { useAgentExecution, useSendMessage } from "@/hooks/use-agent-execution";
 import { useAgentOnboarding } from "@/hooks/use-agent-onboarding";
+import { useAutoTrigger } from "@/hooks/use-auto-trigger";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { useBriefingFlow } from "@/hooks/use-briefing-flow";
 import type { ExecutionMode } from "@/types/agent";
@@ -37,6 +38,9 @@ export function AgentChat() {
   const setShowModeSelector = useAgentStore((s) => s.setShowModeSelector);
   const showExecutionPlan = useAgentStore((s) => s.showExecutionPlan);
   const setShowExecutionPlan = useAgentStore((s) => s.setShowExecutionPlan);
+  const executionMode = useAgentStore((s) => s.executionMode);
+  const setExecutionMode = useAgentStore((s) => s.setExecutionMode);
+  const setTotalSteps = useAgentStore((s) => s.setTotalSteps);
 
   const [isModeSubmitting, setIsModeSubmitting] = useState(false);
   const [isPlanSubmitting, setIsPlanSubmitting] = useState(false);
@@ -48,6 +52,14 @@ export function AgentChat() {
   const sendMessageMutation = useSendMessage();
 
   const { state: briefingState, processMessage: processBriefing } = useBriefingFlow();
+
+  // Story 17.7: Sync totalSteps to store for approval gates
+  useEffect(() => {
+    if (steps.length > 0) setTotalSteps(steps.length);
+  }, [steps.length, setTotalSteps]);
+
+  // Story 17.7 - AC #1: Auto-trigger next step in autopilot mode
+  useAutoTrigger({ executionId: currentExecutionId, steps, mode: executionMode });
 
   // Helper: inserir mensagem do agente via API
   const sendAgentMessage = useCallback(
@@ -196,6 +208,7 @@ export function AgentChat() {
           toast.error("Erro ao salvar modo. Tente novamente.");
           return;
         }
+        setExecutionMode(mode);
         const label = mode === "guided" ? "Guiado" : "Autopilot";
         await sendAgentMessage(
           currentExecutionId,
@@ -210,7 +223,7 @@ export function AgentChat() {
         setIsModeSubmitting(false);
       }
     },
-    [currentExecutionId, sendAgentMessage, setShowModeSelector, setShowExecutionPlan, refetchMessages]
+    [currentExecutionId, sendAgentMessage, setShowModeSelector, setShowExecutionPlan, setExecutionMode, refetchMessages]
   );
 
   const handleConfirmPlan = useCallback(async () => {
@@ -233,6 +246,13 @@ export function AgentChat() {
         "Execucao iniciada! Vou comecar pelo primeiro passo..."
       );
       refetchMessages();
+
+      // Story 17.7 - AC #5: Auto-trigger step 1 (both guided and autopilot)
+      // Fire-and-forget: plan already confirmed, don't let trigger failure show misleading error
+      fetch(
+        `/api/agent/executions/${currentExecutionId}/steps/1/execute`,
+        { method: "POST" }
+      ).catch(() => {});
     } catch {
       toast.error("Erro ao confirmar execucao. Tente novamente.");
     } finally {

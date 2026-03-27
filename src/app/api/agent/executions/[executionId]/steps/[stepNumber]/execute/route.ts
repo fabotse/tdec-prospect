@@ -109,6 +109,7 @@ export async function POST(
   } catch (error) {
     // 5.7 - PipelineError
     if (isPipelineError(error)) {
+      console.error(`[Execute Step] PipelineError step=${stepNumber}:`, JSON.stringify(error));
       const status = error.isRetryable ? 503 : 500;
       return NextResponse.json(
         {
@@ -126,6 +127,7 @@ export async function POST(
     }
 
     // 5.8 - Generic error
+    console.error("[Execute Step] Unexpected error:", error);
     return NextResponse.json(
       {
         error: {

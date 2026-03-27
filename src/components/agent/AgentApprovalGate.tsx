@@ -10,6 +10,7 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { triggerNextStep } from "@/lib/agent/client-utils";
 
 interface CompanyPreview {
   name: string;
@@ -26,6 +27,7 @@ interface AgentApprovalGateProps {
   };
   executionId: string;
   stepNumber: number;
+  totalSteps: number;
   onAction?: () => void;
 }
 
@@ -33,6 +35,7 @@ export function AgentApprovalGate({
   data,
   executionId,
   stepNumber,
+  totalSteps,
   onAction,
 }: AgentApprovalGateProps) {
   const [loading, setLoading] = useState<"approve" | "reject" | null>(null);
@@ -53,6 +56,9 @@ export function AgentApprovalGate({
       }
       setActionTaken("approved");
       onAction?.();
+      // Story 17.7 - AC #6: Auto-advance to next step after approval
+      // Fire-and-forget: approval already saved, don't let trigger failure affect UI
+      triggerNextStep(executionId, stepNumber, totalSteps).catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao aprovar");
       setLoading(null);

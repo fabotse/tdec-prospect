@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { triggerNextStep } from "@/lib/agent/client-utils";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -36,6 +37,7 @@ interface AgentLeadReviewProps {
   };
   executionId: string;
   stepNumber: number;
+  totalSteps: number;
   onAction?: () => void;
 }
 
@@ -43,6 +45,7 @@ export function AgentLeadReview({
   data,
   executionId,
   stepNumber,
+  totalSteps,
   onAction,
 }: AgentLeadReviewProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(
@@ -110,6 +113,9 @@ export function AgentLeadReview({
       }
       setActionTaken("approved");
       onAction?.();
+      // Story 17.7 - AC #6: Auto-advance to next step after approval
+      // Fire-and-forget: approval already saved, don't let trigger failure affect UI
+      triggerNextStep(executionId, stepNumber, totalSteps).catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao aprovar");
       setLoading(null);

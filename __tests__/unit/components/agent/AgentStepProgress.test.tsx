@@ -109,4 +109,82 @@ describe("AgentStepProgress (AC #2)", () => {
       expect(screen.getByText(/Criacao de Campanha/)).toBeDefined();
     });
   });
+
+  // ==============================================
+  // Story 17.7 Tests - AC #4
+  // ==============================================
+
+  describe("skipped step visual (Story 17.7 - AC #4)", () => {
+    it("renders skipped step with line-through and opacity", () => {
+      const steps = [
+        createStep({ id: "s1", step_number: 1, step_type: "search_companies", status: "skipped" }),
+        createStep({ id: "s2", step_number: 2, step_type: "search_leads", status: "pending" }),
+      ];
+      render(<AgentStepProgress steps={steps} currentStep={0} />);
+
+      const skippedEl = screen.getByText(/Busca de Empresas/).closest("div");
+      expect(skippedEl?.className).toContain("line-through");
+      expect(skippedEl?.className).toContain("opacity-60");
+    });
+  });
+
+  describe("awaiting_approval step visual (Story 17.7 - AC #4)", () => {
+    it("renders awaiting_approval step with yellow styling", () => {
+      const steps = [
+        createStep({ id: "s1", step_number: 1, step_type: "search_companies", status: "awaiting_approval" }),
+      ];
+      render(<AgentStepProgress steps={steps} currentStep={1} />);
+
+      const awaitingEl = screen.getByText(/Busca de Empresas/).closest("div");
+      expect(awaitingEl?.className).toContain("text-yellow-600");
+      expect(awaitingEl?.className).toContain("font-medium");
+    });
+  });
+
+  describe("approved step visual (Story 17.7 - AC #4)", () => {
+    it("renders approved step with green styling", () => {
+      const steps = [
+        createStep({ id: "s1", step_number: 1, step_type: "search_companies", status: "approved" }),
+      ];
+      render(<AgentStepProgress steps={steps} currentStep={2} />);
+
+      const approvedEl = screen.getByText(/Busca de Empresas/).closest("div");
+      expect(approvedEl?.className).toContain("text-green-600");
+    });
+  });
+
+  describe("step count excludes skipped (Story 17.7 - AC #4)", () => {
+    it("running step shows count excluding skipped steps", () => {
+      const steps = [
+        createStep({ id: "s1", step_number: 1, step_type: "search_companies", status: "completed" }),
+        createStep({ id: "s2", step_number: 2, step_type: "search_leads", status: "skipped" }),
+        createStep({ id: "s3", step_number: 3, step_type: "create_campaign", status: "running" }),
+        createStep({ id: "s4", step_number: 4, step_type: "export", status: "pending" }),
+      ];
+      render(<AgentStepProgress steps={steps} currentStep={3} />);
+
+      // 4 total steps, 1 skipped = 3 active. Step 3 is activeIndex 2 of 3.
+      expect(screen.getByText(/Etapa 2\/3.*Criacao de Campanha/)).toBeDefined();
+    });
+  });
+
+  describe("mixed statuses (Story 17.7 - AC #4)", () => {
+    it("renders all status types correctly together", () => {
+      const steps = [
+        createStep({ id: "s1", step_number: 1, step_type: "search_companies", status: "completed" }),
+        createStep({ id: "s2", step_number: 2, step_type: "search_leads", status: "skipped" }),
+        createStep({ id: "s3", step_number: 3, step_type: "create_campaign", status: "awaiting_approval" }),
+        createStep({ id: "s4", step_number: 4, step_type: "export", status: "pending" }),
+        createStep({ id: "s5", step_number: 5, step_type: "activate", status: "pending" }),
+      ];
+      render(<AgentStepProgress steps={steps} currentStep={3} />);
+
+      // All steps rendered
+      expect(screen.getByText(/Busca de Empresas/)).toBeDefined();
+      expect(screen.getByText(/Busca de Leads/)).toBeDefined();
+      expect(screen.getByText(/Criacao de Campanha/)).toBeDefined();
+      expect(screen.getByText(/Exportacao/)).toBeDefined();
+      expect(screen.getByText(/Ativacao/)).toBeDefined();
+    });
+  });
 });

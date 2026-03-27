@@ -18,10 +18,13 @@ import { ExternalServiceError } from "@/lib/services/base-service";
 
 const mockSearchPeople = vi.fn();
 
+const mockEnrichPerson = vi.fn();
+
 vi.mock("@/lib/services/apollo", () => {
   return {
     ApolloService: class MockApolloService {
       searchPeople = mockSearchPeople;
+      enrichPerson = mockEnrichPerson;
       constructor() {}
     },
   };
@@ -151,6 +154,11 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
     step = new SearchLeadsStep(2, mockSupabase as never, TENANT_ID);
 
     mockSearchPeople.mockResolvedValue(mockLeadsResponse);
+    // Default: enrichment returns email for leads
+    mockEnrichPerson.mockResolvedValue({
+      person: { email: "enriched@example.com" },
+      organization: null,
+    });
   });
 
   // 4.1
@@ -309,13 +317,14 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
 
       const leads = result.data.leads as Array<Record<string, unknown>>;
 
-      // First lead: has last_name (obfuscated)
+      // First lead: has last_name (obfuscated) — enrichment happens in CreateCampaignStep
       expect(leads[0]).toEqual({
         name: "John Do***e",
         title: "CTO",
         companyName: "Acme Corp",
         email: null,
         linkedinUrl: null,
+        apolloId: "apollo-1",
       });
 
       // Second lead: no last_name, has linkedinUrl
@@ -325,6 +334,7 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
         companyName: "Beta Inc",
         email: null,
         linkedinUrl: "https://linkedin.com/in/jane",
+        apolloId: "apollo-2",
       });
     });
   });

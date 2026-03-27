@@ -13,18 +13,25 @@ vi.mock("@/lib/ai", () => ({
   createAIProvider: vi.fn(),
   promptManager: { renderPrompt: vi.fn() },
 }));
-vi.mock("@/lib/services/base-service", () => ({
-  ExternalServiceError: class extends Error {
-    serviceName: string;
-    statusCode: number;
-    userMessage: string;
-    constructor(s: string, c: number, m: string) {
-      super(m);
-      this.serviceName = s;
-      this.statusCode = c;
-      this.userMessage = m;
-    }
-  },
+vi.mock("@/lib/services/base-service", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...(actual as Record<string, unknown>),
+    ExternalServiceError: class extends Error {
+      serviceName: string;
+      statusCode: number;
+      userMessage: string;
+      constructor(s: string, c: number, m: string) {
+        super(m);
+        this.serviceName = s;
+        this.statusCode = c;
+        this.userMessage = m;
+      }
+    },
+  };
+});
+vi.mock("@/lib/services/apollo", () => ({
+  ApolloService: class { enrichPerson = vi.fn(); },
 }));
 vi.mock("@/lib/crypto/encryption", () => ({ decryptApiKey: vi.fn() }));
 vi.mock("@/types/product", () => ({ transformProductRow: vi.fn() }));

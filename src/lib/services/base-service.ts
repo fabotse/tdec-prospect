@@ -245,6 +245,8 @@ export abstract class ExternalService {
           // Response may not be JSON
         }
 
+        console.error(`[${this.name}] HTTP ${response.status} ${response.statusText}`, JSON.stringify(errorBody));
+
         // Use handleError for service-specific translation (preserves subclass overrides)
         const translated = this.handleError(new Error(`HTTP ${response.status}`));
 

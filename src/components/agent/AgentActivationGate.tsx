@@ -10,6 +10,7 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { triggerNextStep } from "@/lib/agent/client-utils";
 
 // === Types ===
 
@@ -26,6 +27,7 @@ interface AgentActivationGateProps {
   data: ExportPreviewData;
   executionId: string;
   stepNumber: number;
+  totalSteps: number;
   onAction?: () => void;
 }
 
@@ -35,6 +37,7 @@ export function AgentActivationGate({
   data,
   executionId,
   stepNumber,
+  totalSteps,
   onAction,
 }: AgentActivationGateProps) {
   const [loading, setLoading] = useState<"activate" | "defer" | null>(null);
@@ -63,6 +66,9 @@ export function AgentActivationGate({
       }
       setActionTaken("activated");
       onAction?.();
+      // Story 17.7 - AC #6: Auto-advance (guard: won't trigger if last step)
+      // Fire-and-forget: activation already saved, don't let trigger failure affect UI
+      triggerNextStep(executionId, stepNumber, totalSteps).catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao ativar");
       setLoading(null);
@@ -89,6 +95,8 @@ export function AgentActivationGate({
       }
       setActionTaken("deferred");
       onAction?.();
+      // Trigger next step so orchestrator processes activationDeferred skip + completes execution
+      triggerNextStep(executionId, stepNumber, totalSteps).catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao adiar ativacao");
       setLoading(null);
