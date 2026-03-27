@@ -21,7 +21,6 @@ const mockCreateCampaign = vi.fn();
 const mockListAccounts = vi.fn();
 const mockAddAccountsToCampaign = vi.fn();
 const mockAddLeadsToCampaign = vi.fn();
-const mockTextToEmailHtml = vi.fn((text: string) => text);
 
 vi.mock("@/lib/services/instantly", () => ({
   InstantlyService: class MockInstantlyService {
@@ -30,7 +29,6 @@ vi.mock("@/lib/services/instantly", () => ({
     addAccountsToCampaign = mockAddAccountsToCampaign;
     addLeadsToCampaign = mockAddLeadsToCampaign;
   },
-  textToEmailHtml: (...args: unknown[]) => mockTextToEmailHtml(...args),
 }));
 
 const mockGetServiceApiKey = vi.fn().mockResolvedValue("decrypted-instantly-key");
@@ -145,11 +143,14 @@ describe("ExportStep (Story 17.4 AC #1, #2)", () => {
     setupHappyPathMocks();
   });
 
-  // 5.1 - Happy path
-  describe("happy path", () => {
+  // 5.1 - Happy path (autopilot — includes all accounts)
+  describe("happy path (autopilot)", () => {
     it("exports campaign to Instantly with complete output", async () => {
       const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
-      const input = createDefaultInput();
+      const input: StepInput = {
+        ...createDefaultInput(),
+        mode: "autopilot",
+      };
 
       const result = await step.run(input);
 
@@ -167,7 +168,10 @@ describe("ExportStep (Story 17.4 AC #1, #2)", () => {
 
     it("calls InstantlyService methods in correct order", async () => {
       const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
-      const input = createDefaultInput();
+      const input: StepInput = {
+        ...createDefaultInput(),
+        mode: "autopilot",
+      };
 
       await step.run(input);
 
@@ -273,7 +277,7 @@ describe("ExportStep (Story 17.4 AC #1, #2)", () => {
 
       await expect(step.run(input)).rejects.toMatchObject({
         code: "STEP_EXECUTION_ERROR",
-        message: "Nenhuma sending account configurada no Instantly",
+        message: "Nenhuma conta de envio encontrada no Instantly. Configure ao menos uma conta antes de exportar.",
         isRetryable: false,
       });
     });
@@ -387,6 +391,89 @@ describe("ExportStep (Story 17.4 AC #1, #2)", () => {
           sequences: [{ subject: "Unico email", body: "Body", delayDays: 0 }],
         })
       );
+    });
+  });
+
+  // ==============================================
+  // Story 17.9: Guided mode vs Autopilot accounts handling
+  // ==============================================
+
+  describe("Story 17.9 - Account selection", () => {
+    it("guided mode: creates campaign WITHOUT sendingAccounts (AC #1)", async () => {
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+      const input: StepInput = {
+        ...createDefaultInput(),
+        mode: "guided",
+      };
+
+      await step.run(input);
+
+      expect(mockCreateCampaign).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sendingAccounts: [],
+        })
+      );
+    });
+
+    it("guided mode: accountsAdded is 0 in output", async () => {
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+      const input: StepInput = {
+        ...createDefaultInput(),
+        mode: "guided",
+      };
+
+      const result = await step.run(input);
+      const data = result.data as Record<string, unknown>;
+      expect(data.accountsAdded).toBe(0);
+    });
+
+    it("autopilot mode: creates campaign WITH all sendingAccounts (AC #3)", async () => {
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+      const input: StepInput = {
+        ...createDefaultInput(),
+        mode: "autopilot",
+      };
+
+      await step.run(input);
+
+      expect(mockCreateCampaign).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sendingAccounts: ["sender1@company.com", "sender2@company.com"],
+        })
+      );
+    });
+
+    it("includes accounts array in output for previewData (AC #1)", async () => {
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+      const input: StepInput = {
+        ...createDefaultInput(),
+        mode: "guided",
+      };
+
+      const result = await step.run(input);
+      const data = result.data as Record<string, unknown>;
+      expect(data.accounts).toEqual([
+        expect.objectContaining({ email: "sender1@company.com", first_name: "Sender" }),
+        expect.objectContaining({ email: "sender2@company.com", first_name: "Sender2" }),
+      ]);
+    });
+
+    it("no accounts available throws error regardless of mode (AC #4)", async () => {
+      mockListAccounts.mockResolvedValue({
+        accounts: [],
+        totalCount: 0,
+      });
+
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+      const input: StepInput = {
+        ...createDefaultInput(),
+        mode: "guided",
+      };
+
+      await expect(step.run(input)).rejects.toMatchObject({
+        code: "STEP_EXECUTION_ERROR",
+        message: "Nenhuma conta de envio encontrada no Instantly. Configure ao menos uma conta antes de exportar.",
+      });
     });
   });
 

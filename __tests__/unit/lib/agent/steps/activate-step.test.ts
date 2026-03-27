@@ -17,10 +17,12 @@ import { ExternalServiceError } from "@/lib/services/base-service";
 // ==============================================
 
 const mockActivateCampaign = vi.fn();
+const mockAddAccountsToCampaign = vi.fn();
 
 vi.mock("@/lib/services/instantly", () => ({
   InstantlyService: class MockInstantlyService {
     activateCampaign = mockActivateCampaign;
+    addAccountsToCampaign = mockAddAccountsToCampaign;
   },
 }));
 
@@ -98,6 +100,7 @@ describe("ActivateStep (Story 17.4 AC #3, #4)", () => {
     vi.clearAllMocks();
     mockSupabase = createMockSupabase();
     mockActivateCampaign.mockResolvedValue({ success: true });
+    mockAddAccountsToCampaign.mockResolvedValue({ success: true, accountsAdded: 2 });
   });
 
   // 5.14 - Happy path
@@ -252,6 +255,56 @@ describe("ActivateStep (Story 17.4 AC #3, #4)", () => {
       expect(result.cost).toEqual({
         instantly_activate: 1,
       });
+    });
+  });
+
+  // ==============================================
+  // Story 17.9: selectedAccounts handling
+  // ==============================================
+
+  describe("Story 17.9 - selectedAccounts", () => {
+    it("calls addAccountsToCampaign with selectedAccounts before activating (AC #2)", async () => {
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const prevOutput = {
+        ...createPreviousStepOutput(),
+        selectedAccounts: ["sender1@company.com", "sender2@company.com"],
+      };
+      const input = createDefaultInput(prevOutput as unknown as Record<string, unknown>);
+
+      await step.run(input);
+
+      expect(mockAddAccountsToCampaign).toHaveBeenCalledWith({
+        apiKey: "decrypted-instantly-key",
+        campaignId: "instantly-camp-123",
+        accountEmails: ["sender1@company.com", "sender2@company.com"],
+      });
+      // addAccountsToCampaign called BEFORE activateCampaign
+      const addOrder = mockAddAccountsToCampaign.mock.invocationCallOrder[0];
+      const activateOrder = mockActivateCampaign.mock.invocationCallOrder[0];
+      expect(addOrder).toBeLessThan(activateOrder);
+    });
+
+    it("does NOT call addAccountsToCampaign when selectedAccounts is absent (autopilot, AC #3)", async () => {
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const input = createDefaultInput();
+
+      await step.run(input);
+
+      expect(mockAddAccountsToCampaign).not.toHaveBeenCalled();
+      expect(mockActivateCampaign).toHaveBeenCalled();
+    });
+
+    it("does NOT call addAccountsToCampaign when selectedAccounts is empty", async () => {
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const prevOutput = {
+        ...createPreviousStepOutput(),
+        selectedAccounts: [],
+      };
+      const input = createDefaultInput(prevOutput as unknown as Record<string, unknown>);
+
+      await step.run(input);
+
+      expect(mockAddAccountsToCampaign).not.toHaveBeenCalled();
     });
   });
 });

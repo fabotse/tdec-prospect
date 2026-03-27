@@ -77,8 +77,8 @@ export class ExportStep extends BaseStep {
   }
 
   /**
-   * Story 17.6 Task 7: Send summary data for activation gate.
-   * Only confirmation-level data, no editing needed.
+   * Story 17.9 Task 1.1: Include accounts in previewData for approval gate.
+   * Confirmation-level data only, no editing needed.
    */
   protected buildPreviewData(result: StepOutput): unknown {
     const data = result.data as unknown as ExportStepOutput;
@@ -89,6 +89,7 @@ export class ExportStep extends BaseStep {
       leadsUploaded: data.leadsUploaded,
       accountsAdded: data.accountsAdded,
       platform: data.platform,
+      accounts: data.accounts,
     };
   }
 
@@ -137,20 +138,23 @@ export class ExportStep extends BaseStep {
 
     const accountsResult = await service.listAccounts({ apiKey });
     if (accountsResult.accounts.length === 0) {
-      throw new Error("Nenhuma sending account configurada no Instantly");
+      throw new Error("Nenhuma conta de envio encontrada no Instantly. Configure ao menos uma conta antes de exportar.");
     }
-    const accountEmails = accountsResult.accounts.map((a) => a.email);
+    const accounts = accountsResult.accounts;
+    const accountEmails = accounts.map((a) => a.email);
 
-    // Create campaign with sending accounts included (email_list)
-    // Replaces separate addAccountsToCampaign call (deprecated endpoint)
+    // Story 17.9 AC #1/#3: In guided mode, create campaign WITHOUT accounts
+    // (user selects accounts in approval gate, ActivateStep adds them).
+    // In autopilot, include all accounts (AC #3).
+    const isGuided = input.mode === "guided";
     const createResult = await service.createCampaign({
       apiKey,
       name: campaignName,
       sequences,
-      sendingAccounts: accountEmails,
+      sendingAccounts: isGuided ? [] : accountEmails,
     });
     const externalCampaignId = createResult.campaignId;
-    const accountsAdded = accountEmails.length;
+    const accountsAdded = isGuided ? 0 : accountEmails.length;
 
     // 2.9 - Sub-step E: Adicionar leads com icebreakers
     const mappedLeads = leadsWithIcebreakers
@@ -190,6 +194,11 @@ export class ExportStep extends BaseStep {
       invalidEmails: addLeadsResult.invalidEmails,
       accountsAdded,
       platform: "instantly",
+      accounts: accounts.map((a) => ({
+        email: a.email,
+        first_name: a.first_name,
+        last_name: a.last_name,
+      })),
     };
 
     // 2.11 - Calcular custo

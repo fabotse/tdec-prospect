@@ -252,6 +252,7 @@ export interface ExportStepOutput {
   invalidEmails: number;
   accountsAdded: number;
   platform: 'instantly';
+  accounts: Array<{ email: string; first_name?: string; last_name?: string }>;
 }
 
 // === Activate Step Output (Story 17.4 AC #3, #4) ===

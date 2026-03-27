@@ -135,6 +135,10 @@ export async function POST(
     if (approvedData.activate === false && approvedData.deferred) {
       updatedOutput = { ...updatedOutput, activationDeferred: true };
     }
+    // Story 17.9 Task 3.1: selectedAccounts merge
+    if (approvedData.selectedAccounts) {
+      updatedOutput = { ...updatedOutput, selectedAccounts: approvedData.selectedAccounts };
+    }
   }
 
   // Update step: status='approved', completed_at, merged output

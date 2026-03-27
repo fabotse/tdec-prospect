@@ -416,7 +416,7 @@ development_status:
   #   - 17-10: Skip empresas — entrada direta em leads
   #   - 17-11: Skip empresas+leads — entrada direta em campanha com leads próprios
   #
-  17-9-selecao-conta-instantly-export: ready-for-dev
+  17-9-selecao-conta-instantly-export: done
   17-10-pipeline-flexivel-entrada-direta-leads: backlog
   17-11-pipeline-flexivel-entrada-direta-campanha: backlog
   epic-17-retrospective: optional

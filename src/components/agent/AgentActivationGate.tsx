@@ -10,6 +10,7 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { triggerNextStep } from "@/lib/agent/client-utils";
 
 // === Types ===
@@ -21,6 +22,7 @@ interface ExportPreviewData {
   leadsUploaded: number;
   accountsAdded: number;
   platform: string;
+  accounts: Array<{ email: string; first_name?: string; last_name?: string }>;
 }
 
 interface AgentActivationGateProps {
@@ -43,8 +45,31 @@ export function AgentActivationGate({
   const [loading, setLoading] = useState<"activate" | "defer" | null>(null);
   const [actionTaken, setActionTaken] = useState<"activated" | "deferred" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
 
   const isDisabled = loading !== null || actionTaken !== null;
+  const hasAccounts = data.accounts && data.accounts.length > 0;
+  const noAccountSelected = hasAccounts && selectedAccounts.size === 0;
+
+  const toggleAccount = (email: string) => {
+    setSelectedAccounts((prev) => {
+      const next = new Set(prev);
+      if (next.has(email)) {
+        next.delete(email);
+      } else {
+        next.add(email);
+      }
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selectedAccounts.size === data.accounts.length) {
+      setSelectedAccounts(new Set());
+    } else {
+      setSelectedAccounts(new Set(data.accounts.map((a) => a.email)));
+    }
+  };
 
   const handleActivate = async () => {
     setLoading("activate");
@@ -56,7 +81,10 @@ export function AgentActivationGate({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            approvedData: { activate: true },
+            approvedData: {
+              activate: true,
+              selectedAccounts: Array.from(selectedAccounts),
+            },
           }),
         }
       );
@@ -85,7 +113,11 @@ export function AgentActivationGate({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            approvedData: { activate: false, deferred: true },
+            approvedData: {
+              activate: false,
+              deferred: true,
+              selectedAccounts: Array.from(selectedAccounts),
+            },
           }),
         }
       );
@@ -102,6 +134,8 @@ export function AgentActivationGate({
       setLoading(null);
     }
   };
+
+  const allSelected = hasAccounts && selectedAccounts.size === data.accounts.length;
 
   return (
     <Card className="border-primary/20">
@@ -121,13 +155,56 @@ export function AgentActivationGate({
           <p>
             <span className="font-medium">{data.totalEmails}</span> emails na sequencia
           </p>
-          <p>
-            <span className="font-medium">{data.accountsAdded}</span> sending accounts
-          </p>
           <p className="text-xs text-muted-foreground">
             Plataforma: {data.platform}
           </p>
         </div>
+
+        {/* Account Selection (Story 17.9 AC #1) */}
+        {hasAccounts && (
+          <div className="flex flex-col gap-2" data-testid="account-selection">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">
+                Contas de envio ({selectedAccounts.size}/{data.accounts.length})
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={toggleAll}
+                disabled={isDisabled}
+                data-testid="account-toggle-all-btn"
+                className="h-auto px-2 py-1 text-xs"
+              >
+                {allSelected ? "Limpar Selecao" : "Selecionar Todas"}
+              </Button>
+            </div>
+            <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto rounded border p-2">
+              {data.accounts.map((account) => {
+                const label = [account.first_name, account.last_name]
+                  .filter(Boolean)
+                  .join(" ");
+                return (
+                  <label
+                    key={account.email}
+                    className="flex items-center gap-2 cursor-pointer text-sm"
+                    data-testid={`account-item-${account.email}`}
+                  >
+                    <Checkbox
+                      checked={selectedAccounts.has(account.email)}
+                      onCheckedChange={() => toggleAccount(account.email)}
+                      disabled={isDisabled}
+                      aria-label={`Selecionar conta ${account.email}`}
+                    />
+                    <span className="flex flex-col">
+                      {label && <span>{label}</span>}
+                      <span className="text-xs text-muted-foreground">{account.email}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <p className="text-sm">Quer ativar a campanha agora?</p>
 
@@ -151,7 +228,7 @@ export function AgentActivationGate({
         <div className="flex gap-2 pt-2">
           <Button
             onClick={handleActivate}
-            disabled={isDisabled}
+            disabled={isDisabled || noAccountSelected}
             size="sm"
             data-testid="activation-activate-btn"
           >
@@ -161,7 +238,7 @@ export function AgentActivationGate({
           <Button
             variant="outline"
             onClick={handleDefer}
-            disabled={isDisabled}
+            disabled={isDisabled || noAccountSelected}
             size="sm"
             data-testid="activation-defer-btn"
           >

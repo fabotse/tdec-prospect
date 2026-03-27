@@ -296,6 +296,38 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/approve", 
     );
   });
 
+  // Story 17.9 Task 3.1 - selectedAccounts merge
+  it("merges approvedData.selectedAccounts into output (Story 17.9 Task 3.1)", async () => {
+    const selectedAccounts = ["sender1@company.com", "sender2@company.com"];
+
+    const mockUpdate = vi.fn().mockReturnValue(updateChain);
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "agent_executions") return executionsChain;
+      if (table === "agent_steps") {
+        return {
+          ...stepsChain,
+          update: mockUpdate,
+        };
+      }
+      if (table === "agent_messages") return messagesChain;
+      return createChainBuilder();
+    });
+
+    await POST(
+      createRequest({ approvedData: { activate: true, selectedAccounts } }),
+      createParams()
+    );
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "approved",
+        output: expect.objectContaining({
+          selectedAccounts,
+        }),
+      })
+    );
+  });
+
   // Task 3.3 - Retrocompatibilidade: sem approvedData, comportamento identico ao 17-5
   it("preserves existing behavior when approvedData has no emailBlocks or activation flags (Story 17.6 Task 3.3)", async () => {
     const mockUpdate = vi.fn().mockReturnValue(updateChain);

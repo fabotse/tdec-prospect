@@ -65,8 +65,20 @@ export class ActivateStep extends BaseStep {
     // 3.5 - Sub-step A: Buscar API key do Instantly
     const apiKey = await getServiceApiKey(this.supabase, this.tenantId, "instantly");
 
-    // 3.6 - Sub-step B: Ativar campanha
     const service = new InstantlyService();
+
+    // Story 17.9 AC #2: Add selected accounts before activating (guided mode).
+    // In autopilot mode accounts were already included during createCampaign.
+    const selectedAccounts = previousStepOutput.selectedAccounts as string[] | undefined;
+    if (selectedAccounts && selectedAccounts.length > 0) {
+      await service.addAccountsToCampaign({
+        apiKey,
+        campaignId: externalCampaignId,
+        accountEmails: selectedAccounts,
+      });
+    }
+
+    // 3.6 - Sub-step B: Ativar campanha
     await service.activateCampaign({
       apiKey,
       campaignId: externalCampaignId,
