@@ -239,5 +239,70 @@ describe("PlanGeneratorService", () => {
 
       expect(steps[1].description).toBe("Encontrar CTO nas empresas via Apollo");
     });
+
+    // Story 17.11: imported leads flow descriptions
+    it("usa descricao 'Etapa pulada' para search_companies quando skipSteps inclui search_companies (CR fix)", () => {
+      const briefing = createBriefing({
+        skipSteps: ["search_companies", "search_leads"],
+        technology: null,
+        jobTitles: [],
+      });
+
+      const steps = PlanGeneratorService.generatePlan(
+        briefing,
+        createCostEstimate()
+      );
+
+      expect(steps[0].description).toBe("Etapa pulada — busca de empresas nao necessaria");
+    });
+
+    it("usa descricao 'Etapa pulada' para search_leads quando skipSteps inclui search_leads (AC: 17.11#4)", () => {
+      const briefing = createBriefing({
+        skipSteps: ["search_companies", "search_leads"],
+        jobTitles: [],
+        technology: null,
+      });
+
+      const steps = PlanGeneratorService.generatePlan(
+        briefing,
+        createCostEstimate()
+      );
+
+      expect(steps[1].description).toBe("Etapa pulada — leads fornecidos pelo usuario");
+    });
+
+    it("usa descricao com quantidade de leads importados para create_campaign (AC: 17.11#4)", () => {
+      const briefing = createBriefing({
+        skipSteps: ["search_companies", "search_leads"],
+        technology: null,
+        jobTitles: [],
+        importedLeads: [
+          { name: "Joao", title: "CTO", companyName: "Acme", email: "joao@acme.com", linkedinUrl: null, apolloId: null },
+          { name: "Maria", title: null, companyName: null, email: "maria@beta.com", linkedinUrl: null, apolloId: null },
+        ],
+      });
+
+      const steps = PlanGeneratorService.generatePlan(
+        briefing,
+        createCostEstimate()
+      );
+
+      expect(steps[2].description).toBe(
+        "Criar campanha com emails personalizados para 2 leads importados"
+      );
+    });
+
+    it("usa descricao default para create_campaign sem importedLeads (regressao)", () => {
+      const briefing = createBriefing({
+        skipSteps: [],
+      });
+
+      const steps = PlanGeneratorService.generatePlan(
+        briefing,
+        createCostEstimate()
+      );
+
+      expect(steps[2].description).toBe("Gerar emails personalizados com IA usando Knowledge Base");
+    });
   });
 });

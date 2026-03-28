@@ -50,7 +50,12 @@ export async function POST(
 
   // Validar briefing antes de gerar plano (Story 17.10: technology pode ser null em direct entry)
   const briefing = execution.briefing as ParsedBriefing | null;
-  const hasMinimumFields = briefing && (briefing.technology || (briefing.jobTitles && briefing.jobTitles.length > 0));
+  const hasImportedLeads = briefing?.importedLeads && briefing.importedLeads.length > 0;
+  const hasMinimumFields = briefing && (
+    briefing.technology ||
+    (briefing.jobTitles && briefing.jobTitles.length > 0) ||
+    hasImportedLeads
+  );
   if (!hasMinimumFields) {
     return NextResponse.json(
       { error: { code: "INVALID_BRIEFING", message: "Briefing incompleto ou ausente" } },

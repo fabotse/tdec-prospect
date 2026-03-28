@@ -79,6 +79,7 @@ export interface ParsedBriefing {
   productSlug: string | null;
   mode: ExecutionMode;
   skipSteps: string[];
+  importedLeads?: SearchLeadResult[]; // Story 17.11: leads fornecidos pelo usuario
 }
 
 export interface CostModel {

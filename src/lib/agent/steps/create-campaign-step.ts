@@ -74,14 +74,25 @@ export class CreateCampaignStep extends BaseStep {
   protected async executeInternal(input: StepInput): Promise<StepOutput> {
     const { briefing, previousStepOutput } = input;
 
-    // 2.3 - Validate input: leads from previous step
-    if (!previousStepOutput) {
-      throw new Error("Output do step anterior e obrigatorio para criacao de campanha");
-    }
+    // Story 17.11: Imported leads flow (both search steps skipped)
+    const isImportedLeadsFlow =
+      briefing.skipSteps?.includes("search_companies") &&
+      briefing.skipSteps?.includes("search_leads");
 
-    const leads = previousStepOutput.leads as SearchLeadResult[] | undefined;
-    if (!leads || !Array.isArray(leads) || leads.length === 0) {
-      throw new Error("Lista de leads do step anterior e obrigatoria para criacao de campanha");
+    let leads: SearchLeadResult[];
+
+    if (isImportedLeadsFlow && briefing.importedLeads && briefing.importedLeads.length > 0) {
+      leads = briefing.importedLeads;
+    } else if (previousStepOutput) {
+      const prevLeads = previousStepOutput.leads as SearchLeadResult[] | undefined;
+      if (!prevLeads || !Array.isArray(prevLeads) || prevLeads.length === 0) {
+        throw new Error("Lista de leads do step anterior e obrigatoria para criacao de campanha");
+      }
+      leads = prevLeads;
+    } else if (isImportedLeadsFlow) {
+      throw new Error("Lista de leads importados esta vazia — forneca ao menos um lead no briefing");
+    } else {
+      throw new Error("Output do step anterior e obrigatorio para criacao de campanha");
     }
 
     // 2.3b - Enrich approved leads (email + full name) before campaign creation
@@ -109,11 +120,25 @@ export class CreateCampaignStep extends BaseStep {
 
     const totalLeads = leads.length;
 
-    // 2.4 - Progress message
+    // 2.4 - Progress message (Story 17.11: dynamic step count instead of hardcoded /5)
+    const { data: allSteps } = await this.supabase
+      .from("agent_steps")
+      .select("status")
+      .eq("execution_id", input.executionId);
+    const stepsArray = Array.isArray(allSteps) ? allSteps : [];
+    const activeSteps = stepsArray.length > 0
+      ? stepsArray.filter((s: { status: string }) => s.status !== "skipped").length
+      : 5;
+    const activeStepIndex = stepsArray.length > 0
+      ? stepsArray.filter((s: { status: string }) =>
+          s.status !== "skipped" && s.status !== "pending"
+        ).length
+      : this.stepNumber;
+
     await this.supabase.from("agent_messages").insert({
       execution_id: input.executionId,
       role: "system",
-      content: `Etapa ${this.stepNumber}/5: Criando campanha com emails personalizados para ${totalLeads} leads...`,
+      content: `Etapa ${activeStepIndex}/${activeSteps}: Criando campanha com emails personalizados para ${totalLeads} leads...`,
       metadata: {
         stepNumber: this.stepNumber,
         messageType: "progress",

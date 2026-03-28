@@ -277,4 +277,48 @@ describe("POST /api/agent/executions/[executionId]/confirm", () => {
     // All inserted as "pending" — orchestrator's shouldSkip marks them as skipped
     expect(insertedSteps.every((s: { status: string }) => s.status === "pending")).toBe(true);
   });
+
+  it("deve retornar 200 com briefing contendo importedLeads (AC: 17.11#3)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const executionWithImportedLeads = {
+      id: EXEC_ID,
+      briefing: {
+        technology: null,
+        jobTitles: [],
+        location: null,
+        companySize: null,
+        industry: null,
+        productSlug: null,
+        mode: "guided",
+        skipSteps: ["search_companies", "search_leads"],
+        importedLeads: [
+          { name: "Joao", title: "CTO", companyName: "Acme", email: "joao@acme.com", linkedinUrl: null, apolloId: null },
+        ],
+      },
+      status: "pending",
+    };
+
+    const insertChain = createChainBuilder({ data: null, error: null });
+    let callCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callCount++;
+      if (callCount === 1) {
+        return createChainBuilder({ data: executionWithImportedLeads, error: null });
+      }
+      if (table === "cost_models") {
+        return createChainBuilder({ data: [], error: null });
+      }
+      if (table === "agent_steps") {
+        return insertChain;
+      }
+      if (table === "agent_executions") {
+        return createChainBuilder({ data: executionWithImportedLeads, error: null });
+      }
+      return createChainBuilder({ data: null, error: null });
+    });
+
+    const response = await POST(createRequest(), createParams());
+    expect(response.status).toBe(200);
+  });
 });

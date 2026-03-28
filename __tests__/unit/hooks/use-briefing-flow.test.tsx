@@ -1471,4 +1471,191 @@ describe("useBriefingFlow", () => {
       expect(question).not.toContain("[]");
     });
   });
+
+  // ==============================================
+  // Story 17.11: IMPORTED LEADS FLOW
+  // ==============================================
+
+  describe("imported leads flow (Story 17.11)", () => {
+    const IMPORTED_LEADS_PARSE_RESPONSE = {
+      briefing: {
+        technology: null,
+        jobTitles: [],
+        location: null,
+        companySize: null,
+        industry: null,
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies", "search_leads"],
+      },
+      missingFields: ["technology", "jobTitles"],
+      isComplete: false,
+      canProceed: false,
+      suggestions: {},
+      productMentioned: null,
+    };
+
+    const PARSE_ROUTE = {
+      url: /\/api\/agent\/briefing\/parse$/,
+      method: "POST",
+      response: mockJsonResponse(IMPORTED_LEADS_PARSE_RESPONSE),
+    };
+
+    it("deve transicionar para awaiting_leads_input quando skipSteps inclui ambos (AC: 17.11#1)", async () => {
+      createMockFetch([PARSE_ROUTE]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "Ja tenho meus leads",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("awaiting_leads_input");
+      expect(mockSendAgentMessage).toHaveBeenCalledWith(
+        EXEC_ID,
+        expect.stringContaining("Cole a lista")
+      );
+    });
+
+    it("deve parsear leads validos e transicionar para confirming_leads (AC: 17.11#2)", async () => {
+      createMockFetch([PARSE_ROUTE]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      // First: parse briefing → awaiting_leads_input
+      await act(async () => {
+        await result.current.processMessage(
+          "Ja tenho meus leads",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      // Then: paste leads
+      await act(async () => {
+        await result.current.processMessage(
+          "joao@empresa.com\nmaria@acme.com",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming_leads");
+      expect(result.current.state.briefing?.importedLeads).toHaveLength(2);
+      expect(mockSendAgentMessage).toHaveBeenLastCalledWith(
+        EXEC_ID,
+        expect.stringContaining("2 leads aceitos")
+      );
+    });
+
+    it("deve mostrar erro quando leads invalidos (sem email) (AC: 17.11#2)", async () => {
+      createMockFetch([PARSE_ROUTE]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "Ja tenho meus leads",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      await act(async () => {
+        await result.current.processMessage(
+          "apenas texto sem email",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("awaiting_leads_input");
+      expect(mockSendAgentMessage).toHaveBeenLastCalledWith(
+        EXEC_ID,
+        expect.stringContaining("Nenhum lead valido")
+      );
+    });
+
+    it("deve transicionar para confirming ao confirmar leads (AC: 17.11#2)", async () => {
+      createMockFetch([PARSE_ROUTE]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      // Parse → awaiting_leads_input
+      await act(async () => {
+        await result.current.processMessage(
+          "Ja tenho meus leads",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      // Paste leads → confirming_leads
+      await act(async () => {
+        await result.current.processMessage(
+          "joao@empresa.com",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      // Confirm leads → confirming (briefing summary)
+      await act(async () => {
+        await result.current.processMessage(
+          "sim",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      expect(mockSendAgentMessage).toHaveBeenLastCalledWith(
+        EXEC_ID,
+        expect.stringContaining("leads importados serao usados diretamente")
+      );
+    });
+
+    it("deve voltar para awaiting_leads_input ao rejeitar leads", async () => {
+      createMockFetch([PARSE_ROUTE]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      // Parse → awaiting_leads_input
+      await act(async () => {
+        await result.current.processMessage(
+          "Ja tenho meus leads",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      // Paste leads → confirming_leads
+      await act(async () => {
+        await result.current.processMessage(
+          "joao@empresa.com",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      // Reject leads → back to awaiting_leads_input
+      await act(async () => {
+        await result.current.processMessage(
+          "errei, deixa eu refazer",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("awaiting_leads_input");
+      expect(mockSendAgentMessage).toHaveBeenLastCalledWith(
+        EXEC_ID,
+        expect.stringContaining("cole a lista de leads novamente")
+      );
+    });
+  });
 });

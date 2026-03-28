@@ -258,6 +258,69 @@ describe("BriefingParserService", () => {
       expect(result.briefing.companySize).toBe("50-200");
     });
 
+    it("deve retornar skipSteps com search_companies e search_leads quando usuario tem leads proprios (AC: 17.11#1)", async () => {
+      mockOpenAIResponse({
+        technology: null,
+        jobTitles: [],
+        location: null,
+        companySize: null,
+        industry: null,
+        productMentioned: null,
+        mode: "guided",
+        skipSteps: ["search_companies", "search_leads"],
+      });
+
+      const result = await BriefingParserService.parse(
+        "Ja tenho meus leads, quero criar uma campanha para eles",
+        "sk-test"
+      );
+
+      expect(result.briefing.skipSteps).toEqual(["search_companies", "search_leads"]);
+      expect(result.briefing.jobTitles).toEqual([]);
+    });
+
+    it("deve retornar skipSteps com ambos steps quando usuario quer importar CSV de contatos (AC: 17.11#1)", async () => {
+      mockOpenAIResponse({
+        technology: null,
+        jobTitles: [],
+        location: null,
+        companySize: null,
+        industry: null,
+        productMentioned: null,
+        mode: "guided",
+        skipSteps: ["search_companies", "search_leads"],
+      });
+
+      const result = await BriefingParserService.parse(
+        "Quero importar meu CSV de contatos e enviar uma campanha",
+        "sk-test"
+      );
+
+      expect(result.briefing.skipSteps).toEqual(["search_companies", "search_leads"]);
+      expect(result.briefing.jobTitles).toEqual([]);
+    });
+
+    it("deve NAO incluir search_leads no skipSteps para busca normal (AC: 17.11#1)", async () => {
+      mockOpenAIResponse({
+        technology: null,
+        jobTitles: ["CTO"],
+        location: "Sao Paulo",
+        companySize: null,
+        industry: null,
+        productMentioned: null,
+        mode: "guided",
+        skipSteps: ["search_companies"],
+      });
+
+      const result = await BriefingParserService.parse(
+        "Buscar CTOs em SP",
+        "sk-test"
+      );
+
+      expect(result.briefing.skipSteps).toEqual(["search_companies"]);
+      expect(result.briefing.skipSteps).not.toContain("search_leads");
+    });
+
     it("deve preservar productMentioned no rawResponse", async () => {
       mockOpenAIResponse({
         ...FULL_BRIEFING_RESPONSE,

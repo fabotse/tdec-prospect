@@ -15,6 +15,7 @@ import type { ParsedBriefing, ExtractedProduct } from "@/types/agent";
 import type { CreateProductInput } from "@/types/product";
 import type { BriefingParseResponse } from "@/app/api/agent/briefing/parse/route";
 import { BriefingSuggestionService } from "@/lib/agent/briefing-suggestion-service";
+import { parseLeadInput, type LeadImportResult } from "@/lib/agent/lead-import-parser";
 
 // ==============================================
 // TYPES
@@ -28,7 +29,9 @@ export type BriefingFlowStatus =
   | "confirmed"
   | "awaiting_product_decision"
   | "awaiting_product_details"
-  | "confirming_product";
+  | "confirming_product"
+  | "awaiting_leads_input"    // Story 17.11: esperando usuario colar leads
+  | "confirming_leads";       // Story 17.11: preview dos leads para confirmacao
 
 export interface BriefingFlowState {
   status: BriefingFlowStatus;
@@ -178,8 +181,12 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
     }
   }
 
-  // Nota de skip de busca de empresas (Story 17.10 AC: #1)
-  if (briefing.skipSteps?.includes("search_companies")) {
+  // Story 17.11: imported leads summary
+  if (briefing.skipSteps?.includes("search_companies") &&
+      briefing.skipSteps?.includes("search_leads")) {
+    const leadCount = briefing.importedLeads?.length ?? 0;
+    lines.push(`Etapas de busca de empresas e leads serao puladas — ${leadCount} leads importados serao usados diretamente.`);
+  } else if (briefing.skipSteps?.includes("search_companies")) {
     const params = [
       briefing.jobTitles.length > 0 ? briefing.jobTitles.join(", ") : null,
       briefing.industry,
@@ -205,6 +212,45 @@ function isConfirmation(message: string): boolean {
 function isProductRejection(message: string): boolean {
   const normalized = message.toLowerCase().trim();
   return PRODUCT_REJECTION_KEYWORDS.some((kw) => normalized.includes(kw));
+}
+
+// ==============================================
+// IMPORTED LEADS HELPERS (Story 17.11)
+// ==============================================
+
+function isImportedLeadsFlow(briefing: ParsedBriefing): boolean {
+  return briefing.skipSteps?.includes("search_companies") === true &&
+         briefing.skipSteps?.includes("search_leads") === true;
+}
+
+function formatLeadPreview(result: LeadImportResult): string {
+  const lines: string[] = [];
+  lines.push(`**${result.accepted.length} leads aceitos**${result.rejected.length > 0 ? ` | ${result.rejected.length} rejeitados` : ""}:\n`);
+
+  lines.push("| # | Nome | Cargo | Empresa | Email |");
+  lines.push("|---|------|-------|---------|-------|");
+
+  for (let i = 0; i < Math.min(result.accepted.length, 10); i++) {
+    const lead = result.accepted[i];
+    lines.push(`| ${i + 1} | ${lead.name} | ${lead.title ?? "-"} | ${lead.companyName ?? "-"} | ${lead.email} |`);
+  }
+
+  if (result.accepted.length > 10) {
+    lines.push(`\n...e mais ${result.accepted.length - 10} leads.`);
+  }
+
+  if (result.rejected.length > 0) {
+    lines.push(`\n**Rejeitados:**`);
+    for (const r of result.rejected.slice(0, 5)) {
+      lines.push(`- "${r.line}" — ${r.reason}`);
+    }
+    if (result.rejected.length > 5) {
+      lines.push(`- ...e mais ${result.rejected.length - 5}.`);
+    }
+  }
+
+  lines.push("\nConfirma esses leads para a campanha?");
+  return lines.join("\n");
 }
 
 // ==============================================
@@ -293,7 +339,30 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       sendAgentMessage: (executionId: string, content: string) => Promise<void>
     ): Promise<{ handled: boolean }> => {
       // Story 17.8: Use canProceed instead of isComplete for flow decisions
-      if (result.canProceed) {
+      if (result.canProceed || isImportedLeadsFlow(result.briefing)) {
+        // Story 17.11: Check if this is an imported leads flow
+        if (isImportedLeadsFlow(result.briefing)) {
+          setState((prev) => ({
+            ...prev,
+            status: "awaiting_leads_input",
+            briefing: result.briefing,
+            missingFields: result.missingFields,
+            isComplete: false,
+          }));
+          await sendAgentMessage(
+            executionId,
+            "Entendi! Voce ja tem seus proprios leads. Cole a lista abaixo no formato:\n\n" +
+            "**Formato aceito** (um lead por linha):\n" +
+            "- `email@empresa.com` (minimo)\n" +
+            "- `Nome, email@empresa.com`\n" +
+            "- `Nome, Cargo, email@empresa.com`\n" +
+            "- `Nome, Cargo, Empresa, email@empresa.com`\n\n" +
+            "Tambem aceito CSV com header (nome, cargo, empresa, email).\n\n" +
+            "Cole seus leads:"
+          );
+          return { handled: true };
+        }
+
         // Check if product was mentioned but not found
         if (result.productMentioned && result.briefing.productSlug === null) {
           setState((prev) => ({
@@ -494,6 +563,60 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
         await sendAgentMessage(
           executionId,
           "Os dados estao corretos? Responda 'sim' para confirmar ou 'nao' para descrever novamente."
+        );
+        return { handled: true };
+      }
+
+      // === IMPORTED LEADS FLOW HANDLERS (Story 17.11) ===
+
+      // Handler: awaiting_leads_input (AC: #1, #2)
+      if (currentStatus === "awaiting_leads_input") {
+        const result = parseLeadInput(content);
+
+        if (result.accepted.length === 0) {
+          await sendAgentMessage(
+            executionId,
+            `Nenhum lead valido encontrado. ${result.rejected.length > 0
+              ? `${result.rejected.length} rejeitados:\n${result.rejected.map(r => `- "${r.line}" — ${r.reason}`).join("\n")}`
+              : "Cole ao menos um email valido."}`
+          );
+          return { handled: true };
+        }
+
+        if (!state.briefing) return { handled: true };
+        const updatedBriefing = { ...state.briefing, importedLeads: result.accepted };
+        setState((prev) => ({
+          ...prev,
+          status: "confirming_leads",
+          briefing: updatedBriefing,
+        }));
+
+        const preview = formatLeadPreview(result);
+        await sendAgentMessage(executionId, preview);
+        return { handled: true };
+      }
+
+      // Handler: confirming_leads (AC: #2)
+      if (currentStatus === "confirming_leads") {
+        if (isConfirmation(content)) {
+          setState((prev) => ({
+            ...prev,
+            status: "confirming",
+          }));
+          if (state.briefing) {
+            await sendAgentMessage(
+              executionId,
+              generateBriefingSummary(state.briefing, state.missingFields)
+            );
+          }
+          return { handled: true };
+        }
+
+        // User wants to redo leads
+        setState((prev) => ({ ...prev, status: "awaiting_leads_input" }));
+        await sendAgentMessage(
+          executionId,
+          "Ok, cole a lista de leads novamente:"
         );
         return { handled: true };
       }

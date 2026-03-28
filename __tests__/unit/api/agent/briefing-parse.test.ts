@@ -541,4 +541,38 @@ describe("POST /api/agent/briefing/parse", () => {
 
     expect(Object.keys(json.suggestions).length).toBeGreaterThan(0);
   });
+
+  it("deve retornar canProceed=true para imported leads flow mesmo sem jobTitles/technology (AC: 17.11#1)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      briefing: {
+        technology: null,
+        jobTitles: [],
+        location: null,
+        companySize: null,
+        industry: null,
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies", "search_leads"],
+      },
+      rawResponse: {
+        technology: null,
+        jobTitles: [],
+        location: null,
+        companySize: null,
+        industry: null,
+        productMentioned: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies", "search_leads"],
+      },
+    });
+    mockGenerateSuggestions.mockReturnValue({});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.canProceed).toBe(true);
+    expect(json.briefing.skipSteps).toEqual(["search_companies", "search_leads"]);
+  });
 });

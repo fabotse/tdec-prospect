@@ -23,6 +23,14 @@ const briefingUpdateSchema = z.object({
   productSlug: z.string().nullable(),
   mode: z.enum(["guided", "autopilot"]),
   skipSteps: z.array(z.string()),
+  importedLeads: z.array(z.object({
+    name: z.string(),
+    title: z.string().nullable(),
+    companyName: z.string().nullable(),
+    email: z.string().nullable(),
+    linkedinUrl: z.string().nullable(),
+    apolloId: z.string().nullable(),
+  })).optional(),
 });
 
 // ==============================================

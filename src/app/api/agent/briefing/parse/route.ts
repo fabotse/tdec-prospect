@@ -74,9 +74,17 @@ function analyzeBriefingCompleteness(
   // canProceed logic:
   // - jobTitles must be present (required for lead search)
   // - At least one search parameter (technology OR industry OR location) must be present
+  // - Story 17.11: imported leads flow doesn't need jobTitles or search params
   const hasJobTitles = briefing.jobTitles && briefing.jobTitles.length > 0;
   const hasSearchParam = Boolean(briefing.technology || briefing.industry || briefing.location);
-  const canProceed = Boolean(hasJobTitles && hasSearchParam);
+
+  const isImportedLeadsFlow =
+    briefing.skipSteps?.includes("search_companies") &&
+    briefing.skipSteps?.includes("search_leads");
+
+  const canProceed = Boolean(
+    (hasJobTitles && hasSearchParam) || isImportedLeadsFlow
+  );
 
   return { missingFields, canProceed };
 }

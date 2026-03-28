@@ -55,6 +55,8 @@ Extraia os seguintes campos do texto do usuario:
   - Se o usuario NAO mencionar tecnologia e nao quiser buscar empresas por tech, adicione "search_companies" no skipSteps.
   - Se o usuario pedir busca direta por cargos/industria/localizacao sem tecnologia, adicione "search_companies" no skipSteps.
   - Se o usuario mencionar tecnologia, NAO adicione "search_companies" no skipSteps.
+  - Se o usuario indicar que ja possui leads/contatos proprios (ex: "ja tenho os contatos", "quero importar meus leads", "tenho uma planilha de leads", "leads proprios", "minha lista de emails", "CSV com contatos"), adicione ["search_companies", "search_leads"] no skipSteps.
+  - Se skipSteps contem "search_leads", NAO exija jobTitles — o usuario fornecera os leads diretamente.
 
 REGRAS:
 1. Retorne SOMENTE um objeto JSON valido com os campos acima.

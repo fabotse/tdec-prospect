@@ -108,6 +108,55 @@ describe("PATCH /api/agent/executions/[executionId]/briefing", () => {
     expect(json.data.briefing).toEqual(VALID_BRIEFING);
   });
 
+  it("deve atualizar execucao com briefing contendo importedLeads (AC: 17.11#2)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const briefingWithLeads = {
+      ...VALID_BRIEFING,
+      skipSteps: ["search_companies", "search_leads"],
+      importedLeads: [
+        {
+          name: "Joao Silva",
+          title: "CTO",
+          companyName: "Empresa X",
+          email: "joao@empresa.com",
+          linkedinUrl: null,
+          apolloId: null,
+        },
+      ],
+    };
+
+    const updatedExecution = {
+      id: EXEC_ID,
+      briefing: briefingWithLeads,
+      status: "pending",
+    };
+    const chain = createChainBuilder({ data: updatedExecution, error: null });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(createRequest(briefingWithLeads), createParams());
+    expect(response.status).toBe(200);
+
+    const json = await response.json();
+    expect(json.data.briefing.importedLeads).toHaveLength(1);
+    expect(json.data.briefing.importedLeads[0].email).toBe("joao@empresa.com");
+  });
+
+  it("deve aceitar briefing sem importedLeads (campo opcional, regressao)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const updatedExecution = {
+      id: EXEC_ID,
+      briefing: VALID_BRIEFING,
+      status: "pending",
+    };
+    const chain = createChainBuilder({ data: updatedExecution, error: null });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(createRequest(VALID_BRIEFING), createParams());
+    expect(response.status).toBe(200);
+  });
+
   it("deve retornar 500 quando update falha", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
 

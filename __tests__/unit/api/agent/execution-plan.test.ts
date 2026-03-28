@@ -212,4 +212,37 @@ describe("GET /api/agent/executions/[executionId]/plan", () => {
     const json = await response.json();
     expect(json.data.totalActiveSteps).toBe(3);
   });
+
+  it("deve retornar 200 com briefing contendo importedLeads sem technology nem jobTitles (AC: 17.11#3)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const briefingWithImportedLeads = {
+      technology: null,
+      jobTitles: [],
+      location: null,
+      companySize: null,
+      industry: null,
+      productSlug: null,
+      mode: "guided",
+      skipSteps: ["search_companies", "search_leads"],
+      importedLeads: [
+        { name: "Joao", title: "CTO", companyName: "Acme", email: "joao@acme.com", linkedinUrl: null, apolloId: null },
+      ],
+    };
+
+    let callCount = 0;
+    mockFrom.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return createChainBuilder({
+          data: { id: EXEC_ID, briefing: briefingWithImportedLeads, status: "pending" },
+          error: null,
+        });
+      }
+      return createChainBuilder({ data: [], error: null });
+    });
+
+    const response = await GET(createRequest(), createParams());
+    expect(response.status).toBe(200);
+  });
 });

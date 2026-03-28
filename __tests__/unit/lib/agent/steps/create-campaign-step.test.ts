@@ -650,4 +650,145 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
       });
     });
   });
+
+  // ==============================================
+  // Story 17.11: IMPORTED LEADS FLOW
+  // ==============================================
+
+  describe("imported leads flow (Story 17.11)", () => {
+    const IMPORTED_LEADS: SearchLeadResult[] = [
+      { name: "Joao Silva", title: "CTO", companyName: "Empresa X", email: "joao@empresa.com", linkedinUrl: null, apolloId: null },
+      { name: "Maria Santos", title: null, companyName: null, email: "maria@acme.com", linkedinUrl: null, apolloId: null },
+    ];
+
+    it("deve usar briefing.importedLeads quando previousStepOutput=undefined (AC: 17.11#3)", async () => {
+      const input = createInput(
+        {
+          skipSteps: ["search_companies", "search_leads"],
+          importedLeads: IMPORTED_LEADS,
+        },
+        undefined as unknown as Record<string, unknown>
+      );
+      // Override previousStepOutput to undefined
+      input.previousStepOutput = undefined;
+
+      await step.run(input);
+
+      // Should have created campaign with imported leads — verify progress message was sent
+      const insertCalls = mockSupabase.messagesChain.insert.mock.calls;
+      expect(insertCalls.length).toBeGreaterThan(0);
+      const progressMsg = insertCalls[0][0];
+      expect(progressMsg.content).toContain("2 leads");
+    });
+
+    it("deve lancar erro quando briefing.importedLeads vazio E previousStepOutput undefined (AC: 17.11#3)", async () => {
+      const input = createInput(
+        {
+          skipSteps: ["search_companies", "search_leads"],
+          importedLeads: [],
+        },
+        undefined as unknown as Record<string, unknown>
+      );
+      input.previousStepOutput = undefined;
+
+      await expect(step.run(input)).rejects.toMatchObject({
+        message: expect.stringContaining("Lista de leads importados esta vazia"),
+      });
+    });
+
+    it("deve manter fluxo normal com previousStepOutput (regressao)", async () => {
+      const input = createInput();
+
+      await step.run(input);
+
+      const insertCalls = mockSupabase.messagesChain.insert.mock.calls;
+      expect(insertCalls.length).toBeGreaterThan(0);
+      const progressMsg = insertCalls[0][0];
+      expect(progressMsg.content).toContain("2 leads");
+    });
+
+    it("deve NAO tentar enrichment para leads sem apolloId (AC: 17.11#3)", async () => {
+      // IMPORTED_LEADS have apolloId: null — enrichment should be skipped entirely
+      const input = createInput(
+        {
+          skipSteps: ["search_companies", "search_leads"],
+          importedLeads: IMPORTED_LEADS,
+        },
+        undefined as unknown as Record<string, unknown>
+      );
+      input.previousStepOutput = undefined;
+
+      await step.run(input);
+
+      // Verify cost: apollo_enrich should be 0 (no enrichment attempted)
+      // The step completes without errors — if enrichPerson were called without mock, it would throw
+      const insertCalls = mockSupabase.messagesChain.insert.mock.calls;
+      expect(insertCalls.length).toBeGreaterThan(0);
+    });
+
+    it("deve gerar icebreakers com dados parciais — so nome + email (AC: 17.11#5)", async () => {
+      const partialLeads: SearchLeadResult[] = [
+        { name: "Joao", title: null, companyName: null, email: "joao@empresa.com", linkedinUrl: null, apolloId: null },
+      ];
+
+      const input = createInput(
+        {
+          skipSteps: ["search_companies", "search_leads"],
+          importedLeads: partialLeads,
+        },
+        undefined as unknown as Record<string, unknown>
+      );
+      input.previousStepOutput = undefined;
+
+      await step.run(input);
+
+      // Verify icebreaker prompt was rendered with partial data (title/company as empty strings)
+      const icebreakerCalls = mockRenderPrompt.mock.calls.filter(
+        (call: unknown[]) => call[0] === "icebreaker_generation"
+      );
+      expect(icebreakerCalls.length).toBe(1);
+      const variables = icebreakerCalls[0][1] as Record<string, string>;
+      expect(variables.lead_name).toBe("Joao");
+      expect(variables.lead_title).toBe("");
+      expect(variables.lead_company).toBe("");
+    });
+
+    it("deve usar contagem dinamica de steps na progress message (AC: 17.11#3)", async () => {
+      // Mock agent_steps query to return 3 active steps (2 skipped)
+      const stepsData = [
+        { status: "skipped" },
+        { status: "skipped" },
+        { status: "completed" },
+        { status: "running" },
+        { status: "pending" },
+      ];
+      const stepsQueryChain = createChainBuilder({ data: stepsData, error: null });
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_steps") return stepsQueryChain;
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        if (table === "knowledge_base") return mockSupabase.kbChain;
+        if (table === "products") return mockSupabase.productsChain;
+        if (table === "api_configs") return mockSupabase.apiConfigsChain;
+        if (table === "icebreaker_examples") return mockSupabase.icebreakerExamplesChain;
+        return createChainBuilder();
+      });
+
+      const input = createInput(
+        {
+          skipSteps: ["search_companies", "search_leads"],
+          importedLeads: IMPORTED_LEADS,
+        },
+        undefined as unknown as Record<string, unknown>
+      );
+      input.previousStepOutput = undefined;
+
+      await step.run(input);
+
+      const insertCalls = mockSupabase.messagesChain.insert.mock.calls;
+      expect(insertCalls.length).toBeGreaterThan(0);
+      const progressMsg = insertCalls[0][0];
+      // 3 active steps (not skipped), completed+running = 2 non-pending active steps
+      expect(progressMsg.content).toMatch(/Etapa 2\/3/);
+    });
+  });
 });

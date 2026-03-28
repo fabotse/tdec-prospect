@@ -22,16 +22,23 @@ export const PIPELINE_STEPS: StepMetadata[] = [
   {
     stepType: "search_companies",
     title: "Buscar Empresas",
-    descriptionFn: (b) =>
-      b.technology
+    descriptionFn: (b) => {
+      if (b.skipSteps?.includes("search_companies")) {
+        return "Etapa pulada — busca de empresas nao necessaria";
+      }
+      return b.technology
         ? `Buscar empresas que usam ${b.technology} via TheirStack`
-        : "Buscar empresas via TheirStack",
+        : "Buscar empresas via TheirStack";
+    },
     costKey: "search_companies",
   },
   {
     stepType: "search_leads",
     title: "Encontrar Contatos",
     descriptionFn: (b) => {
+      if (b.skipSteps?.includes("search_leads")) {
+        return "Etapa pulada — leads fornecidos pelo usuario";
+      }
       if (b.skipSteps?.includes("search_companies")) {
         const filters = [
           b.jobTitles.length > 0 ? b.jobTitles.join(", ") : null,
@@ -49,7 +56,12 @@ export const PIPELINE_STEPS: StepMetadata[] = [
   {
     stepType: "create_campaign",
     title: "Criar Campanha",
-    descriptionFn: () => "Gerar emails personalizados com IA usando Knowledge Base",
+    descriptionFn: (b) => {
+      if (b.skipSteps?.includes("search_leads") && b.importedLeads?.length) {
+        return `Criar campanha com emails personalizados para ${b.importedLeads.length} leads importados`;
+      }
+      return "Gerar emails personalizados com IA usando Knowledge Base";
+    },
     costKey: "create_campaign",
   },
   {
