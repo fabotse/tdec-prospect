@@ -22,6 +22,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // ==============================================
 
 const CREDITS_PER_LEAD = 1;
+const LEADS_PER_PAGE = 25;
 
 // ==============================================
 // SEARCH LEADS STEP
@@ -36,43 +37,66 @@ export class SearchLeadsStep extends BaseStep {
   }
 
   /**
-   * Execute lead search:
-   * 1. Validate input (jobTitles + previousStepOutput with companies)
-   * 2. Extract domains from previous step companies
-   * 3. Build ApolloSearchFilters
-   * 4. Call ApolloService.searchPeople()
-   * 5. Transform LeadRow[] -> SearchLeadResult[]
-   * 6. Calculate cost
-   * 7. Return StepOutput
-   * (2.1 - 2.10)
+   * Execute lead search with dual flow:
+   * - Normal: previousStepOutput with companies → search by domains
+   * - Direct entry (Story 17.10): previousStepOutput undefined → search open market by briefing filters
    */
   protected async executeInternal(input: StepInput): Promise<StepOutput> {
     const { briefing, previousStepOutput } = input;
 
-    // AC #1 - Send progress message before execution
-    const prevCompanies = (previousStepOutput?.companies as Array<Record<string, unknown>> | undefined) ?? [];
-    const companiesCount = prevCompanies.length;
-    const titlesLabel = briefing.jobTitles.join(", ");
-    await this.supabase.from("agent_messages").insert({
-      execution_id: input.executionId,
-      role: "system",
-      content: `Etapa ${this.stepNumber}/5: Buscando leads (${titlesLabel}) nas ${companiesCount} empresas...`,
-      metadata: {
-        stepNumber: this.stepNumber,
-        messageType: "progress",
-      },
-    });
-
-    // 2.5 - Validate input
+    // Validate jobTitles (required for both flows)
     if (!briefing.jobTitles || briefing.jobTitles.length === 0) {
       throw new Error("Cargos (jobTitles) sao obrigatorios para busca de leads");
     }
 
-    if (!previousStepOutput) {
-      throw new Error("Output do step anterior e obrigatorio para busca de leads");
+    const jobTitles = briefing.jobTitles;
+    const titlesLabel = jobTitles.join(", ");
+    const isDirectEntry = !previousStepOutput;
+
+    // Count active (non-skipped) steps for progress message
+    const { data: allSteps } = await this.supabase
+      .from("agent_steps")
+      .select("status")
+      .eq("execution_id", input.executionId);
+    const activeSteps = allSteps?.filter((s) => s.status !== "skipped").length ?? 5;
+
+    // Send progress message
+    if (isDirectEntry) {
+      await this.supabase.from("agent_messages").insert({
+        execution_id: input.executionId,
+        role: "system",
+        content: `Etapa ${this.stepNumber}/${activeSteps}: Buscando leads (${titlesLabel}) no mercado aberto...`,
+        metadata: { stepNumber: this.stepNumber, messageType: "progress" },
+      });
+    } else {
+      const prevCompanies = (previousStepOutput?.companies as Array<Record<string, unknown>> | undefined) ?? [];
+      await this.supabase.from("agent_messages").insert({
+        execution_id: input.executionId,
+        role: "system",
+        content: `Etapa ${this.stepNumber}/${activeSteps}: Buscando leads (${titlesLabel}) nas ${prevCompanies.length} empresas...`,
+        metadata: { stepNumber: this.stepNumber, messageType: "progress" },
+      });
     }
 
-    // 2.3 - Extract domains from previous step companies
+    const service = new ApolloService(this.tenantId);
+    let domains: string[] = [];
+
+    if (isDirectEntry) {
+      // Story 17.10: Direct entry — search open market by briefing filters
+      const filters = {
+        titles: jobTitles,
+        perPage: LEADS_PER_PAGE,
+        page: 1,
+        ...(briefing.location ? { locations: [briefing.location] } : {}),
+        ...(briefing.industry ? { industries: [briefing.industry] } : {}),
+        ...(briefing.companySize ? { companySizes: [briefing.companySize] } : {}),
+      };
+
+      const result = await service.searchPeople(filters);
+      return this.buildSearchOutput(result, jobTitles, []);
+    }
+
+    // Normal flow: extract domains from previous step companies
     const companies = previousStepOutput.companies as
       | Array<{ domain?: string | null }>
       | undefined;
@@ -83,7 +107,7 @@ export class SearchLeadsStep extends BaseStep {
       );
     }
 
-    const domains = companies
+    domains = companies
       .map((c) => c.domain)
       .filter((d): d is string => Boolean(d));
 
@@ -93,22 +117,26 @@ export class SearchLeadsStep extends BaseStep {
       );
     }
 
-    // 2.4 - Extract job titles from briefing
-    const jobTitles = briefing.jobTitles;
-
-    // 2.6 - Build ApolloSearchFilters
     const filters = {
       domains,
       titles: jobTitles,
-      perPage: 25,
+      perPage: LEADS_PER_PAGE,
       page: 1,
     };
 
-    // 2.7 - Call ApolloService.searchPeople()
-    const service = new ApolloService(this.tenantId);
     const result = await service.searchPeople(filters);
+    return this.buildSearchOutput(result, jobTitles, domains);
+  }
 
-    // 2.8 - Transform LeadRow[] -> SearchLeadResult[]
+  /**
+   * Map Apollo result to StepOutput format.
+   * Shared between normal flow and direct entry (Story 17.10).
+   */
+  private buildSearchOutput(
+    result: { leads: LeadRow[]; pagination: { totalEntries: number } },
+    jobTitles: string[],
+    domainsSearched: string[]
+  ): StepOutput {
     const leads: SearchLeadResult[] = result.leads.map((lead: LeadRow) => ({
       name: [lead.first_name, lead.last_name].filter(Boolean).join(" "),
       title: lead.title,
@@ -118,19 +146,10 @@ export class SearchLeadsStep extends BaseStep {
       apolloId: lead.apollo_id,
     }));
 
-    // 2.10 - Calculate cost (enrichment moved to CreateCampaignStep — only enrich approved leads)
-    const cost = { apollo_search: leads.length * CREDITS_PER_LEAD };
-
-    // 2.9 - Return StepOutput
     return {
       success: true,
-      data: {
-        leads,
-        totalFound: result.pagination.totalEntries,
-        jobTitles,
-        domainsSearched: domains,
-      },
-      cost,
+      data: { leads, totalFound: result.pagination.totalEntries, jobTitles, domainsSearched },
+      cost: { apollo_search: leads.length * CREDITS_PER_LEAD },
     };
   }
 }

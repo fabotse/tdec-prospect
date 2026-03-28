@@ -35,7 +35,17 @@ vi.mock("@/lib/services/apollo", () => {
 // ==============================================
 
 function createMockSupabase() {
-  const stepsChain = createChainBuilder({ data: { id: "step-1" }, error: null });
+  // Steps chain returns array (needed for activeSteps count query in Story 17.10)
+  const stepsChain = createChainBuilder({
+    data: [
+      { id: "step-1", status: "pending" },
+      { id: "step-2", status: "pending" },
+      { id: "step-3", status: "pending" },
+      { id: "step-4", status: "pending" },
+      { id: "step-5", status: "pending" },
+    ],
+    error: null,
+  });
   const messagesChain = createChainBuilder({ data: { id: "msg-1" }, error: null });
 
   const mockFrom = vi.fn().mockImplementation((table: string) => {
@@ -215,16 +225,25 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
     });
   });
 
-  // 4.3
+  // 4.3 — Story 17.10: previousStepOutput undefined now triggers direct entry (no longer throws)
   describe("input validation - previousStepOutput", () => {
-    it("throws when previousStepOutput is undefined", async () => {
+    it("succeeds with direct entry when previousStepOutput is undefined (Story 17.10)", async () => {
       const input = createInput({}, undefined);
       input.previousStepOutput = undefined;
 
-      await expect(step.run(input)).rejects.toMatchObject({
-        code: expect.any(String),
-        stepNumber: 2,
-      });
+      const result = await step.run(input);
+
+      expect(result.success).toBe(true);
+      expect(result.data.domainsSearched).toEqual([]);
+      expect(mockSearchPeople).toHaveBeenCalledWith(
+        expect.objectContaining({
+          titles: ["CTO", "VP Engineering"],
+        })
+      );
+      // Should NOT have domains in the call
+      expect(mockSearchPeople).toHaveBeenCalledWith(
+        expect.not.objectContaining({ domains: expect.anything() })
+      );
     });
   });
 
@@ -306,6 +325,112 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
 
       expect(result.cost).toBeDefined();
       expect(result.cost?.apollo_search).toBe(2); // 2 leads * 1 credit
+    });
+  });
+
+  // ==============================================
+  // Story 17.10: Direct Entry (skip empresas)
+  // ==============================================
+
+  describe("direct entry - open market search (Story 17.10)", () => {
+    it("searches Apollo without domains when previousStepOutput is undefined", async () => {
+      const input = createInput({ location: "Sao Paulo", industry: "fintech" }, undefined);
+      input.previousStepOutput = undefined;
+
+      const result = await step.run(input);
+
+      expect(result.success).toBe(true);
+      expect(result.data.domainsSearched).toEqual([]);
+      expect(mockSearchPeople).toHaveBeenCalledWith({
+        titles: ["CTO", "VP Engineering"],
+        locations: ["Sao Paulo"],
+        industries: ["fintech"],
+        companySizes: ["50-200"],
+        perPage: 25,
+        page: 1,
+      });
+    });
+
+    it("sends progress message for open market (no company count)", async () => {
+      const input = createInput({}, undefined);
+      input.previousStepOutput = undefined;
+
+      await step.run(input);
+
+      expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: expect.stringContaining("no mercado aberto"),
+        })
+      );
+    });
+
+    it("throws when jobTitles missing in direct entry", async () => {
+      const input = createInput({ jobTitles: [] }, undefined);
+      input.previousStepOutput = undefined;
+
+      await expect(step.run(input)).rejects.toMatchObject({
+        code: expect.any(String),
+        stepNumber: 2,
+      });
+    });
+
+    it("returns correct output format with empty domainsSearched", async () => {
+      const input = createInput({}, undefined);
+      input.previousStepOutput = undefined;
+
+      const result = await step.run(input);
+
+      expect(result.data.leads).toHaveLength(2);
+      expect(result.data.totalFound).toBe(2);
+      expect(result.data.jobTitles).toEqual(["CTO", "VP Engineering"]);
+      expect(result.data.domainsSearched).toEqual([]);
+    });
+
+    it("includes optional filters from briefing in direct entry", async () => {
+      const input = createInput(
+        { location: "Brasil", industry: "saude", companySize: "200-500" },
+        undefined
+      );
+      input.previousStepOutput = undefined;
+
+      await step.run(input);
+
+      expect(mockSearchPeople).toHaveBeenCalledWith(
+        expect.objectContaining({
+          locations: ["Brasil"],
+          industries: ["saude"],
+          companySizes: ["200-500"],
+        })
+      );
+    });
+
+    it("omits undefined optional filters in direct entry", async () => {
+      const input = createInput(
+        { location: null, industry: null, companySize: null },
+        undefined
+      );
+      input.previousStepOutput = undefined;
+
+      await step.run(input);
+
+      const callArg = mockSearchPeople.mock.calls[0][0];
+      expect(callArg.locations).toBeUndefined();
+      expect(callArg.industries).toBeUndefined();
+      expect(callArg.companySizes).toBeUndefined();
+    });
+
+    it("normal flow still works with previousStepOutput (regression)", async () => {
+      const input = createInput();
+
+      const result = await step.run(input);
+
+      expect(result.success).toBe(true);
+      expect(result.data.domainsSearched).toEqual(["acme.com", "beta.io"]);
+      expect(mockSearchPeople).toHaveBeenCalledWith(
+        expect.objectContaining({
+          domains: ["acme.com", "beta.io"],
+        })
+      );
     });
   });
 

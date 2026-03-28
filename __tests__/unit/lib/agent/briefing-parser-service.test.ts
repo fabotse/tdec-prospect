@@ -191,6 +191,73 @@ describe("BriefingParserService", () => {
       expect(result.briefing.skipSteps).toEqual([]);
     });
 
+    it("deve retornar skipSteps com search_companies quando OpenAI indica skip (AC: 17.10#1)", async () => {
+      mockOpenAIResponse({
+        technology: null,
+        jobTitles: ["CTO", "Head de TI"],
+        location: "Sao Paulo",
+        companySize: null,
+        industry: "fintech",
+        productMentioned: null,
+        mode: "guided",
+        skipSteps: ["search_companies"],
+      });
+
+      const result = await BriefingParserService.parse(
+        "Quero prospectar CTOs e Heads de TI de fintechs em SP",
+        "sk-test"
+      );
+
+      expect(result.briefing.skipSteps).toEqual(["search_companies"]);
+      expect(result.briefing.technology).toBeNull();
+      expect(result.briefing.jobTitles).toEqual(["CTO", "Head de TI"]);
+    });
+
+    it("deve retornar skipSteps vazio quando tecnologia esta presente (AC: 17.10#1)", async () => {
+      mockOpenAIResponse({
+        technology: "Netskope",
+        jobTitles: ["CISO"],
+        location: null,
+        companySize: null,
+        industry: null,
+        productMentioned: null,
+        mode: "guided",
+        skipSteps: [],
+      });
+
+      const result = await BriefingParserService.parse(
+        "Quero prospectar CISOs de empresas que usam Netskope",
+        "sk-test"
+      );
+
+      expect(result.briefing.skipSteps).toEqual([]);
+      expect(result.briefing.technology).toBe("Netskope");
+    });
+
+    it("deve retornar skipSteps com search_companies para busca por industria e localizacao sem tech (AC: 17.10#1)", async () => {
+      mockOpenAIResponse({
+        technology: null,
+        jobTitles: ["Diretor de Tecnologia"],
+        location: "Brasil",
+        companySize: "50-200",
+        industry: "saude",
+        productMentioned: null,
+        mode: "guided",
+        skipSteps: ["search_companies"],
+      });
+
+      const result = await BriefingParserService.parse(
+        "Buscar diretores de tecnologia na area de saude no Brasil, empresas de 50 a 200 funcionarios",
+        "sk-test"
+      );
+
+      expect(result.briefing.skipSteps).toEqual(["search_companies"]);
+      expect(result.briefing.technology).toBeNull();
+      expect(result.briefing.industry).toBe("saude");
+      expect(result.briefing.location).toBe("Brasil");
+      expect(result.briefing.companySize).toBe("50-200");
+    });
+
     it("deve preservar productMentioned no rawResponse", async () => {
       mockOpenAIResponse({
         ...FULL_BRIEFING_RESPONSE,

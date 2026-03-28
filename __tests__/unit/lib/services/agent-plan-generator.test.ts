@@ -166,5 +166,78 @@ describe("PlanGeneratorService", () => {
     it("PIPELINE_STEPS contem 5 step types", () => {
       expect(PIPELINE_STEPS).toHaveLength(5);
     });
+
+    // Story 17.10: descricao adaptada para search_leads quando skip empresas
+    it("gera descricao adaptada para search_leads quando skipSteps inclui search_companies (AC: 17.10#2)", () => {
+      const briefing = createBriefing({
+        technology: null,
+        jobTitles: ["CTO", "Head de TI"],
+        industry: "fintech",
+        location: "Sao Paulo",
+        skipSteps: ["search_companies"],
+      });
+
+      const steps = PlanGeneratorService.generatePlan(
+        briefing,
+        createCostEstimate()
+      );
+
+      expect(steps[1].description).toBe(
+        "Buscar leads diretamente por CTO, Head de TI + fintech + Sao Paulo (sem filtro de empresa)"
+      );
+    });
+
+    it("gera descricao adaptada com apenas cargos quando skip sem industry/location (AC: 17.10#2)", () => {
+      const briefing = createBriefing({
+        technology: null,
+        jobTitles: ["CISO"],
+        industry: null,
+        location: null,
+        skipSteps: ["search_companies"],
+      });
+
+      const steps = PlanGeneratorService.generatePlan(
+        briefing,
+        createCostEstimate()
+      );
+
+      expect(steps[1].description).toBe(
+        "Buscar leads diretamente por CISO (sem filtro de empresa)"
+      );
+    });
+
+    it("usa descricao fallback 'cargos' quando skip sem jobTitles (AC: 17.10#2)", () => {
+      const briefing = createBriefing({
+        technology: null,
+        jobTitles: [],
+        location: null,
+        industry: null,
+        skipSteps: ["search_companies"],
+      });
+
+      const steps = PlanGeneratorService.generatePlan(
+        briefing,
+        createCostEstimate()
+      );
+
+      expect(steps[1].description).toBe(
+        "Buscar leads diretamente por cargos (sem filtro de empresa)"
+      );
+    });
+
+    it("usa descricao normal para search_leads quando NAO tem skip (regressao)", () => {
+      const briefing = createBriefing({
+        technology: "AWS",
+        jobTitles: ["CTO"],
+        skipSteps: [],
+      });
+
+      const steps = PlanGeneratorService.generatePlan(
+        briefing,
+        createCostEstimate()
+      );
+
+      expect(steps[1].description).toBe("Encontrar CTO nas empresas via Apollo");
+    });
   });
 });

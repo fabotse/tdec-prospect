@@ -108,13 +108,13 @@ describe("GET /api/agent/executions/[executionId]/plan", () => {
     expect(json.error.code).toBe("INVALID_BRIEFING");
   });
 
-  it("deve retornar 400 quando briefing nao tem technology", async () => {
+  it("deve retornar 400 quando briefing nao tem technology NEM jobTitles", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
 
     const chain = createChainBuilder({
       data: {
         id: EXEC_ID,
-        briefing: { ...mockBriefing, technology: null },
+        briefing: { ...mockBriefing, technology: null, jobTitles: [] },
         status: "pending",
       },
       error: null,
@@ -123,6 +123,35 @@ describe("GET /api/agent/executions/[executionId]/plan", () => {
 
     const response = await GET(createRequest(), createParams());
     expect(response.status).toBe(400);
+  });
+
+  it("deve retornar 200 quando briefing tem jobTitles sem technology (direct entry - Story 17.10)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const directEntryBriefing = {
+      ...mockBriefing,
+      technology: null,
+      jobTitles: ["CTO"],
+      skipSteps: ["search_companies"],
+    };
+
+    let callCount = 0;
+    mockFrom.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return createChainBuilder({
+          data: { id: EXEC_ID, briefing: directEntryBriefing, status: "pending" },
+          error: null,
+        });
+      }
+      return createChainBuilder({ data: [], error: null });
+    });
+
+    const response = await GET(createRequest(), createParams());
+    expect(response.status).toBe(200);
+
+    const json = await response.json();
+    expect(json.data.totalActiveSteps).toBe(4); // 5 - 1 skipped
   });
 
   it("deve retornar 200 com plan, costEstimate e totalActiveSteps", async () => {

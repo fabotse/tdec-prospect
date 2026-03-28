@@ -519,6 +519,12 @@ describe("DeterministicOrchestrator (AC #5)", () => {
         error: null,
       });
 
+      // Story 17.10: 3rd call checks if all prev are skipped — return pending (not all skipped)
+      const allPrevNotSkippedChain = createChainBuilder({
+        data: [{ status: "pending" }],
+        error: null,
+      });
+
       let stepsCallCount = 0;
       mockSupabase.from.mockImplementation((table: string) => {
         if (table === "agent_executions") return mockSupabase.executionsChain;
@@ -526,6 +532,7 @@ describe("DeterministicOrchestrator (AC #5)", () => {
           stepsCallCount++;
           if (stepsCallCount === 1) return stepsChain;
           if (stepsCallCount === 2) return prevStepChain;
+          if (stepsCallCount === 3) return allPrevNotSkippedChain;
           return createChainBuilder({ data: { id: "step-x" }, error: null });
         }
         if (table === "agent_messages") return mockSupabase.messagesChain;
@@ -1495,6 +1502,148 @@ describe("DeterministicOrchestrator (AC #5)", () => {
           content: expect.stringContaining("pulada"),
         })
       );
+    });
+  });
+
+  describe("all previous steps skipped — direct entry (Story 17.10 - Task 3)", () => {
+    it("allows step execution with previousStepOutput=undefined when all prev steps are skipped", async () => {
+      const skipBriefing: ParsedBriefing = { ...mockBriefing, technology: null, skipSteps: ["search_companies"] };
+      const executionChain = createChainBuilder({
+        data: {
+          id: "exec-001",
+          tenant_id: "tenant-1",
+          user_id: "user-1",
+          status: "running",
+          mode: "guided",
+          briefing: skipBriefing,
+          current_step: 2,
+          total_steps: 5,
+          cost_estimate: null,
+          cost_actual: null,
+          result_summary: null,
+          error_message: null,
+          started_at: "2026-03-26T10:00:00Z",
+          completed_at: null,
+          created_at: "2026-03-26T10:00:00Z",
+          updated_at: "2026-03-26T10:00:00Z",
+        },
+        error: null,
+      });
+
+      // Step 2 record (search_leads)
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-2",
+          execution_id: "exec-001",
+          step_number: 2,
+          step_type: "search_leads",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      // Previous step query returns null (no completed/approved steps)
+      const prevStepChain = createChainBuilder({
+        data: null,
+        error: null,
+      });
+
+      // All-previous-steps query returns all skipped
+      const allPrevStepsChain = createChainBuilder({
+        data: [{ status: "skipped" }],
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return executionChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;       // fetch step record
+          if (stepsCallCount === 2) return prevStepChain;     // prev completed/approved
+          if (stepsCallCount === 3) return allPrevStepsChain; // all prev check
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      mockSearchLeadsRun.mockResolvedValue({
+        success: true,
+        data: { leads: [], totalFound: 0, jobTitles: ["CTO"], domainsSearched: [] },
+      });
+
+      const result = await orchestrator.executeStep("exec-001", 2);
+
+      expect(result.success).toBe(true);
+      expect(mockSearchLeadsRun).toHaveBeenCalled();
+      // previousStepOutput should be undefined
+      const runCallArg = mockSearchLeadsRun.mock.calls[0][0];
+      expect(runCallArg.previousStepOutput).toBeUndefined();
+    });
+
+    it("still throws ORCHESTRATOR_STEP_NOT_READY when prev steps are not all skipped", async () => {
+      const executionChain = createChainBuilder({
+        data: {
+          id: "exec-001",
+          tenant_id: "tenant-1",
+          user_id: "user-1",
+          status: "running",
+          mode: "guided",
+          briefing: mockBriefing,
+          current_step: 3,
+          total_steps: 5,
+          cost_estimate: null,
+          cost_actual: null,
+          result_summary: null,
+          error_message: null,
+          started_at: "2026-03-26T10:00:00Z",
+          completed_at: null,
+          created_at: "2026-03-26T10:00:00Z",
+          updated_at: "2026-03-26T10:00:00Z",
+        },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-3",
+          execution_id: "exec-001",
+          step_number: 3,
+          step_type: "create_campaign",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      const prevStepChain = createChainBuilder({
+        data: null,
+        error: null,
+      });
+
+      // Mix of skipped and pending — NOT all skipped
+      const allPrevStepsChain = createChainBuilder({
+        data: [{ status: "skipped" }, { status: "pending" }],
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return executionChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          if (stepsCallCount === 3) return allPrevStepsChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      await expect(orchestrator.executeStep("exec-001", 3)).rejects.toMatchObject({
+        code: "ORCHESTRATOR_STEP_NOT_READY",
+      });
     });
   });
 });

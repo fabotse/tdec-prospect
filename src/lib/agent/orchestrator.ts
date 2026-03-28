@@ -133,19 +133,31 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
         .single();
 
       if (!prevStep?.output) {
-        throw this.createPipelineError(
-          "ORCHESTRATOR_STEP_NOT_READY",
-          "Step anterior nao concluido",
-          stepNumber,
-          stepType
-        );
-      }
-      previousStepOutput = prevStep.output as Record<string, unknown>;
+        // Story 17.10: Check if all previous steps are skipped (direct entry flow)
+        const { data: prevSteps } = await this.supabase
+          .from("agent_steps")
+          .select("status")
+          .eq("execution_id", executionId)
+          .lt("step_number", stepNumber);
 
-      // Story 17.5 - Task 5.2: Use approvedLeads when user filtered leads
-      if (previousStepOutput?.approvedLeads) {
-        previousStepOutput.leads = previousStepOutput.approvedLeads;
-        previousStepOutput.totalFound = (previousStepOutput.approvedLeads as unknown[]).length;
+        const allSkipped = prevSteps != null && prevSteps.length > 0 && prevSteps.every((s) => s.status === "skipped");
+        if (!allSkipped) {
+          throw this.createPipelineError(
+            "ORCHESTRATOR_STEP_NOT_READY",
+            "Step anterior nao concluido",
+            stepNumber,
+            stepType
+          );
+        }
+        // All previous skipped — previousStepOutput stays undefined
+      } else {
+        previousStepOutput = prevStep.output as Record<string, unknown>;
+
+        // Story 17.5 - Task 5.2: Use approvedLeads when user filtered leads
+        if (previousStepOutput?.approvedLeads) {
+          previousStepOutput.leads = previousStepOutput.approvedLeads;
+          previousStepOutput.totalFound = (previousStepOutput.approvedLeads as unknown[]).length;
+        }
       }
     }
 

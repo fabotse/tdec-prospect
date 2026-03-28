@@ -178,6 +178,16 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
     }
   }
 
+  // Nota de skip de busca de empresas (Story 17.10 AC: #1)
+  if (briefing.skipSteps?.includes("search_companies")) {
+    const params = [
+      briefing.jobTitles.length > 0 ? briefing.jobTitles.join(", ") : null,
+      briefing.industry,
+      briefing.location,
+    ].filter(Boolean).join(" + ");
+    lines.push(`Etapa de busca de empresas sera pulada — leads serao buscados diretamente por ${params || "cargos"}.`);
+  }
+
   lines.push("\nConfirma esses parametros?");
 
   return lines.join("\n");

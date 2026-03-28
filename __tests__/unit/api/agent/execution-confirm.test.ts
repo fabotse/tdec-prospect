@@ -114,11 +114,11 @@ describe("POST /api/agent/executions/[executionId]/confirm", () => {
     expect(json.error.code).toBe("INVALID_BRIEFING");
   });
 
-  it("deve retornar 400 quando briefing nao tem technology", async () => {
+  it("deve retornar 400 quando briefing nao tem technology NEM jobTitles", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
 
     const chain = createChainBuilder({
-      data: { ...mockExecution, briefing: { ...mockBriefing, technology: null } },
+      data: { ...mockExecution, briefing: { ...mockBriefing, technology: null, jobTitles: [] } },
       error: null,
     });
     mockFrom.mockReturnValue(chain);
@@ -128,6 +128,39 @@ describe("POST /api/agent/executions/[executionId]/confirm", () => {
 
     const json = await response.json();
     expect(json.error.code).toBe("INVALID_BRIEFING");
+  });
+
+  it("deve retornar 200 quando briefing tem jobTitles sem technology (direct entry - Story 17.10)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const directEntryBriefing = {
+      ...mockBriefing,
+      technology: null,
+      jobTitles: ["CTO"],
+      skipSteps: ["search_companies"],
+    };
+    const executionDirectEntry = { ...mockExecution, briefing: directEntryBriefing };
+
+    let callCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callCount++;
+      if (callCount === 1) {
+        return createChainBuilder({ data: executionDirectEntry, error: null });
+      }
+      if (table === "cost_models") {
+        return createChainBuilder({ data: [], error: null });
+      }
+      if (table === "agent_steps") {
+        return createChainBuilder({ data: null, error: null });
+      }
+      if (table === "agent_executions") {
+        return createChainBuilder({ data: executionDirectEntry, error: null });
+      }
+      return createChainBuilder({ data: null, error: null });
+    });
+
+    const response = await POST(createRequest(), createParams());
+    expect(response.status).toBe(200);
   });
 
   it("deve retornar 400 quando execucao ja confirmada (status != pending)", async () => {
@@ -206,7 +239,7 @@ describe("POST /api/agent/executions/[executionId]/confirm", () => {
     expect(response.status).toBe(500);
   });
 
-  it("nao cria steps para steps skipped", async () => {
+  it("cria ALL steps no DB (incluindo skipped como pending) — Story 17.10", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
 
     const briefingWithSkips = {
@@ -237,13 +270,11 @@ describe("POST /api/agent/executions/[executionId]/confirm", () => {
     const response = await POST(createRequest(), createParams());
     expect(response.status).toBe(200);
 
-    // Verify insert was called with only 3 active steps (5 total - 2 skipped)
+    // Story 17.10: ALL 5 steps inserted (orchestrator handles skipping at execution time)
     expect(insertChain.insert).toHaveBeenCalled();
     const insertedSteps = insertChain.insert.mock.calls[0][0];
-    expect(insertedSteps).toHaveLength(3);
-    // Verify skipped steps are not in the insert
-    const stepTypes = insertedSteps.map((s: { step_type: string }) => s.step_type);
-    expect(stepTypes).not.toContain("search_companies");
-    expect(stepTypes).not.toContain("export");
+    expect(insertedSteps).toHaveLength(5);
+    // All inserted as "pending" — orchestrator's shouldSkip marks them as skipped
+    expect(insertedSteps.every((s: { status: string }) => s.status === "pending")).toBe(true);
   });
 });

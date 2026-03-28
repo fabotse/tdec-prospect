@@ -51,7 +51,10 @@ Extraia os seguintes campos do texto do usuario:
 - industry (string | null): Industria ou setor. Exemplos: fintech, saude, varejo, educacao. Null se nao mencionado.
 - productMentioned (string | null): Nome de produto mencionado pelo usuario que pode estar cadastrado na base. Null se nao mencionado.
 - mode ("guided" | "autopilot"): Modo de operacao. Default "guided" a menos que o usuario peca modo automatico/autopilot.
-- skipSteps (string[]): Etapas a pular se mencionado. Default [].
+- skipSteps (string[]): Etapas a pular. Default [].
+  - Se o usuario NAO mencionar tecnologia e nao quiser buscar empresas por tech, adicione "search_companies" no skipSteps.
+  - Se o usuario pedir busca direta por cargos/industria/localizacao sem tecnologia, adicione "search_companies" no skipSteps.
+  - Se o usuario mencionar tecnologia, NAO adicione "search_companies" no skipSteps.
 
 REGRAS:
 1. Retorne SOMENTE um objeto JSON valido com os campos acima.

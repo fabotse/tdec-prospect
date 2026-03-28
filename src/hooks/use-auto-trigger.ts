@@ -33,7 +33,11 @@ export function useAutoTrigger({ executionId, steps, mode }: UseAutoTriggerOptio
   );
 
   useEffect(() => {
-    if (!executionId || mode !== "autopilot" || steps.length === 0) return;
+    if (!executionId || steps.length === 0) return;
+
+    // Guard: guided mode only auto-triggers after skipped steps (approval gates handle the rest)
+    // Autopilot mode auto-triggers after completed, approved, or skipped steps
+    if (mode !== "autopilot" && mode !== "guided") return;
 
     // Guard: don't trigger if any step is already running
     const hasRunning = steps.some((s) => s.status === "running");
@@ -45,15 +49,20 @@ export function useAutoTrigger({ executionId, steps, mode }: UseAutoTriggerOptio
     );
     if (allDone) return;
 
-    // Find the last completed step
-    const completedSteps = steps
-      .filter((s) => s.status === "completed" || s.status === "approved" || s.status === "skipped")
+    // Story 17.10: In guided mode, only auto-advance after skipped steps
+    // (approval gates handle progression after completed/approved steps)
+    const triggerAfterStatuses = mode === "autopilot"
+      ? ["completed", "approved", "skipped"]
+      : ["skipped"];
+
+    const eligibleSteps = steps
+      .filter((s) => triggerAfterStatuses.includes(s.status))
       .sort((a, b) => b.step_number - a.step_number);
 
-    if (completedSteps.length === 0) return;
+    if (eligibleSteps.length === 0) return;
 
-    const lastCompleted = completedSteps[0];
-    const nextStepNumber = lastCompleted.step_number + 1;
+    const lastEligible = eligibleSteps[0];
+    const nextStepNumber = lastEligible.step_number + 1;
 
     // Guard: already triggered this step
     if (nextStepNumber <= lastTriggeredRef.current) return;

@@ -31,10 +31,19 @@ export const PIPELINE_STEPS: StepMetadata[] = [
   {
     stepType: "search_leads",
     title: "Encontrar Contatos",
-    descriptionFn: (b) =>
-      b.jobTitles.length > 0
+    descriptionFn: (b) => {
+      if (b.skipSteps?.includes("search_companies")) {
+        const filters = [
+          b.jobTitles.length > 0 ? b.jobTitles.join(", ") : null,
+          b.industry,
+          b.location,
+        ].filter(Boolean).join(" + ");
+        return `Buscar leads diretamente por ${filters || "cargos"} (sem filtro de empresa)`;
+      }
+      return b.jobTitles.length > 0
         ? `Encontrar ${b.jobTitles.join(", ")} nas empresas via Apollo`
-        : "Encontrar contatos nas empresas via Apollo",
+        : "Encontrar contatos nas empresas via Apollo";
+    },
     costKey: "search_leads",
   },
   {

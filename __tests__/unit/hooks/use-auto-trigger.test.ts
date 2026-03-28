@@ -60,7 +60,7 @@ describe("useAutoTrigger (Story 17.7 - AC #1)", () => {
     );
   });
 
-  it("does NOT trigger next step in guided mode", () => {
+  it("does NOT trigger next step in guided mode after completed step (approval gate handles it)", () => {
     const steps = [
       makeStep({ step_number: 1, status: "completed" }),
       makeStep({ step_number: 2, status: "pending" }),
@@ -71,6 +71,23 @@ describe("useAutoTrigger (Story 17.7 - AC #1)", () => {
     );
 
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("DOES trigger next step in guided mode after skipped step (Story 17.10)", () => {
+    const steps = [
+      makeStep({ step_number: 1, status: "skipped" }),
+      makeStep({ step_number: 2, status: "pending" }),
+      makeStep({ step_number: 3, status: "pending" }),
+    ];
+
+    renderHook(() =>
+      useAutoTrigger({ executionId: "exec-001", steps, mode: "guided" })
+    );
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/agent/executions/exec-001/steps/2/execute",
+      { method: "POST" }
+    );
   });
 
   it("does NOT trigger when last step completes (execution finished)", () => {

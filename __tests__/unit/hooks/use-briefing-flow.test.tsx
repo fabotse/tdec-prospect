@@ -1339,6 +1339,96 @@ describe("useBriefingFlow", () => {
       expect(summaryMsg).toContain("busca mais ampla");
     });
 
+    // Story 17.10: briefing summary com skipSteps search_companies
+    it("deve incluir nota de skip de empresas quando skipSteps inclui search_companies (AC: 17.10#1)", async () => {
+      const skipCompaniesResponse = {
+        briefing: {
+          technology: null,
+          jobTitles: ["CTO", "Head de TI"],
+          location: "Sao Paulo",
+          companySize: null,
+          industry: "fintech",
+          productSlug: null,
+          mode: "guided",
+          skipSteps: ["search_companies"],
+        },
+        missingFields: ["technology"],
+        isComplete: false,
+        canProceed: true,
+        suggestions: {},
+        productMentioned: null,
+      };
+
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(skipCompaniesResponse),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "Quero prospectar CTOs e Heads de TI de fintechs em SP sem buscar empresas",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      const summaryMsg = mockSendAgentMessage.mock.calls[0][1] as string;
+      expect(summaryMsg).toContain("Etapa de busca de empresas sera pulada");
+      expect(summaryMsg).toContain("CTO, Head de TI");
+      expect(summaryMsg).toContain("fintech");
+      expect(summaryMsg).toContain("Sao Paulo");
+      // Tambem deve conter a nota de tecnologia ausente (coexistencia)
+      expect(summaryMsg).toContain("Sem tecnologia especifica");
+    });
+
+    it("deve usar fallback 'cargos' no skip summary quando todos os params sao vazios/null (AC: 17.10#1)", async () => {
+      const skipEmptyParams = {
+        briefing: {
+          technology: null,
+          jobTitles: [] as string[],
+          location: null,
+          companySize: null,
+          industry: null,
+          productSlug: null,
+          mode: "guided" as const,
+          skipSteps: ["search_companies"],
+        },
+        missingFields: ["technology", "jobTitles"],
+        isComplete: false,
+        canProceed: true,
+        suggestions: {},
+        productMentioned: null,
+      };
+
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(skipEmptyParams),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "Buscar leads direto sem empresas",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      const summaryMsg = mockSendAgentMessage.mock.calls[0][1] as string;
+      expect(summaryMsg).toContain("leads serao buscados diretamente por cargos");
+    });
+
     // 6.17: generateSmartQuestion com sugestoes → pergunta inclui opcoes inline
     it("deve gerar pergunta com opcoes inline quando sugestoes disponiveis (6.17)", () => {
       const briefing = {

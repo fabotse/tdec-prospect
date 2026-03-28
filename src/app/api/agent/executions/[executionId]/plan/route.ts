@@ -43,9 +43,10 @@ export async function GET(
     );
   }
 
-  // Verificar briefing preenchido
+  // Verificar briefing preenchido (Story 17.10: technology pode ser null em direct entry)
   const briefing = execution.briefing as ParsedBriefing | null;
-  if (!briefing || !briefing.technology) {
+  const hasMinimumFields = briefing && (briefing.technology || (briefing.jobTitles && briefing.jobTitles.length > 0));
+  if (!hasMinimumFields) {
     return NextResponse.json(
       { error: { code: "INVALID_BRIEFING", message: "Briefing incompleto ou ausente" } },
       { status: 400 }

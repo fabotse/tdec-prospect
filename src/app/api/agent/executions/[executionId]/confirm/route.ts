@@ -48,9 +48,10 @@ export async function POST(
     );
   }
 
-  // Validar briefing antes de gerar plano
+  // Validar briefing antes de gerar plano (Story 17.10: technology pode ser null em direct entry)
   const briefing = execution.briefing as ParsedBriefing | null;
-  if (!briefing || !briefing.technology) {
+  const hasMinimumFields = briefing && (briefing.technology || (briefing.jobTitles && briefing.jobTitles.length > 0));
+  if (!hasMinimumFields) {
     return NextResponse.json(
       { error: { code: "INVALID_BRIEFING", message: "Briefing incompleto ou ausente" } },
       { status: 400 }
@@ -61,10 +62,10 @@ export async function POST(
   const costModels = await CostEstimatorService.ensureCostModels(supabase, profile.tenant_id);
   const costEstimate = CostEstimatorService.estimateCosts(costModels, briefing);
   const steps = PlanGeneratorService.generatePlan(briefing, costEstimate);
-  const activeSteps = steps.filter((s) => !s.skipped);
 
-  // Criar agent_steps para steps ativos
-  const stepsToInsert = activeSteps.map((step) => ({
+  // Story 17.10: Criar agent_steps para TODOS os steps (skipped ficam como "pending"
+  // e o orchestrator marca como "skipped" na execucao via shouldSkip)
+  const stepsToInsert = steps.map((step) => ({
     execution_id: executionId,
     step_number: step.stepNumber,
     step_type: step.stepType,
@@ -88,7 +89,7 @@ export async function POST(
     .from("agent_executions")
     .update({
       cost_estimate: costEstimate,
-      total_steps: activeSteps.length,
+      total_steps: steps.length,
     })
     .eq("id", executionId)
     .select()
