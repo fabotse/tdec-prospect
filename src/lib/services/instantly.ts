@@ -34,6 +34,7 @@ import type {
   ListAccountsParams,
   ListAccountsResult,
   ListAccountsResponse,
+  ListCampaignsResponse,
   AddAccountsParams,
   AddAccountsResult,
   AccountCampaignMappingRequest,
@@ -50,6 +51,8 @@ const INSTANTLY_CAMPAIGNS_ENDPOINT = "/api/v2/campaigns";
 const INSTANTLY_LEADS_ADD_ENDPOINT = "/api/v2/leads/add";
 const INSTANTLY_ACCOUNT_CAMPAIGN_MAPPINGS_ENDPOINT = "/api/v2/account-campaign-mappings";
 const RATE_LIMIT_DELAY_MS = 150;
+const GATEWAY_ERROR_CODES = new Set([502, 503, 504]);
+const GATEWAY_VERIFY_DELAY_MS = 3000;
 
 export const MAX_LEADS_PER_BATCH = 1000;
 
@@ -212,17 +215,62 @@ export class InstantlyService extends ExternalService {
 
     const url = `${INSTANTLY_API_BASE}${INSTANTLY_CAMPAIGNS_ENDPOINT}`;
 
-    const response = await this.request<CreateCampaignResponse>(url, {
-      method: "POST",
-      headers: buildAuthHeaders(apiKey),
-      body: JSON.stringify(requestBody),
-    });
+    try {
+      const response = await this.request<CreateCampaignResponse>(url, {
+        method: "POST",
+        headers: buildAuthHeaders(apiKey),
+        body: JSON.stringify(requestBody),
+      });
 
-    return {
-      campaignId: response.id,
-      name: response.name,
-      status: response.status,
-    };
+      return {
+        campaignId: response.id,
+        name: response.name,
+        status: response.status,
+      };
+    } catch (error) {
+      // Gateway errors (502/503/504): Instantly may have created the campaign
+      // despite the gateway timing out. Verify before reporting failure.
+      if (
+        error instanceof ExternalServiceError &&
+        GATEWAY_ERROR_CODES.has(error.statusCode)
+      ) {
+        await delay(GATEWAY_VERIFY_DELAY_MS);
+        const found = await this.findRecentCampaignByName(apiKey, name);
+        if (found) {
+          return found;
+        }
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Search for a recently created campaign by exact name.
+   * Used as a fallback after gateway errors (502/503/504) to verify
+   * if the campaign was actually created despite the error response.
+   *
+   * @returns CreateCampaignResult if found, null otherwise
+   */
+  private async findRecentCampaignByName(
+    apiKey: string,
+    name: string
+  ): Promise<CreateCampaignResult | null> {
+    try {
+      const searchUrl = `${INSTANTLY_API_BASE}${INSTANTLY_CAMPAIGNS_ENDPOINT}?search=${encodeURIComponent(name)}&limit=5`;
+      const response = await this.request<ListCampaignsResponse>(searchUrl, {
+        method: "GET",
+        headers: buildAuthHeaders(apiKey),
+      });
+
+      const match = response.items.find((c) => c.name === name);
+      if (match) {
+        return { campaignId: match.id, name: match.name, status: match.status };
+      }
+      return null;
+    } catch {
+      // If verification also fails, return null so the original error is thrown
+      return null;
+    }
   }
 
   /**

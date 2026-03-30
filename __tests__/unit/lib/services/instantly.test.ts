@@ -473,6 +473,115 @@ describe("InstantlyService", () => {
       ).rejects.toThrow(ExternalServiceError);
     });
 
+    it("recovers from 502 by verifying campaign was created", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+
+      createMockFetch([
+        {
+          url: /\/api\/v2\/campaigns$/,
+          method: "POST",
+          response: mockErrorResponse(502, "Bad Gateway"),
+        },
+        {
+          url: /\/api\/v2\/campaigns\?search=/,
+          method: "GET",
+          response: mockJsonResponse({
+            items: [{ id: "camp-recovered", name: "Campanha Teste", status: 0 }],
+            next_starting_after: null,
+          }),
+        },
+      ]);
+
+      const result = await service.createCampaign({
+        apiKey: "key",
+        name: "Campanha Teste",
+        sequences: [{ subject: "S", body: "B", delayDays: 0 }],
+      });
+
+      expect(result.campaignId).toBe("camp-recovered");
+      expect(result.name).toBe("Campanha Teste");
+
+      vi.useRealTimers();
+    });
+
+    it("throws original error when 502 and campaign not found in verification", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+
+      createMockFetch([
+        {
+          url: /\/api\/v2\/campaigns$/,
+          method: "POST",
+          response: mockErrorResponse(502, "Bad Gateway"),
+        },
+        {
+          url: /\/api\/v2\/campaigns\?search=/,
+          method: "GET",
+          response: mockJsonResponse({ items: [], next_starting_after: null }),
+        },
+      ]);
+
+      await expect(
+        service.createCampaign({
+          apiKey: "key",
+          name: "Campanha Fantasma",
+          sequences: [{ subject: "S", body: "B", delayDays: 0 }],
+        })
+      ).rejects.toThrow(ExternalServiceError);
+
+      vi.useRealTimers();
+    });
+
+    it("recovers from 503 gateway error the same as 502", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+
+      createMockFetch([
+        {
+          url: /\/api\/v2\/campaigns$/,
+          method: "POST",
+          response: mockErrorResponse(503, "Service Unavailable"),
+        },
+        {
+          url: /\/api\/v2\/campaigns\?search=/,
+          method: "GET",
+          response: mockJsonResponse({
+            items: [{ id: "camp-503", name: "Test", status: 0 }],
+          }),
+        },
+      ]);
+
+      const result = await service.createCampaign({
+        apiKey: "key",
+        name: "Test",
+        sequences: [{ subject: "S", body: "B", delayDays: 0 }],
+      });
+
+      expect(result.campaignId).toBe("camp-503");
+
+      vi.useRealTimers();
+    });
+
+    it("does not verify on non-gateway errors (e.g., 401)", async () => {
+      const { calls } = createMockFetch([
+        {
+          url: /\/api\/v2\/campaigns$/,
+          method: "POST",
+          response: mockErrorResponse(401),
+        },
+      ]);
+
+      await expect(
+        service.createCampaign({
+          apiKey: "bad-key",
+          name: "Test",
+          sequences: [{ subject: "S", body: "B", delayDays: 0 }],
+        })
+      ).rejects.toThrow(ExternalServiceError);
+
+      // Should NOT make a search request for non-gateway errors
+      const searchCalls = calls().filter((c) => c.url.includes("search="));
+      expect(searchCalls).toHaveLength(0);
+    });
+
     it("maps delay to NEXT step - step[0] gets sequences[1].delay, last step gets 0 (H2)", async () => {
       const { calls } = createMockFetch([
         {

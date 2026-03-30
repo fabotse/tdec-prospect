@@ -152,6 +152,14 @@ export interface GetCampaignResponse {
   }>;
 }
 
+/**
+ * Response from GET /api/v2/campaigns (list/search)
+ */
+export interface ListCampaignsResponse {
+  items: Array<{ id: string; name: string; status: number }>;
+  next_starting_after?: string;
+}
+
 // ==============================================
 // ACCOUNT TYPES (Story 7.4: AC #4)
 // ==============================================
