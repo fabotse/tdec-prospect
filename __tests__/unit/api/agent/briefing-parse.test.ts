@@ -542,6 +542,87 @@ describe("POST /api/agent/briefing/parse", () => {
     expect(Object.keys(json.suggestions).length).toBeGreaterThan(0);
   });
 
+  it("deve adicionar search_companies ao skipSteps quando technology null e LLM nao adicionou (bugfix)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      briefing: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: "Sao Paulo",
+        companySize: null,
+        industry: null,
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: [], // LLM did NOT add search_companies despite technology being null
+      },
+      rawResponse: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: "Sao Paulo",
+        companySize: null,
+        industry: null,
+        productMentioned: null,
+        mode: "guided" as const,
+        skipSteps: [],
+      },
+    });
+    mockGenerateSuggestions.mockReturnValue({});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    // search_companies must be added deterministically when technology is null
+    expect(json.briefing.skipSteps).toContain("search_companies");
+  });
+
+  it("deve NAO adicionar search_companies ao skipSteps quando technology presente", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue(FULL_PARSE_RESULT); // technology: "Netskope"
+    mockGenerateSuggestions.mockReturnValue({});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.briefing.skipSteps).not.toContain("search_companies");
+  });
+
+  it("deve NAO duplicar search_companies se LLM ja adicionou corretamente", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      briefing: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: "Sao Paulo",
+        companySize: null,
+        industry: null,
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies"], // LLM correctly added it
+      },
+      rawResponse: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: "Sao Paulo",
+        companySize: null,
+        industry: null,
+        productMentioned: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies"],
+      },
+    });
+    mockGenerateSuggestions.mockReturnValue({});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    // Should contain exactly one occurrence, not duplicated
+    const count = json.briefing.skipSteps.filter((s: string) => s === "search_companies").length;
+    expect(count).toBe(1);
+  });
+
   it("deve retornar canProceed=true para imported leads flow mesmo sem jobTitles/technology (AC: 17.11#1)", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
     mockParse.mockResolvedValue({

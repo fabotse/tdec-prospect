@@ -434,6 +434,61 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
     });
   });
 
+  // ==============================================
+  // Story 17.12: searchFilters in output
+  // ==============================================
+
+  describe("searchFilters in output (Story 17.12)", () => {
+    it("output includes searchFilters with filters used in direct entry flow", async () => {
+      const input = createInput(
+        { location: "Sao Paulo", industry: "fintech", companySize: "50-200" },
+        undefined
+      );
+      input.previousStepOutput = undefined;
+
+      const result = await step.run(input);
+
+      expect(result.data.searchFilters).toBeDefined();
+      expect(result.data.searchFilters).toMatchObject({
+        titles: ["CTO", "VP Engineering"],
+        perPage: 25,
+        page: 1,
+        locations: ["Sao Paulo"],
+        industries: ["fintech"],
+        companySizes: ["50-200"],
+      });
+    });
+
+    it("output includes searchFilters with filters used in normal flow (with domains)", async () => {
+      const input = createInput();
+
+      const result = await step.run(input);
+
+      expect(result.data.searchFilters).toBeDefined();
+      expect(result.data.searchFilters).toMatchObject({
+        domains: ["acme.com", "beta.io"],
+        titles: ["CTO", "VP Engineering"],
+        perPage: 25,
+        page: 1,
+      });
+    });
+
+    it("searchFilters contains page, perPage, titles (mandatory fields)", async () => {
+      const input = createInput({}, undefined);
+      input.previousStepOutput = undefined;
+
+      const result = await step.run(input);
+
+      const filters = result.data.searchFilters as Record<string, unknown>;
+      expect(filters).toHaveProperty("page");
+      expect(filters).toHaveProperty("perPage");
+      expect(filters).toHaveProperty("titles");
+      expect(filters.page).toBe(1);
+      expect(filters.perPage).toBe(25);
+      expect(filters.titles).toEqual(["CTO", "VP Engineering"]);
+    });
+  });
+
   // 4.8
   describe("transformation LeadRow -> SearchLeadResult (2.8)", () => {
     it("maps fields correctly, handles nulls", async () => {

@@ -41,6 +41,8 @@ interface AgentLeadReviewProps {
   onAction?: () => void;
 }
 
+const LEAD_COUNT_OPTIONS = [50, 100, 200, 500];
+
 export function AgentLeadReview({
   data,
   executionId,
@@ -48,6 +50,8 @@ export function AgentLeadReview({
   totalSteps,
   onAction,
 }: AgentLeadReviewProps) {
+  // Story 17.12: local leads state (updated after fetch-more)
+  const [localLeads, setLocalLeads] = useState<LeadPreview[]>(data.leads);
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(
     () => new Set(data.leads.map((_, i) => i))
   );
@@ -56,10 +60,15 @@ export function AgentLeadReview({
   const [actionTaken, setActionTaken] = useState<"approved" | "rejected" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Story 17.12: quantity selector state
+  const [selectedQuantity, setSelectedQuantity] = useState<number | null>(null);
+  const [isFetching, setIsFetching] = useState(false);
+  const [hasExpanded, setHasExpanded] = useState(false);
+
   const filteredLeads = useMemo(() => {
-    if (!filter.trim()) return data.leads.map((lead, i) => ({ lead, index: i }));
+    if (!filter.trim()) return localLeads.map((lead, i) => ({ lead, index: i }));
     const lower = filter.toLowerCase();
-    return data.leads
+    return localLeads
       .map((lead, i) => ({ lead, index: i }))
       .filter(
         ({ lead }) =>
@@ -67,7 +76,7 @@ export function AgentLeadReview({
           (lead.companyName?.toLowerCase().includes(lower) ?? false) ||
           (lead.title?.toLowerCase().includes(lower) ?? false)
       );
-  }, [data.leads, filter]);
+  }, [localLeads, filter]);
 
   const selectedCount = selectedIndices.size;
   const allFilteredSelected = filteredLeads.every(({ index }) => selectedIndices.has(index));
@@ -92,10 +101,40 @@ export function AgentLeadReview({
     setSelectedIndices(newSet);
   };
 
+  // Story 17.12: fetch more leads
+  const handleFetchMore = async () => {
+    if (!selectedQuantity) return;
+    setIsFetching(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/agent/executions/${executionId}/steps/${stepNumber}/fetch-leads`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ desiredCount: selectedQuantity }),
+        }
+      );
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData?.error?.message ?? "Falha ao buscar leads");
+      }
+      const result = await response.json();
+      const newLeads = result.data.leads as LeadPreview[];
+      setLocalLeads(newLeads);
+      setHasExpanded(true);
+      setSelectedIndices(new Set(newLeads.map((_: LeadPreview, i: number) => i)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao buscar leads");
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
   const handleApprove = async () => {
     setLoading("approve");
     setError(null);
-    const selectedLeads = data.leads.filter((_, i) => selectedIndices.has(i));
+    const selectedLeads = localLeads.filter((_, i) => selectedIndices.has(i));
     try {
       const response = await fetch(
         `/api/agent/executions/${executionId}/steps/${stepNumber}/approve`,
@@ -156,6 +195,52 @@ export function AgentLeadReview({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
+        {/* Story 17.12: quantity selector when more leads available */}
+        {data.totalFound > localLeads.length && !hasExpanded && (
+          <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/50 p-4">
+            <p className="text-sm text-muted-foreground">
+              Mostrando {localLeads.length} de {data.totalFound} leads encontrados.
+            </p>
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium">Quantos leads deseja usar?</p>
+              <div className="flex gap-2">
+                {LEAD_COUNT_OPTIONS
+                  .filter(opt => opt <= data.totalFound && opt > localLeads.length)
+                  .map(opt => (
+                    <Button
+                      key={opt}
+                      variant={selectedQuantity === opt ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSelectedQuantity(opt)}
+                      disabled={isFetching || isDisabled}
+                    >
+                      {opt}
+                    </Button>
+                  ))}
+              </div>
+              {selectedQuantity && (
+                <p className="text-xs text-muted-foreground">
+                  Custo estimado: ~{selectedQuantity} creditos Apollo
+                </p>
+              )}
+              <Button
+                onClick={handleFetchMore}
+                disabled={!selectedQuantity || isFetching || isDisabled}
+                size="sm"
+              >
+                {isFetching ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Buscando mais leads...
+                  </>
+                ) : (
+                  `Buscar ${selectedQuantity ?? "..."} leads`
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
+
         <Input
           placeholder="Filtrar por nome, empresa ou cargo..."
           value={filter}

@@ -12,7 +12,7 @@ export type ExecutionMode = 'guided' | 'autopilot';
 export type StepType = 'search_companies' | 'search_leads' | 'create_campaign' | 'export' | 'activate';
 export type StepStatus = 'pending' | 'running' | 'awaiting_approval' | 'approved' | 'completed' | 'failed' | 'skipped';
 export type MessageRole = 'user' | 'agent' | 'system';
-export type MessageType = 'text' | 'approval_gate' | 'progress' | 'error' | 'cost_estimate' | 'summary';
+export type MessageType = 'text' | 'approval_gate' | 'progress' | 'error' | 'cost_estimate' | 'summary' | 'skip';
 
 // === Database Row Types ===
 
@@ -200,6 +200,7 @@ export interface SearchLeadsOutput {
   totalFound: number;
   jobTitles: string[];
   domainsSearched: string[];
+  searchFilters?: Record<string, unknown>; // Story 17.12: filtros para re-paginacao
 }
 
 // === Create Campaign Output (Story 17.3 AC #4) ===

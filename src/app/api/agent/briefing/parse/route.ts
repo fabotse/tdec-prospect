@@ -222,9 +222,17 @@ export async function POST(request: Request) {
       supabase
     );
 
+    // Ensure skipSteps consistency: if technology is null and LLM didn't add
+    // search_companies to skipSteps, add it deterministically (LLM is non-deterministic)
+    const skipSteps = [...(briefing.skipSteps ?? [])];
+    if (!briefing.technology && !skipSteps.includes("search_companies")) {
+      skipSteps.push("search_companies");
+    }
+
     const resolvedBriefing: ParsedBriefing = {
       ...briefing,
       productSlug: resolvedProductSlug,
+      skipSteps,
     };
 
     // Analyze briefing completeness with contextual suggestions

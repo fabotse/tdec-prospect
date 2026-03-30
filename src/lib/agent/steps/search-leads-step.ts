@@ -25,6 +25,21 @@ const CREDITS_PER_LEAD = 1;
 const LEADS_PER_PAGE = 25;
 
 // ==============================================
+// UTILITY: Lead row mapping (exported for reuse in fetch-leads endpoint)
+// ==============================================
+
+export function mapLeadRowToSearchLeadResult(lead: LeadRow): SearchLeadResult {
+  return {
+    name: [lead.first_name, lead.last_name].filter(Boolean).join(" "),
+    title: lead.title,
+    companyName: lead.company_name,
+    email: lead.email,
+    linkedinUrl: lead.linkedin_url,
+    apolloId: lead.apollo_id,
+  };
+}
+
+// ==============================================
 // SEARCH LEADS STEP
 // ==============================================
 
@@ -93,7 +108,7 @@ export class SearchLeadsStep extends BaseStep {
       };
 
       const result = await service.searchPeople(filters);
-      return this.buildSearchOutput(result, jobTitles, []);
+      return this.buildSearchOutput(result, jobTitles, [], filters);
     }
 
     // Normal flow: extract domains from previous step companies
@@ -125,7 +140,7 @@ export class SearchLeadsStep extends BaseStep {
     };
 
     const result = await service.searchPeople(filters);
-    return this.buildSearchOutput(result, jobTitles, domains);
+    return this.buildSearchOutput(result, jobTitles, domains, filters);
   }
 
   /**
@@ -135,20 +150,14 @@ export class SearchLeadsStep extends BaseStep {
   private buildSearchOutput(
     result: { leads: LeadRow[]; pagination: { totalEntries: number } },
     jobTitles: string[],
-    domainsSearched: string[]
+    domainsSearched: string[],
+    filters: Record<string, unknown>
   ): StepOutput {
-    const leads: SearchLeadResult[] = result.leads.map((lead: LeadRow) => ({
-      name: [lead.first_name, lead.last_name].filter(Boolean).join(" "),
-      title: lead.title,
-      companyName: lead.company_name,
-      email: lead.email,
-      linkedinUrl: lead.linkedin_url,
-      apolloId: lead.apollo_id,
-    }));
+    const leads: SearchLeadResult[] = result.leads.map((lead: LeadRow) => mapLeadRowToSearchLeadResult(lead));
 
     return {
       success: true,
-      data: { leads, totalFound: result.pagination.totalEntries, jobTitles, domainsSearched },
+      data: { leads, totalFound: result.pagination.totalEntries, jobTitles, domainsSearched, searchFilters: filters },
       cost: { apollo_search: leads.length * CREDITS_PER_LEAD },
     };
   }

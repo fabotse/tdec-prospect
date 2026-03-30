@@ -419,6 +419,11 @@ development_status:
   17-9-selecao-conta-instantly-export: done
   17-10-pipeline-flexivel-entrada-direta-leads: done
   17-11-pipeline-flexivel-entrada-direta-campanha: done
+  #
+  # Nova story (2026-03-30):
+  #   - 17-12: Selecao de quantidade de leads no approval gate
+  #
+  17-12-selecao-quantidade-leads: done
   epic-17-retrospective: optional
 
   # ============================================================
