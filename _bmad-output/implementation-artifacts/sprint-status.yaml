@@ -445,8 +445,8 @@ development_status:
   # Mudancas cosmeticas/conteudo, baixo risco. Aplicar identidade visual da TDec.
   # Pre-requisito: arquivos de logo do cliente em public/brand/ (ver public/brand/README.md)
   #
-  epic-19: backlog
-  19-1-brandlogo-theme-aware-centralizacao-branding: backlog  # Componente BrandLogo (logo branco no escuro / escuro no claro) + constant BRAND. Depende dos logos do cliente.
+  epic-19: in-progress
+  19-1-brandlogo-theme-aware-centralizacao-branding: ready-for-dev  # Componente BrandLogo (logo branco no escuro / escuro no claro) + constant BRAND. Logos do cliente JA em public/brand/. Story criada 2026-06-01 (abordagem CSS dark: para evitar FOUC).
   19-2-padronizacao-nome-tdec: backlog  # Sweep "TDEC" -> "TDec" em toda a UI (preservar refs "TripleD" e strings tecnicas)
   19-3-favicon-titulo-metadata-tdec: backlog  # Favicon, titulo da aba e OpenGraph com a marca TDec
   epic-19-retrospective: optional
