@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { BrandLogo } from "@/components/common/BrandLogo";
+import { BRAND } from "@/lib/constants/brand";
 import { useNewInsightsCount } from "@/hooks/use-lead-insights";
 
 const TRANSITION_DURATION = 200;
@@ -49,7 +50,7 @@ const navItems: NavItem[] = [
   { label: "Technographic", href: "/technographic", icon: Radar },
   { label: "Campanhas", href: "/campaigns", icon: Send },
   { label: "Insights", href: "/insights", icon: Lightbulb },
-  { label: "Agente TDEC", href: "/agent", icon: Bot },
+  { label: `Agente ${BRAND.name}`, href: "/agent", icon: Bot },
   { label: "Configurações", href: "/settings", icon: Settings },
 ];
 

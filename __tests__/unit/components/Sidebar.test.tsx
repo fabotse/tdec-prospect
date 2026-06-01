@@ -117,7 +117,7 @@ describe('Sidebar', () => {
       // Check that text spans for labels are not present
       expect(screen.queryByText('Campanhas')).not.toBeInTheDocument()
       expect(screen.queryByText('Insights')).not.toBeInTheDocument()
-      expect(screen.queryByText('Agente TDEC')).not.toBeInTheDocument()
+      expect(screen.queryByText('Agente TDec')).not.toBeInTheDocument()
       expect(screen.queryByText('Configurações')).not.toBeInTheDocument()
     })
 
@@ -127,7 +127,7 @@ describe('Sidebar', () => {
       expect(screen.getByText('Leads')).toBeInTheDocument()
       expect(screen.getByText('Campanhas')).toBeInTheDocument()
       expect(screen.getByText('Insights')).toBeInTheDocument()
-      expect(screen.getByText('Agente TDEC')).toBeInTheDocument()
+      expect(screen.getByText('Agente TDec')).toBeInTheDocument()
       expect(screen.getByText('Configurações')).toBeInTheDocument()
     })
   })
@@ -204,15 +204,15 @@ describe('Sidebar', () => {
     })
   })
 
-  describe('Agente TDEC nav item (Story 16.1)', () => {
-    it('should render Agente TDEC link with /agent href', () => {
+  describe('Agente TDec nav item (Story 16.1)', () => {
+    it('should render Agente TDec link with /agent href', () => {
       render(<Sidebar {...defaultProps} />)
 
       const agentLink = screen.getByRole('link', { name: /agente tdec/i })
       expect(agentLink).toHaveAttribute('href', '/agent')
     })
 
-    it('should mark Agente TDEC as active when on /agent route', () => {
+    it('should mark Agente TDec as active when on /agent route', () => {
       mockUsePathname.mockReturnValue('/agent')
       render(<Sidebar {...defaultProps} />)
 
@@ -220,7 +220,7 @@ describe('Sidebar', () => {
       expect(agentLink).toHaveAttribute('aria-current', 'page')
     })
 
-    it('should not mark Agente TDEC as active on other routes', () => {
+    it('should not mark Agente TDec as active on other routes', () => {
       mockUsePathname.mockReturnValue('/leads')
       render(<Sidebar {...defaultProps} />)
 

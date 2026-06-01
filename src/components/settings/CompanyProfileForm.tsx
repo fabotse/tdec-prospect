@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useKnowledgeBase } from "@/hooks/use-knowledge-base";
+import { BRAND } from "@/lib/constants/brand";
 import {
   companyProfileSchema,
   type CompanyProfileInput,
@@ -116,7 +117,7 @@ export function CompanyProfileForm() {
         <Input
           id="company_name"
           {...register("company_name")}
-          placeholder="Ex: TDEC Soluções"
+          placeholder={`Ex: ${BRAND.name} Soluções`}
           disabled={isSaving}
           aria-invalid={!!errors.company_name}
           aria-describedby={errors.company_name ? "company-name-error" : undefined}

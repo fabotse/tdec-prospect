@@ -1,5 +1,5 @@
 /**
- * Pagina do Agente TDEC
+ * Pagina do Agente TDec
  * Story: 16.1 - Data Models, Tipos e Pagina do Agente
  *
  * AC: #1 - Pagina do agente acessivel via menu lateral
@@ -9,9 +9,10 @@
 import { Suspense } from "react";
 import { AgentChat } from "@/components/agent";
 import { Skeleton } from "@/components/ui/skeleton";
+import { BRAND } from "@/lib/constants/brand";
 
 export const metadata = {
-  title: "Agente TDEC - tdec-prospect",
+  title: `Agente ${BRAND.name} - tdec-prospect`,
   description: "Agente conversacional para prospeccao automatizada",
 };
 
@@ -29,7 +30,7 @@ export default function AgentPage() {
   return (
     <div className="flex flex-col h-[calc(100vh-64px)]">
       <div className="px-6 pt-6 pb-3">
-        <h1 className="text-h1 text-foreground">Agente TDEC</h1>
+        <h1 className="text-h1 text-foreground">Agente {BRAND.name}</h1>
         <p className="text-body-small text-muted-foreground mt-1">
           Descreva sua campanha e o agente executa a prospeccao para voce.
         </p>

@@ -9,6 +9,8 @@
 
 import { Bot, ArrowRight } from "lucide-react";
 
+import { BRAND } from "@/lib/constants/brand";
+
 export function AgentOnboarding() {
   return (
     <div
@@ -19,7 +21,7 @@ export function AgentOnboarding() {
         <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center">
           <Bot className="h-7 w-7 text-muted-foreground" />
         </div>
-        <h2 className="text-h2 text-foreground">Agente TDEC</h2>
+        <h2 className="text-h2 text-foreground">Agente {BRAND.name}</h2>
         <div className="text-body-small text-muted-foreground flex flex-col gap-2">
           <p>
             Eu monto campanhas de prospeccao completas — da busca de empresas

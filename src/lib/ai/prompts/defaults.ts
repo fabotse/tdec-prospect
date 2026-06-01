@@ -348,7 +348,7 @@ ANÁLISE OBRIGATÓRIA DOS POSTS:
 4. Preste atenção em TENDÊNCIAS ou TECNOLOGIAS que ele comenta
 
 EXEMPLOS DE BONS QUEBRA-GELOS BASEADOS EM POSTS:
-- "Li seu post sobre a importância de dados em tempo real para decisões de negócio. Na TDEC, ajudamos empresas a transformar dados brutos em insights acionáveis - algo que parece alinhar bem com sua visão."
+- "Li seu post sobre a importância de dados em tempo real para decisões de negócio. Na TDec, ajudamos empresas a transformar dados brutos em insights acionáveis - algo que parece alinhar bem com sua visão."
 - "Curti sua análise sobre os desafios de escalar equipes de vendas. É exatamente o tipo de problema que nosso produto resolve com automação inteligente."
 - "Seu post sobre IA aplicada a vendas B2B me chamou atenção. A abordagem que você descreve é muito próxima do que implementamos aqui."
 

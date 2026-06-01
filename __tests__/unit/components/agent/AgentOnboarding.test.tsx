@@ -13,9 +13,9 @@ describe("AgentOnboarding", () => {
     expect(screen.getByTestId("agent-onboarding")).toBeInTheDocument();
   });
 
-  it("renderiza titulo 'Agente TDEC'", () => {
+  it("renderiza titulo 'Agente TDec'", () => {
     render(<AgentOnboarding />);
-    expect(screen.getByText("Agente TDEC")).toBeInTheDocument();
+    expect(screen.getByText("Agente TDec")).toBeInTheDocument();
   });
 
   it("renderiza texto explicativo sobre o que o agente faz", () => {
