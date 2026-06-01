@@ -34,6 +34,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-25
+last_updated: 2026-06-01
 project: tdec-prospect
 project_key: NOKEY
 tracking_system: file-system
@@ -446,7 +447,7 @@ development_status:
   # Pre-requisito: arquivos de logo do cliente em public/brand/ (ver public/brand/README.md)
   #
   epic-19: in-progress
-  19-1-brandlogo-theme-aware-centralizacao-branding: ready-for-dev  # Componente BrandLogo (logo branco no escuro / escuro no claro) + constant BRAND. Logos do cliente JA em public/brand/. Story criada 2026-06-01 (abordagem CSS dark: para evitar FOUC).
+  19-1-brandlogo-theme-aware-centralizacao-branding: review  # Componente BrandLogo (logo branco no escuro / escuro no claro) + constant BRAND. Logos do cliente JA em public/brand/. Implementada 2026-06-01 (CSS dark:, FOUC-free); 10 novos testes, suite verde (6098).
   19-2-padronizacao-nome-tdec: backlog  # Sweep "TDEC" -> "TDec" em toda a UI (preservar refs "TripleD" e strings tecnicas)
   19-3-favicon-titulo-metadata-tdec: backlog  # Favicon, titulo da aba e OpenGraph com a marca TDec
   epic-19-retrospective: optional

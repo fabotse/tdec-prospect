@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Sidebar } from '@/components/common/Sidebar'
+import { BRAND } from '@/lib/constants/brand'
 import { usePathname } from 'next/navigation'
 
 // Mock next/navigation
@@ -39,6 +40,21 @@ describe('Sidebar', () => {
       render(<Sidebar {...defaultProps} />)
 
       expect(screen.getByRole('navigation', { name: /sidebar/i })).toBeInTheDocument()
+    })
+
+    it('should render the brand logo at the top', () => {
+      render(<Sidebar {...defaultProps} />)
+
+      // BrandLogo renderiza as variantes do logo (branca/preta) com o alt da marca
+      const logos = screen.getAllByAltText(BRAND.logo.alt)
+      expect(logos.length).toBeGreaterThan(0)
+    })
+
+    it('should render the brand logo when collapsed', () => {
+      render(<Sidebar {...defaultProps} isCollapsed={true} width={64} />)
+
+      const logos = screen.getAllByAltText(BRAND.logo.alt)
+      expect(logos.length).toBeGreaterThan(0)
     })
 
     it('should render all navigation items with labels', () => {

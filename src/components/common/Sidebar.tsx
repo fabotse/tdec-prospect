@@ -23,6 +23,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
+import { BrandLogo } from "@/components/common/BrandLogo";
 import { useNewInsightsCount } from "@/hooks/use-lead-insights";
 
 const TRANSITION_DURATION = 200;
@@ -207,14 +208,14 @@ export function Sidebar({ isCollapsed, onToggleCollapse, width, isHydrated }: Si
   );
 
   const renderNavItem = (item: NavItem) => {
-    const hasSubItems = item.subItems && item.subItems.length > 0;
+    const subItems = item.subItems;
     const isExpanded = expandedItems.includes(item.href);
     const isActive = isParentActive(item);
     const Icon = item.icon;
     // Remove leading slash and replace remaining slashes with dashes for clean ID
     const submenuId = `submenu-${item.href.replace(/^\//, "").replace(/\//g, "-")}`;
 
-    if (hasSubItems) {
+    if (subItems && subItems.length > 0) {
       // Render expandable nav item with subitems
       return (
         <li key={item.href}>
@@ -246,7 +247,7 @@ export function Sidebar({ isCollapsed, onToggleCollapse, width, isHydrated }: Si
                 <TooltipContent side="right" align="start" className="p-2 w-40">
                   <div className="font-medium mb-2">{item.label}</div>
                   <div className="flex flex-col gap-1">
-                    {item.subItems!.map((subItem) => {
+                    {subItems.map((subItem) => {
                       const SubIcon = subItem.icon;
                       const isSubActive = isSubItemActive(subItem);
                       return (
@@ -315,7 +316,7 @@ export function Sidebar({ isCollapsed, onToggleCollapse, width, isHydrated }: Si
                   className="animate-in slide-in-from-top-1 duration-200"
                 >
                   <ul role="menu">
-                    {item.subItems!.map((subItem, index) => {
+                    {subItems.map((subItem, index) => {
                       const SubIcon = subItem.icon;
                       const isSubActive = isSubItemActive(subItem);
                       return (
@@ -340,7 +341,7 @@ export function Sidebar({ isCollapsed, onToggleCollapse, width, isHydrated }: Si
                             `}
                             aria-current={isSubActive ? "page" : undefined}
                             onKeyDown={(e) =>
-                              handleSubItemKeyDown(e, item, item.subItems!, index)
+                              handleSubItemKeyDown(e, item, subItems, index)
                             }
                           >
                             <SubIcon className="h-4 w-4 shrink-0" />
@@ -406,11 +407,21 @@ export function Sidebar({ isCollapsed, onToggleCollapse, width, isHydrated }: Si
           : "none",
       }}
     >
-      {/* Navigation area with padding-top to clear header (64px) + extra spacing (16px) */}
+      {/* Brand logo — topo do sidebar. Expandido: ocupa a largura do conteúdo
+          (como os itens do menu). Colapsado: versão compacta centralizada. */}
+      <div
+        className={`flex items-center pt-3 pb-3 ${
+          isCollapsed ? "justify-center px-2" : "px-3"
+        }`}
+      >
+        <BrandLogo className={isCollapsed ? "h-6 w-auto" : "h-auto w-[85%]"} />
+      </div>
+
+      {/* Navigation area */}
       <nav
         role="navigation"
         aria-label="Sidebar navigation"
-        className="flex-1 flex flex-col pt-[80px] px-3"
+        className="flex-1 flex flex-col pt-2 px-3"
       >
         <ul className="flex flex-col gap-1">{navItems.map(renderNavItem)}</ul>
       </nav>

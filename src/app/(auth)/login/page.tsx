@@ -12,6 +12,8 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { BrandLogo } from "@/components/common/BrandLogo";
+import { BRAND } from "@/lib/constants/brand";
 
 const loginSchema = z.object({
   email: z.string().email("Email inválido"),
@@ -98,7 +100,10 @@ export default function LoginPage() {
   return (
     <div className="space-y-6">
       <div className="space-y-2 text-center">
-        <h1 className="text-2xl font-bold tracking-tight">TDEC Prospect</h1>
+        {/* Heading acessível (sr-only) preserva a semântica e o nome do produto */}
+        <h1 className="sr-only">{BRAND.productName}</h1>
+        {/* Logo decorativo: o <h1 sr-only> acima já nomeia a marca p/ leitores de tela */}
+        <BrandLogo decorative className="mx-auto h-24 w-auto" />
         <p className="text-sm text-muted-foreground">
           Entre com suas credenciais para acessar
         </p>

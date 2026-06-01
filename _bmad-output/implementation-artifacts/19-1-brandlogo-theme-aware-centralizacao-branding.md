@@ -1,6 +1,9 @@
+---
+baseline_commit: 8d706fd8e7f50bcc1fc222b4aecc0a49848890d7
+---
 # Story 19.1: Componente BrandLogo theme-aware + centralização do branding
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -24,31 +27,32 @@ so that a identidade visual fique correta e profissional em qualquer modo.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Criar a constant `BRAND` (fonte única de marca)** (AC: #1, #2, #3)
-  - [ ] Criar `src/lib/constants/brand.ts` exportando `export const BRAND = { ... } as const` com: `name: "TDec"`, `productName: "TDec Prospect"`, `description` (manter a atual), e `logo: { light, dark, alt }` apontando para os assets reais em `/brand/` (ver Dev Notes → "Assets" para os nomes exatos).
-  - [ ] (RED) Criar `__tests__/unit/lib/constants/brand.test.ts` com testes que falham antes da implementação: `BRAND.name === "TDec"`, `BRAND.name` NÃO casa `/TDEC/`, `BRAND.logo.dark === "/brand/Logo-TDec-branco.png"`, `BRAND.logo.light === "/brand/Logo-TDec-preto.png"`.
-  - [ ] (GREEN) Implementar a constant até os testes passarem.
+- [x] **Task 1 — Criar a constant `BRAND` (fonte única de marca)** (AC: #1, #2, #3)
+  - [x] Criar `src/lib/constants/brand.ts` exportando `export const BRAND = { ... } as const` com: `name: "TDec"`, `productName: "TDec Prospect"`, `description` (manter a atual), e `logo: { light, dark, alt }` apontando para os assets reais em `/brand/` (ver Dev Notes → "Assets" para os nomes exatos).
+  - [x] (RED) Criar `__tests__/unit/lib/constants/brand.test.ts` com testes que falham antes da implementação: `BRAND.name === "TDec"`, `BRAND.name` NÃO casa `/TDEC/`, `BRAND.logo.dark === "/brand/Logo-TDec-branco.png"`, `BRAND.logo.light === "/brand/Logo-TDec-preto.png"`.
+  - [x] (GREEN) Implementar a constant até os testes passarem.
 
-- [ ] **Task 2 — Criar o componente `<BrandLogo/>` theme-aware (abordagem CSS, FOUC-free)** (AC: #1, #2, #3, #4)
-  - [ ] Criar `src/components/common/BrandLogo.tsx`. **NÃO** usar `"use client"` e **NÃO** chamar `useTheme()` — a troca é 100% via CSS (variante `dark:` do Tailwind). Ver Dev Notes → "Decisão técnica: por que CSS e não JS".
-  - [ ] Renderizar **as duas** variantes (`next/image`) lendo os caminhos de `BRAND.logo`: a branca com classe de visibilidade `hidden dark:block`, a preta com `block dark:hidden`. Ambas com `alt={BRAND.logo.alt}`. Aceitar prop `className` (controla tamanho), mesclando com `cn()` de `@/lib/utils`.
-  - [ ] Obter as **dimensões intrínsecas reais** dos PNGs e usá-las em `width`/`height` do `next/image` (preserva proporção e evita warning de aspect-ratio). Tamanho de exibição via `className` (`h-* w-auto`).
-  - [ ] (RED) Criar `__tests__/unit/components/BrandLogo.test.tsx` que falha antes da implementação: renderiza 2 imagens com `alt` da marca; a branca tem `src` contendo `Logo-TDec-branco` e classe `dark:block`/`hidden`; a preta tem `src` contendo `Logo-TDec-preto` e classe `dark:hidden`/`block`. **Usar `toContain` no `src`** (ver Dev Notes → "Testes").
-  - [ ] (GREEN) Implementar até os testes passarem.
+- [x] **Task 2 — Criar o componente `<BrandLogo/>` theme-aware (abordagem CSS, FOUC-free)** (AC: #1, #2, #3, #4)
+  - [x] Criar `src/components/common/BrandLogo.tsx`. **NÃO** usar `"use client"` e **NÃO** chamar `useTheme()` — a troca é 100% via CSS (variante `dark:` do Tailwind). Ver Dev Notes → "Decisão técnica: por que CSS e não JS".
+  - [x] Renderizar **as duas** variantes (`next/image`) lendo os caminhos de `BRAND.logo`: a branca com classe de visibilidade `hidden dark:block`, a preta com `block dark:hidden`. Ambas com `alt={BRAND.logo.alt}`. Aceitar prop `className` (controla tamanho), mesclando com `cn()` de `@/lib/utils`.
+  - [x] Obter as **dimensões intrínsecas reais** dos PNGs e usá-las em `width`/`height` do `next/image` (preserva proporção e evita warning de aspect-ratio). Tamanho de exibição via `className` (`h-* w-auto`). → 1400×750.
+  - [x] (RED) Criar `__tests__/unit/components/BrandLogo.test.tsx` que falha antes da implementação: renderiza 2 imagens com `alt` da marca; a branca tem `src` contendo `Logo-TDec-branco` e classe `dark:block`/`hidden`; a preta tem `src` contendo `Logo-TDec-preto` e classe `dark:hidden`/`block`. **Usar `toContain` no `src`** (ver Dev Notes → "Testes").
+  - [x] (GREEN) Implementar até os testes passarem.
 
-- [ ] **Task 3 — Integrar `<BrandLogo/>` no Header** (AC: #5)
-  - [ ] Em `src/components/common/Header.tsx`, inserir `<BrandLogo className="h-8 w-auto" />` dentro do slot esquerdo já reservado e vazio na linha 47 (`<div className="flex items-center" />`). Importar de `@/components/common/BrandLogo`. Header tem `h-16`; logo `h-8` cabe com folga.
-  - [ ] (RED→GREEN) Rodar `__tests__/unit/components/Header.test.tsx`; ajustar/adicionar asserção mínima se necessário (os testes atuais checam `role="banner"`, botões e theme toggle — não devem quebrar). Adicionar uma asserção de que o logo aparece (ex.: `getAllByAltText`).
+- [x] **Task 3 — Integrar `<BrandLogo/>` no app shell autenticado (topo do Sidebar)** (AC: #5)
+  - **⚠️ Mudança de escopo pós-feedback do usuário (review 2026-06-01):** o ponto de integração mudou do **Header** para o **topo do `Sidebar`** (maior, ocupando a largura, como os itens do menu). O `Header.tsx` e `Header.test.tsx` foram **revertidos ao estado original** (sem diff líquido — confirmar com `git diff`). AC #5 ("exibido no app shell autenticado") continua satisfeito: o Sidebar É o app shell. **NÃO recolocar o logo no Header.**
+  - [x] Em `src/components/common/Sidebar.tsx`, inserir `<BrandLogo />` em um bloco no **topo** do `<aside>` (antes do `<nav>`); reduzir `nav` `pt-[80px]`→`pt-2`. Expandido: `className="h-auto w-[85%]"`. Colapsado (64px): `className="h-6 w-auto"` centralizado. Importar de `@/components/common/BrandLogo`.
+  - [x] (RED→GREEN) Rodar `__tests__/unit/components/Sidebar.test.tsx`; adicionar asserção de que o logo aparece (`getAllByAltText`) nos estados expandido e colapsado. → 2 testes adicionados; 48/48 verde; AppShell (14) sem regressão. (`Sidebar.test.tsx` NÃO mocka `window.location`, então o `next/image` resolve `new URL` sem o problema "Invalid URL" que apareceu na 1ª tentativa no Header.)
 
-- [ ] **Task 4 — Integrar `<BrandLogo/>` na página de login** (AC: #5)
-  - [ ] Em `src/app/(auth)/login/page.tsx` (bloco linhas 100-105), substituir o `<h1>TDEC Prospect</h1>` visível por `<BrandLogo className="mx-auto h-12 w-auto" />`, mantendo o subtítulo `<p>`. Preservar a semântica de heading com um `<h1 className="sr-only">{BRAND.productName}</h1>` (acessibilidade + compatibilidade do teste existente). Importar `BRAND` e `BrandLogo`.
-  - [ ] (RED→GREEN) Rodar `__tests__/unit/components/LoginPage.test.tsx`. **Atenção (regressão):** o teste na linha 67 faz `getByRole("heading", { name: /TDEC Prospect/i })`. Com o `<h1 className="sr-only">{BRAND.productName}</h1>` = "TDec Prospect", o regex case-insensitive ainda casa e o teste passa. Confirmar; ajustar o teste apenas se a abordagem de heading mudar.
+- [x] **Task 4 — Integrar `<BrandLogo/>` na página de login** (AC: #5)
+  - [x] Em `src/app/(auth)/login/page.tsx` (bloco linhas 100-105), substituir o `<h1>TDEC Prospect</h1>` visível por `<BrandLogo className="mx-auto h-24 w-auto" />` (tamanho `h-24` ajustado de `h-12` por feedback do usuário — estava pequeno), mantendo o subtítulo `<p>`. Preservar a semântica de heading com um `<h1 className="sr-only">{BRAND.productName}</h1>` (acessibilidade + compatibilidade do teste existente). Importar `BRAND` e `BrandLogo`.
+  - [x] (RED→GREEN) Rodar `__tests__/unit/components/LoginPage.test.tsx`. **Atenção (regressão):** o teste na linha 67 faz `getByRole("heading", { name: /TDEC Prospect/i })`. Com o `<h1 className="sr-only">{BRAND.productName}</h1>` = "TDec Prospect", o regex case-insensitive ainda casa e o teste passa. Confirmar; ajustar o teste apenas se a abordagem de heading mudar. → 19/19 verde, sem ajuste de teste necessário.
 
-- [ ] **Task 5 — Validação e gate de qualidade** (AC: #1-#5)
-  - [ ] `npm run build` (gate obrigatório do projeto — sem erros TS).
-  - [ ] `npx vitest run` — suíte completa verde, **zero regressão** (atenção a Header, LoginPage, AppShell, Sidebar).
-  - [ ] `npm run lint` — sem erros (atenção a `no-console` e evitar non-null assertion `!`).
-  - [ ] Validação manual rápida: em tema escuro vê logo branco; em tema claro vê logo preto; alternar tema troca na hora; recarregar em tema claro NÃO mostra flash do logo branco.
+- [x] **Task 5 — Validação e gate de qualidade** (AC: #1-#5)
+  - [x] `npm run build` (gate obrigatório do projeto — sem erros TS). → "✓ Compiled successfully", build completo sem erros.
+  - [x] `npx vitest run` — suíte completa verde, **zero regressão** (atenção a Header, LoginPage, AppShell, Sidebar). → 357 arquivos, 6098 passed / 2 skipped / 0 falhas.
+  - [x] `npm run lint` — sem erros (atenção a `no-console` e evitar non-null assertion `!`). → Arquivos desta story: **0 erros, 0 novos warnings**. (Os 15 erros/147 warnings do repo são pré-existentes em arquivos não tocados.)
+  - [x] Validação manual rápida: em tema escuro vê logo branco; em tema claro vê logo preto; alternar tema troca na hora; recarregar em tema claro NÃO mostra flash do logo branco. → Validado no browser (prod build): `<html class="dark">` mostra logo branco (display:block) e preto oculto; `<html class="light">` mostra logo preto e branco oculto. Classe do tema aplicada antes do paint (script inline) → sem FOUC. Screenshots: story-19.1-login-dark-white-logo.png, story-19.1-login-light-black-logo.png.
 
 ## Dev Notes
 
@@ -69,7 +73,7 @@ Mapeamento de visibilidade (default do app é tema **dark**):
 - Logo **branco** (`BRAND.logo.dark`) → visível só no escuro → `className="hidden dark:block"`.
 - Logo **preto** (`BRAND.logo.light`) → visível só no claro → `className="block dark:hidden"`.
 
-Trade-off aceito: as duas PNGs (~90KB cada) carregam (o `<img>` oculto via `display:none` ainda é baixado). Para um logo é irrelevante e fica em cache; otimização futura possível com SVG/`<picture>` (o README de `public/brand/` já prevê SVG).
+Trade-off aceito: as duas PNGs (~90KB cada) carregam. ⚠️ **Correção de review:** o `<img>` oculto via `display:none` NÃO seria baixado com o lazy-loading padrão do `next/image` (sem layout box → nunca intersecta o viewport), o que causaria flash de logo ausente no 1º toggle de tema. Por isso ambas as `<Image>` usam `priority` (precarrega as duas + melhora o LCP do logo above-the-fold). Otimização futura possível com SVG/`<picture>` (o README de `public/brand/` já prevê SVG) — eliminaria a 2ª imagem.
 
 ### Assets (fonte de verdade = README, não o épico)
 Arquivos reais já presentes em [public/brand/](public/brand/):
@@ -191,8 +195,52 @@ Convenção de `next/image` para asset estático: import default `Image`, `width
 
 ### Agent Model Used
 
+claude-opus-4-8[1m] (Claude Opus 4.8, 1M context) — via skill `bmad-dev-story`.
+
 ### Debug Log References
+
+- **(1ª iteração, depois revertida) Header.test.tsx — 18 falhas (`TypeError: Invalid URL`) ao integrar `next/image`:** o `beforeEach` sobrescrevia `window.location` com `{ href: "" }`; o `next/image` (`getImgProps`) chama `new URL(...)` e o happy-dom usa `window.location.href` como base — base vazia lança "Invalid URL". Como o logo acabou indo para o `Sidebar` (cujo teste não mocka `location`), o `Header` foi revertido e o problema não se aplica mais. Aprendizado geral registrado em memória do projeto.
 
 ### Completion Notes List
 
+Story 100% cosmética (branding), sem tocar lógica de negócio. Abordagem CSS (`dark:`) escolhida sobre `useTheme()` para garantir AC #4 (sem FOUC), conforme Dev Notes.
+
+- ✅ **AC #1** — Componente único `<BrandLogo/>` + constant `BRAND` como fonte única. `BRAND.name === "TDec"` e NÃO casa `/TDEC/` (testado).
+- ✅ **AC #2** — Tema escuro → logo branco (`Logo-TDec-branco.png`, `hidden dark:block`). Validado no browser: `display:block` no `.dark`.
+- ✅ **AC #3** — Tema claro → logo preto (`Logo-TDec-preto.png`, `block dark:hidden`). Validado no browser: `display:block` no `.light`.
+- ✅ **AC #4** — Troca automática + sem FOUC. Renderização das DUAS variantes alternadas só por CSS (variante `dark:` do Tailwind); o script inline de `layout.tsx` aplica `.dark`/`.light` no `<html>` antes do primeiro paint, sem dependência de JS/hidratação. Sem `"use client"` e sem `useTheme()`.
+- ✅ **AC #5** — `<BrandLogo/>` exibido no app shell autenticado e no login, ambos com o mesmo componente, sem regressão. Suíte completa verde (6099 testes) — Header, LoginPage, AppShell, Sidebar.
+- **Dimensões dos PNGs:** 1400×750 (usadas em `width`/`height` do `next/image`).
+- **Lint:** arquivos da story com 0 erros e 0 novos warnings; nenhum `console` nem non-null assertion `!` introduzidos.
+- **Escopo respeitado:** não foi feito o sweep "TDEC"→"TDec" (Story 19.2) nem alterado `metadata`/favicon (Story 19.3). O título da aba do browser segue "TDEC Prospect" (metadata) — intencional, fora de escopo.
+
+#### Ajustes pós-feedback do usuário (review, 2026-06-01)
+- **Logo movido do Header → topo do Sidebar.** Por feedback do usuário, o logo no app shell saiu do Header e foi para o **topo do `Sidebar`**, maior, ocupando a largura do conteúdo (como os itens do menu). O slot esquerdo do `Header` voltou ao estado original (vazio) — `Header.tsx`/`Header.test.tsx` revertidos.
+  - Expandido: `<BrandLogo className="h-auto w-[85%]" />` (85% da largura do conteúdo `px-3` — ajustado de `w-full` para `w-[85%]` por feedback do usuário). Colapsado (64px): versão compacta `h-6 w-auto` centralizada.
+  - `Sidebar` nav: `pt-[80px]` → `pt-2` (o bloco do logo agora ocupa o topo).
+- **Login: logo aumentado** de `h-12` (48px) para **`h-24`** (96px) — estava pequeno/ilegível.
+- **Validação visual (prod build, browser):** sidebar dark = fundo escuro + logo branco; sidebar light = fundo claro (`rgb(250,250,250)`) + logo preto (o token `bg-sidebar` acompanha o tema, então a regra `dark:` continua correta no sidebar); colapsado = logo compacto sem overflow; login = logo grande e legível.
+
 ### File List
+
+**Novos:**
+- `src/lib/constants/brand.ts`
+- `src/components/common/BrandLogo.tsx`
+- `__tests__/unit/lib/constants/brand.test.ts`
+- `__tests__/unit/components/BrandLogo.test.tsx`
+
+**Modificados:**
+- `src/components/common/Sidebar.tsx` (import + `<BrandLogo/>` no topo; nav `pt-[80px]`→`pt-2`)
+- `src/app/(auth)/login/page.tsx` (imports + `<BrandLogo/>` `h-24` + `<h1 class="sr-only">` no lugar do título textual)
+- `__tests__/unit/components/Sidebar.test.tsx` (2 testes do logo: expandido e colapsado)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (status da story → review; `last_updated`)
+
+> Nota: `Header.tsx` e `Header.test.tsx` foram tocados durante a 1ª iteração (logo no Header) e **revertidos ao estado original** após o feedback do usuário — sem diff líquido.
+
+## Change Log
+
+| Data       | Versão | Descrição                                                                                   | Autor   |
+| ---------- | ------ | ------------------------------------------------------------------------------------------- | ------- |
+| 2026-06-01 | 1.0    | Implementação da Story 19.1: constant `BRAND`, componente `<BrandLogo/>` theme-aware (CSS `dark:`, FOUC-free), integração no Header e na página de login. 10 novos testes; suíte completa verde (6098). | Amelia (Dev) |
+| 2026-06-01 | 1.1    | Ajustes pós-feedback (review): logo movido do Header para o **topo do Sidebar** (maior, largura cheia; Header revertido) e **aumentado no login** (`h-12`→`h-24`). Testes do logo migrados p/ `Sidebar.test.tsx`. Suíte verde (6099); build ok; QA visual nos 2 temas + colapsado. | Amelia (Dev) |
+| 2026-06-01 | 1.2    | Correções de code review (xhigh): (1) `priority` nas duas `<Image>` — elimina flash no toggle de tema (lazy-loading não baixava a variante `display:none`) e melhora LCP; (2) prop `decorative` no `<BrandLogo/>` → logo do login com `alt=""` (evita anúncio duplicado, já que o `<h1 sr-only>` nomeia a marca); sidebar mantém o alt. +1 teste (modo decorativo). Verde: 92 unit afetados + 15 e2e (auth/home); lint 0 erros. | Claude (Review) |
