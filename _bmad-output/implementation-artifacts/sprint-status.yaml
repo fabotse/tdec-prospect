@@ -449,7 +449,7 @@ development_status:
   epic-19: in-progress
   19-1-brandlogo-theme-aware-centralizacao-branding: review  # Componente BrandLogo (logo branco no escuro / escuro no claro) + constant BRAND. Logos do cliente JA em public/brand/. Implementada 2026-06-01 (CSS dark:, FOUC-free); 10 novos testes, suite verde (6098).
   19-2-padronizacao-nome-tdec: review  # Sweep "TDEC" -> "TDec" em toda a UI (preservar refs "TripleD" e strings tecnicas). Story criada 2026-06-01: inventario exato de 7 strings user-facing + nuance do DB override do prompt (00033) + fixtures de teste a NAO tocar.
-  19-3-favicon-titulo-metadata-tdec: backlog  # Favicon, titulo da aba e OpenGraph com a marca TDec
+  19-3-favicon-titulo-metadata-tdec: review  # Favicon, titulo da aba e OpenGraph com a marca TDec. Story criada 2026-06-01: estende BRAND (favicon/ogImage) + root metadata (title/metadataBase/icons/openGraph); armadilha do favicon default do Next. Favicon JA entregue (public/brand/tdec-favicon.png 32x32, icone unico); resta gerar imagem OG 1200x630 (Task 0).
   epic-19-retrospective: optional
 
   # ============================================================

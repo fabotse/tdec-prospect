@@ -23,6 +23,14 @@ describe("BRAND constant", () => {
     expect(BRAND.logo.light).toBe("/brand/Logo-TDec-preto.png");
   });
 
+  it("aponta o favicon para o asset real da TDec", () => {
+    expect(BRAND.favicon).toBe("/brand/tdec-favicon.png");
+  });
+
+  it("aponta a imagem OpenGraph para o asset real", () => {
+    expect(BRAND.ogImage).toBe("/brand/og-image.png");
+  });
+
   it("define um alt text para acessibilidade", () => {
     expect(BRAND.logo.alt).toBeTruthy();
   });

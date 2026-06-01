@@ -77,3 +77,8 @@ venv/
 
 # Personal files
 my-tasks.md
+
+# Credentials (NEVER commit)
+docs/**/credentials*.md
+docs/**/credenciais*.md
+**/credentials.local.md

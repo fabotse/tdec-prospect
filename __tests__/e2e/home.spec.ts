@@ -11,7 +11,7 @@ test.describe("Home Page Redirect (Unauthenticated)", () => {
 
   test("should load login page with correct title", async ({ page }) => {
     await page.goto("/login");
-    await expect(page).toHaveTitle(/TDEC Prospect/);
+    await expect(page).toHaveTitle(/TDec Prospect/);
   });
 });
 

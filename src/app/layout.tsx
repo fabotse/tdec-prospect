@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/common/ThemeProvider";
 import { QueryProvider } from "@/components/common/QueryProvider";
+import { BRAND } from "@/lib/constants/brand";
 import { Toaster } from "sonner";
 import "./globals.css";
 
@@ -18,8 +19,24 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TDEC Prospect",
-  description: "AI-powered prospecting and outbound sales automation platform",
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
+  ),
+  title: BRAND.productName,
+  description: BRAND.description,
+  icons: {
+    icon: { url: BRAND.favicon, type: "image/png", sizes: "32x32" },
+  },
+  openGraph: {
+    title: BRAND.productName,
+    description: BRAND.description,
+    siteName: BRAND.productName,
+    type: "website",
+    locale: "pt_BR",
+    images: [
+      { url: BRAND.ogImage, width: 1200, height: 630, alt: BRAND.name },
+    ],
+  },
 };
 
 export default function RootLayout({

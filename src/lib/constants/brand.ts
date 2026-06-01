@@ -15,4 +15,8 @@ export const BRAND = {
     dark: "/brand/Logo-TDec-branco.png",
     alt: "TDec",
   },
+  /** Favicon 32×32 — ícone azul único (lê em chrome claro e escuro). */
+  favicon: "/brand/tdec-favicon.png",
+  /** Imagem OpenGraph 1200×630 (preview de link compartilhado). */
+  ogImage: "/brand/og-image.png",
 } as const;
