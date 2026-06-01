@@ -41,8 +41,8 @@ story_location: _bmad-output/implementation-artifacts
 
 # GIT BRANCH TRACKING
 # ===================
-current_branch: epic/17-pipeline-execution-approval-gates
-base_branch: epic/16-agent-foundation-briefing-conversacional
+current_branch: epic/19-rebranding-white-label
+base_branch: main
 
 branch_strategy:
   # Branch naming convention:
@@ -75,6 +75,7 @@ branches:
   epic/15-technographic-prospecting: "Epic 15 - Technographic Prospecting (DONE)"
   epic/16-agent-foundation-briefing-conversacional: "Epic 16 - Agent Foundation & Briefing Conversacional (DONE)"
   epic/17-pipeline-execution-approval-gates: "Epic 17 - Pipeline Execution & Approval Gates (IN-PROGRESS)"
+  epic/19-rebranding-white-label: "Epic 19 - Rebranding / White-label (IN-PROGRESS)"
 
 development_status:
   # Epic 1: Foundation & Authentication
@@ -437,3 +438,31 @@ development_status:
   18-4-resumo-final-rastreamento-de-custos: backlog
   18-5-execution-log-auditoria: backlog
   epic-18-retrospective: optional
+
+  # ============================================================
+  # EPIC 19: Rebranding / White-label (PREPARACAO DE ENTREGA)
+  # Documento: _bmad-output/planning-artifacts/epic-19-rebranding-white-label.md
+  # Mudancas cosmeticas/conteudo, baixo risco. Aplicar identidade visual da TDec.
+  # Pre-requisito: arquivos de logo do cliente em public/brand/ (ver public/brand/README.md)
+  #
+  epic-19: backlog
+  19-1-brandlogo-theme-aware-centralizacao-branding: backlog  # Componente BrandLogo (logo branco no escuro / escuro no claro) + constant BRAND. Depende dos logos do cliente.
+  19-2-padronizacao-nome-tdec: backlog  # Sweep "TDEC" -> "TDec" em toda a UI (preservar refs "TripleD" e strings tecnicas)
+  19-3-favicon-titulo-metadata-tdec: backlog  # Favicon, titulo da aba e OpenGraph com a marca TDec
+  epic-19-retrospective: optional
+
+  # ============================================================
+  # EPIC 20: Niveis de Acesso (Gestor / Diretor / SDR)
+  # Documento: _bmad-output/planning-artifacts/epic-20-niveis-de-acesso.md
+  # Toca auth + RLS (sensivel a seguranca). Expande o modelo admin/user atual.
+  # Decisao (2026-06-01): 3 papeis no enum; Gestor == Diretor por enquanto; SDR restrito.
+  # PRE-SPRINT OBRIGATORIO: doc de decisao (matriz de permissao + plano de migracao) via bmad-create-architecture
+  #   ANTES das stories irem para dev.
+  #
+  epic-20: backlog
+  20-1-modelo-tres-papeis-enum-migracao-rls: backlog  # UserRole -> gestor|diretor|sdr; migration admin->gestor, user->sdr; RLS atualizado
+  20-2-helper-capacidade-refatoracao-guards: backlog  # hasAdminAccess(role) central (true p/ gestor+diretor); refatora ~30 guards + middleware + AdminGuard + tenant.isAdmin
+  20-3-ui-papeis-gestao-de-time: backlog  # Relabel Admin/Usuario -> Gestor/Diretor/SDR + atribuicao no convite/edicao
+  20-4-provisionamento-usuarios-cliente: backlog  # Provisionar 4 e-mails @tdec.com.br (Gestor: mfabossi, seste / SDR: ccase, rgomes)
+  20-5-auditoria-acesso-sdr: backlog  # Varredura defense-in-depth: SDR nao acessa nenhuma superficie admin (UI + servidor) + testes papel x superficie
+  epic-20-retrospective: optional
