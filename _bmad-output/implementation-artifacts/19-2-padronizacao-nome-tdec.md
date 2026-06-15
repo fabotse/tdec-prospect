@@ -3,7 +3,7 @@ baseline_commit: a1befc3
 ---
 # Story 19.2: Padronização do nome "TDEC" → "TDec" em toda a UI
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -204,8 +204,26 @@ claude-opus-4-8[1m] (BMAD dev-story workflow)
 - `__tests__/unit/components/Sidebar.test.tsx` — assertions + nomes describe/it "TDEC" → "TDec"
 - `__tests__/unit/components/agent/AgentOnboarding.test.tsx` — it + assertion "TDEC" → "TDec"
 
+## Senior Developer Review (AI)
+
+**Reviewer:** Claude (Opus 4.8 — `/code-review`, xhigh effort) — 2026-06-02
+**Outcome:** Aprovada — sem mudanças obrigatórias. Story → `done`.
+
+**Escopo revisado:** diff do commit `5ba6dc9` (line-by-line, removed-behavior, cross-file tracer, language-pitfall, verificação da migration SQL + sweep de completude).
+
+**Resultado:**
+- ✅ **Zero bugs de correção e zero regressão.** Sweep "TDEC" → "TDec" completo no `src/` (só restam comentários intencionais em `globals.css:7` e `brand.ts:6`). `BRAND.name === "TDec"` confirmado; sem risco de hidratação (valor estático em module-scope, idêntico no server e client).
+- ✅ **Migration `00052` válida** — colunas `prompt_template`/`prompt_key`/`tenant_id`/`updated_at` existem (confirmado em `00020`/`00033`); `WHERE tenant_id IS NULL AND prompt_key = '…' AND prompt_template LIKE '%Na TDEC%'` é idempotente e atinge a linha global mesmo desativada pela `00038`. O `updated_at = NOW()` é redundante (trigger `BEFORE UPDATE` já seta), mas segue a convenção do repo (`00038` faz igual) — não é defeito.
+- ✅ **Sem quebra de testes/e2e** — nenhum teste ativo referencia as strings alteradas de forma case-sensitive; os hits remanescentes de "TDEC" em `__tests__/` são fixtures preservados (AC #2) e asserts `/TDEC Prospect/i` que ainda casam "TDec Prospect".
+
+**Achados:** 0 CRITICAL, 0 MEDIUM, 1 LOW (deferido).
+- **LOW (altitude — deferido para o white-label, Epic 19/20):** nome "TDec" hardcoded como literal em `defaults.ts:351` e espelhado na migration `00052` (`'Na TDec'`) em vez de derivar de `BRAND`. Decisão consciente e documentada na story (Dev Notes → "Prompt: por que literal"). Em deploy white-label, o exemplo few-shot do prompt nomeia o vendor "TDec" e pode eventualmente vazar para o conteúdo gerado por IA. Sem ação nesta story; revisitar quando o conteúdo de IA entrar no escopo do white-label.
+
+**Test Suite (conforme commit):** 357 arquivos, 6100 passed, 2 skipped. Build e lint OK.
+
 ## Change Log
 
 | Data | Versão | Descrição | Autor |
 |------|--------|-----------|-------|
 | 2026-06-01 | 1.0 | Implementação da Story 19.2 — sweep "TDEC" → "TDec" em 7 strings user-facing (consome `BRAND.name`), nova migration `00052` para paridade do prompt no DB (Opção A), 2 testes de regressão atualizados. Suíte verde (6100), build e lint OK. | Amelia (dev-story) |
+| 2026-06-02 | 1.1 | Senior Developer Review (AI) via `/code-review` — Aprovada: 0 bugs / 0 regressão, 1 achado LOW (literal de marca no prompt) deferido para o white-label. Story → `done`. | Claude (Opus 4.8) |

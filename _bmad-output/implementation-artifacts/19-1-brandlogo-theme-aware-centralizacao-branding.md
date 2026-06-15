@@ -3,7 +3,7 @@ baseline_commit: 8d706fd8e7f50bcc1fc222b4aecc0a49848890d7
 ---
 # Story 19.1: Componente BrandLogo theme-aware + centralização do branding
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -53,6 +53,30 @@ so that a identidade visual fique correta e profissional em qualquer modo.
   - [x] `npx vitest run` — suíte completa verde, **zero regressão** (atenção a Header, LoginPage, AppShell, Sidebar). → 357 arquivos, 6098 passed / 2 skipped / 0 falhas.
   - [x] `npm run lint` — sem erros (atenção a `no-console` e evitar non-null assertion `!`). → Arquivos desta story: **0 erros, 0 novos warnings**. (Os 15 erros/147 warnings do repo são pré-existentes em arquivos não tocados.)
   - [x] Validação manual rápida: em tema escuro vê logo branco; em tema claro vê logo preto; alternar tema troca na hora; recarregar em tema claro NÃO mostra flash do logo branco. → Validado no browser (prod build): `<html class="dark">` mostra logo branco (display:block) e preto oculto; `<html class="light">` mostra logo preto e branco oculto. Classe do tema aplicada antes do paint (script inline) → sem FOUC. Screenshots: story-19.1-login-dark-white-logo.png, story-19.1-login-light-black-logo.png.
+
+### Review Findings (Senior Developer Review adversarial — Amelia, 2026-06-15)
+
+**Veredicto:** Aprovada. **5/5 ACs satisfeitas** (Acceptance Auditor); File List confere; estado final (logo no Sidebar, login decorativo + sr-only h1, `priority` em ambas, prop `decorative`) bate com o Change Log v1.1/v1.2. **0 bug HIGH.** Esta foi a review formal de 3 camadas (Blind Hunter, Edge Case Hunter, Acceptance Auditor) que faltava — a v1.2 anterior foi um `/code-review` ad-hoc. Nenhuma camada falhou.
+
+> **Reconciliação importante:** o Blind Hunter (sem acesso ao código) hipotetizou um *FOUC do logo* pela divergência de tema. O Edge Case Hunter (com acesso) **refutou**: o logo segue o tema pintado via CSS (`.dark`/`.light` no `<html>` pré-paint), então **não há FOUC do logo**. A divergência existe só no `useTheme()` JS e é **pré-existente** (ver defer abaixo) — a 19.1 corretamente a contorna usando CSS puro (alinhado com a memória `reference_theme_conditional_rendering`).
+
+#### Patches
+
+- [x] [Review][Patch] **`sizes` ausente nas `<Image>` do BrandLogo** — fontes são 1400×750 mas o display é pequeno (login `h-24` ≈ 179px; sidebar expandido `w-[85%]` ≈ 200px; colapsado ≈ 45px). Sem `sizes`, o `next/image` não consegue escolher um candidato menor do srcset → baixa variante maior que o necessário (custo above-the-fold, somado ao `priority` em ambas). Adicionar um `sizes` enxuto (ex.: `"256px"`) reduz payload sem mexer no `priority` (decisão intencional da v1.2 contra flash no toggle). [src/components/common/BrandLogo.tsx:43,52]
+- [x] [Review][Patch] **File List subdocumenta a mudança no Sidebar** — o bullet do `Sidebar.tsx` cita só "import + `<BrandLogo/>` no topo; `pt-[80px]`→`pt-2`", mas o diff também **remove 3 non-null assertions** (`item.subItems!` → narrowing). Está no commit, não na File List. [story File List]
+
+#### Deferido (pré-existente, fora do escopo da 19.1)
+
+- [x] [Review][Defer] **Divergência tema inline-script × ThemeProvider para usuário system-light sem `localStorage`** — o script inline ([layout.tsx](src/app/layout.tsx)) faz default `dark` e **não** consulta `prefers-color-scheme`, enquanto `getStoredTheme()` ([ThemeProvider](src/components/common/ThemeProvider.tsx)) honra `light` do SO. Usuário novo em SO claro: app pinta `dark` e o `useTheme()` discorda do tema pintado. **Não afeta o logo** (CSS segue a classe pintada) nem foi introduzido pela 19.1 — é comportamento do theme system (default-dark possivelmente intencional). Registrado para follow-up do theme system, não bloqueia esta story. — deferido, pré-existente
+
+#### Dismissados (falso-positivo / já correto / intencional)
+
+- **Colisão `w-auto` vs `w-[85%]`** (Blind#3) — falso-positivo: `cn` é tailwind-merge (`twMerge(clsx(...))`, [utils.ts:5](src/lib/utils.ts#L5)) → conflito de width resolvido (last-wins), `w-[85%]` vence.
+- **Remover `priority` da variante oculta** — decisão **intencional** da review v1.2 (precarregar ambas evita flash ao alternar tema). Tradeoff consciente.
+- **Fragment com 2 `<Image>` siblings** — funciona em todos os call sites atuais (ambos embrulham em `<div>` dedicada).
+- **Segurança do modo `decorative` por convenção** — correto hoje (login pareia com `<h1 sr-only>`); o JSDoc da prop já documenta o uso correto.
+- **`pt-[80px]`→`pt-2`** — Edge Hunter verificou: o `<Header>` é `fixed left:sidebarWidth`, não sobrepõe o logo do sidebar. Sem regressão de layout.
+- **Duplo-anúncio a11y** — não-issue confirmado: variante oculta é `display:none` (fora da árvore de acessibilidade), só uma é anunciada.
 
 ## Dev Notes
 
@@ -230,7 +254,7 @@ Story 100% cosmética (branding), sem tocar lógica de negócio. Abordagem CSS (
 - `__tests__/unit/components/BrandLogo.test.tsx`
 
 **Modificados:**
-- `src/components/common/Sidebar.tsx` (import + `<BrandLogo/>` no topo; nav `pt-[80px]`→`pt-2`)
+- `src/components/common/Sidebar.tsx` (import + `<BrandLogo/>` no topo; nav `pt-[80px]`→`pt-2`; **[review 19.1]** removidos 3 non-null assertions `item.subItems!` via narrowing `subItems && subItems.length > 0`)
 - `src/app/(auth)/login/page.tsx` (imports + `<BrandLogo/>` `h-24` + `<h1 class="sr-only">` no lugar do título textual)
 - `__tests__/unit/components/Sidebar.test.tsx` (2 testes do logo: expandido e colapsado)
 - `_bmad-output/implementation-artifacts/sprint-status.yaml` (status da story → review; `last_updated`)

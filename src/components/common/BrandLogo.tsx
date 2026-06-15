@@ -13,6 +13,13 @@ import { BRAND } from "@/lib/constants/brand";
 const LOGO_WIDTH = 1400;
 const LOGO_HEIGHT = 750;
 
+// `sizes`: o logo é exibido pequeno (≤ ~204px — login `h-24`, sidebar `w-[85%]`/
+// colapsado), muito abaixo dos 1400px intrínsecos. Sem `sizes`, o next/image
+// escolhe um candidato grande do srcset. "256px" cobre o maior display (com folga
+// p/ telas hi-DPI) e deixa o navegador baixar uma variante menor → corta payload
+// above-the-fold sem afetar o `priority` (precarregamento das duas variantes).
+const LOGO_SIZES = "256px";
+
 interface BrandLogoProps {
   className?: string;
   /**
@@ -41,6 +48,7 @@ export function BrandLogo({ className, decorative = false }: BrandLogoProps) {
         width={LOGO_WIDTH}
         height={LOGO_HEIGHT}
         priority
+        sizes={LOGO_SIZES}
         className={cn("hidden w-auto dark:block", className)}
       />
       {/* Logo preto — visível só no tema claro */}
@@ -50,6 +58,7 @@ export function BrandLogo({ className, decorative = false }: BrandLogoProps) {
         width={LOGO_WIDTH}
         height={LOGO_HEIGHT}
         priority
+        sizes={LOGO_SIZES}
         className={cn("block w-auto dark:hidden", className)}
       />
     </>

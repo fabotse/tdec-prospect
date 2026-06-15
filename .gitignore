@@ -79,6 +79,6 @@ venv/
 my-tasks.md
 
 # Credentials (NEVER commit)
-docs/**/credentials*.md
-docs/**/credenciais*.md
+**/credentials*.md
+**/credenciais*.md
 **/credentials.local.md

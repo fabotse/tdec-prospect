@@ -3,7 +3,7 @@ baseline_commit: 5ba6dc9
 ---
 # Story 19.3: Favicon, título da aba e metadata com a marca TDec
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -90,6 +90,26 @@ so that a identidade visual fique consistente também **fora da área de conteú
     - DevTools → Elements `<head>`: `<title>TDec Prospect</title>`, `<meta property="og:title" content="TDec Prospect">`, `<meta property="og:image" content="http://localhost:3000/brand/og-image.png">` (URL absoluta).
     - Opcional: validar o preview OG num validador (ex.: opengraph.xyz) apontando para a URL de preview da Vercel.
   - [x] **E2E (se o runner local estiver configurado):** `npx playwright test home.spec.ts` deve passar com o novo título. → 4/4 passaram (incl. "should load login page with correct title" com `/TDec Prospect/`).
+
+### Review Findings (Senior Developer Review — Amelia, 2026-06-15)
+
+**Veredicto:** Aprovada com ressalvas. **6/6 ACs satisfeitas** (Acceptance Auditor); File List confere; claims das Completion Notes verificadas. **0 bug HIGH** no código mergeado — apenas 1 decisão + 3 patches de hardening. 3 camadas adversariais (Blind Hunter, Edge Case Hunter, Acceptance Auditor), nenhuma falhou.
+
+#### Decisão necessária
+
+- [x] [Review][Decision] **Fallback `/favicon.ico` ausente** — após deletar `src/app/favicon.ico`, requests convencionais a `/favicon.ico` (browsers legados, crawlers, leitores RSS, alguns unfurlers que sondam o path fixo) retornam **404**. Browsers modernos honram `<link rel="icon" type="image/png">`, então a aba funciona normalmente. Opções: (a) gerar um `favicon.ico` TDec a partir do PNG e servir como fallback de máxima compatibilidade; ou (b) manter só PNG (aceitável para stack moderna). `public/brand/README.md` lista `favicon.ico` como slot pretendido. [src/app/favicon.ico (del) + src/app/layout.tsx:27] → **Resolvido 2026-06-15 (decisão do usuário): manter só PNG; 404 convencional aceito para stack moderna.**
+
+#### Patches
+
+- [x] [Review][Patch] **Hardening do `metadataBase` contra `NEXT_PUBLIC_SITE_URL` malformado** — `new URL("dominio-sem-scheme")` lança `TypeError: Invalid URL` em tempo de build (a `metadata` é avaliada no module-eval) → `next build` quebra. Valor sem protocolo (ex.: `tdec.com.br`, `www.tdec.com.br`) é colável por engano no painel da Vercel. Guardar com try/catch + fallback (ou normalização de scheme). **Nota de deploy:** garantir a env setada em prod — senão OG/favicon resolvem para `http://localhost:3000` e o preview social quebra silenciosamente. [src/app/layout.tsx:22]
+- [x] [Review][Patch] **`.gitignore` — padrões de credenciais assimétricos** — `docs/**/credentials*.md` e `docs/**/credenciais*.md` cobrem só `docs/`, enquanto `**/credentials.local.md` é global; um `credentials.md` na raiz **não** seria ignorado. Tornar simétrico/global (`**/credentials*.md`, `**/credenciais*.md`). [.gitignore:81]
+- [x] [Review][Patch] **File List da story incompleta** — falta a entrada `public/brand/tdec-favicon.png (new)` (primeiro commitado neste range, embora tratado como "entregue pelo cliente"). [story File List]
+
+#### Dismissados (ruído / já correto)
+
+- Asserts "tautológicos" em `brand.test.ts` — seguem o padrão existente do arquivo (`logo.light` etc.); servem de regression guard do contrato `BRAND`.
+- `sizes:"32x32"` / `type` "frágeis" — atualmente corretos (favicon verificado 32×32; OG 1200×630); declarar dimensões é prática padrão.
+- `||` vs `??` no fallback da env — equivalente funcional para string; nenhuma AC afetada.
 
 ## Dev Notes
 
@@ -227,11 +247,13 @@ claude-opus-4-8[1m] (Amelia / bmad-dev-story)
 ### File List
 
 - `src/lib/constants/brand.ts` — (mod) +`favicon`, +`ogImage`
-- `src/app/layout.tsx` — (mod) import `BRAND`; novo objeto `metadata` (metadataBase/title/description/icons/openGraph)
+- `src/app/layout.tsx` — (mod) import `BRAND`; novo objeto `metadata` (metadataBase/title/description/icons/openGraph); **[review P1]** `metadataBase` agora via helper resiliente `resolveMetadataBase()` (guarda contra `NEXT_PUBLIC_SITE_URL` malformado)
 - `src/app/favicon.ico` — (del) favicon default do Next removido
 - `public/brand/og-image.png` — (new) imagem OpenGraph 1200×630
+- `public/brand/tdec-favicon.png` — (new) favicon 32×32 da TDec (entregue pelo cliente; servido via `BRAND.favicon`)
 - `__tests__/unit/lib/constants/brand.test.ts` — (mod) +2 asserts (`favicon`/`ogImage`)
 - `__tests__/e2e/home.spec.ts` — (mod) regex do título `/TDEC Prospect/` → `/TDec Prospect/`
+- `.gitignore` — (mod) **[review P2]** padrões de credenciais globais/simétricos (`**/credentials*.md`, `**/credenciais*.md`)
 
 ## Change Log
 

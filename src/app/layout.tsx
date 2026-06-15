@@ -18,10 +18,31 @@ const jetbrainsMono = JetBrains_Mono({
   display: "swap",
 });
 
+const SITE_URL_FALLBACK = "http://localhost:3000";
+
+/**
+ * Resolve o `metadataBase` de forma resiliente: aceita uma URL absoluta válida,
+ * tenta prefixar `https://` para valores sem scheme (ex.: "tdec.com.br" colado
+ * no painel da Vercel) e, em último caso, cai no localhost. Evita que um
+ * `NEXT_PUBLIC_SITE_URL` malformado quebre o `next build` — a `metadata` é
+ * avaliada em module-eval, então um `new URL()` que lança aborta o build.
+ */
+function resolveMetadataBase(): URL {
+  const raw = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (!raw) return new URL(SITE_URL_FALLBACK);
+  try {
+    return new URL(raw);
+  } catch {
+    try {
+      return new URL(`https://${raw}`);
+    } catch {
+      return new URL(SITE_URL_FALLBACK);
+    }
+  }
+}
+
 export const metadata: Metadata = {
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
-  ),
+  metadataBase: resolveMetadataBase(),
   title: BRAND.productName,
   description: BRAND.description,
   icons: {

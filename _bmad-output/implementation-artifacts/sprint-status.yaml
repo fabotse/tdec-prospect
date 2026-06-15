@@ -34,7 +34,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-25
-last_updated: 2026-06-01
+last_updated: 2026-06-15
 project: tdec-prospect
 project_key: NOKEY
 tracking_system: file-system
@@ -447,9 +447,9 @@ development_status:
   # Pre-requisito: arquivos de logo do cliente em public/brand/ (ver public/brand/README.md)
   #
   epic-19: in-progress
-  19-1-brandlogo-theme-aware-centralizacao-branding: review  # Componente BrandLogo (logo branco no escuro / escuro no claro) + constant BRAND. Logos do cliente JA em public/brand/. Implementada 2026-06-01 (CSS dark:, FOUC-free); 10 novos testes, suite verde (6098).
-  19-2-padronizacao-nome-tdec: review  # Sweep "TDEC" -> "TDec" em toda a UI (preservar refs "TripleD" e strings tecnicas). Story criada 2026-06-01: inventario exato de 7 strings user-facing + nuance do DB override do prompt (00033) + fixtures de teste a NAO tocar.
-  19-3-favicon-titulo-metadata-tdec: review  # Favicon, titulo da aba e OpenGraph com a marca TDec. Story criada 2026-06-01: estende BRAND (favicon/ogImage) + root metadata (title/metadataBase/icons/openGraph); armadilha do favicon default do Next. Favicon JA entregue (public/brand/tdec-favicon.png 32x32, icone unico); resta gerar imagem OG 1200x630 (Task 0).
+  19-1-brandlogo-theme-aware-centralizacao-branding: done  # Componente BrandLogo (logo branco no escuro / escuro no claro) + constant BRAND. CSS dark:, FOUC-free. Senior Developer Review adversarial (AI) 2026-06-15: 5/5 ACs OK, 0 bug HIGH; 2 patches LOW aplicados (sizes nas <Image>, File List); 1 defer pre-existente (divergencia tema inline-script x ThemeProvider, nao afeta o logo -> deferred-work.md); "FOUC do logo" do Blind Hunter refutado pelo Edge Hunter. Build verde (70/70), 61 testes afetados verdes, eslint limpo.
+  19-2-padronizacao-nome-tdec: done  # Sweep "TDEC" -> "TDec" em toda a UI (preservar refs "TripleD" e strings tecnicas). Senior Developer Review (AI) 2026-06-02: aprovada, 0 bugs/0 regressao, 1 achado LOW (literal de marca no prompt defaults.ts/00052) deferido p/ white-label. Suite verde (6100).
+  19-3-favicon-titulo-metadata-tdec: done  # Favicon, titulo da aba e OpenGraph com a marca TDec (estende BRAND + root metadata). Senior Developer Review (AI) 2026-06-15: 6/6 ACs OK, 0 bug HIGH. 3 patches aplicados (hardening do metadataBase contra URL malformada, .gitignore de credenciais global, File List corrigida); decisao favicon.ico=PNG-only aceita. Build verde (70/70, sem warning metadataBase), brand.test.ts 8/8, eslint limpo.
   epic-19-retrospective: optional
 
   # ============================================================
