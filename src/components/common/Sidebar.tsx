@@ -26,6 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { BrandLogo } from "@/components/common/BrandLogo";
 import { BRAND } from "@/lib/constants/brand";
 import { useNewInsightsCount } from "@/hooks/use-lead-insights";
+import { useUser } from "@/hooks/use-user";
 
 const TRANSITION_DURATION = 200;
 const STORAGE_KEY = "sidebar-expanded";
@@ -35,6 +36,12 @@ interface NavItem {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   subItems?: NavItem[];
+  /**
+   * Story 20.5 (AC4/AC5): item administrativo. Renderizado apenas para papéis
+   * com `hasAdminAccess` (Gestor/Diretor). O servidor é a barreira real
+   * (middleware/RLS) — esconder o link é conveniência (NFR-S2), não substituto.
+   */
+  adminOnly?: boolean;
 }
 
 const navItems: NavItem[] = [
@@ -47,11 +54,11 @@ const navItems: NavItem[] = [
       { label: "Meus Leads", href: "/leads/my-leads", icon: Database },
     ],
   },
-  { label: "Technographic", href: "/technographic", icon: Radar },
+  { label: "Technographic", href: "/technographic", icon: Radar, adminOnly: true },
   { label: "Campanhas", href: "/campaigns", icon: Send },
   { label: "Insights", href: "/insights", icon: Lightbulb },
   { label: `Agente ${BRAND.name}`, href: "/agent", icon: Bot },
-  { label: "Configurações", href: "/settings", icon: Settings },
+  { label: "Configurações", href: "/settings", icon: Settings, adminOnly: true },
 ];
 
 function InsightsBadge() {
@@ -73,6 +80,16 @@ interface SidebarProps {
 
 export function Sidebar({ isCollapsed, onToggleCollapse, width, isHydrated }: SidebarProps) {
   const pathname = usePathname();
+  const { isAdmin, isLoading, isProfileLoading } = useUser();
+
+  // Story 20.5 (AC4/AC5) — menor privilégio na UI: só renderiza itens admin com
+  // capacidade CONFIRMADA (perfil carregado E hasAdminAccess). Enquanto o perfil
+  // carrega, esconde os itens admin para evitar "flash" do link; para o SDR
+  // `isAdmin` nunca fica true, então os links nunca aparecem.
+  const canSeeAdmin = isAdmin && !isLoading && !isProfileLoading;
+  const visibleNavItems = navItems.filter(
+    (item) => !item.adminOnly || canSeeAdmin
+  );
   const [expandedItems, setExpandedItems] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem(STORAGE_KEY);
@@ -424,7 +441,7 @@ export function Sidebar({ isCollapsed, onToggleCollapse, width, isHydrated }: Si
         aria-label="Sidebar navigation"
         className="flex-1 flex flex-col pt-2 px-3"
       >
-        <ul className="flex flex-col gap-1">{navItems.map(renderNavItem)}</ul>
+        <ul className="flex flex-col gap-1">{visibleNavItems.map(renderNavItem)}</ul>
       </nav>
 
       {/* Collapse/Expand Button */}

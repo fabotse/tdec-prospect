@@ -90,10 +90,10 @@ describe("POST /api/integrations/theirstack/search/companies", () => {
     expect(body.error).toContain("autenticado");
   });
 
-  it("returns 403 when not admin", async () => {
+  it("returns 403 when SDR (not admin)", async () => {
     mockGetCurrentUserProfile.mockResolvedValue({
       tenant_id: "t1",
-      role: "member",
+      role: "sdr",
     });
 
     const response = await POST(
@@ -103,6 +103,24 @@ describe("POST /api/integrations/theirstack/search/companies", () => {
 
     expect(response.status).toBe(403);
     expect(body.error).toContain("administradores");
+  });
+
+  it("allows a Diretor past the admin gate (Story 20.5 AC2/AC3)", async () => {
+    // Diretor tem acesso admin → passa do gate; sem config retorna 404 (não 403).
+    mockGetCurrentUserProfile.mockResolvedValue({
+      tenant_id: "t1",
+      role: "diretor",
+    });
+    mockSupabaseSingle.mockResolvedValue({
+      data: null,
+      error: { message: "Not found" },
+    });
+
+    const response = await POST(
+      createRequest({ technologySlugs: ["react"] })
+    );
+
+    expect(response.status).toBe(404);
   });
 
   it("returns 400 when technologySlugs is empty", async () => {

@@ -75,10 +75,10 @@ describe("GET /api/integrations/theirstack/credits", () => {
     expect(body.error).toContain("autenticado");
   });
 
-  it("returns 403 when not admin", async () => {
+  it("returns 403 when SDR (not admin)", async () => {
     mockGetCurrentUserProfile.mockResolvedValue({
       tenant_id: "t1",
-      role: "member",
+      role: "sdr",
     });
 
     const response = await GET();
@@ -86,6 +86,23 @@ describe("GET /api/integrations/theirstack/credits", () => {
 
     expect(response.status).toBe(403);
     expect(body.error).toContain("administradores");
+  });
+
+  it("allows a Diretor past the admin gate (Story 20.5 AC2/AC3)", async () => {
+    // Diretor tem acesso admin → passa do gate; sem config retorna 404 (não 403),
+    // provando que a barreira de servidor liberou o papel Diretor.
+    mockGetCurrentUserProfile.mockResolvedValue({
+      tenant_id: "t1",
+      role: "diretor",
+    });
+    mockSupabaseSingle.mockResolvedValue({
+      data: null,
+      error: { message: "Not found" },
+    });
+
+    const response = await GET();
+
+    expect(response.status).toBe(404);
   });
 
   it("returns 404 when API key not configured", async () => {

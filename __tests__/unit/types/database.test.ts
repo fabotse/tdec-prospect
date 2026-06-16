@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   isValidRole,
-  isAdminRole,
   isValidWhatsAppMessageStatus,
   WHATSAPP_MESSAGE_STATUSES,
   type UserRole,
@@ -60,20 +59,6 @@ describe("Database Types", () => {
       expect(isValidRole("Gestor")).toBe(false); // case sensitive
       expect(isValidRole("admin")).toBe(false); // vocabulário antigo
       expect(isValidRole("user")).toBe(false); // vocabulário antigo
-    });
-  });
-
-  describe("isAdminRole helper", () => {
-    it("should return true for gestor role", () => {
-      expect(isAdminRole("gestor")).toBe(true);
-    });
-
-    it("should return true for diretor role", () => {
-      expect(isAdminRole("diretor")).toBe(true);
-    });
-
-    it("should return false for sdr role", () => {
-      expect(isAdminRole("sdr")).toBe(false);
     });
   });
 

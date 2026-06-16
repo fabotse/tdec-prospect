@@ -311,7 +311,10 @@ export async function removeTeamMember(
       return { success: false, error: "Usuário não encontrado." };
     }
 
-    // 4. If target has admin access, check if they're the only admin
+    // 4. If target has admin access, check if they're the only admin.
+    //    Story 20.5 (AC6) — fail-CLOSED: contagem ausente/null ou <= 1 bloqueia.
+    //    Um `count` null (erro de leitura/RLS) NUNCA pode liberar a remoção e
+    //    deixar o tenant com 0 admins (o antigo `=== 1` deixava `null` passar).
     if (hasAdminAccess(targetProfile.role as UserRole)) {
       const { count } = await supabase
         .from("profiles")
@@ -319,7 +322,7 @@ export async function removeTeamMember(
         .eq("tenant_id", profile.tenant_id)
         .in("role", [...ADMIN_ROLES]);
 
-      if (count === 1) {
+      if (count == null || count <= 1) {
         return {
           success: false,
           error: "Não é possível remover o único administrador.",
@@ -459,7 +462,10 @@ export async function updateMemberRole(
         .eq("tenant_id", profile.tenant_id)
         .in("role", [...ADMIN_ROLES]);
 
-      if (count === 1) {
+      // Story 20.5 (AC6) — fail-CLOSED: contagem ausente/null ou <= 1 bloqueia o
+      // rebaixamento. O antigo `=== 1` deixava `null` (erro de leitura/RLS)
+      // prosseguir → tenant podia ficar com 0 admins por erro de query.
+      if (count == null || count <= 1) {
         return {
           success: false,
           error: "Não é possível rebaixar o único administrador.",
@@ -656,9 +662,13 @@ export async function isOnlyAdmin(): Promise<boolean> {
       .eq("tenant_id", profile.tenant_id)
       .in("role", [...ADMIN_ROLES]);
 
-    return count === 1;
+    // Story 20.5 (AC6) — fail-CLOSED: contagem ausente/null ou <= 1 é tratada
+    // como "único admin" (true) → a UI desabilita a remoção. Conservador: na
+    // dúvida (erro de leitura), protege contra ficar sem admin.
+    return count == null || count <= 1;
   } catch (error) {
     console.error("isOnlyAdmin error:", error);
-    return false;
+    // Falha → assume único admin (fail-closed): bloqueia a remoção.
+    return true;
   }
 }

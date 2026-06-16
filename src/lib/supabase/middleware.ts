@@ -48,10 +48,17 @@ export async function updateSession(request: NextRequest) {
   const isProtectedRoute =
     request.nextUrl.pathname.startsWith("/leads") ||
     request.nextUrl.pathname.startsWith("/campaigns") ||
-    request.nextUrl.pathname.startsWith("/settings");
+    request.nextUrl.pathname.startsWith("/settings") ||
+    request.nextUrl.pathname.startsWith("/technographic");
 
-  // Admin-only routes require admin role
-  const isAdminRoute = request.nextUrl.pathname.startsWith("/settings");
+  // Admin-only routes require admin role.
+  // Story 20.5 (AC5): Technographic é tratado como superfície administrativa
+  // (consistente com o gating 403 das rotas theirStack). Barrar no middleware
+  // — antes de carregar a página — é a barreira de servidor real; esconder o
+  // link no Sidebar (Task 2) é só conveniência (NFR-S2). Não-admin → /leads.
+  const isAdminRoute =
+    request.nextUrl.pathname.startsWith("/settings") ||
+    request.nextUrl.pathname.startsWith("/technographic");
 
   const isAuthRoute =
     request.nextUrl.pathname.startsWith("/login") ||

@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Sidebar } from '@/components/common/Sidebar'
 import { BRAND } from '@/lib/constants/brand'
 import { usePathname } from 'next/navigation'
+import { useUser } from '@/hooks/use-user'
 
 // Mock next/navigation
 vi.mock('next/navigation', () => ({
@@ -15,7 +16,33 @@ vi.mock('@/hooks/use-lead-insights', () => ({
   useNewInsightsCount: vi.fn(() => ({ data: 0 })),
 }))
 
+// Story 20.5 (AC4/AC5): Sidebar agora é ciente de papel via useUser.
+vi.mock('@/hooks/use-user', () => ({
+  useUser: vi.fn(),
+}))
+
 const mockUsePathname = vi.mocked(usePathname)
+const mockUseUser = vi.mocked(useUser)
+
+/**
+ * Constrói o retorno do useUser para os testes. Default = Gestor (admin) para
+ * preservar as asserções pré-existentes (que esperam o link "Configurações").
+ */
+function mockUserReturn(
+  overrides: Partial<ReturnType<typeof useUser>> = {}
+): ReturnType<typeof useUser> {
+  return {
+    user: { id: 'u1' },
+    profile: null,
+    isLoading: false,
+    isProfileLoading: false,
+    error: null,
+    isAdmin: true,
+    role: 'gestor',
+    refetchProfile: vi.fn(),
+    ...overrides,
+  } as ReturnType<typeof useUser>
+}
 
 describe('Sidebar', () => {
   const defaultProps = {
@@ -29,6 +56,8 @@ describe('Sidebar', () => {
     vi.clearAllMocks()
     localStorage.clear()
     mockUsePathname.mockReturnValue('/leads')
+    // Default: Gestor (admin) — mantém as asserções pré-existentes válidas.
+    mockUseUser.mockReturnValue(mockUserReturn())
   })
 
   afterEach(() => {
@@ -594,6 +623,68 @@ describe('Sidebar', () => {
           expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: /buscar/i }))
         })
       })
+    })
+  })
+
+  // ==============================================
+  // Story 20.5 (AC4/AC5) — Links administrativos por papel
+  // "Configurações" e "Technographic" só aparecem para Gestor/Diretor.
+  // O servidor é a barreira real; esconder o link é conveniência (NFR-S2).
+  // ==============================================
+  describe('Admin-only nav items by role (Story 20.5)', () => {
+    it('shows Configurações and Technographic for Gestor', () => {
+      mockUseUser.mockReturnValue(mockUserReturn({ isAdmin: true, role: 'gestor' }))
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByRole('link', { name: /configurações/i })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /technographic/i })).toBeInTheDocument()
+    })
+
+    it('shows Configurações and Technographic for Diretor (admin access)', () => {
+      mockUseUser.mockReturnValue(mockUserReturn({ isAdmin: true, role: 'diretor' }))
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByRole('link', { name: /configurações/i })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /technographic/i })).toBeInTheDocument()
+    })
+
+    it('hides Configurações and Technographic for SDR', () => {
+      mockUseUser.mockReturnValue(mockUserReturn({ isAdmin: false, role: 'sdr' }))
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.queryByRole('link', { name: /configurações/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: /technographic/i })).not.toBeInTheDocument()
+    })
+
+    it('keeps prospecting surfaces visible for SDR (no regression)', () => {
+      mockUseUser.mockReturnValue(mockUserReturn({ isAdmin: false, role: 'sdr' }))
+      render(<Sidebar {...defaultProps} />)
+
+      // SDR precisa prospectar — leads/campanhas/insights/agente continuam visíveis.
+      expect(screen.getByRole('button', { name: /leads/i })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /campanhas/i })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /insights/i })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /agente tdec/i })).toBeInTheDocument()
+    })
+
+    it('hides admin items while the profile is still loading (no flash)', () => {
+      mockUseUser.mockReturnValue(
+        mockUserReturn({ isAdmin: false, isLoading: true })
+      )
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.queryByRole('link', { name: /configurações/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: /technographic/i })).not.toBeInTheDocument()
+    })
+
+    it('hides admin items while isProfileLoading even if isAdmin is briefly true', () => {
+      mockUseUser.mockReturnValue(
+        mockUserReturn({ isAdmin: true, isProfileLoading: true })
+      )
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.queryByRole('link', { name: /configurações/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: /technographic/i })).not.toBeInTheDocument()
     })
   })
 })

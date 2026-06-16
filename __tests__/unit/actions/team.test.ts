@@ -552,6 +552,87 @@ describe("team actions", () => {
         error: "Não é possível remover o único administrador.",
       });
     });
+
+    it("blocks removing an admin when the count is null (fail-closed, Story 20.5 AC6)", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+
+      let callCount = 0;
+      mockSupabase.from.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                single: vi.fn().mockResolvedValue({
+                  data: {
+                    id: "other-admin",
+                    tenant_id: "tenant-456",
+                    role: "gestor",
+                  },
+                  error: null,
+                }),
+              }),
+            }),
+          };
+        }
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              in: vi.fn().mockResolvedValue({ count: null }),
+            }),
+          }),
+        };
+      });
+
+      const result = await removeTeamMember("other-admin");
+
+      expect(result).toEqual({
+        success: false,
+        error: "Não é possível remover o único administrador.",
+      });
+    });
+
+    it("allows removing an admin when there are >= 2 admins (count=2)", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+
+      const mockDeleteEq = vi.fn().mockResolvedValue({ error: null });
+
+      let callCount = 0;
+      mockSupabase.from.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                single: vi.fn().mockResolvedValue({
+                  data: {
+                    id: "other-admin",
+                    tenant_id: "tenant-456",
+                    role: "gestor",
+                  },
+                  error: null,
+                }),
+              }),
+            }),
+          };
+        }
+        if (callCount === 2) {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                in: vi.fn().mockResolvedValue({ count: 2 }),
+              }),
+            }),
+          };
+        }
+        return { delete: vi.fn().mockReturnValue({ eq: mockDeleteEq }) };
+      });
+
+      const result = await removeTeamMember("other-admin");
+
+      expect(result).toEqual({ success: true });
+      expect(mockDeleteEq).toHaveBeenCalledWith("id", "other-admin");
+    });
   });
 
   // ==============================================
@@ -667,6 +748,40 @@ describe("team actions", () => {
 
       expect(result).toBe(false);
     });
+
+    it("should return true (fail-closed) when the count is null (Story 20.5 AC6)", async () => {
+      // A read error returning count:null must be treated as "only admin" so the
+      // UI keeps the remove action disabled — never fail-open to enabling it.
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+
+      mockSupabase.from.mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            in: vi.fn().mockResolvedValue({ count: null }),
+          }),
+        }),
+      });
+
+      const result = await isOnlyAdmin();
+
+      expect(result).toBe(true);
+    });
+
+    it("should return true (fail-closed) when the read throws (Story 20.5 AC6)", async () => {
+      // Uma exceção (rede/RLS) NUNCA pode liberar a remoção: o catch fail-closed
+      // assume "único admin" (true). Cobre o caminho catch -> return true
+      // (antes só o count:null era testado, não a exceção).
+      const consoleSpy = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      vi.mocked(getCurrentUserProfile).mockRejectedValue(new Error("boom"));
+
+      const result = await isOnlyAdmin();
+
+      expect(result).toBe(true);
+      expect(consoleSpy).toHaveBeenCalled();
+      consoleSpy.mockRestore();
+    });
   });
 
   // ==============================================
@@ -773,6 +888,97 @@ describe("team actions", () => {
       // restricted to admin roles — pin both predicates against regression.
       expect(mockCountEq).toHaveBeenCalledWith("tenant_id", "tenant-456");
       expect(mockCountIn).toHaveBeenCalledWith("role", ["gestor", "diretor"]);
+    });
+
+    it("blocks demotion when the admin count is null (fail-closed, Story 20.5 AC6)", async () => {
+      // A read error returning count:null must NEVER let a demotion proceed —
+      // the old `=== 1` check let null fall through (fail-open).
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+
+      let callCount = 0;
+      mockSupabase.from.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                single: vi.fn().mockResolvedValue({
+                  data: {
+                    id: "the-admin",
+                    tenant_id: "tenant-456",
+                    role: "gestor",
+                  },
+                  error: null,
+                }),
+              }),
+            }),
+          };
+        }
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              in: vi.fn().mockResolvedValue({ count: null }),
+            }),
+          }),
+        };
+      });
+
+      const result = await updateMemberRole(TARGET_ID, "sdr");
+
+      expect(result).toEqual({
+        success: false,
+        error: "Não é possível rebaixar o único administrador.",
+      });
+    });
+
+    it("allows demotion when there are >= 2 admins (count=2)", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+
+      const mockUpdateSelect = vi
+        .fn()
+        .mockResolvedValue({ data: [{ id: "other-admin" }], error: null });
+
+      let callCount = 0;
+      mockSupabase.from.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                single: vi.fn().mockResolvedValue({
+                  data: {
+                    id: "other-admin",
+                    tenant_id: "tenant-456",
+                    role: "gestor",
+                  },
+                  error: null,
+                }),
+              }),
+            }),
+          };
+        }
+        if (callCount === 2) {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                in: vi.fn().mockResolvedValue({ count: 2 }),
+              }),
+            }),
+          };
+        }
+        return {
+          update: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({ select: mockUpdateSelect }),
+            }),
+          }),
+        };
+      });
+
+      const result = await updateMemberRole(TARGET_ID, "sdr");
+
+      expect(result).toEqual({ success: true });
+      expect(mockUpdateSelect).toHaveBeenCalledWith("id");
     });
 
     it("should update member role successfully (promote sdr -> gestor)", async () => {

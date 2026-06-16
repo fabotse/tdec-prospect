@@ -41,10 +41,18 @@ const ADMIN_PROFILE = {
   role: "gestor",
 };
 
+const DIRETOR_PROFILE = {
+  id: "user-3",
+  tenant_id: "tenant-1",
+  role: "diretor",
+};
+
+// Story 20.5 (AC3): fixture de papel atualizado de "member" (inexistente
+// pós-Epic 20) para "sdr" (papel restrito real).
 const NON_ADMIN_PROFILE = {
   id: "user-2",
   tenant_id: "tenant-1",
-  role: "member",
+  role: "sdr",
 };
 
 const MOCK_CONFIG_ROW = {
@@ -100,7 +108,7 @@ describe("GET /api/settings/monitoring", () => {
     expect(json.error.code).toBe("UNAUTHORIZED");
   });
 
-  it("returns 403 when user is not admin", async () => {
+  it("returns 403 when user is SDR (not admin)", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(NON_ADMIN_PROFILE);
 
     const { GET } = await import(
@@ -111,6 +119,19 @@ describe("GET /api/settings/monitoring", () => {
 
     expect(response.status).toBe(403);
     expect(json.error.code).toBe("FORBIDDEN");
+  });
+
+  it("returns config for a Diretor (admin access, Story 20.5 AC2/AC3)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(DIRETOR_PROFILE);
+
+    const { GET } = await import(
+      "@/app/api/settings/monitoring/route"
+    );
+    const response = await GET();
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.data.exists).toBe(true);
   });
 
   it("returns config when it exists in DB", async () => {

@@ -19,6 +19,7 @@ import {
   isOnlyAdmin,
   updateMemberRole,
 } from "@/actions/team";
+import { useUser } from "@/hooks/use-user";
 import type { TeamMember, InviteUserInput, UserRole } from "@/types/team";
 import type { ActionResult } from "@/types/knowledge-base";
 
@@ -31,6 +32,7 @@ const ONLY_ADMIN_QUERY_KEY = ["team", "isOnlyAdmin"];
  */
 export function useTeamMembers() {
   const queryClient = useQueryClient();
+  const { user, refetchProfile } = useUser();
 
   // Fetch team members (profiles + pending invitations)
   const {
@@ -105,11 +107,20 @@ export function useTeamMembers() {
     }): Promise<ActionResult<void>> => {
       return updateMemberRole(vars.userId, vars.role);
     },
-    onSuccess: (result) => {
+    onSuccess: (result, variables) => {
       if (result.success) {
         // Role change can alter who is admin → refresh both queries
         queryClient.invalidateQueries({ queryKey: TEAM_QUERY_KEY });
         queryClient.invalidateQueries({ queryKey: ONLY_ADMIN_QUERY_KEY });
+
+        // Story 20.5 (Task 7): se o admin alterou o PRÓPRIO papel (ex.: auto-
+        // rebaixamento gestor→sdr), o snapshot do `useUser` (singleton de módulo,
+        // fora do TanStack Query) fica obsoleto até reload → Sidebar/AdminGuard
+        // mostrariam UI admin falsa. Refetch sincroniza role/isAdmin na hora,
+        // sem brecha de servidor (o servidor já barra), só corrige a UI.
+        if (variables.userId === user?.id) {
+          void refetchProfile();
+        }
       }
     },
   });

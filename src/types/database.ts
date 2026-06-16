@@ -6,8 +6,6 @@
  * For auto-generated types, run: supabase gen types typescript
  */
 
-import { hasAdminAccess } from "@/lib/auth/capabilities";
-
 // ==============================================
 // USER ROLE TYPES
 // ==============================================
@@ -224,12 +222,4 @@ export interface Database {
  */
 export function isValidRole(role: string): role is UserRole {
   return role === "gestor" || role === "diretor" || role === "sdr";
-}
-
-/**
- * Check if user has administrative access.
- * Delega ao helper de capacidade — ponto único de mudança (AD-2).
- */
-export function isAdminRole(role: UserRole): boolean {
-  return hasAdminAccess(role);
 }

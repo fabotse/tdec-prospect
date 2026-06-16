@@ -13,6 +13,12 @@ vi.mock("@/actions/team", () => ({
   updateMemberRole: vi.fn(),
 }));
 
+// Story 20.5 (Task 7): useTeamMembers agora consome useUser para detectar
+// auto-rebaixamento e sincronizar o snapshot via refetchProfile.
+vi.mock("@/hooks/use-user", () => ({
+  useUser: vi.fn(),
+}));
+
 import {
   getTeamMembers,
   inviteUser,
@@ -21,7 +27,27 @@ import {
   isOnlyAdmin,
   updateMemberRole,
 } from "@/actions/team";
+import { useUser } from "@/hooks/use-user";
 import { useTeamMembers, useIsOnlyAdmin } from "@/hooks/use-team-members";
+
+const mockUseUser = vi.mocked(useUser);
+
+/** Retorno do useUser para os testes (só `user`/`refetchProfile` são usados). */
+function mockUseUserReturn(
+  overrides: Partial<ReturnType<typeof useUser>> = {}
+): ReturnType<typeof useUser> {
+  return {
+    user: { id: "current-user-id" },
+    profile: null,
+    isLoading: false,
+    isProfileLoading: false,
+    error: null,
+    isAdmin: false,
+    role: null,
+    refetchProfile: vi.fn(),
+    ...overrides,
+  } as ReturnType<typeof useUser>;
+}
 
 // Create a wrapper with QueryClientProvider
 function createWrapper() {
@@ -68,6 +94,8 @@ describe("useTeamMembers", () => {
       success: true,
       data: mockMembers,
     });
+    // Default useUser: id distinto dos alvos dos testes → sem refetch espúrio.
+    mockUseUser.mockReturnValue(mockUseUserReturn());
   });
 
   describe("fetching members", () => {
@@ -400,6 +428,76 @@ describe("useTeamMembers", () => {
         success: false,
         error: "Não é possível rebaixar o único administrador.",
       });
+    });
+
+    it("refetches the current user's profile on self-demotion (Story 20.5 Task 7)", async () => {
+      vi.mocked(updateMemberRole).mockResolvedValue({ success: true });
+      const refetchProfile = vi.fn();
+      mockUseUser.mockReturnValue(
+        mockUseUserReturn({ user: { id: "self-1" } as never, refetchProfile })
+      );
+
+      const { result } = renderHook(() => useTeamMembers(), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      // Admin altera o PRÓPRIO papel → snapshot do useUser fica obsoleto → refetch.
+      await act(async () => {
+        await result.current.updateMemberRole("self-1", "sdr");
+      });
+
+      expect(refetchProfile).toHaveBeenCalled();
+    });
+
+    it("does NOT refetch profile when changing another member's role", async () => {
+      vi.mocked(updateMemberRole).mockResolvedValue({ success: true });
+      const refetchProfile = vi.fn();
+      mockUseUser.mockReturnValue(
+        mockUseUserReturn({ user: { id: "self-1" } as never, refetchProfile })
+      );
+
+      const { result } = renderHook(() => useTeamMembers(), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      await act(async () => {
+        await result.current.updateMemberRole("other-user", "sdr");
+      });
+
+      expect(refetchProfile).not.toHaveBeenCalled();
+    });
+
+    it("does NOT refetch profile when the self role-change fails", async () => {
+      vi.mocked(updateMemberRole).mockResolvedValue({
+        success: false,
+        error: "Não é possível rebaixar o único administrador.",
+      });
+      const refetchProfile = vi.fn();
+      mockUseUser.mockReturnValue(
+        mockUseUserReturn({ user: { id: "self-1" } as never, refetchProfile })
+      );
+
+      const { result } = renderHook(() => useTeamMembers(), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      await act(async () => {
+        await result.current.updateMemberRole("self-1", "sdr");
+      });
+
+      expect(refetchProfile).not.toHaveBeenCalled();
     });
   });
 
