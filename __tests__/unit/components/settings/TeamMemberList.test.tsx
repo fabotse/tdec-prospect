@@ -39,6 +39,7 @@ function createWrapper() {
 describe("TeamMemberList", () => {
   const mockOnRemove = vi.fn();
   const mockOnCancelInvite = vi.fn();
+  const mockOnChangeRole = vi.fn();
   const currentUserId = "user-123";
 
   const mockActiveMembers: TeamMember[] = [
@@ -91,6 +92,8 @@ describe("TeamMemberList", () => {
         error: null,
         inviteUser: vi.fn(),
         isInviting: false,
+        updateMemberRole: vi.fn(),
+        isUpdatingRole: false,
         removeMember: vi.fn(),
         isRemoving: false,
         cancelInvite: vi.fn(),
@@ -101,6 +104,7 @@ describe("TeamMemberList", () => {
         <TeamMemberList
           onRemove={mockOnRemove}
           onCancelInvite={mockOnCancelInvite}
+          onChangeRole={mockOnChangeRole}
           currentUserId={currentUserId}
         />,
         { wrapper: createWrapper() }
@@ -124,6 +128,8 @@ describe("TeamMemberList", () => {
         error: "Erro ao carregar equipe",
         inviteUser: vi.fn(),
         isInviting: false,
+        updateMemberRole: vi.fn(),
+        isUpdatingRole: false,
         removeMember: vi.fn(),
         isRemoving: false,
         cancelInvite: vi.fn(),
@@ -134,6 +140,7 @@ describe("TeamMemberList", () => {
         <TeamMemberList
           onRemove={mockOnRemove}
           onCancelInvite={mockOnCancelInvite}
+          onChangeRole={mockOnChangeRole}
           currentUserId={currentUserId}
         />,
         { wrapper: createWrapper() }
@@ -157,6 +164,8 @@ describe("TeamMemberList", () => {
         error: null,
         inviteUser: vi.fn(),
         isInviting: false,
+        updateMemberRole: vi.fn(),
+        isUpdatingRole: false,
         removeMember: vi.fn(),
         isRemoving: false,
         cancelInvite: vi.fn(),
@@ -167,6 +176,7 @@ describe("TeamMemberList", () => {
         <TeamMemberList
           onRemove={mockOnRemove}
           onCancelInvite={mockOnCancelInvite}
+          onChangeRole={mockOnChangeRole}
           currentUserId={currentUserId}
         />,
         { wrapper: createWrapper() }
@@ -193,6 +203,8 @@ describe("TeamMemberList", () => {
         error: null,
         inviteUser: vi.fn(),
         isInviting: false,
+        updateMemberRole: vi.fn(),
+        isUpdatingRole: false,
         removeMember: vi.fn(),
         isRemoving: false,
         cancelInvite: vi.fn(),
@@ -203,6 +215,7 @@ describe("TeamMemberList", () => {
         <TeamMemberList
           onRemove={mockOnRemove}
           onCancelInvite={mockOnCancelInvite}
+          onChangeRole={mockOnChangeRole}
           currentUserId={currentUserId}
         />,
         { wrapper: createWrapper() }
@@ -222,6 +235,8 @@ describe("TeamMemberList", () => {
         error: null,
         inviteUser: vi.fn(),
         isInviting: false,
+        updateMemberRole: vi.fn(),
+        isUpdatingRole: false,
         removeMember: vi.fn(),
         isRemoving: false,
         cancelInvite: vi.fn(),
@@ -232,6 +247,7 @@ describe("TeamMemberList", () => {
         <TeamMemberList
           onRemove={mockOnRemove}
           onCancelInvite={mockOnCancelInvite}
+          onChangeRole={mockOnChangeRole}
           currentUserId={currentUserId}
         />,
         { wrapper: createWrapper() }
@@ -248,6 +264,8 @@ describe("TeamMemberList", () => {
         error: null,
         inviteUser: vi.fn(),
         isInviting: false,
+        updateMemberRole: vi.fn(),
+        isUpdatingRole: false,
         removeMember: vi.fn(),
         isRemoving: false,
         cancelInvite: vi.fn(),
@@ -258,6 +276,7 @@ describe("TeamMemberList", () => {
         <TeamMemberList
           onRemove={mockOnRemove}
           onCancelInvite={mockOnCancelInvite}
+          onChangeRole={mockOnChangeRole}
           currentUserId={currentUserId}
         />,
         { wrapper: createWrapper() }
@@ -280,6 +299,8 @@ describe("TeamMemberList", () => {
         error: null,
         inviteUser: vi.fn(),
         isInviting: false,
+        updateMemberRole: vi.fn(),
+        isUpdatingRole: false,
         removeMember: vi.fn(),
         isRemoving: false,
         cancelInvite: vi.fn(),
@@ -290,6 +311,7 @@ describe("TeamMemberList", () => {
         <TeamMemberList
           onRemove={mockOnRemove}
           onCancelInvite={mockOnCancelInvite}
+          onChangeRole={mockOnChangeRole}
           currentUserId={currentUserId}
         />,
         { wrapper: createWrapper() }
@@ -305,6 +327,8 @@ describe("TeamMemberList", () => {
         error: null,
         inviteUser: vi.fn(),
         isInviting: false,
+        updateMemberRole: vi.fn(),
+        isUpdatingRole: false,
         removeMember: vi.fn(),
         isRemoving: false,
         cancelInvite: vi.fn(),
@@ -315,6 +339,7 @@ describe("TeamMemberList", () => {
         <TeamMemberList
           onRemove={mockOnRemove}
           onCancelInvite={mockOnCancelInvite}
+          onChangeRole={mockOnChangeRole}
           currentUserId={currentUserId}
         />,
         { wrapper: createWrapper() }
@@ -336,6 +361,8 @@ describe("TeamMemberList", () => {
         error: null,
         inviteUser: vi.fn(),
         isInviting: false,
+        updateMemberRole: vi.fn(),
+        isUpdatingRole: false,
         removeMember: vi.fn(),
         isRemoving: false,
         cancelInvite: vi.fn(),
@@ -346,6 +373,7 @@ describe("TeamMemberList", () => {
         <TeamMemberList
           onRemove={mockOnRemove}
           onCancelInvite={mockOnCancelInvite}
+          onChangeRole={mockOnChangeRole}
           currentUserId={currentUserId}
         />,
         { wrapper: createWrapper() }
@@ -361,6 +389,8 @@ describe("TeamMemberList", () => {
         error: null,
         inviteUser: vi.fn(),
         isInviting: false,
+        updateMemberRole: vi.fn(),
+        isUpdatingRole: false,
         removeMember: vi.fn(),
         isRemoving: false,
         cancelInvite: vi.fn(),
@@ -371,6 +401,7 @@ describe("TeamMemberList", () => {
         <TeamMemberList
           onRemove={mockOnRemove}
           onCancelInvite={mockOnCancelInvite}
+          onChangeRole={mockOnChangeRole}
           currentUserId={currentUserId}
         />,
         { wrapper: createWrapper() }
@@ -388,6 +419,8 @@ describe("TeamMemberList", () => {
         error: null,
         inviteUser: vi.fn(),
         isInviting: false,
+        updateMemberRole: vi.fn(),
+        isUpdatingRole: false,
         removeMember: vi.fn(),
         isRemoving: false,
         cancelInvite: vi.fn(),
@@ -398,6 +431,7 @@ describe("TeamMemberList", () => {
         <TeamMemberList
           onRemove={mockOnRemove}
           onCancelInvite={mockOnCancelInvite}
+          onChangeRole={mockOnChangeRole}
           currentUserId={currentUserId}
         />,
         { wrapper: createWrapper() }
@@ -422,6 +456,8 @@ describe("TeamMemberList", () => {
         error: null,
         inviteUser: vi.fn(),
         isInviting: false,
+        updateMemberRole: vi.fn(),
+        isUpdatingRole: false,
         removeMember: vi.fn(),
         isRemoving: false,
         cancelInvite: vi.fn(),
@@ -432,6 +468,7 @@ describe("TeamMemberList", () => {
         <TeamMemberList
           onRemove={mockOnRemove}
           onCancelInvite={mockOnCancelInvite}
+          onChangeRole={mockOnChangeRole}
           currentUserId={currentUserId}
         />,
         { wrapper: createWrapper() }
@@ -463,6 +500,8 @@ describe("TeamMemberList", () => {
         error: null,
         inviteUser: vi.fn(),
         isInviting: false,
+        updateMemberRole: vi.fn(),
+        isUpdatingRole: false,
         removeMember: vi.fn(),
         isRemoving: false,
         cancelInvite: vi.fn(),
@@ -473,6 +512,7 @@ describe("TeamMemberList", () => {
         <TeamMemberList
           onRemove={mockOnRemove}
           onCancelInvite={mockOnCancelInvite}
+          onChangeRole={mockOnChangeRole}
           currentUserId={currentUserId}
         />,
         { wrapper: createWrapper() }
@@ -513,6 +553,8 @@ describe("TeamMemberList", () => {
         error: null,
         inviteUser: vi.fn(),
         isInviting: false,
+        updateMemberRole: vi.fn(),
+        isUpdatingRole: false,
         removeMember: vi.fn(),
         isRemoving: false,
         cancelInvite: vi.fn(),
@@ -529,6 +571,7 @@ describe("TeamMemberList", () => {
         <TeamMemberList
           onRemove={mockOnRemove}
           onCancelInvite={mockOnCancelInvite}
+          onChangeRole={mockOnChangeRole}
           currentUserId={currentUserId}
         />,
         { wrapper: createWrapper() }
@@ -541,6 +584,169 @@ describe("TeamMemberList", () => {
       // Remove button should be disabled
       const removeButton = screen.getByText("Remover");
       expect(removeButton.closest("[data-disabled]")).toBeTruthy();
+    });
+  });
+
+  // ==============================================
+  // ACTIONS - CHANGE ROLE (Story 20.3)
+  // ==============================================
+
+  describe("change role action", () => {
+    it("should call onChangeRole when clicking Alterar Função on active member", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(useTeamMembers).mockReturnValue({
+        members: [mockActiveMembers[1]], // sdr, not current user
+        isLoading: false,
+        error: null,
+        inviteUser: vi.fn(),
+        isInviting: false,
+        updateMemberRole: vi.fn(),
+        isUpdatingRole: false,
+        removeMember: vi.fn(),
+        isRemoving: false,
+        cancelInvite: vi.fn(),
+        isCanceling: false,
+      });
+
+      render(
+        <TeamMemberList
+          onRemove={mockOnRemove}
+          onCancelInvite={mockOnCancelInvite}
+          onChangeRole={mockOnChangeRole}
+          currentUserId={currentUserId}
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      const menuButton = screen.getByRole("button", { name: /ações/i });
+      await user.click(menuButton);
+
+      const changeRoleButton = screen.getByText("Alterar Função");
+      await user.click(changeRoleButton);
+
+      expect(mockOnChangeRole).toHaveBeenCalledWith(mockActiveMembers[1]);
+    });
+
+    it("should not show Alterar Função for pending invitations", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(useTeamMembers).mockReturnValue({
+        members: [mockPendingMember],
+        isLoading: false,
+        error: null,
+        inviteUser: vi.fn(),
+        isInviting: false,
+        updateMemberRole: vi.fn(),
+        isUpdatingRole: false,
+        removeMember: vi.fn(),
+        isRemoving: false,
+        cancelInvite: vi.fn(),
+        isCanceling: false,
+      });
+
+      render(
+        <TeamMemberList
+          onRemove={mockOnRemove}
+          onCancelInvite={mockOnCancelInvite}
+          onChangeRole={mockOnChangeRole}
+          currentUserId={currentUserId}
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      const menuButton = screen.getByRole("button", { name: /ações/i });
+      await user.click(menuButton);
+
+      expect(screen.queryByText("Alterar Função")).not.toBeInTheDocument();
+    });
+
+    it("should disable Alterar Função for current user when only admin", async () => {
+      const user = userEvent.setup();
+
+      const currentUserAdmin: TeamMember = {
+        id: currentUserId,
+        full_name: "Current Admin",
+        email: "admin@example.com",
+        role: "gestor",
+        status: "active",
+        created_at: "2026-01-01T00:00:00Z",
+      };
+
+      vi.mocked(useTeamMembers).mockReturnValue({
+        members: [currentUserAdmin],
+        isLoading: false,
+        error: null,
+        inviteUser: vi.fn(),
+        isInviting: false,
+        updateMemberRole: vi.fn(),
+        isUpdatingRole: false,
+        removeMember: vi.fn(),
+        isRemoving: false,
+        cancelInvite: vi.fn(),
+        isCanceling: false,
+      });
+
+      vi.mocked(useIsOnlyAdmin).mockReturnValue({
+        data: true,
+        isLoading: false,
+        error: null,
+      } as ReturnType<typeof useIsOnlyAdmin>);
+
+      render(
+        <TeamMemberList
+          onRemove={mockOnRemove}
+          onCancelInvite={mockOnCancelInvite}
+          onChangeRole={mockOnChangeRole}
+          currentUserId={currentUserId}
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      const menuButton = screen.getByRole("button", { name: /ações/i });
+      await user.click(menuButton);
+
+      const changeRoleButton = screen.getByText("Alterar Função");
+      expect(changeRoleButton.closest("[data-disabled]")).toBeTruthy();
+    });
+  });
+
+  // ==============================================
+  // BADGE FALLBACK (Story 20.3 - defensivo)
+  // ==============================================
+
+  describe("role badge fallback", () => {
+    it("should render the raw role value when no label exists (legacy/transition)", () => {
+      const legacyMember = {
+        ...mockActiveMembers[0],
+        role: "legacy-role" as never,
+      };
+
+      vi.mocked(useTeamMembers).mockReturnValue({
+        members: [legacyMember],
+        isLoading: false,
+        error: null,
+        inviteUser: vi.fn(),
+        isInviting: false,
+        updateMemberRole: vi.fn(),
+        isUpdatingRole: false,
+        removeMember: vi.fn(),
+        isRemoving: false,
+        cancelInvite: vi.fn(),
+        isCanceling: false,
+      });
+
+      render(
+        <TeamMemberList
+          onRemove={mockOnRemove}
+          onCancelInvite={mockOnCancelInvite}
+          onChangeRole={mockOnChangeRole}
+          currentUserId={currentUserId}
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      expect(screen.getByText("legacy-role")).toBeInTheDocument();
     });
   });
 });

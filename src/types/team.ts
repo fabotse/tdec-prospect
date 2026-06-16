@@ -110,6 +110,17 @@ export const inviteUserSchema = z.object({
 
 export type InviteUserInput = z.infer<typeof inviteUserSchema>;
 
+/**
+ * Zod schema for updating an existing (active) member's role
+ * Story: 20.3 - UI de papéis na gestão de time (AC #2 - edição)
+ */
+export const updateMemberRoleSchema = z.object({
+  userId: z.string().uuid("ID de usuário inválido"),
+  role: z.enum(USER_ROLES),
+});
+
+export type UpdateMemberRoleInput = z.infer<typeof updateMemberRoleSchema>;
+
 // ==============================================
 // ACTION RESULT TYPE (RE-EXPORT)
 // ==============================================

@@ -10,6 +10,7 @@ vi.mock("@/actions/team", () => ({
   removeTeamMember: vi.fn(),
   cancelInvitation: vi.fn(),
   isOnlyAdmin: vi.fn(),
+  updateMemberRole: vi.fn(),
 }));
 
 import {
@@ -18,6 +19,7 @@ import {
   removeTeamMember,
   cancelInvitation,
   isOnlyAdmin,
+  updateMemberRole,
 } from "@/actions/team";
 import { useTeamMembers, useIsOnlyAdmin } from "@/hooks/use-team-members";
 
@@ -306,6 +308,97 @@ describe("useTeamMembers", () => {
       expect(removeResult).toEqual({
         success: false,
         error: "Não é possível remover o único administrador.",
+      });
+    });
+  });
+
+  describe("updateMemberRole", () => {
+    it("should call updateMemberRole action with userId and role", async () => {
+      vi.mocked(updateMemberRole).mockResolvedValue({ success: true });
+
+      const { result } = renderHook(() => useTeamMembers(), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      await act(async () => {
+        await result.current.updateMemberRole("user-1", "diretor");
+      });
+
+      expect(updateMemberRole).toHaveBeenCalledWith("user-1", "diretor");
+    });
+
+    it("should have isUpdatingRole property", async () => {
+      vi.mocked(updateMemberRole).mockResolvedValue({ success: true });
+
+      const { result } = renderHook(() => useTeamMembers(), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      expect(typeof result.current.isUpdatingRole).toBe("boolean");
+    });
+
+    it("should invalidate team and only-admin queries on success", async () => {
+      vi.mocked(updateMemberRole).mockResolvedValue({ success: true });
+
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+      const wrapper = ({ children }: { children: React.ReactNode }) => (
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
+      );
+
+      const { result } = renderHook(() => useTeamMembers(), { wrapper });
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      await act(async () => {
+        await result.current.updateMemberRole("user-1", "diretor");
+      });
+
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ["team", "members"],
+      });
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ["team", "isOnlyAdmin"],
+      });
+    });
+
+    it("should return error result on failure", async () => {
+      vi.mocked(updateMemberRole).mockResolvedValue({
+        success: false,
+        error: "Não é possível rebaixar o único administrador.",
+      });
+
+      const { result } = renderHook(() => useTeamMembers(), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      let updateResult: unknown;
+      await act(async () => {
+        updateResult = await result.current.updateMemberRole("user-1", "sdr");
+      });
+
+      expect(updateResult).toEqual({
+        success: false,
+        error: "Não é possível rebaixar o único administrador.",
       });
     });
   });

@@ -8,7 +8,7 @@
  * AC: #6 - Pending invitations shown in list
  */
 
-import { MoreHorizontal, Clock, Trash2 } from "lucide-react";
+import { MoreHorizontal, Clock, Trash2, UserCog } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -41,12 +41,14 @@ import { ptBR } from "date-fns/locale";
 interface TeamMemberListProps {
   onRemove: (member: TeamMember) => void;
   onCancelInvite: (member: TeamMember) => void;
+  onChangeRole: (member: TeamMember) => void;
   currentUserId: string;
 }
 
 export function TeamMemberList({
   onRemove,
   onCancelInvite,
+  onChangeRole,
   currentUserId,
 }: TeamMemberListProps) {
   const { members, isLoading, error } = useTeamMembers();
@@ -111,7 +113,7 @@ export function TeamMemberList({
                       hasAdminAccess(member.role) ? "default" : "secondary"
                     }
                   >
-                    {ROLE_LABELS[member.role]}
+                    {ROLE_LABELS[member.role] ?? member.role}
                   </Badge>
                 </TableCell>
                 <TableCell>
@@ -153,32 +155,56 @@ export function TeamMemberList({
                           <Trash2 className="h-4 w-4 mr-2" />
                           Cancelar Convite
                         </DropdownMenuItem>
-                      ) : isCurrentUserOnlyAdmin ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="block">
-                              <DropdownMenuItem
-                                disabled
-                                className="text-destructive opacity-50"
-                              >
-                                <Trash2 className="h-4 w-4 mr-2" />
-                                Remover
-                              </DropdownMenuItem>
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            Não é possível remover o único administrador
-                          </TooltipContent>
-                        </Tooltip>
                       ) : (
-                        <DropdownMenuItem
-                          onClick={() => onRemove(member)}
-                          disabled={!canRemove}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Remover
-                        </DropdownMenuItem>
+                        <>
+                          {isCurrentUserOnlyAdmin ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="block">
+                                  <DropdownMenuItem disabled className="opacity-50">
+                                    <UserCog className="h-4 w-4 mr-2" />
+                                    Alterar Função
+                                  </DropdownMenuItem>
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Não é possível rebaixar o único administrador
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <DropdownMenuItem onClick={() => onChangeRole(member)}>
+                              <UserCog className="h-4 w-4 mr-2" />
+                              Alterar Função
+                            </DropdownMenuItem>
+                          )}
+                          {isCurrentUserOnlyAdmin ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="block">
+                                  <DropdownMenuItem
+                                    disabled
+                                    className="text-destructive opacity-50"
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Remover
+                                  </DropdownMenuItem>
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Não é possível remover o único administrador
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <DropdownMenuItem
+                              onClick={() => onRemove(member)}
+                              disabled={!canRemove}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Remover
+                            </DropdownMenuItem>
+                          )}
+                        </>
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>

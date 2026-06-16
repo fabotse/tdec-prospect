@@ -19,6 +19,7 @@ import { AdminGuard } from "@/components/settings/AdminGuard";
 import { TeamMemberList } from "@/components/settings/TeamMemberList";
 import { InviteUserDialog } from "@/components/settings/InviteUserDialog";
 import { RemoveUserDialog } from "@/components/settings/RemoveUserDialog";
+import { ChangeRoleDialog } from "@/components/settings/ChangeRoleDialog";
 import { useUser } from "@/hooks/use-user";
 import type { TeamMember } from "@/types/team";
 
@@ -28,6 +29,8 @@ export default function TeamPage() {
   const [dialogMode, setDialogMode] = useState<"remove" | "cancel-invite">(
     "remove"
   );
+  const [memberToChangeRole, setMemberToChangeRole] =
+    useState<TeamMember | null>(null);
 
   const handleRemove = (member: TeamMember) => {
     setMemberToRemove(member);
@@ -37,6 +40,10 @@ export default function TeamPage() {
   const handleCancelInvite = (member: TeamMember) => {
     setMemberToRemove(member);
     setDialogMode("cancel-invite");
+  };
+
+  const handleChangeRole = (member: TeamMember) => {
+    setMemberToChangeRole(member);
   };
 
   return (
@@ -55,6 +62,7 @@ export default function TeamPage() {
           <TeamMemberList
             onRemove={handleRemove}
             onCancelInvite={handleCancelInvite}
+            onChangeRole={handleChangeRole}
             currentUserId={profile?.id ?? ""}
           />
         </CardContent>
@@ -65,6 +73,13 @@ export default function TeamPage() {
         open={!!memberToRemove}
         onOpenChange={(open) => !open && setMemberToRemove(null)}
         mode={dialogMode}
+      />
+
+      <ChangeRoleDialog
+        key={memberToChangeRole?.id ?? "none"}
+        member={memberToChangeRole}
+        open={!!memberToChangeRole}
+        onOpenChange={(open) => !open && setMemberToChangeRole(null)}
       />
     </AdminGuard>
   );

@@ -24,6 +24,7 @@ import {
   removeTeamMember,
   cancelInvitation,
   isOnlyAdmin,
+  updateMemberRole,
 } from "@/actions/team";
 
 describe("team actions", () => {
@@ -52,6 +53,11 @@ describe("team actions", () => {
   const mockUserProfile = {
     ...mockAdminProfile,
     role: "sdr" as const,
+  };
+
+  const mockDiretorProfile = {
+    ...mockAdminProfile,
+    role: "diretor" as const,
   };
 
   beforeEach(() => {
@@ -655,6 +661,241 @@ describe("team actions", () => {
       const result = await isOnlyAdmin();
 
       expect(result).toBe(false);
+    });
+  });
+
+  // ==============================================
+  // UPDATE MEMBER ROLE
+  // ==============================================
+
+  describe("updateMemberRole", () => {
+    const TARGET_ID = "11111111-1111-4111-8111-111111111111";
+
+    it("should reject an invalid role", async () => {
+      const result = await updateMemberRole(TARGET_ID, "superadmin" as never);
+
+      expect(result).toEqual({ success: false, error: "Dados inválidos" });
+    });
+
+    it("should require authentication", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(null);
+
+      const result = await updateMemberRole(TARGET_ID, "gestor");
+
+      expect(result).toEqual({ success: false, error: "Não autenticado" });
+    });
+
+    it("should require admin role", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockUserProfile);
+
+      const result = await updateMemberRole(TARGET_ID, "gestor");
+
+      expect(result).toEqual({
+        success: false,
+        error: "Apenas administradores podem alterar papéis.",
+      });
+    });
+
+    it("should prevent updating a user from a different tenant", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+
+      mockSupabase.from.mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({
+              data: {
+                id: "other-user",
+                tenant_id: "different-tenant",
+                role: "sdr",
+              },
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      const result = await updateMemberRole(TARGET_ID, "gestor");
+
+      expect(result).toEqual({
+        success: false,
+        error: "Usuário não encontrado.",
+      });
+    });
+
+    it("should prevent demoting the only admin of the tenant", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+
+      // Named spies so we can assert the last-admin count is correctly scoped
+      // (tenant_id + role IN ADMIN_ROLES). A regression dropping either
+      // predicate would silently break the last-admin protection.
+      const mockCountIn = vi.fn().mockResolvedValue({ count: 1 });
+      const mockCountEq = vi.fn().mockReturnValue({ in: mockCountIn });
+
+      // First from() call = profile fetch, second = admin count
+      let callCount = 0;
+      mockSupabase.from.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                single: vi.fn().mockResolvedValue({
+                  data: {
+                    id: "the-admin",
+                    tenant_id: "tenant-456",
+                    role: "gestor",
+                  },
+                  error: null,
+                }),
+              }),
+            }),
+          };
+        }
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: mockCountEq,
+          }),
+        };
+      });
+
+      const result = await updateMemberRole(TARGET_ID, "sdr");
+
+      expect(result).toEqual({
+        success: false,
+        error: "Não é possível rebaixar o único administrador.",
+      });
+      // The count that guards the last admin MUST be scoped to the tenant AND
+      // restricted to admin roles — pin both predicates against regression.
+      expect(mockCountEq).toHaveBeenCalledWith("tenant_id", "tenant-456");
+      expect(mockCountIn).toHaveBeenCalledWith("role", ["gestor", "diretor"]);
+    });
+
+    it("should update member role successfully (promote sdr -> gestor)", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+
+      // Named spies so we can assert the UPDATE is tenant-scoped
+      // (.eq("id") + .eq("tenant_id") + .select("id")) — defense-in-depth that
+      // a regression must not silently drop.
+      const mockUpdateSelect = vi
+        .fn()
+        .mockResolvedValue({ data: [{ id: "other-user" }], error: null });
+      const mockUpdateEqTenant = vi
+        .fn()
+        .mockReturnValue({ select: mockUpdateSelect });
+      const mockUpdateEqId = vi.fn().mockReturnValue({ eq: mockUpdateEqTenant });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockUpdateEqId });
+
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "profiles") {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                single: vi.fn().mockResolvedValue({
+                  data: {
+                    id: "other-user",
+                    tenant_id: "tenant-456",
+                    role: "sdr",
+                  },
+                  error: null,
+                }),
+              }),
+            }),
+            update: mockUpdate,
+          };
+        }
+        return {};
+      });
+
+      const result = await updateMemberRole(TARGET_ID, "gestor");
+
+      expect(result).toEqual({ success: true });
+      expect(mockUpdate).toHaveBeenCalledWith({ role: "gestor" });
+      // Pin the tenant-scoped write so a dropped predicate is caught.
+      expect(mockUpdateEqId).toHaveBeenCalledWith("id", TARGET_ID);
+      expect(mockUpdateEqTenant).toHaveBeenCalledWith("tenant_id", "tenant-456");
+      expect(mockUpdateSelect).toHaveBeenCalledWith("id");
+    });
+
+    it("should allow a diretor to change a member's role (diretor has admin access)", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockDiretorProfile);
+
+      const mockUpdate = vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            select: vi.fn().mockResolvedValue({
+              data: [{ id: "other-user" }],
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "profiles") {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                single: vi.fn().mockResolvedValue({
+                  data: {
+                    id: "other-user",
+                    tenant_id: "tenant-456",
+                    role: "sdr",
+                  },
+                  error: null,
+                }),
+              }),
+            }),
+            update: mockUpdate,
+          };
+        }
+        return {};
+      });
+
+      const result = await updateMemberRole(TARGET_ID, "diretor");
+
+      expect(result).toEqual({ success: true });
+      expect(mockUpdate).toHaveBeenCalledWith({ role: "diretor" });
+    });
+
+    it("should NOT report success when the update affects no rows (RLS blocked / race)", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+
+      // Update returns no error but zero affected rows (RLS filtered the write)
+      const mockUpdate = vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            select: vi.fn().mockResolvedValue({ data: [], error: null }),
+          }),
+        }),
+      });
+
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "profiles") {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                single: vi.fn().mockResolvedValue({
+                  data: {
+                    id: "other-user",
+                    tenant_id: "tenant-456",
+                    role: "sdr",
+                  },
+                  error: null,
+                }),
+              }),
+            }),
+            update: mockUpdate,
+          };
+        }
+        return {};
+      });
+
+      const result = await updateMemberRole(TARGET_ID, "gestor");
+
+      expect(result).toEqual({
+        success: false,
+        error: "Não foi possível alterar o papel do usuário.",
+      });
     });
   });
 });

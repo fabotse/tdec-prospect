@@ -17,8 +17,9 @@ import {
   removeTeamMember,
   cancelInvitation,
   isOnlyAdmin,
+  updateMemberRole,
 } from "@/actions/team";
-import type { TeamMember, InviteUserInput } from "@/types/team";
+import type { TeamMember, InviteUserInput, UserRole } from "@/types/team";
 import type { ActionResult } from "@/types/knowledge-base";
 
 const TEAM_QUERY_KEY = ["team", "members"];
@@ -96,9 +97,33 @@ export function useTeamMembers() {
     },
   });
 
+  // Update member role mutation (Story 20.3 - AC #2 edição)
+  const updateRoleMutation = useMutation({
+    mutationFn: async (vars: {
+      userId: string;
+      role: UserRole;
+    }): Promise<ActionResult<void>> => {
+      return updateMemberRole(vars.userId, vars.role);
+    },
+    onSuccess: (result) => {
+      if (result.success) {
+        // Role change can alter who is admin → refresh both queries
+        queryClient.invalidateQueries({ queryKey: TEAM_QUERY_KEY });
+        queryClient.invalidateQueries({ queryKey: ONLY_ADMIN_QUERY_KEY });
+      }
+    },
+  });
+
   // Wrapper functions for easier use
   const invite = async (data: InviteUserInput): Promise<ActionResult<void>> => {
     return inviteMutation.mutateAsync(data);
+  };
+
+  const updateRole = async (
+    userId: string,
+    role: UserRole
+  ): Promise<ActionResult<void>> => {
+    return updateRoleMutation.mutateAsync({ userId, role });
   };
 
   const remove = async (userId: string): Promise<ActionResult<void>> => {
@@ -115,6 +140,8 @@ export function useTeamMembers() {
     error: queryError?.message ?? null,
     inviteUser: invite,
     isInviting: inviteMutation.isPending,
+    updateMemberRole: updateRole,
+    isUpdatingRole: updateRoleMutation.isPending,
     removeMember: remove,
     isRemoving: removeMutation.isPending,
     cancelInvite: cancel,

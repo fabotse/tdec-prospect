@@ -21,6 +21,7 @@ import {
   type ActionResult,
   type UserRole,
   inviteUserSchema,
+  updateMemberRoleSchema,
 } from "@/types/team";
 
 // ==============================================
@@ -378,6 +379,118 @@ export async function cancelInvitation(
     return { success: true };
   } catch (error) {
     console.error("cancelInvitation error:", error);
+    return { success: false, error: "Erro interno do servidor" };
+  }
+}
+
+// ==============================================
+// UPDATE MEMBER ROLE ACTION
+// ==============================================
+
+/**
+ * Update an existing (active) member's role within the current tenant.
+ * Story: 20.3 - UI de papéis na gestão de time (AC #2 - edição)
+ *
+ * - Admin-only (hasAdminAccess); tenant-isolated.
+ * - Protects the "last admin": cannot demote the only admin of the tenant.
+ * - Persists to profiles.role. Pending invitations are not editable here
+ *   (their role is set at invite time; change = cancel + re-invite).
+ */
+export async function updateMemberRole(
+  userId: string,
+  newRole: UserRole
+): Promise<ActionResult<void>> {
+  try {
+    // 1. Validate input
+    const validated = updateMemberRoleSchema.safeParse({ userId, role: newRole });
+    if (!validated.success) {
+      return { success: false, error: "Dados inválidos" };
+    }
+
+    // 2. Check authentication and admin role
+    const profile = await getCurrentUserProfile();
+
+    if (!profile) {
+      return { success: false, error: "Não autenticado" };
+    }
+
+    if (!hasAdminAccess(profile.role)) {
+      return {
+        success: false,
+        error: "Apenas administradores podem alterar papéis.",
+      };
+    }
+
+    const supabase = await createClient();
+
+    // 3. Verify target user belongs to same tenant
+    const { data: targetProfile, error: profileError } = await supabase
+      .from("profiles")
+      .select("id, tenant_id, role")
+      .eq("id", validated.data.userId)
+      .single();
+
+    if (profileError || !targetProfile) {
+      return { success: false, error: "Usuário não encontrado." };
+    }
+
+    if (targetProfile.tenant_id !== profile.tenant_id) {
+      return { success: false, error: "Usuário não encontrado." };
+    }
+
+    // 4. Prevent demoting the only admin of the tenant (avoids lockout)
+    const isDemotingAdmin =
+      hasAdminAccess(targetProfile.role as UserRole) &&
+      !hasAdminAccess(validated.data.role);
+
+    if (isDemotingAdmin) {
+      const { count } = await supabase
+        .from("profiles")
+        .select("*", { count: "exact", head: true })
+        .eq("tenant_id", profile.tenant_id)
+        .in("role", [...ADMIN_ROLES]);
+
+      if (count === 1) {
+        return {
+          success: false,
+          error: "Não é possível rebaixar o único administrador.",
+        };
+      }
+    }
+
+    // 5. Persist new role (tenant-scoped update — defense-in-depth).
+    //    `.select()` returns the affected rows so we can detect a write that the
+    //    DB silently dropped (e.g. RLS filtered the row → 0 updated, no error).
+    //    Without this guard the action would report a false success.
+    const { data: updated, error: updateError } = await supabase
+      .from("profiles")
+      .update({ role: validated.data.role })
+      .eq("id", validated.data.userId)
+      .eq("tenant_id", profile.tenant_id)
+      .select("id");
+
+    if (updateError) {
+      console.error("Error updating member role:", updateError);
+      return { success: false, error: "Erro ao alterar o papel do usuário." };
+    }
+
+    if (!updated || updated.length === 0) {
+      // Row matched nothing we are allowed to write (RLS / race). Never a success.
+      // Most likely cause in prod: migration 00054 (admin UPDATE policy on
+      // profiles) not applied to the DB. Log so this is diagnosable instead of
+      // looking like a transient user error.
+      console.error(
+        "updateMemberRole: update affected 0 rows (RLS blocked or row vanished). Is migration 00054 applied?"
+      );
+      return {
+        success: false,
+        error: "Não foi possível alterar o papel do usuário.",
+      };
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("updateMemberRole error:", error);
     return { success: false, error: "Erro interno do servidor" };
   }
 }

@@ -34,7 +34,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-25
-last_updated: 2026-06-16  # Story 20.2 -> done (code review adversarial 3 camadas: 0 bug bloqueante, ACs verificados, suite verde 6112). Epic 20 commitado na branch epic/20-niveis-de-acesso (20.1 + 20.2).
+last_updated: 2026-06-16  # Story 20.3 -> done (code review YOLO: 0 HIGH, 2 patches aplicados [test-hardening predicados de seguranca + console.error 0-rows], 3 defers -> 20.5, 9 dismiss). Aplicar 00054 no banco. Suite verde.
 project: tdec-prospect
 project_key: NOKEY
 tracking_system: file-system
@@ -464,7 +464,7 @@ development_status:
   epic-20: in-progress
   20-1-modelo-tres-papeis-enum-migracao-rls: done  # UserRole -> gestor|diretor|sdr; migration 00053 (admin->gestor, user->sdr) + is_admin() + ai_prompts policies + handle_new_user; helper hasAdminAccess + swap de todos os call-sites de papel de conta. Build verde, vitest 6112 pass/0 fail, tsc sem erros em src/. Code review YOLO 2026-06-16: 2 patches low aplicados (hasAdminAccess derivado de ADMIN_ROLES; is_admin() COALESCE), 2 falsos-positivos dispensados, gap convite->signup deferido a 20.4.
   20-2-helper-capacidade-refatoracao-guards: done  # RECONCILIACAO: escopo implementado dentro da 20.1. Code review adversarial 3 camadas 2026-06-16: 0 bug bloqueante, ACs 1/2/4/5b verificados independentemente (grep role==="admin" em src/ = 0; hasAdminAccess fonte unica; last-admin via ADMIN_ROLES). 1 decision (AC3 overclaim: SDR ve link Configuracoes no Sidebar -> deferido p/ 20.5) + 2 patches (test-hardening papel x capacidade; fallback badge) deferidos. HIGHs (deploy x migration, convite->signup) ja rastreados (release checklist / 20.4). Suite verde 6112 pass/0 fail.
-  20-3-ui-papeis-gestao-de-time: backlog  # Relabel Admin/Usuario -> Gestor/Diretor/SDR + atribuicao no convite/edicao
+  20-3-ui-papeis-gestao-de-time: done  # Escopo (A): updateMemberRole (action+hook+ChangeRoleDialog+item "Alterar funcao") c/ protecao do ultimo admin + isolamento tenant; relabel/convite/AC3 verificados; fallback badge (P2 20.2). FIX pos-teste-visual: faltava RLS de UPDATE de admin em profiles (falso sucesso) -> migration 00054 (policy is_admin()+tenant) + blindagem .select()/0-rows na action. CODE REVIEW YOLO 2026-06-16: 0 bug HIGH, ACs 1/2/3 verificados, sem scope creep; 2 patches aplicados (test-hardening predicados de seguranca + console.error 0-rows), 3 defers -> 20.5 (invariante >=1 admin so na app/TOCTOU; useUser obsoleto no auto-rebaixamento; RLS row-level), 9 dismiss. ATENCAO: aplicar 00054 no banco (gerido a mao). team.test.ts 32/32, eslint limpo.
   20-4-provisionamento-usuarios-cliente: backlog  # Provisionar 4 e-mails @tdec.com.br (Gestor: mfabossi, seste / SDR: ccase, rgomes)
   20-5-auditoria-acesso-sdr: backlog  # Varredura defense-in-depth: SDR nao acessa nenhuma superficie admin (UI + servidor) + testes papel x superficie
   epic-20-retrospective: optional
