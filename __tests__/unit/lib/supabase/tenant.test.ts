@@ -60,7 +60,7 @@ describe("Tenant Helpers", () => {
         id: "user-123",
         tenant_id: "tenant-456",
         full_name: "Test User",
-        role: "user",
+        role: "sdr",
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-01T00:00:00Z",
       };
@@ -119,7 +119,7 @@ describe("Tenant Helpers", () => {
         id: "user-123",
         tenant_id: "tenant-456",
         full_name: "Test User",
-        role: "user",
+        role: "sdr",
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-01T00:00:00Z",
       };
@@ -158,7 +158,7 @@ describe("Tenant Helpers", () => {
         id: "user-123",
         tenant_id: "tenant-456",
         full_name: "Admin User",
-        role: "admin",
+        role: "gestor",
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-01T00:00:00Z",
       };
@@ -184,7 +184,7 @@ describe("Tenant Helpers", () => {
         id: "user-123",
         tenant_id: "tenant-456",
         full_name: "Regular User",
-        role: "user",
+        role: "sdr",
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-01T00:00:00Z",
       };
@@ -223,7 +223,7 @@ describe("Tenant Helpers", () => {
         id: "user-123",
         tenant_id: "tenant-456",
         full_name: "Test User",
-        role: "admin",
+        role: "gestor",
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-01T00:00:00Z",
       };
@@ -240,7 +240,7 @@ describe("Tenant Helpers", () => {
 
       const role = await getCurrentUserRole();
 
-      expect(role).toBe("admin");
+      expect(role).toBe("gestor");
     });
   });
 
@@ -262,7 +262,7 @@ describe("Tenant Helpers", () => {
         id: "user-123",
         tenant_id: "tenant-456",
         full_name: "Test User",
-        role: "user",
+        role: "sdr",
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-01T00:00:00Z",
       };

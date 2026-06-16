@@ -6,16 +6,23 @@
  * For auto-generated types, run: supabase gen types typescript
  */
 
+import { hasAdminAccess } from "@/lib/auth/capabilities";
+
 // ==============================================
 // USER ROLE TYPES
 // ==============================================
 
 /**
- * Available user roles in the system
- * - 'admin': Full access to admin features (FR37)
- * - 'user': Regular user with standard permissions
+ * Available user roles in the system (Epic 20 — Níveis de Acesso)
+ * Fonte canônica: src/types/team.ts deriva daqui.
+ * - 'gestor': acesso administrativo total (hoje idêntico a diretor)
+ * - 'diretor': acesso administrativo total (hoje idêntico a gestor)
+ * - 'sdr': papel restrito (menor privilégio)
+ *
+ * Capacidade administrativa NÃO deve ser checada por `role === X` solto —
+ * use `hasAdminAccess(role)` de "@/lib/auth/capabilities" (AD-2).
  */
-export type UserRole = "admin" | "user";
+export type UserRole = "gestor" | "diretor" | "sdr";
 
 // ==============================================
 // DATABASE TABLE TYPES
@@ -216,12 +223,13 @@ export interface Database {
  * Check if a role is valid
  */
 export function isValidRole(role: string): role is UserRole {
-  return role === "admin" || role === "user";
+  return role === "gestor" || role === "diretor" || role === "sdr";
 }
 
 /**
- * Check if user is admin
+ * Check if user has administrative access.
+ * Delega ao helper de capacidade — ponto único de mudança (AD-2).
  */
 export function isAdminRole(role: UserRole): boolean {
-  return role === "admin";
+  return hasAdminAccess(role);
 }

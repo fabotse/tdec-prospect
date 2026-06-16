@@ -8,6 +8,7 @@
  * AC #2: API Endpoint for Usage Statistics
  */
 
+import { hasAdminAccess } from "@/lib/auth/capabilities";
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { getUsageStatistics } from "@/lib/services/usage-logger";
@@ -75,7 +76,7 @@ export async function GET(request: NextRequest) {
   }
 
   // AC #2: Admin-only access
-  if (profile.role !== "admin") {
+  if (!hasAdminAccess(profile.role)) {
     return NextResponse.json(
       { error: { code: "FORBIDDEN", message: ERROR_MESSAGES.FORBIDDEN } },
       { status: 403 }

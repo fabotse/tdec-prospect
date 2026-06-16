@@ -5,6 +5,7 @@ import type { User, AuthChangeEvent, Session } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/client";
 import type { Profile, UserRole } from "@/types/database";
+import { hasAdminAccess } from "@/lib/auth/capabilities";
 
 /**
  * Extended return type with profile data
@@ -247,7 +248,7 @@ export function useUser(): UseUserReturn {
     isLoading: state.isLoading,
     isProfileLoading: state.isProfileLoading,
     error: null,
-    isAdmin: state.profile?.role === "admin",
+    isAdmin: hasAdminAccess(state.profile?.role),
     role: state.profile?.role ?? null,
     refetchProfile,
   };

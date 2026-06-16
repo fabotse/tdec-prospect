@@ -108,7 +108,7 @@ describe("POST /api/integrations/theirstack/search/companies", () => {
   it("returns 400 when technologySlugs is empty", async () => {
     mockGetCurrentUserProfile.mockResolvedValue({
       tenant_id: "t1",
-      role: "admin",
+      role: "gestor",
     });
 
     const response = await POST(
@@ -123,7 +123,7 @@ describe("POST /api/integrations/theirstack/search/companies", () => {
   it("returns 400 when minEmployeeCount > maxEmployeeCount", async () => {
     mockGetCurrentUserProfile.mockResolvedValue({
       tenant_id: "t1",
-      role: "admin",
+      role: "gestor",
     });
 
     const response = await POST(
@@ -142,7 +142,7 @@ describe("POST /api/integrations/theirstack/search/companies", () => {
   it("returns 400 when body is invalid JSON", async () => {
     mockGetCurrentUserProfile.mockResolvedValue({
       tenant_id: "t1",
-      role: "admin",
+      role: "gestor",
     });
 
     const request = new NextRequest(
@@ -164,7 +164,7 @@ describe("POST /api/integrations/theirstack/search/companies", () => {
   it("returns 404 when API key not configured", async () => {
     mockGetCurrentUserProfile.mockResolvedValue({
       tenant_id: "t1",
-      role: "admin",
+      role: "gestor",
     });
     mockSupabaseSingle.mockResolvedValue({
       data: null,
@@ -183,7 +183,7 @@ describe("POST /api/integrations/theirstack/search/companies", () => {
   it("returns companies on success", async () => {
     mockGetCurrentUserProfile.mockResolvedValue({
       tenant_id: "t1",
-      role: "admin",
+      role: "gestor",
     });
     mockSupabaseSingle.mockResolvedValue({
       data: { encrypted_key: "encrypted-key" },
@@ -233,7 +233,7 @@ describe("POST /api/integrations/theirstack/search/companies", () => {
   it("returns error from theirStack API (429)", async () => {
     mockGetCurrentUserProfile.mockResolvedValue({
       tenant_id: "t1",
-      role: "admin",
+      role: "gestor",
     });
     mockSupabaseSingle.mockResolvedValue({
       data: { encrypted_key: "encrypted-key" },
@@ -260,7 +260,7 @@ describe("POST /api/integrations/theirstack/search/companies", () => {
   it("returns 500 on theirStack server error", async () => {
     mockGetCurrentUserProfile.mockResolvedValue({
       tenant_id: "t1",
-      role: "admin",
+      role: "gestor",
     });
     mockSupabaseSingle.mockResolvedValue({
       data: { encrypted_key: "encrypted-key" },

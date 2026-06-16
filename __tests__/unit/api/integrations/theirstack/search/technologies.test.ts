@@ -101,7 +101,7 @@ describe("GET /api/integrations/theirstack/search/technologies", () => {
   it("returns 400 when query param q is missing", async () => {
     mockGetCurrentUserProfile.mockResolvedValue({
       tenant_id: "t1",
-      role: "admin",
+      role: "gestor",
     });
 
     const response = await GET(createRequest());
@@ -114,7 +114,7 @@ describe("GET /api/integrations/theirstack/search/technologies", () => {
   it("returns 400 when query param q is too short", async () => {
     mockGetCurrentUserProfile.mockResolvedValue({
       tenant_id: "t1",
-      role: "admin",
+      role: "gestor",
     });
 
     const response = await GET(createRequest("a"));
@@ -127,7 +127,7 @@ describe("GET /api/integrations/theirstack/search/technologies", () => {
   it("returns 404 when API key not configured", async () => {
     mockGetCurrentUserProfile.mockResolvedValue({
       tenant_id: "t1",
-      role: "admin",
+      role: "gestor",
     });
     mockSupabaseSingle.mockResolvedValue({
       data: null,
@@ -144,7 +144,7 @@ describe("GET /api/integrations/theirstack/search/technologies", () => {
   it("returns 500 when decryption fails", async () => {
     mockGetCurrentUserProfile.mockResolvedValue({
       tenant_id: "t1",
-      role: "admin",
+      role: "gestor",
     });
     mockSupabaseSingle.mockResolvedValue({
       data: { encrypted_key: "bad-data" },
@@ -164,7 +164,7 @@ describe("GET /api/integrations/theirstack/search/technologies", () => {
   it("returns technologies on success", async () => {
     mockGetCurrentUserProfile.mockResolvedValue({
       tenant_id: "t1",
-      role: "admin",
+      role: "gestor",
     });
     mockSupabaseSingle.mockResolvedValue({
       data: { encrypted_key: "encrypted-key" },
@@ -196,7 +196,7 @@ describe("GET /api/integrations/theirstack/search/technologies", () => {
   it("returns error from theirStack API (429)", async () => {
     mockGetCurrentUserProfile.mockResolvedValue({
       tenant_id: "t1",
-      role: "admin",
+      role: "gestor",
     });
     mockSupabaseSingle.mockResolvedValue({
       data: { encrypted_key: "encrypted-key" },

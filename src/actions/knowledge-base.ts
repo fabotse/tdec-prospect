@@ -11,6 +11,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
+import { hasAdminAccess } from "@/lib/auth/capabilities";
 import {
   type KnowledgeBaseSection,
   type CompanyProfile,
@@ -57,7 +58,7 @@ export async function getKnowledgeBaseSection<T = Record<string, unknown>>(
     }
 
     // 3. Check admin role
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return {
         success: false,
         error: "Apenas administradores podem acessar a base de conhecimento",
@@ -115,7 +116,7 @@ export async function saveKnowledgeBaseSection<T extends Record<string, unknown>
     }
 
     // 3. Check admin role
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return {
         success: false,
         error: "Apenas administradores podem editar a base de conhecimento",
@@ -226,7 +227,7 @@ export async function getEmailExamples(): Promise<ActionResult<EmailExample[]>> 
     }
 
     // 2. Check admin role
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return {
         success: false,
         error: "Apenas administradores podem acessar exemplos de email",
@@ -276,7 +277,7 @@ export async function createEmailExample(
     }
 
     // 3. Check admin role
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return {
         success: false,
         error: "Apenas administradores podem adicionar exemplos",
@@ -338,7 +339,7 @@ export async function updateEmailExample(
     }
 
     // 4. Check admin role
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return {
         success: false,
         error: "Apenas administradores podem editar exemplos",
@@ -394,7 +395,7 @@ export async function deleteEmailExample(
     }
 
     // 3. Check admin role
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return {
         success: false,
         error: "Apenas administradores podem remover exemplos",
@@ -437,7 +438,7 @@ export async function getIcebreakerExamples(): Promise<ActionResult<IcebreakerEx
       return { success: false, error: "Não autenticado" };
     }
 
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return {
         success: false,
         error: "Apenas administradores podem acessar exemplos de ice breaker",
@@ -483,7 +484,7 @@ export async function createIcebreakerExample(
       return { success: false, error: "Não autenticado" };
     }
 
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return {
         success: false,
         error: "Apenas administradores podem adicionar exemplos",
@@ -539,7 +540,7 @@ export async function updateIcebreakerExample(
       return { success: false, error: "Não autenticado" };
     }
 
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return {
         success: false,
         error: "Apenas administradores podem editar exemplos",
@@ -590,7 +591,7 @@ export async function deleteIcebreakerExample(
       return { success: false, error: "Não autenticado" };
     }
 
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return {
         success: false,
         error: "Apenas administradores podem remover exemplos",

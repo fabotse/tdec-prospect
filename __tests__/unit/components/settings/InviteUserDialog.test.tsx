@@ -215,7 +215,7 @@ describe("InviteUserDialog", () => {
   // ==============================================
 
   describe("role selection", () => {
-    it("should default to user role", async () => {
+    it("should default to sdr role (menor privilégio)", async () => {
       const user = userEvent.setup();
 
       render(<InviteUserDialog />, { wrapper: createWrapper() });
@@ -224,13 +224,13 @@ describe("InviteUserDialog", () => {
         screen.getByRole("button", { name: /Convidar Usuário/i })
       );
 
-      // The combobox select should exist and show "Usuário" as default
+      // The combobox select should exist and show "SDR" as default (least privilege)
       const selectTrigger = screen.getByRole("combobox");
       expect(selectTrigger).toBeInTheDocument();
-      expect(selectTrigger).toHaveTextContent("Usuário");
+      expect(selectTrigger).toHaveTextContent("SDR");
     });
 
-    it("should have admin and user options available", async () => {
+    it("should have gestor, diretor and sdr options available", async () => {
       const user = userEvent.setup();
 
       render(<InviteUserDialog />, { wrapper: createWrapper() });
@@ -246,7 +246,7 @@ describe("InviteUserDialog", () => {
       // Note: Due to Radix Select + jsdom limitations with hasPointerCapture,
       // we cannot fully test dropdown interaction. The select functionality
       // is tested indirectly through the form submission tests.
-      expect(selectTrigger).toHaveTextContent("Usuário");
+      expect(selectTrigger).toHaveTextContent("SDR");
     });
   });
 
@@ -275,7 +275,7 @@ describe("InviteUserDialog", () => {
       await waitFor(() => {
         expect(mockInviteUser).toHaveBeenCalledWith({
           email: "test@example.com",
-          role: "user",
+          role: "sdr",
         });
       });
     });

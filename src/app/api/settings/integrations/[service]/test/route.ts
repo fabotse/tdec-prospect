@@ -6,6 +6,7 @@
  * Tests the connection to an external service using stored API key.
  */
 
+import { hasAdminAccess } from "@/lib/auth/capabilities";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
@@ -45,7 +46,7 @@ export async function POST(
     }
 
     // 3. Check admin role
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return NextResponse.json(
         { error: "Apenas administradores podem testar conexões" },
         { status: 403 }

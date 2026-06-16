@@ -8,6 +8,7 @@
  * AC: #1 - Autocomplete with name, category, company count
  */
 
+import { hasAdminAccess } from "@/lib/auth/capabilities";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
@@ -40,7 +41,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 2. Admin check
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return NextResponse.json(
         { error: "Apenas administradores podem realizar buscas" },
         { status: 403 }

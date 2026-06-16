@@ -36,7 +36,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useTeamMembers } from "@/hooks/use-team-members";
-import { inviteUserSchema, type InviteUserInput } from "@/types/team";
+import {
+  inviteUserSchema,
+  type InviteUserInput,
+  type UserRole,
+  USER_ROLES,
+  ROLE_LABELS,
+} from "@/types/team";
 
 export function InviteUserDialog() {
   const [open, setOpen] = useState(false);
@@ -53,7 +59,7 @@ export function InviteUserDialog() {
     resolver: zodResolver(inviteUserSchema),
     defaultValues: {
       email: "",
-      role: "user",
+      role: "sdr",
     },
   });
 
@@ -114,15 +120,18 @@ export function InviteUserDialog() {
               <Select
                 value={selectedRole}
                 onValueChange={(value) =>
-                  setValue("role", value as "admin" | "user")
+                  setValue("role", value as UserRole)
                 }
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione a função" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="user">Usuário</SelectItem>
-                  <SelectItem value="admin">Administrador</SelectItem>
+                  {USER_ROLES.map((role) => (
+                    <SelectItem key={role} value={role}>
+                      {ROLE_LABELS[role]}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

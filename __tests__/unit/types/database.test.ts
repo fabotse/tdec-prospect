@@ -24,41 +24,56 @@ import {
  */
 describe("Database Types", () => {
   describe("UserRole type", () => {
-    it("should accept 'admin' as valid role", () => {
-      const role: UserRole = "admin";
-      expect(role).toBe("admin");
+    it("should accept 'gestor' as valid role", () => {
+      const role: UserRole = "gestor";
+      expect(role).toBe("gestor");
     });
 
-    it("should accept 'user' as valid role", () => {
-      const role: UserRole = "user";
-      expect(role).toBe("user");
+    it("should accept 'diretor' as valid role", () => {
+      const role: UserRole = "diretor";
+      expect(role).toBe("diretor");
+    });
+
+    it("should accept 'sdr' as valid role", () => {
+      const role: UserRole = "sdr";
+      expect(role).toBe("sdr");
     });
   });
 
   describe("isValidRole type guard", () => {
-    it("should return true for 'admin'", () => {
-      expect(isValidRole("admin")).toBe(true);
+    it("should return true for 'gestor'", () => {
+      expect(isValidRole("gestor")).toBe(true);
     });
 
-    it("should return true for 'user'", () => {
-      expect(isValidRole("user")).toBe(true);
+    it("should return true for 'diretor'", () => {
+      expect(isValidRole("diretor")).toBe(true);
+    });
+
+    it("should return true for 'sdr'", () => {
+      expect(isValidRole("sdr")).toBe(true);
     });
 
     it("should return false for invalid roles", () => {
       expect(isValidRole("superadmin")).toBe(false);
       expect(isValidRole("guest")).toBe(false);
       expect(isValidRole("")).toBe(false);
-      expect(isValidRole("Admin")).toBe(false); // case sensitive
+      expect(isValidRole("Gestor")).toBe(false); // case sensitive
+      expect(isValidRole("admin")).toBe(false); // vocabulário antigo
+      expect(isValidRole("user")).toBe(false); // vocabulário antigo
     });
   });
 
   describe("isAdminRole helper", () => {
-    it("should return true for admin role", () => {
-      expect(isAdminRole("admin")).toBe(true);
+    it("should return true for gestor role", () => {
+      expect(isAdminRole("gestor")).toBe(true);
     });
 
-    it("should return false for user role", () => {
-      expect(isAdminRole("user")).toBe(false);
+    it("should return true for diretor role", () => {
+      expect(isAdminRole("diretor")).toBe(true);
+    });
+
+    it("should return false for sdr role", () => {
+      expect(isAdminRole("sdr")).toBe(false);
     });
   });
 
@@ -79,31 +94,31 @@ describe("Database Types", () => {
   });
 
   describe("Profile interface", () => {
-    it("should accept valid profile object with admin role", () => {
+    it("should accept valid profile object with gestor role", () => {
       const profile: Profile = {
         id: "user-123",
         tenant_id: "tenant-456",
-        full_name: "Admin User",
-        role: "admin",
+        full_name: "Gestor User",
+        role: "gestor",
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-01T00:00:00Z",
       };
 
-      expect(profile.role).toBe("admin");
+      expect(profile.role).toBe("gestor");
       expect(profile.tenant_id).toBeDefined();
     });
 
-    it("should accept valid profile object with user role", () => {
+    it("should accept valid profile object with sdr role", () => {
       const profile: Profile = {
         id: "user-123",
         tenant_id: "tenant-456",
         full_name: "Regular User",
-        role: "user",
+        role: "sdr",
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-01T00:00:00Z",
       };
 
-      expect(profile.role).toBe("user");
+      expect(profile.role).toBe("sdr");
     });
 
     it("should accept null full_name", () => {
@@ -111,7 +126,7 @@ describe("Database Types", () => {
         id: "user-123",
         tenant_id: "tenant-456",
         full_name: null,
-        role: "user",
+        role: "sdr",
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-01T00:00:00Z",
       };
@@ -129,14 +144,14 @@ describe("Database Types", () => {
           id: "user-123",
           tenant_id: "tenant-456",
           full_name: "Test User",
-          role: "user",
+          role: "sdr",
           created_at: "2024-01-01T00:00:00Z",
           updated_at: "2024-01-01T00:00:00Z",
         },
       };
 
       expect(userWithProfile.profile).not.toBeNull();
-      expect(userWithProfile.profile?.role).toBe("user");
+      expect(userWithProfile.profile?.role).toBe("sdr");
     });
 
     it("should accept user without profile", () => {

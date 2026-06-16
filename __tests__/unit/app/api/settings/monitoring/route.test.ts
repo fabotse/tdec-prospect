@@ -38,7 +38,7 @@ vi.mock("@/lib/supabase/server", () => ({
 const ADMIN_PROFILE = {
   id: "user-1",
   tenant_id: "tenant-1",
-  role: "admin",
+  role: "gestor",
 };
 
 const NON_ADMIN_PROFILE = {

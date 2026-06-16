@@ -46,20 +46,22 @@ describe("team types", () => {
   // ==============================================
 
   describe("USER_ROLES", () => {
-    it("should contain admin and user roles", () => {
-      expect(USER_ROLES).toContain("admin");
-      expect(USER_ROLES).toContain("user");
+    it("should contain gestor, diretor and sdr roles", () => {
+      expect(USER_ROLES).toContain("gestor");
+      expect(USER_ROLES).toContain("diretor");
+      expect(USER_ROLES).toContain("sdr");
     });
 
-    it("should have exactly 2 roles", () => {
-      expect(USER_ROLES).toHaveLength(2);
+    it("should have exactly 3 roles", () => {
+      expect(USER_ROLES).toHaveLength(3);
     });
   });
 
   describe("ROLE_LABELS", () => {
     it("should have Portuguese labels for all roles", () => {
-      expect(ROLE_LABELS.admin).toBe("Admin");
-      expect(ROLE_LABELS.user).toBe("Usuário");
+      expect(ROLE_LABELS.gestor).toBe("Gestor");
+      expect(ROLE_LABELS.diretor).toBe("Diretor");
+      expect(ROLE_LABELS.sdr).toBe("SDR");
     });
 
     it("should have a label for every role", () => {
@@ -92,20 +94,20 @@ describe("team types", () => {
   // ==============================================
 
   describe("inviteUserSchema", () => {
-    it("should validate a valid invitation with admin role", () => {
+    it("should validate a valid invitation with gestor role", () => {
       const validInvite = {
         email: "test@example.com",
-        role: "admin",
+        role: "gestor",
       };
 
       const result = inviteUserSchema.safeParse(validInvite);
       expect(result.success).toBe(true);
     });
 
-    it("should validate a valid invitation with user role", () => {
+    it("should validate a valid invitation with sdr role", () => {
       const validInvite = {
         email: "user@company.com",
-        role: "user",
+        role: "sdr",
       };
 
       const result = inviteUserSchema.safeParse(validInvite);
@@ -122,7 +124,7 @@ describe("team types", () => {
       ];
 
       invalidEmails.forEach((email) => {
-        const result = inviteUserSchema.safeParse({ email, role: "user" });
+        const result = inviteUserSchema.safeParse({ email, role: "sdr" });
         expect(result.success).toBe(false);
       });
     });
@@ -130,7 +132,7 @@ describe("team types", () => {
     it("should provide Portuguese error message for invalid email", () => {
       const invalidInvite = {
         email: "invalid-email",
-        role: "user",
+        role: "sdr",
       };
 
       const result = inviteUserSchema.safeParse(invalidInvite);
@@ -143,7 +145,15 @@ describe("team types", () => {
     });
 
     it("should reject invalid role values", () => {
-      const invalidRoles = ["superadmin", "guest", "moderator", "", "Admin"];
+      const invalidRoles = [
+        "superadmin",
+        "guest",
+        "moderator",
+        "",
+        "Gestor",
+        "admin", // vocabulário antigo
+        "user", // vocabulário antigo
+      ];
 
       invalidRoles.forEach((role) => {
         const result = inviteUserSchema.safeParse({
@@ -155,7 +165,7 @@ describe("team types", () => {
     });
 
     it("should accept all valid role values", () => {
-      const roles: UserRole[] = ["admin", "user"];
+      const roles: UserRole[] = ["gestor", "diretor", "sdr"];
 
       roles.forEach((role) => {
         const result = inviteUserSchema.safeParse({
@@ -167,7 +177,7 @@ describe("team types", () => {
     });
 
     it("should reject missing email", () => {
-      const result = inviteUserSchema.safeParse({ role: "user" });
+      const result = inviteUserSchema.safeParse({ role: "sdr" });
       expect(result.success).toBe(false);
     });
 
@@ -196,7 +206,7 @@ describe("team types", () => {
       ];
 
       validEmails.forEach((email) => {
-        const result = inviteUserSchema.safeParse({ email, role: "user" });
+        const result = inviteUserSchema.safeParse({ email, role: "sdr" });
         expect(result.success).toBe(true);
       });
     });
@@ -213,8 +223,8 @@ describe("team types", () => {
     });
 
     it("UserRole should be a union of valid roles", () => {
-      const validRoles: UserRole[] = ["admin", "user"];
-      expect(validRoles).toHaveLength(2);
+      const validRoles: UserRole[] = ["gestor", "diretor", "sdr"];
+      expect(validRoles).toHaveLength(3);
     });
 
     it("InvitationStatus should be a union of valid statuses", () => {

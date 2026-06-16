@@ -17,7 +17,7 @@ O cliente solicitou niveis de acesso distintos na plataforma. Hoje o sistema ja 
 
 ## Pre-sprint (obrigatorio antes das stories irem para dev)
 
-- [ ] **Doc de decisao / Matriz de permissao**: tabela explicita do que cada papel (Gestor, Diretor, SDR) ve e faz; plano de migracao `admin|user -> gestor|diretor|sdr` (mapeamento de dados + RLS); mecanismo de provisionamento dos 4 usuarios. Gerar via `bmad-create-architecture`.
+- [x] **Doc de decisao / Matriz de permissao**: tabela explicita do que cada papel (Gestor, Diretor, SDR) ve e faz; plano de migracao `admin|user -> gestor|diretor|sdr` (mapeamento de dados + RLS); mecanismo de provisionamento dos 4 usuarios. Gerar via `bmad-create-architecture`. → **APROVADO (2026-06-15):** [architecture-epic-20-niveis-de-acesso.md](architecture-epic-20-niveis-de-acesso.md)
 
 ## Requirements Inventory
 

@@ -46,7 +46,7 @@ describe("TeamMemberList", () => {
       id: "user-1",
       full_name: "John Doe",
       email: "john@example.com",
-      role: "admin",
+      role: "gestor",
       status: "active",
       created_at: "2026-01-01T00:00:00Z",
     },
@@ -54,7 +54,7 @@ describe("TeamMemberList", () => {
       id: "user-2",
       full_name: "Jane Smith",
       email: "jane@example.com",
-      role: "user",
+      role: "sdr",
       status: "active",
       created_at: "2026-01-02T00:00:00Z",
     },
@@ -64,7 +64,7 @@ describe("TeamMemberList", () => {
     id: "inv-1",
     full_name: null,
     email: "pending@example.com",
-    role: "user",
+    role: "sdr",
     status: "pending",
     created_at: "2026-01-03T00:00:00Z",
     invitation_id: "inv-1",
@@ -273,7 +273,7 @@ describe("TeamMemberList", () => {
   // ==============================================
 
   describe("role badges", () => {
-    it("should display Admin badge for admin role", () => {
+    it("should display Gestor badge for gestor role", () => {
       vi.mocked(useTeamMembers).mockReturnValue({
         members: [mockActiveMembers[0]],
         isLoading: false,
@@ -295,10 +295,10 @@ describe("TeamMemberList", () => {
         { wrapper: createWrapper() }
       );
 
-      expect(screen.getByText("Admin")).toBeInTheDocument();
+      expect(screen.getByText("Gestor")).toBeInTheDocument();
     });
 
-    it("should display Usuário badge for user role", () => {
+    it("should display SDR badge for sdr role", () => {
       vi.mocked(useTeamMembers).mockReturnValue({
         members: [mockActiveMembers[1]],
         isLoading: false,
@@ -320,7 +320,7 @@ describe("TeamMemberList", () => {
         { wrapper: createWrapper() }
       );
 
-      expect(screen.getByText("Usuário")).toBeInTheDocument();
+      expect(screen.getByText("SDR")).toBeInTheDocument();
     });
   });
 
@@ -502,7 +502,7 @@ describe("TeamMemberList", () => {
         id: currentUserId,
         full_name: "Current Admin",
         email: "admin@example.com",
-        role: "admin",
+        role: "gestor",
         status: "active",
         created_at: "2026-01-01T00:00:00Z",
       };

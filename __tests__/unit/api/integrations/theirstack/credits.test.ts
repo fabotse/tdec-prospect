@@ -91,7 +91,7 @@ describe("GET /api/integrations/theirstack/credits", () => {
   it("returns 404 when API key not configured", async () => {
     mockGetCurrentUserProfile.mockResolvedValue({
       tenant_id: "t1",
-      role: "admin",
+      role: "gestor",
     });
     mockSupabaseSingle.mockResolvedValue({ data: null, error: { message: "Not found" } });
 
@@ -105,7 +105,7 @@ describe("GET /api/integrations/theirstack/credits", () => {
   it("returns 500 when decryption fails", async () => {
     mockGetCurrentUserProfile.mockResolvedValue({
       tenant_id: "t1",
-      role: "admin",
+      role: "gestor",
     });
     mockSupabaseSingle.mockResolvedValue({
       data: { encrypted_key: "bad-data" },
@@ -125,7 +125,7 @@ describe("GET /api/integrations/theirstack/credits", () => {
   it("returns credits data on success", async () => {
     mockGetCurrentUserProfile.mockResolvedValue({
       tenant_id: "t1",
-      role: "admin",
+      role: "gestor",
     });
     mockSupabaseSingle.mockResolvedValue({
       data: { encrypted_key: "encrypted-key" },
@@ -160,7 +160,7 @@ describe("GET /api/integrations/theirstack/credits", () => {
   it("returns 500 when theirStack API fails", async () => {
     mockGetCurrentUserProfile.mockResolvedValue({
       tenant_id: "t1",
-      role: "admin",
+      role: "gestor",
     });
     mockSupabaseSingle.mockResolvedValue({
       data: { encrypted_key: "encrypted-key" },

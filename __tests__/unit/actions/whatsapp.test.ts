@@ -50,7 +50,7 @@ import { sendWhatsAppMessage } from "@/actions/whatsapp";
 const mockProfile = {
   id: "user-1",
   tenant_id: "tenant-1",
-  role: "admin" as const,
+  role: "gestor" as const,
   full_name: "Test User",
   created_at: "2026-01-01",
   updated_at: "2026-01-01",

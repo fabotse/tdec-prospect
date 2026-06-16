@@ -39,7 +39,7 @@ describe("knowledge-base actions", () => {
   const mockAdminProfile = {
     id: "user-123",
     tenant_id: "tenant-456",
-    role: "admin" as const,
+    role: "gestor" as const,
     full_name: "Admin User",
     created_at: "2026-01-01",
     updated_at: "2026-01-01",
@@ -47,7 +47,7 @@ describe("knowledge-base actions", () => {
 
   const mockUserProfile = {
     ...mockAdminProfile,
-    role: "user" as const,
+    role: "sdr" as const,
   };
 
   beforeEach(() => {

@@ -10,6 +10,7 @@
  * AC: #5 - Credits/rate limit error messages
  */
 
+import { hasAdminAccess } from "@/lib/auth/capabilities";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
@@ -66,7 +67,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 2. Admin check
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return NextResponse.json(
         { error: "Apenas administradores podem realizar buscas" },
         { status: 403 }

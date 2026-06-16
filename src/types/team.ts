@@ -7,6 +7,8 @@
 
 import { z } from "zod";
 
+import type { UserRole } from "@/types/database";
+
 // ==============================================
 // STATUS TYPES
 // ==============================================
@@ -19,18 +21,19 @@ export const TEAM_MEMBER_STATUSES = ["active", "pending"] as const;
 export type TeamMemberStatus = (typeof TEAM_MEMBER_STATUSES)[number];
 
 /**
- * User role types
- * AC: #3 - Role selection: Admin or Usuário
+ * User role types (Epic 20 — Níveis de Acesso)
+ * Fonte canônica do tipo: src/types/database.ts (reexportado aqui).
  */
-export const USER_ROLES = ["admin", "user"] as const;
-export type UserRole = (typeof USER_ROLES)[number];
+export const USER_ROLES = ["gestor", "diretor", "sdr"] as const satisfies readonly UserRole[];
+export type { UserRole };
 
 /**
  * Human-readable role labels (Portuguese)
  */
 export const ROLE_LABELS: Record<UserRole, string> = {
-  admin: "Admin",
-  user: "Usuário",
+  gestor: "Gestor",
+  diretor: "Diretor",
+  sdr: "SDR",
 };
 
 /**

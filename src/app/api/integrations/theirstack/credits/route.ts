@@ -8,6 +8,7 @@
  * AC: #3 - Display credits utilizados vs disponiveis
  */
 
+import { hasAdminAccess } from "@/lib/auth/capabilities";
 import { NextResponse } from "next/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
@@ -32,7 +33,7 @@ export async function GET() {
     }
 
     // 2. Check admin role
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return NextResponse.json(
         { error: "Apenas administradores podem acessar dados de credits" },
         { status: 403 }

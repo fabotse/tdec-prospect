@@ -124,7 +124,7 @@ describe("useUser", () => {
         id: "123",
         tenant_id: "tenant-1",
         full_name: "Test User",
-        role: "user",
+        role: "sdr",
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-01T00:00:00Z",
       };
@@ -146,7 +146,7 @@ describe("useUser", () => {
       });
 
       expect(result.current.isAdmin).toBe(false);
-      expect(result.current.role).toBe("user");
+      expect(result.current.role).toBe("sdr");
     });
 
     it("should identify admin role correctly", async () => {
@@ -159,7 +159,7 @@ describe("useUser", () => {
         id: "123",
         tenant_id: "tenant-1",
         full_name: "Admin User",
-        role: "admin",
+        role: "gestor",
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-01T00:00:00Z",
       };
@@ -181,7 +181,7 @@ describe("useUser", () => {
       });
 
       expect(result.current.isAdmin).toBe(true);
-      expect(result.current.role).toBe("admin");
+      expect(result.current.role).toBe("gestor");
     });
 
     it("should handle missing profile gracefully", async () => {
@@ -241,7 +241,7 @@ describe("useUser", () => {
         id: "123",
         tenant_id: "tenant-1",
         full_name: "Test User",
-        role: "user",
+        role: "sdr",
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-01T00:00:00Z",
       };

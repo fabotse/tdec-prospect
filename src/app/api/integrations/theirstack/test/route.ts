@@ -9,6 +9,7 @@
  * AC: #4 - Portuguese error messages for invalid/expired keys
  */
 
+import { hasAdminAccess } from "@/lib/auth/capabilities";
 import { NextResponse } from "next/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
@@ -47,7 +48,7 @@ export async function POST() {
     }
 
     // 2. Check admin role
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return NextResponse.json<TestResponse>(
         {
           success: false,

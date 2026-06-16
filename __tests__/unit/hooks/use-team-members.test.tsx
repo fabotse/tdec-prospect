@@ -43,7 +43,7 @@ describe("useTeamMembers", () => {
       id: "user-1",
       full_name: "John Doe",
       email: "john@example.com",
-      role: "admin" as const,
+      role: "gestor" as const,
       status: "active" as const,
       created_at: "2026-01-01",
     },
@@ -51,7 +51,7 @@ describe("useTeamMembers", () => {
       id: "inv-1",
       full_name: null,
       email: "pending@example.com",
-      role: "user" as const,
+      role: "sdr" as const,
       status: "pending" as const,
       created_at: "2026-01-02",
       invitation_id: "inv-1",
@@ -103,7 +103,7 @@ describe("useTeamMembers", () => {
         id: "user-1",
         full_name: "John Doe",
         email: "john@example.com",
-        role: "admin",
+        role: "gestor",
         status: "active",
       });
     });
@@ -158,13 +158,13 @@ describe("useTeamMembers", () => {
       await act(async () => {
         await result.current.inviteUser({
           email: "new@example.com",
-          role: "user",
+          role: "sdr",
         });
       });
 
       expect(inviteUser).toHaveBeenCalledWith({
         email: "new@example.com",
-        role: "user",
+        role: "sdr",
       });
     });
 
@@ -198,7 +198,7 @@ describe("useTeamMembers", () => {
       await act(async () => {
         inviteResult = await result.current.inviteUser({
           email: "new@example.com",
-          role: "user",
+          role: "sdr",
         });
       });
 
@@ -223,7 +223,7 @@ describe("useTeamMembers", () => {
       await act(async () => {
         inviteResult = await result.current.inviteUser({
           email: "invalid",
-          role: "user",
+          role: "sdr",
         });
       });
 

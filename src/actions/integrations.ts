@@ -12,6 +12,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
+import { hasAdminAccess } from "@/lib/auth/capabilities";
 import { encryptApiKey, maskApiKey, decryptApiKey } from "@/lib/crypto/encryption";
 import { testConnection as testServiceConnection, ERROR_MESSAGES } from "@/lib/services";
 import { z } from "zod";
@@ -70,7 +71,7 @@ export async function getApiConfigs(): Promise<
     }
 
     // 2. Check admin role
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return {
         success: false,
         error: "Apenas administradores podem visualizar configurações",
@@ -177,7 +178,7 @@ export async function saveApiConfig(
     }
 
     // 3. Check admin role
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return {
         success: false,
         error: "Apenas administradores podem configurar integrações",
@@ -303,7 +304,7 @@ export async function deleteApiConfig(
     }
 
     // 3. Check admin role
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return {
         success: false,
         error: "Apenas administradores podem remover configurações",
@@ -360,7 +361,7 @@ export async function testApiConnection(
     }
 
     // 3. Check admin role
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return {
         success: false,
         error: "Apenas administradores podem testar conexões",

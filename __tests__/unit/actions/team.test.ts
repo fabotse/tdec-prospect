@@ -43,7 +43,7 @@ describe("team actions", () => {
   const mockAdminProfile = {
     id: "user-123",
     tenant_id: "tenant-456",
-    role: "admin" as const,
+    role: "gestor" as const,
     full_name: "Admin User",
     created_at: "2026-01-01",
     updated_at: "2026-01-01",
@@ -51,7 +51,7 @@ describe("team actions", () => {
 
   const mockUserProfile = {
     ...mockAdminProfile,
-    role: "user" as const,
+    role: "sdr" as const,
   };
 
   beforeEach(() => {
@@ -95,7 +95,7 @@ describe("team actions", () => {
         {
           id: "user-1",
           full_name: "John Doe",
-          role: "admin",
+          role: "gestor",
           created_at: "2026-01-01",
           tenant_id: "tenant-456",
         },
@@ -114,7 +114,7 @@ describe("team actions", () => {
         {
           id: "inv-1",
           email: "pending@example.com",
-          role: "user",
+          role: "sdr",
           status: "pending",
           created_at: "2026-01-02",
           tenant_id: "tenant-456",
@@ -164,13 +164,13 @@ describe("team actions", () => {
           id: "user-1",
           full_name: "John Doe",
           email: "john@example.com",
-          role: "admin",
+          role: "gestor",
           status: "active",
         });
         expect(result.data![1]).toMatchObject({
           id: "inv-1",
           email: "pending@example.com",
-          role: "user",
+          role: "sdr",
           status: "pending",
         });
       }
@@ -230,7 +230,7 @@ describe("team actions", () => {
     it("should require authentication", async () => {
       vi.mocked(getCurrentUserProfile).mockResolvedValue(null);
 
-      const result = await inviteUser({ email: "test@example.com", role: "user" });
+      const result = await inviteUser({ email: "test@example.com", role: "sdr" });
 
       expect(result).toEqual({
         success: false,
@@ -241,7 +241,7 @@ describe("team actions", () => {
     it("should require admin role", async () => {
       vi.mocked(getCurrentUserProfile).mockResolvedValue(mockUserProfile);
 
-      const result = await inviteUser({ email: "test@example.com", role: "user" });
+      const result = await inviteUser({ email: "test@example.com", role: "sdr" });
 
       expect(result).toEqual({
         success: false,
@@ -252,7 +252,7 @@ describe("team actions", () => {
     it("should validate email format", async () => {
       vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
 
-      const result = await inviteUser({ email: "invalid-email", role: "user" });
+      const result = await inviteUser({ email: "invalid-email", role: "sdr" });
 
       expect(result).toEqual({
         success: false,
@@ -278,7 +278,7 @@ describe("team actions", () => {
         }),
       });
 
-      const result = await inviteUser({ email: "test@example.com", role: "user" });
+      const result = await inviteUser({ email: "test@example.com", role: "sdr" });
 
       expect(result).toEqual({
         success: false,
@@ -338,7 +338,7 @@ describe("team actions", () => {
         error: null,
       });
 
-      const result = await inviteUser({ email: "new@example.com", role: "user" });
+      const result = await inviteUser({ email: "new@example.com", role: "sdr" });
 
       expect(result).toEqual({ success: true });
       expect(mockAdminClient.auth.admin.inviteUserByEmail).toHaveBeenCalledWith(
@@ -346,7 +346,7 @@ describe("team actions", () => {
         expect.objectContaining({
           data: expect.objectContaining({
             tenant_id: "tenant-456",
-            role: "user",
+            role: "sdr",
           }),
         })
       );
@@ -379,7 +379,7 @@ describe("team actions", () => {
         error: { message: "Invite failed" },
       });
 
-      const result = await inviteUser({ email: "new@example.com", role: "user" });
+      const result = await inviteUser({ email: "new@example.com", role: "sdr" });
 
       expect(result).toEqual({
         success: false,
@@ -422,7 +422,7 @@ describe("team actions", () => {
       mockSupabase.from.mockReturnValue({
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({
-            eq: vi.fn().mockResolvedValue({
+            in: vi.fn().mockResolvedValue({
               count: 1,
             }),
           }),
@@ -453,7 +453,7 @@ describe("team actions", () => {
                   data: {
                     id: "other-user",
                     tenant_id: "tenant-456",
-                    role: "user",
+                    role: "sdr",
                   },
                   error: null,
                 }),
@@ -481,7 +481,7 @@ describe("team actions", () => {
               data: {
                 id: "other-user",
                 tenant_id: "different-tenant",
-                role: "user",
+                role: "sdr",
               },
               error: null,
             }),
@@ -513,7 +513,7 @@ describe("team actions", () => {
                   data: {
                     id: "other-admin",
                     tenant_id: "tenant-456",
-                    role: "admin",
+                    role: "gestor",
                   },
                   error: null,
                 }),
@@ -525,7 +525,7 @@ describe("team actions", () => {
           return {
             select: vi.fn().mockReturnValue({
               eq: vi.fn().mockReturnValue({
-                eq: vi.fn().mockResolvedValue({
+                in: vi.fn().mockResolvedValue({
                   count: 1,
                 }),
               }),
@@ -627,7 +627,7 @@ describe("team actions", () => {
       mockSupabase.from.mockReturnValue({
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({
-            eq: vi.fn().mockResolvedValue({
+            in: vi.fn().mockResolvedValue({
               count: 1,
             }),
           }),
@@ -645,7 +645,7 @@ describe("team actions", () => {
       mockSupabase.from.mockReturnValue({
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({
-            eq: vi.fn().mockResolvedValue({
+            in: vi.fn().mockResolvedValue({
               count: 2,
             }),
           }),

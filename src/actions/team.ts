@@ -14,10 +14,12 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
+import { hasAdminAccess, ADMIN_ROLES } from "@/lib/auth/capabilities";
 import {
   type TeamMember,
   type InviteUserInput,
   type ActionResult,
+  type UserRole,
   inviteUserSchema,
 } from "@/types/team";
 
@@ -39,7 +41,7 @@ export async function getTeamMembers(): Promise<ActionResult<TeamMember[]>> {
       return { success: false, error: "Não autenticado" };
     }
 
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return {
         success: false,
         error: "Apenas administradores podem gerenciar a equipe.",
@@ -88,7 +90,7 @@ export async function getTeamMembers(): Promise<ActionResult<TeamMember[]>> {
         id: p.id,
         full_name: p.full_name || "Usuário",
         email: authUser?.email || "",
-        role: p.role as "admin" | "user",
+        role: p.role as UserRole,
         status: "active" as const,
         created_at: p.created_at,
       };
@@ -101,7 +103,7 @@ export async function getTeamMembers(): Promise<ActionResult<TeamMember[]>> {
           id: inv.id,
           full_name: null,
           email: inv.email,
-          role: inv.role as "admin" | "user",
+          role: inv.role as UserRole,
           status: "pending" as const,
           created_at: inv.created_at,
           invitation_id: inv.id,
@@ -143,7 +145,7 @@ export async function inviteUser(
       return { success: false, error: "Não autenticado" };
     }
 
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return {
         success: false,
         error: "Apenas administradores podem convidar usuários.",
@@ -264,7 +266,7 @@ export async function removeTeamMember(
       return { success: false, error: "Não autenticado" };
     }
 
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return {
         success: false,
         error: "Apenas administradores podem remover usuários.",
@@ -299,13 +301,13 @@ export async function removeTeamMember(
       return { success: false, error: "Usuário não encontrado." };
     }
 
-    // 4. If target is admin, check if they're the only admin
-    if (targetProfile.role === "admin") {
+    // 4. If target has admin access, check if they're the only admin
+    if (hasAdminAccess(targetProfile.role as UserRole)) {
       const { count } = await supabase
         .from("profiles")
         .select("*", { count: "exact", head: true })
         .eq("tenant_id", profile.tenant_id)
-        .eq("role", "admin");
+        .in("role", [...ADMIN_ROLES]);
 
       if (count === 1) {
         return {
@@ -352,7 +354,7 @@ export async function cancelInvitation(
       return { success: false, error: "Não autenticado" };
     }
 
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return {
         success: false,
         error: "Apenas administradores podem cancelar convites.",
@@ -399,7 +401,7 @@ export async function isOnlyAdmin(): Promise<boolean> {
       .from("profiles")
       .select("*", { count: "exact", head: true })
       .eq("tenant_id", profile.tenant_id)
-      .eq("role", "admin");
+      .in("role", [...ADMIN_ROLES]);
 
     return count === 1;
   } catch (error) {

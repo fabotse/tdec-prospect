@@ -1,5 +1,6 @@
 import { createClient } from "./server";
 import type { Profile } from "@/types/database";
+import { hasAdminAccess } from "@/lib/auth/capabilities";
 
 /**
  * Server-side helpers for tenant context
@@ -50,7 +51,7 @@ export async function getCurrentTenantId(): Promise<string | null> {
  */
 export async function isAdmin(): Promise<boolean> {
   const profile = await getCurrentUserProfile();
-  return profile?.role === "admin";
+  return hasAdminAccess(profile?.role);
 }
 
 /**

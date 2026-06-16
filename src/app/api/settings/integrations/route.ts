@@ -8,6 +8,7 @@
  * AC: #4 - Only last 4 chars shown
  */
 
+import { hasAdminAccess } from "@/lib/auth/capabilities";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
@@ -60,7 +61,7 @@ export async function GET() {
     }
 
     // 2. Check admin role
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return errorResponse(
         "FORBIDDEN",
         "Apenas administradores podem visualizar configurações de integração",
@@ -136,7 +137,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 2. Check admin role
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return errorResponse(
         "FORBIDDEN",
         "Apenas administradores podem configurar integrações",
@@ -234,7 +235,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // 2. Check admin role
-    if (profile.role !== "admin") {
+    if (!hasAdminAccess(profile.role)) {
       return errorResponse(
         "FORBIDDEN",
         "Apenas administradores podem remover configurações",

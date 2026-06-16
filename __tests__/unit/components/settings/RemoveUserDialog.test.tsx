@@ -44,7 +44,7 @@ describe("RemoveUserDialog", () => {
     id: "user-1",
     full_name: "John Doe",
     email: "john@example.com",
-    role: "user",
+    role: "sdr",
     status: "active",
     created_at: "2026-01-01T00:00:00Z",
   };
@@ -53,7 +53,7 @@ describe("RemoveUserDialog", () => {
     id: "inv-1",
     full_name: null,
     email: "pending@example.com",
-    role: "user",
+    role: "sdr",
     status: "pending",
     created_at: "2026-01-02T00:00:00Z",
     invitation_id: "inv-1",

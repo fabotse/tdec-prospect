@@ -33,7 +33,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useTeamMembers, useIsOnlyAdmin } from "@/hooks/use-team-members";
-import type { TeamMember } from "@/types/team";
+import { type TeamMember, ROLE_LABELS } from "@/types/team";
+import { hasAdminAccess } from "@/lib/auth/capabilities";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -106,9 +107,11 @@ export function TeamMemberList({
                 <TableCell>{member.email}</TableCell>
                 <TableCell>
                   <Badge
-                    variant={member.role === "admin" ? "default" : "secondary"}
+                    variant={
+                      hasAdminAccess(member.role) ? "default" : "secondary"
+                    }
                   >
-                    {member.role === "admin" ? "Admin" : "Usuário"}
+                    {ROLE_LABELS[member.role]}
                   </Badge>
                 </TableCell>
                 <TableCell>
