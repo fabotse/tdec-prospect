@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/client";
+import { applyInvitedRoleOnAcceptance } from "@/actions/team";
 
 export default function AuthCallbackPage() {
   const router = useRouter();
@@ -57,6 +58,27 @@ export default function AuthCallbackPage() {
           setStatus("error");
           setErrorMessage("Erro ao processar autenticação.");
           return;
+        }
+
+        // Story 20.4 (B): para convites, promove o perfil recém-criado (que nasce
+        // como `sdr` por default) ao papel registrado em team_invitations.
+        // ORDENAÇÃO VINCULANTE: roda DEPOIS de setSession (a action lê a identidade
+        // via getUser() server-side, que depende do cookie de sessão recém-gravado)
+        // e ANTES do signOut (que invalida a sessão). Tolerante a falha: um erro
+        // aqui NÃO trava a aceitação — o papel pode ser corrigido depois via
+        // "Alterar função"; apenas logamos.
+        if (type === "invite") {
+          try {
+            const roleResult = await applyInvitedRoleOnAcceptance();
+            if (!roleResult.success) {
+              console.error(
+                "Falha ao aplicar papel do convite:",
+                roleResult.error
+              );
+            }
+          } catch (roleErr) {
+            console.error("Erro ao aplicar papel do convite:", roleErr);
+          }
         }
 
         // Sign out - user needs to set password via "forgot password"

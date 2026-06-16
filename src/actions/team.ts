@@ -15,6 +15,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { hasAdminAccess, ADMIN_ROLES } from "@/lib/auth/capabilities";
+import { isValidRole } from "@/types/database";
 import {
   type TeamMember,
   type InviteUserInput,
@@ -139,6 +140,14 @@ export async function inviteUser(
       return { success: false, error: "Email inválido" };
     }
 
+    // Normalizar o e-mail para minúsculas. O Supabase GoTrue minúsculiza o e-mail
+    // do auth user, então gravar/comparar o e-mail cru aqui faria o lookup de
+    // pós-aceitação (applyInvitedRoleOnAcceptance, via `.eq("email", user.email)`)
+    // falhar silenciosamente para qualquer convite digitado com maiúsculas →
+    // convidado preso como `sdr`. Normalizar no ponto de escrita mantém todo o
+    // fluxo de convite case-consistente.
+    const normalizedEmail = validated.data.email.toLowerCase();
+
     // 2. Check authentication and admin role
     const profile = await getCurrentUserProfile();
 
@@ -160,7 +169,7 @@ export async function inviteUser(
       .from("team_invitations")
       .select("id")
       .eq("tenant_id", profile.tenant_id)
-      .eq("email", validated.data.email)
+      .eq("email", normalizedEmail)
       .eq("status", "pending")
       .single();
 
@@ -176,7 +185,7 @@ export async function inviteUser(
     const { data: authData } = await adminClient.auth.admin.listUsers();
 
     const existingUser = authData?.users.find(
-      (u) => u.email === validated.data.email
+      (u) => u.email === normalizedEmail
     );
 
     if (existingUser) {
@@ -200,7 +209,7 @@ export async function inviteUser(
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
     const { error: inviteError } =
-      await adminClient.auth.admin.inviteUserByEmail(validated.data.email, {
+      await adminClient.auth.admin.inviteUserByEmail(normalizedEmail, {
         data: {
           tenant_id: profile.tenant_id,
           role: validated.data.role,
@@ -225,7 +234,7 @@ export async function inviteUser(
       .from("team_invitations")
       .insert({
         tenant_id: profile.tenant_id,
-        email: validated.data.email,
+        email: normalizedEmail,
         role: validated.data.role,
         invited_by: profile.id,
         status: "pending",
@@ -491,6 +500,137 @@ export async function updateMemberRole(
     return { success: true };
   } catch (error) {
     console.error("updateMemberRole error:", error);
+    return { success: false, error: "Erro interno do servidor" };
+  }
+}
+
+// ==============================================
+// APPLY INVITED ROLE ON ACCEPTANCE (Story 20.4 — deliverable B)
+// ==============================================
+
+/**
+ * Promove o perfil recém-criado ao papel registrado no convite que ele aceitou.
+ * Story: 20.4 - Provisionamento dos usuários do cliente (AC #4, #2, #3) — AD-5.
+ *
+ * Fecha o gap convite→signup rastreado desde a 20.1: `handle_new_user()` cria
+ * TODO perfil como `sdr` + primeiro tenant, ignorando o role/tenant do convite.
+ * O convite só existe em `team_invitations` DEPOIS de `inviteUserByEmail` retornar
+ * (a linha é inserida pelo `inviteUser` após a chamada), então o trigger não tem
+ * como lê-lo no momento da criação do auth user → o único ponto confiável é a
+ * ACEITAÇÃO. Esta ação roda no callback de aceitação, com a sessão já ativa.
+ *
+ * Segurança (AD-5 — vinculante):
+ *  - Identidade vem do SERVIDOR (`auth.getUser()`), nunca de parâmetro do cliente.
+ *  - O papel vem de lookup server-side em `team_invitations` casado pelo e-mail
+ *    autenticado, NUNCA de `raw_user_meta_data` (vetor de escalonamento).
+ *  - Lookup e UPDATE usam o admin client (service role): o usuário recém-aceito
+ *    ainda é `sdr` e a RLS de `team_invitations`/`profiles` exige `is_admin()`, então
+ *    a sessão dele não consegue ler/escrever. Isso também torna (B) INDEPENDENTE da
+ *    migration 00054 (policy de UPDATE admin em profiles) estar aplicada no banco.
+ *  - Tolerante a falha: na ausência de convite válido é no-op (`applied:false`) —
+ *    não trava o login; o papel pode ser corrigido depois via `updateMemberRole`.
+ */
+export async function applyInvitedRoleOnAcceptance(): Promise<
+  ActionResult<{ applied: boolean }>
+> {
+  try {
+    // 1. Identidade confiável a partir da sessão server-side (cookie).
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user || !user.email) {
+      // Sem sessão (ou sem e-mail) → no-op. Nunca trava o fluxo de aceitação.
+      return { success: true, data: { applied: false } };
+    }
+
+    const adminClient = createAdminClient();
+
+    // 2. Lookup do convite pendente e NÃO expirado (admin client — bypassa RLS).
+    //    Entre tenants pode haver mais de um convite para o mesmo e-mail → o
+    //    índice único parcial garante no máximo 1 por (tenant, e-mail) pendente,
+    //    então ordenamos por created_at desc e pegamos o mais recente.
+    const { data: invitations, error: lookupError } = await adminClient
+      .from("team_invitations")
+      .select("id, role, tenant_id")
+      .eq("email", user.email)
+      .eq("status", "pending")
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (lookupError) {
+      console.error(
+        "applyInvitedRoleOnAcceptance: erro no lookup do convite:",
+        lookupError
+      );
+      return { success: false, error: "Erro ao verificar o convite." };
+    }
+
+    const invitation = invitations?.[0];
+
+    if (!invitation) {
+      // Nenhum convite válido (inexistente/expirado/já aceito) → perfil segue
+      // com o default seguro (`sdr`). Não é erro — é o caminho esperado para
+      // qualquer login que não seja a primeira aceitação de um convite.
+      return { success: true, data: { applied: false } };
+    }
+
+    // 3. Validar o papel contra o enum — defesa contra dado corrompido na tabela.
+    //    (O papel JAMAIS vem de raw_user_meta_data; vem só desta linha confiável.)
+    if (!isValidRole(invitation.role)) {
+      console.error(
+        `applyInvitedRoleOnAcceptance: papel inválido no convite ${invitation.id}: "${invitation.role}"`
+      );
+      return { success: false, error: "Papel do convite inválido." };
+    }
+
+    // 4. Promover o perfil ao papel/tenant do convite (admin client — bypassa RLS).
+    //    `.select("id")` + guarda de 0 linhas: nunca reportar sucesso falso quando
+    //    nada foi escrito (lição da 20.3 — falso sucesso por RLS / perfil ausente).
+    const { data: updated, error: updateError } = await adminClient
+      .from("profiles")
+      .update({ role: invitation.role, tenant_id: invitation.tenant_id })
+      .eq("id", user.id)
+      .select("id");
+
+    if (updateError) {
+      console.error(
+        "applyInvitedRoleOnAcceptance: erro ao aplicar papel no perfil:",
+        updateError
+      );
+      return { success: false, error: "Erro ao aplicar o papel do convite." };
+    }
+
+    if (!updated || updated.length === 0) {
+      console.error(
+        "applyInvitedRoleOnAcceptance: update afetou 0 linhas (perfil ausente? trigger não criou?)."
+      );
+      return {
+        success: false,
+        error: "Não foi possível aplicar o papel do convite.",
+      };
+    }
+
+    // 5. Marcar o convite como aceito. Se falhar, o papel JÁ foi aplicado — não
+    //    desfazer; apenas logar para reconciliação (estado seguro: papel correto,
+    //    convite ainda pending → será ignorado por expirar/ser cancelado).
+    const { error: acceptError } = await adminClient
+      .from("team_invitations")
+      .update({ status: "accepted", accepted_at: new Date().toISOString() })
+      .eq("id", invitation.id);
+
+    if (acceptError) {
+      console.error(
+        "applyInvitedRoleOnAcceptance: papel aplicado, mas falha ao marcar convite como aceito:",
+        acceptError
+      );
+    }
+
+    return { success: true, data: { applied: true } };
+  } catch (error) {
+    console.error("applyInvitedRoleOnAcceptance error:", error);
     return { success: false, error: "Erro interno do servidor" };
   }
 }

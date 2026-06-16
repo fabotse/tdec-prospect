@@ -25,14 +25,19 @@ import {
   cancelInvitation,
   isOnlyAdmin,
   updateMemberRole,
+  applyInvitedRoleOnAcceptance,
 } from "@/actions/team";
 
 describe("team actions", () => {
   const mockSupabase = {
     from: vi.fn(),
+    auth: {
+      getUser: vi.fn(),
+    },
   };
 
   const mockAdminClient = {
+    from: vi.fn(),
     auth: {
       admin: {
         listUsers: vi.fn(),
@@ -896,6 +901,248 @@ describe("team actions", () => {
         success: false,
         error: "Não foi possível alterar o papel do usuário.",
       });
+    });
+  });
+
+  // ==============================================
+  // APPLY INVITED ROLE ON ACCEPTANCE (Story 20.4 — deliverable B)
+  // ==============================================
+
+  describe("applyInvitedRoleOnAcceptance", () => {
+    const ACCEPTING_USER = {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      email: "invited@tdec.com.br",
+    };
+
+    /**
+     * Builds the admin client `from()` mock. `team_invitations` exposes BOTH the
+     * lookup chain (.select().eq().eq().gt().order().limit()) and the accept chain
+     * (.update().eq()); `profiles` exposes the promote chain (.update().eq().select()).
+     * Named spies are returned so individual tests can pin the security predicates.
+     */
+    function buildAdminFrom({
+      invitations = [],
+      lookupError = null,
+      profileUpdated = [{ id: ACCEPTING_USER.id }],
+      profileUpdateError = null,
+      acceptError = null,
+    } = {}) {
+      const gt = vi.fn().mockReturnValue({
+        order: vi.fn().mockReturnValue({
+          limit: vi
+            .fn()
+            .mockResolvedValue({ data: invitations, error: lookupError }),
+        }),
+      });
+      const lookupEq2 = vi.fn().mockReturnValue({ gt });
+      const lookupEq1 = vi.fn().mockReturnValue({ eq: lookupEq2 });
+      const lookupSelect = vi.fn().mockReturnValue({ eq: lookupEq1 });
+
+      const acceptEq = vi.fn().mockResolvedValue({ error: acceptError });
+      const inviteUpdate = vi.fn().mockReturnValue({ eq: acceptEq });
+
+      const profileSelect = vi
+        .fn()
+        .mockResolvedValue({ data: profileUpdated, error: profileUpdateError });
+      const profileEq = vi.fn().mockReturnValue({ select: profileSelect });
+      const profileUpdate = vi.fn().mockReturnValue({ eq: profileEq });
+
+      const spies = {
+        lookupSelect,
+        lookupEq1,
+        lookupEq2,
+        gt,
+        inviteUpdate,
+        acceptEq,
+        profileUpdate,
+        profileEq,
+        profileSelect,
+      };
+
+      mockAdminClient.from.mockImplementation((table: string) => {
+        if (table === "team_invitations") {
+          return { select: lookupSelect, update: inviteUpdate };
+        }
+        if (table === "profiles") {
+          return { update: profileUpdate };
+        }
+        return {};
+      });
+
+      return spies;
+    }
+
+    function mockAuthUser(user: unknown) {
+      mockSupabase.auth.getUser.mockResolvedValue({
+        data: { user },
+        error: null,
+      });
+    }
+
+    it("(b) no-op (applied:false) when there is no pending invitation", async () => {
+      mockAuthUser(ACCEPTING_USER);
+      const spies = buildAdminFrom({ invitations: [] });
+
+      const result = await applyInvitedRoleOnAcceptance();
+
+      expect(result).toEqual({ success: true, data: { applied: false } });
+      // Never touches the profile when there is nothing to apply.
+      expect(spies.profileUpdate).not.toHaveBeenCalled();
+    });
+
+    it("no-op (applied:false) when there is no active session", async () => {
+      mockAuthUser(null);
+      const spies = buildAdminFrom();
+
+      const result = await applyInvitedRoleOnAcceptance();
+
+      expect(result).toEqual({ success: true, data: { applied: false } });
+      // No session → must not even look up invitations or write the profile.
+      expect(mockAdminClient.from).not.toHaveBeenCalled();
+      expect(spies.profileUpdate).not.toHaveBeenCalled();
+    });
+
+    it("(a) applies the invited role+tenant and marks the invitation accepted", async () => {
+      mockAuthUser(ACCEPTING_USER);
+      const spies = buildAdminFrom({
+        invitations: [
+          {
+            id: "inv-1",
+            role: "gestor",
+            tenant_id: "tenant-from-invite",
+          },
+        ],
+      });
+
+      const result = await applyInvitedRoleOnAcceptance();
+
+      expect(result).toEqual({ success: true, data: { applied: true } });
+      // Role AND tenant come from the invitation row, written by the user id.
+      expect(spies.profileUpdate).toHaveBeenCalledWith({
+        role: "gestor",
+        tenant_id: "tenant-from-invite",
+      });
+      expect(spies.profileEq).toHaveBeenCalledWith("id", ACCEPTING_USER.id);
+      expect(spies.profileSelect).toHaveBeenCalledWith("id");
+      // Lookup is scoped to the authenticated e-mail + pending status.
+      expect(spies.lookupEq1).toHaveBeenCalledWith("email", ACCEPTING_USER.email);
+      expect(spies.lookupEq2).toHaveBeenCalledWith("status", "pending");
+      // Invitation is marked accepted afterwards.
+      expect(spies.inviteUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "accepted" })
+      );
+      expect(spies.acceptEq).toHaveBeenCalledWith("id", "inv-1");
+    });
+
+    it("(f) supports the diretor role", async () => {
+      mockAuthUser(ACCEPTING_USER);
+      const spies = buildAdminFrom({
+        invitations: [
+          { id: "inv-2", role: "diretor", tenant_id: "tenant-x" },
+        ],
+      });
+
+      const result = await applyInvitedRoleOnAcceptance();
+
+      expect(result).toEqual({ success: true, data: { applied: true } });
+      expect(spies.profileUpdate).toHaveBeenCalledWith({
+        role: "diretor",
+        tenant_id: "tenant-x",
+      });
+    });
+
+    it("(c) filters expired invitations by expires_at (no-op, profile stays sdr)", async () => {
+      mockAuthUser(ACCEPTING_USER);
+      // An expired invite is excluded by the .gt("expires_at", now) predicate, so
+      // the DB returns no row → the action no-ops and never promotes the profile.
+      const spies = buildAdminFrom({ invitations: [] });
+
+      const result = await applyInvitedRoleOnAcceptance();
+
+      expect(result).toEqual({ success: true, data: { applied: false } });
+      // Pin the expiry predicate so a regression dropping it is caught.
+      expect(spies.gt).toHaveBeenCalledWith("expires_at", expect.any(String));
+      expect(spies.profileUpdate).not.toHaveBeenCalled();
+    });
+
+    it("(d) ignores raw_user_meta_data.role — no invitation means no promotion", async () => {
+      // Even if the user metadata claims an elevated role, with no pending
+      // invitation the profile must NOT be promoted (AD-5 anti-escalation).
+      mockAuthUser({
+        ...ACCEPTING_USER,
+        user_metadata: { role: "gestor" },
+        raw_user_meta_data: { role: "gestor" },
+      });
+      const spies = buildAdminFrom({ invitations: [] });
+
+      const result = await applyInvitedRoleOnAcceptance();
+
+      expect(result).toEqual({ success: true, data: { applied: false } });
+      expect(spies.profileUpdate).not.toHaveBeenCalled();
+    });
+
+    it("rejects an invitation carrying an invalid role (no write)", async () => {
+      mockAuthUser(ACCEPTING_USER);
+      const spies = buildAdminFrom({
+        invitations: [
+          { id: "inv-bad", role: "superadmin", tenant_id: "tenant-x" },
+        ],
+      });
+
+      const result = await applyInvitedRoleOnAcceptance();
+
+      expect(result).toEqual({
+        success: false,
+        error: "Papel do convite inválido.",
+      });
+      expect(spies.profileUpdate).not.toHaveBeenCalled();
+    });
+
+    it("(e) does NOT report success when the profile update affects 0 rows", async () => {
+      mockAuthUser(ACCEPTING_USER);
+      const spies = buildAdminFrom({
+        invitations: [
+          { id: "inv-1", role: "gestor", tenant_id: "tenant-x" },
+        ],
+        profileUpdated: [], // RLS blocked / profile missing → 0 rows
+      });
+
+      const result = await applyInvitedRoleOnAcceptance();
+
+      expect(result).toEqual({
+        success: false,
+        error: "Não foi possível aplicar o papel do convite.",
+      });
+      // The invitation must NOT be marked accepted if the role was not applied.
+      expect(spies.inviteUpdate).not.toHaveBeenCalled();
+    });
+
+    it("returns an error when the invitation lookup itself fails", async () => {
+      mockAuthUser(ACCEPTING_USER);
+      buildAdminFrom({ lookupError: { message: "db down" } });
+
+      const result = await applyInvitedRoleOnAcceptance();
+
+      expect(result).toEqual({
+        success: false,
+        error: "Erro ao verificar o convite.",
+      });
+    });
+
+    it("still succeeds (applied:true) if marking the invitation accepted fails", async () => {
+      mockAuthUser(ACCEPTING_USER);
+      const spies = buildAdminFrom({
+        invitations: [
+          { id: "inv-1", role: "sdr", tenant_id: "tenant-x" },
+        ],
+        acceptError: { message: "update failed" },
+      });
+
+      const result = await applyInvitedRoleOnAcceptance();
+
+      // The role was applied; failing to flag the invite must not undo that.
+      expect(result).toEqual({ success: true, data: { applied: true } });
+      expect(spies.profileUpdate).toHaveBeenCalled();
     });
   });
 });
