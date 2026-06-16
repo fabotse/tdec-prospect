@@ -34,7 +34,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-25
-last_updated: 2026-06-15
+last_updated: 2026-06-16  # Story 20.2 -> done (code review adversarial 3 camadas: 0 bug bloqueante, ACs verificados, suite verde 6112). Epic 20 commitado na branch epic/20-niveis-de-acesso (20.1 + 20.2).
 project: tdec-prospect
 project_key: NOKEY
 tracking_system: file-system
@@ -42,7 +42,7 @@ story_location: _bmad-output/implementation-artifacts
 
 # GIT BRANCH TRACKING
 # ===================
-current_branch: epic/19-rebranding-white-label
+current_branch: epic/20-niveis-de-acesso
 base_branch: main
 
 branch_strategy:
@@ -76,7 +76,8 @@ branches:
   epic/15-technographic-prospecting: "Epic 15 - Technographic Prospecting (DONE)"
   epic/16-agent-foundation-briefing-conversacional: "Epic 16 - Agent Foundation & Briefing Conversacional (DONE)"
   epic/17-pipeline-execution-approval-gates: "Epic 17 - Pipeline Execution & Approval Gates (IN-PROGRESS)"
-  epic/19-rebranding-white-label: "Epic 19 - Rebranding / White-label (IN-PROGRESS)"
+  epic/19-rebranding-white-label: "Epic 19 - Rebranding / White-label (DONE)"
+  epic/20-niveis-de-acesso: "Epic 20 - Níveis de Acesso (IN-PROGRESS)"
 
 development_status:
   # Epic 1: Foundation & Authentication
@@ -450,7 +451,7 @@ development_status:
   19-1-brandlogo-theme-aware-centralizacao-branding: done  # Componente BrandLogo (logo branco no escuro / escuro no claro) + constant BRAND. CSS dark:, FOUC-free. Senior Developer Review adversarial (AI) 2026-06-15: 5/5 ACs OK, 0 bug HIGH; 2 patches LOW aplicados (sizes nas <Image>, File List); 1 defer pre-existente (divergencia tema inline-script x ThemeProvider, nao afeta o logo -> deferred-work.md); "FOUC do logo" do Blind Hunter refutado pelo Edge Hunter. Build verde (70/70), 61 testes afetados verdes, eslint limpo.
   19-2-padronizacao-nome-tdec: done  # Sweep "TDEC" -> "TDec" em toda a UI (preservar refs "TripleD" e strings tecnicas). Senior Developer Review (AI) 2026-06-02: aprovada, 0 bugs/0 regressao, 1 achado LOW (literal de marca no prompt defaults.ts/00052) deferido p/ white-label. Suite verde (6100).
   19-3-favicon-titulo-metadata-tdec: done  # Favicon, titulo da aba e OpenGraph com a marca TDec (estende BRAND + root metadata). Senior Developer Review (AI) 2026-06-15: 6/6 ACs OK, 0 bug HIGH. 3 patches aplicados (hardening do metadataBase contra URL malformada, .gitignore de credenciais global, File List corrigida); decisao favicon.ico=PNG-only aceita. Build verde (70/70, sem warning metadataBase), brand.test.ts 8/8, eslint limpo.
-  epic-19-retrospective: optional
+  epic-19-retrospective: done  # Completed 2026-06-15 — 3/3 stories (100%), 0 bug HIGH, suite verde (6102), 0 blockers. Epic no ar. Key insights: validar UI antes do dev (retrabalho logo Header->Sidebar); fechar Open Questions antes de ready-for-dev. Caminho critico Epic 20: doc de decisao (matriz permissao + migracao RLS) via bmad-create-architecture e GATE inegociavel.
 
   # ============================================================
   # EPIC 20: Niveis de Acesso (Gestor / Diretor / SDR)
@@ -460,9 +461,9 @@ development_status:
   # PRE-SPRINT OBRIGATORIO: doc de decisao (matriz de permissao + plano de migracao) via bmad-create-architecture
   #   ANTES das stories irem para dev.
   #
-  epic-20: backlog
-  20-1-modelo-tres-papeis-enum-migracao-rls: backlog  # UserRole -> gestor|diretor|sdr; migration admin->gestor, user->sdr; RLS atualizado
-  20-2-helper-capacidade-refatoracao-guards: backlog  # hasAdminAccess(role) central (true p/ gestor+diretor); refatora ~30 guards + middleware + AdminGuard + tenant.isAdmin
+  epic-20: in-progress
+  20-1-modelo-tres-papeis-enum-migracao-rls: done  # UserRole -> gestor|diretor|sdr; migration 00053 (admin->gestor, user->sdr) + is_admin() + ai_prompts policies + handle_new_user; helper hasAdminAccess + swap de todos os call-sites de papel de conta. Build verde, vitest 6112 pass/0 fail, tsc sem erros em src/. Code review YOLO 2026-06-16: 2 patches low aplicados (hasAdminAccess derivado de ADMIN_ROLES; is_admin() COALESCE), 2 falsos-positivos dispensados, gap convite->signup deferido a 20.4.
+  20-2-helper-capacidade-refatoracao-guards: done  # RECONCILIACAO: escopo implementado dentro da 20.1. Code review adversarial 3 camadas 2026-06-16: 0 bug bloqueante, ACs 1/2/4/5b verificados independentemente (grep role==="admin" em src/ = 0; hasAdminAccess fonte unica; last-admin via ADMIN_ROLES). 1 decision (AC3 overclaim: SDR ve link Configuracoes no Sidebar -> deferido p/ 20.5) + 2 patches (test-hardening papel x capacidade; fallback badge) deferidos. HIGHs (deploy x migration, convite->signup) ja rastreados (release checklist / 20.4). Suite verde 6112 pass/0 fail.
   20-3-ui-papeis-gestao-de-time: backlog  # Relabel Admin/Usuario -> Gestor/Diretor/SDR + atribuicao no convite/edicao
   20-4-provisionamento-usuarios-cliente: backlog  # Provisionar 4 e-mails @tdec.com.br (Gestor: mfabossi, seste / SDR: ccase, rgomes)
   20-5-auditoria-acesso-sdr: backlog  # Varredura defense-in-depth: SDR nao acessa nenhuma superficie admin (UI + servidor) + testes papel x superficie
