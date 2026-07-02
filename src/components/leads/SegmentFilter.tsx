@@ -8,7 +8,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Folder, ChevronDown, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useSegments } from "@/hooks/use-segments";
 import { CreateSegmentDialog } from "./CreateSegmentDialog";
-import type { SegmentWithCount } from "@/types/segment";
+import { DeleteSegmentButton } from "./DeleteSegmentButton";
 
 interface SegmentFilterProps {
   selectedSegmentId: string | null;
@@ -38,13 +38,23 @@ export function SegmentFilter({
   onSegmentChange,
 }: SegmentFilterProps) {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  // When a delete-confirmation dialog is open, keep the dropdown mounted so the
+  // dialog (a descendant in the React tree) is not unmounted. Ref stays in sync
+  // synchronously, before Radix fires its close request.
+  const deleteDialogGuard = useRef(false);
   const { data: segments, isLoading } = useSegments();
 
   const selectedSegment = segments?.find((s) => s.id === selectedSegmentId);
 
+  const handleMenuOpenChange = (open: boolean) => {
+    if (!open && deleteDialogGuard.current) return;
+    setMenuOpen(open);
+  };
+
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu open={menuOpen} onOpenChange={handleMenuOpenChange}>
         <DropdownMenuTrigger asChild>
           <Button
             variant="outline"
@@ -99,14 +109,27 @@ export function SegmentFilter({
                       onClick={() => onSegmentChange(segment.id)}
                       data-testid={`segment-filter-item-${segment.id}`}
                     >
-                      <Folder className="h-4 w-4 text-muted-foreground" />
+                      <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <span className="truncate">{segment.name}</span>
                       <Badge variant="secondary" className="ml-auto shrink-0">
                         {segment.leadCount}
                       </Badge>
                       {selectedSegmentId === segment.id && (
-                        <span className="text-primary">✓</span>
+                        <span className="shrink-0 text-primary">✓</span>
                       )}
+                      <DeleteSegmentButton
+                        segment={segment}
+                        onOpenChange={(open) => {
+                          deleteDialogGuard.current = open;
+                        }}
+                        onDeleted={(deleted) => {
+                          // If the deleted segment was the active filter, clear
+                          // it so the lead list isn't stuck on a dead id.
+                          if (deleted.id === selectedSegmentId) {
+                            onSegmentChange(null);
+                          }
+                        }}
+                      />
                     </DropdownMenuItem>
                   ))}
                 </>

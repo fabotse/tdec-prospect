@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useSegments } from "@/hooks/use-segments";
+import { DeleteSegmentButton } from "./DeleteSegmentButton";
 import { LEAD_STATUSES } from "@/types/lead";
 import type { MyLeadsFilters } from "@/hooks/use-my-leads";
 
@@ -57,6 +58,12 @@ export function MyLeadsFilterBar({
   monitoredCount = 0,
 }: MyLeadsFilterBarProps) {
   const { data: segments, isLoading: segmentsLoading } = useSegments();
+
+  // The segment currently used as filter (if any) — target for deletion.
+  const selectedSegment = useMemo(
+    () => segments?.find((s) => s.id === filters.segmentId) ?? null,
+    [segments, filters.segmentId]
+  );
 
   // Story 4.6: AC #2 - Check if interested filter is active
   const isInterestedFilterActive = useMemo(() => {
@@ -228,26 +235,36 @@ export function MyLeadsFilterBar({
       </DropdownMenu>
 
       {/* Segment Filter */}
-      <Select
-        value={filters.segmentId ?? "all"}
-        onValueChange={handleSegmentChange}
-        disabled={segmentsLoading}
-      >
-        <SelectTrigger
-          className="w-[180px]"
-          data-testid="segment-filter-trigger"
+      <div className="flex items-center gap-1">
+        <Select
+          value={filters.segmentId ?? "all"}
+          onValueChange={handleSegmentChange}
+          disabled={segmentsLoading}
         >
-          <SelectValue placeholder="Todos os segmentos" />
-        </SelectTrigger>
-        <SelectContent position="popper" side="bottom" className="max-h-60">
-          <SelectItem value="all">Todos os segmentos</SelectItem>
-          {segments?.map((segment) => (
-            <SelectItem key={segment.id} value={segment.id}>
-              {segment.name} ({segment.leadCount})
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+          <SelectTrigger
+            className="w-[180px]"
+            data-testid="segment-filter-trigger"
+          >
+            <SelectValue placeholder="Todos os segmentos" />
+          </SelectTrigger>
+          <SelectContent position="popper" side="bottom" className="max-h-60">
+            <SelectItem value="all">Todos os segmentos</SelectItem>
+            {segments?.map((segment) => (
+              <SelectItem key={segment.id} value={segment.id}>
+                {segment.name} ({segment.leadCount})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Delete the currently selected segment (leads are preserved) */}
+        {selectedSegment && (
+          <DeleteSegmentButton
+            segment={selectedSegment}
+            onDeleted={() => onFiltersChange({ segmentId: null })}
+          />
+        )}
+      </div>
 
       {/* Clear Filters */}
       {activeFilterCount > 0 && (

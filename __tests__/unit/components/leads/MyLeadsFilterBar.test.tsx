@@ -15,16 +15,29 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MyLeadsFilterBar } from "@/components/leads/MyLeadsFilterBar";
 import type { MyLeadsFilters } from "@/hooks/use-my-leads";
 
-// Mock useSegments hook
-vi.mock("@/hooks/use-segments", () => ({
-  useSegments: vi.fn(() => ({
-    data: [
-      { id: "seg-1", name: "Hot Leads", leadCount: 10 },
-      { id: "seg-2", name: "Cold Leads", leadCount: 5 },
-    ],
-    isLoading: false,
-  })),
+// Mock useSegments hook (useDeleteSegment is NOT mocked — it hits the fetch mock)
+vi.mock("@/hooks/use-segments", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/hooks/use-segments")>();
+  return {
+    ...actual,
+    useSegments: vi.fn(() => ({
+      data: [
+        { id: "seg-1", name: "Hot Leads", leadCount: 10 },
+        { id: "seg-2", name: "Cold Leads", leadCount: 5 },
+      ],
+      isLoading: false,
+    })),
+  };
+});
+
+// Mock sonner toast (used by DeleteSegmentButton)
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
 }));
+
+// Mock fetch (used by useDeleteSegment)
+const mockFetch = vi.fn();
+global.fetch = mockFetch;
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -80,6 +93,10 @@ describe("MyLeadsFilterBar", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ deleted: true }),
+    });
   });
 
   it("should render search input", () => {
@@ -177,6 +194,56 @@ describe("MyLeadsFilterBar", () => {
 
     // Badge should show "2" for 2 selected statuses
     expect(screen.getByText("2")).toBeInTheDocument();
+  });
+
+  describe("Delete Segment", () => {
+    it("does not show the delete button when no segment is selected", () => {
+      render(<MyLeadsFilterBar {...defaultProps} />, {
+        wrapper: createWrapper(),
+      });
+
+      expect(
+        screen.queryByTestId("delete-segment-seg-1")
+      ).not.toBeInTheDocument();
+    });
+
+    it("shows the delete button for the currently selected segment", () => {
+      render(
+        <MyLeadsFilterBar {...defaultProps} filters={{ segmentId: "seg-1" }} />,
+        { wrapper: createWrapper() }
+      );
+
+      expect(screen.getByTestId("delete-segment-seg-1")).toBeInTheDocument();
+      // Only the selected segment has a delete affordance
+      expect(
+        screen.queryByTestId("delete-segment-seg-2")
+      ).not.toBeInTheDocument();
+    });
+
+    it("deletes the segment and clears the filter on confirm", async () => {
+      const user = userEvent.setup();
+      render(
+        <MyLeadsFilterBar {...defaultProps} filters={{ segmentId: "seg-1" }} />,
+        { wrapper: createWrapper() }
+      );
+
+      await user.click(screen.getByTestId("delete-segment-seg-1"));
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole("button", { name: /remover/i })
+        ).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole("button", { name: /remover/i }));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith("/api/segments/seg-1", {
+          method: "DELETE",
+        });
+      });
+      expect(mockOnFiltersChange).toHaveBeenCalledWith({ segmentId: null });
+    });
   });
 
   // ==============================================

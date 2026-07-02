@@ -2,6 +2,12 @@
 
 Itens reais identificados em reviews mas adiados (pré-existentes ou fora do escopo da story revisada).
 
+## Deferred from: quick-dev "deletar segmento no filtro" (2026-07-02)
+
+> Review adversarial 3 camadas (Blind / Edge-case / Acceptance). Acceptance auditor: 100% compatível com os 5 ACs e todas as constraints. Patches reais aplicados (reset de filtro órfão, `preventDefault` anti-duplo-submit + `isPending` visível). Defer abaixo é real mas segue o padrão já existente no codebase.
+
+- **A11y: `<button>` de lixeira aninhado em `role="menuitem"` + delete inacessível por teclado.** Em [SegmentFilter.tsx](../../src/components/leads/SegmentFilter.tsx) cada item de segmento é um `DropdownMenuItem` (role menuitem) que agora contém um `<DeleteSegmentButton>` (um `<button>`). Aninhar controle interativo dentro de menuitem é violação ARIA, e a navegação por setas do Radix foca a *linha*, não o botão interno → o delete é inalcançável por teclado (Enter na linha filtra). **Pré-existente**: é exatamente o mesmo padrão de [SegmentDropdown.tsx](../../src/components/leads/SegmentDropdown.tsx) (que já tinha a lixeira no item). Fix futuro: reestruturar a linha para separar o alvo de seleção do botão de ação (ou mover o delete para uma tela/menu de gestão dedicado). Severidade: LOW (a11y; padrão consistente com o resto do app). Fonte: Blind Hunter #3 + Edge Case Hunter #9.
+
 ## Deferred from: code review of story-20.5 (2026-06-16)
 
 > Review adversarial 3 camadas (Blind Hunter / Edge Case Hunter / Acceptance Auditor), modo full. **0 bug HIGH/MEDIUM de código.** O Acceptance Auditor confirmou os **7 ACs SATISFEITOS** + anti-patterns + Task 7. Findings de código mais fortes (fail-open em `isOnlyAdmin`/middleware) **refutados** por defesa em profundidade (guard inline fail-closed na `removeTeamMember`; `hasAdminAccess(undefined)→false` no middleware). 2 patches de test-hardening ficaram como itens da story (não-bloqueantes). Defers abaixo são reais mas pré-existentes / arquiteturais / latentes — não introduzidos pela 20.5.

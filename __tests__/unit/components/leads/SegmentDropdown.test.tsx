@@ -4,11 +4,13 @@
  *
  * AC: #2 - Add leads to segment via dropdown
  * AC: #4 - Show segment list with lead counts
- * AC: #5 - Delete segment with confirmation
+ *
+ * NOTE: Segment deletion moved to SegmentFilter (see DeleteSegmentButton).
+ * This dropdown is now add-only.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -354,8 +356,8 @@ describe("SegmentDropdown", () => {
     });
   });
 
-  describe("Delete Segment (AC: #5)", () => {
-    it("shows confirmation dialog when delete clicked", async () => {
+  describe("Add-only (no delete)", () => {
+    it("does not render a delete button in the add-to-segment dropdown", async () => {
       render(
         <SegmentDropdown selectedLeads={mockSelectedLeads} />,
         { wrapper: createWrapper() }
@@ -364,116 +366,12 @@ describe("SegmentDropdown", () => {
       await userEvent.click(screen.getByTestId("segment-dropdown-trigger"));
 
       await waitFor(() => {
-        expect(screen.getByTestId("delete-segment-segment-1")).toBeInTheDocument();
+        expect(screen.getByTestId("segment-item-segment-1")).toBeInTheDocument();
       });
 
-      await userEvent.click(screen.getByTestId("delete-segment-segment-1"));
-
-      await waitFor(() => {
-        expect(screen.getByText("Remover segmento?")).toBeInTheDocument();
-      });
-    });
-
-    it("deletes segment on confirmation", async () => {
-      mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ data: mockSegments }),
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ success: true }),
-        });
-
-      render(
-        <SegmentDropdown selectedLeads={mockSelectedLeads} />,
-        { wrapper: createWrapper() }
-      );
-
-      await userEvent.click(screen.getByTestId("segment-dropdown-trigger"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("delete-segment-segment-1")).toBeInTheDocument();
-      });
-
-      await userEvent.click(screen.getByTestId("delete-segment-segment-1"));
-
-      await waitFor(() => {
-        expect(screen.getByText("Remover")).toBeInTheDocument();
-      });
-
-      // Click the Remover button in the confirmation dialog
-      await userEvent.click(screen.getByRole("button", { name: /remover/i }));
-
-      await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledWith("/api/segments/segment-1", {
-          method: "DELETE",
-        });
-      });
-    });
-
-    it("shows success toast after deleting", async () => {
-      mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ data: mockSegments }),
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ success: true }),
-        });
-
-      render(
-        <SegmentDropdown selectedLeads={mockSelectedLeads} />,
-        { wrapper: createWrapper() }
-      );
-
-      await userEvent.click(screen.getByTestId("segment-dropdown-trigger"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("delete-segment-segment-1")).toBeInTheDocument();
-      });
-
-      await userEvent.click(screen.getByTestId("delete-segment-segment-1"));
-
-      await waitFor(() => {
-        expect(screen.getByText("Remover")).toBeInTheDocument();
-      });
-
-      await userEvent.click(screen.getByRole("button", { name: /remover/i }));
-
-      await waitFor(() => {
-        expect(toast.success).toHaveBeenCalledWith("Segmento removido");
-      });
-    });
-
-    it("cancels delete when cancel clicked", async () => {
-      render(
-        <SegmentDropdown selectedLeads={mockSelectedLeads} />,
-        { wrapper: createWrapper() }
-      );
-
-      await userEvent.click(screen.getByTestId("segment-dropdown-trigger"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("delete-segment-segment-1")).toBeInTheDocument();
-      });
-
-      await userEvent.click(screen.getByTestId("delete-segment-segment-1"));
-
-      await waitFor(() => {
-        expect(screen.getByText("Cancelar")).toBeInTheDocument();
-      });
-
-      await userEvent.click(screen.getByText("Cancelar"));
-
-      // Dialog should close, delete should not be called
-      await waitFor(() => {
-        expect(screen.queryByText("Remover segmento?")).not.toBeInTheDocument();
-      });
-
-      // Only the initial fetch for segments should have been called
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(
+        screen.queryByTestId("delete-segment-segment-1")
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -602,41 +500,6 @@ describe("SegmentDropdown", () => {
 
       // Dropdown should be closed
       expect(screen.queryByTestId("segment-item-segment-1")).not.toBeInTheDocument();
-    });
-
-    it("shows error toast for delete failure", async () => {
-      mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ data: mockSegments }),
-        })
-        .mockResolvedValueOnce({
-          ok: false,
-          json: async () => ({ error: { message: "Erro ao remover segmento" } }),
-        });
-
-      render(
-        <SegmentDropdown selectedLeads={mockSelectedLeads} />,
-        { wrapper: createWrapper() }
-      );
-
-      await userEvent.click(screen.getByTestId("segment-dropdown-trigger"));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("delete-segment-segment-1")).toBeInTheDocument();
-      });
-
-      await userEvent.click(screen.getByTestId("delete-segment-segment-1"));
-
-      await waitFor(() => {
-        expect(screen.getByText("Remover")).toBeInTheDocument();
-      });
-
-      await userEvent.click(screen.getByRole("button", { name: /remover/i }));
-
-      await waitFor(() => {
-        expect(toast.error).toHaveBeenCalledWith("Erro ao remover segmento");
-      });
     });
   });
 

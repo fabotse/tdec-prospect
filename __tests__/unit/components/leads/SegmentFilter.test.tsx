@@ -13,6 +13,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { SegmentFilter } from "@/components/leads/SegmentFilter";
 
+// Mock sonner toast (used by DeleteSegmentButton)
+vi.mock("sonner", () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
+import { toast } from "sonner";
+
 // Mock fetch
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
@@ -267,6 +277,145 @@ describe("SegmentFilter", () => {
 
       const allOption = screen.getByTestId("segment-filter-all");
       expect(allOption).toHaveTextContent("✓");
+    });
+  });
+
+  describe("Delete Segment", () => {
+    it("renders a delete button for each segment", async () => {
+      render(
+        <SegmentFilter
+          selectedSegmentId={null}
+          onSegmentChange={mockOnSegmentChange}
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      await userEvent.click(screen.getByTestId("segment-filter-trigger"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("delete-segment-segment-1")).toBeInTheDocument();
+      });
+      expect(screen.getByTestId("delete-segment-segment-2")).toBeInTheDocument();
+    });
+
+    it("opens confirmation without filtering when trash clicked", async () => {
+      render(
+        <SegmentFilter
+          selectedSegmentId={null}
+          onSegmentChange={mockOnSegmentChange}
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      await userEvent.click(screen.getByTestId("segment-filter-trigger"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("delete-segment-segment-1")).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByTestId("delete-segment-segment-1"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Remover segmento?")).toBeInTheDocument();
+      });
+      // Clicking the trash must NOT apply the segment filter
+      expect(mockOnSegmentChange).not.toHaveBeenCalled();
+    });
+
+    it("deletes the segment on confirmation", async () => {
+      render(
+        <SegmentFilter
+          selectedSegmentId={null}
+          onSegmentChange={mockOnSegmentChange}
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      await userEvent.click(screen.getByTestId("segment-filter-trigger"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("delete-segment-segment-1")).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByTestId("delete-segment-segment-1"));
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole("button", { name: /remover/i })
+        ).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByRole("button", { name: /remover/i }));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith("/api/segments/segment-1", {
+          method: "DELETE",
+        });
+      });
+      expect(toast.success).toHaveBeenCalledWith("Segmento removido");
+    });
+
+    it("clears the active filter when the selected segment is deleted", async () => {
+      render(
+        <SegmentFilter
+          selectedSegmentId="segment-1"
+          onSegmentChange={mockOnSegmentChange}
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      await userEvent.click(screen.getByTestId("segment-filter-trigger"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("delete-segment-segment-1")).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByTestId("delete-segment-segment-1"));
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole("button", { name: /remover/i })
+        ).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByRole("button", { name: /remover/i }));
+
+      await waitFor(() => {
+        expect(mockOnSegmentChange).toHaveBeenCalledWith(null);
+      });
+    });
+
+    it("does not delete when cancel is clicked", async () => {
+      render(
+        <SegmentFilter
+          selectedSegmentId={null}
+          onSegmentChange={mockOnSegmentChange}
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      await userEvent.click(screen.getByTestId("segment-filter-trigger"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("delete-segment-segment-1")).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByTestId("delete-segment-segment-1"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Cancelar")).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByText("Cancelar"));
+
+      await waitFor(() => {
+        expect(screen.queryByText("Remover segmento?")).not.toBeInTheDocument();
+      });
+
+      // Only the initial segments fetch happened — no DELETE
+      expect(mockFetch).not.toHaveBeenCalledWith("/api/segments/segment-1", {
+        method: "DELETE",
+      });
     });
   });
 

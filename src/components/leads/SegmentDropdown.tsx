@@ -4,13 +4,12 @@
  *
  * AC: #2 - Add leads to segment via dropdown
  * AC: #4 - Show segment list with lead counts
- * AC: #5 - Delete segment with confirmation
  */
 
 "use client";
 
 import { useState, useCallback } from "react";
-import { FolderPlus, Folder, Trash2, Loader2, Plus } from "lucide-react";
+import { FolderPlus, Folder, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,21 +20,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
-  useSegments,
-  useDeleteSegment,
-  useAddLeadsToSegment,
-} from "@/hooks/use-segments";
+import { useSegments, useAddLeadsToSegment } from "@/hooks/use-segments";
 import { CreateSegmentDialog } from "./CreateSegmentDialog";
 import type { SegmentWithCount, LeadDataForSegment } from "@/types/segment";
 import type { Lead } from "@/types/lead";
@@ -77,19 +62,15 @@ function toLeadDataForSegment(lead: Lead): LeadDataForSegment {
  * Dropdown component for adding leads to segments
  * AC: #2 - Shows segment list and adds selected leads
  * AC: #4 - Shows segments with lead count badges
- * AC: #5 - Delete button per segment with confirmation dialog
  */
 export function SegmentDropdown({
   selectedLeads,
   onSuccess,
 }: SegmentDropdownProps) {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [segmentToDelete, setSegmentToDelete] = useState<SegmentWithCount | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
   const { data: segments, isLoading } = useSegments();
-  const deleteSegment = useDeleteSegment();
   const addLeads = useAddLeadsToSegment();
 
   /**
@@ -121,38 +102,6 @@ export function SegmentDropdown({
     },
     [selectedLeads, addLeads, onSuccess]
   );
-
-  /**
-   * Open delete confirmation dialog
-   * AC: #5 - Confirmation before delete
-   */
-  const handleDeleteClick = useCallback(
-    (e: React.MouseEvent, segment: SegmentWithCount) => {
-      e.stopPropagation();
-      setSegmentToDelete(segment);
-      setDeleteDialogOpen(true);
-    },
-    []
-  );
-
-  /**
-   * Confirm segment deletion
-   * AC: #5 - Delete segment (leads are NOT deleted)
-   */
-  const handleConfirmDelete = useCallback(async () => {
-    if (!segmentToDelete) return;
-
-    try {
-      await deleteSegment.mutateAsync(segmentToDelete.id);
-      toast.success("Segmento removido");
-      setDeleteDialogOpen(false);
-      setSegmentToDelete(null);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Erro ao remover segmento"
-      );
-    }
-  }, [segmentToDelete, deleteSegment]);
 
   /**
    * Handle new segment created
@@ -209,17 +158,6 @@ export function SegmentDropdown({
                         {segment.leadCount}
                       </Badge>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
-                      onClick={(e) => handleDeleteClick(e, segment)}
-                      disabled={deleteSegment.isPending}
-                      data-testid={`delete-segment-${segment.id}`}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                      <span className="sr-only">Remover segmento</span>
-                    </Button>
                   </DropdownMenuItem>
                 ))
               ) : (
@@ -256,36 +194,6 @@ export function SegmentDropdown({
         onOpenChange={setCreateDialogOpen}
         onSuccess={handleSegmentCreated}
       />
-
-      {/* Delete confirmation dialog */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remover segmento?</AlertDialogTitle>
-            <AlertDialogDescription>
-              O segmento &quot;{segmentToDelete?.name}&quot; será removido.
-              Os leads não serão excluídos, apenas a associação com o segmento.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleteSegment.isPending}
-            >
-              {deleteSegment.isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Removendo...
-                </>
-              ) : (
-                "Remover"
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }
