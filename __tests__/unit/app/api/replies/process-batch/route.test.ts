@@ -24,6 +24,11 @@ vi.mock("@/lib/utils/reply-processor", () => ({
   processReplies: (...args: unknown[]) => mockProcess(...args),
 }));
 
+const mockEngagement = vi.fn();
+vi.mock("@/lib/utils/engagement-processor", () => ({
+  processEngagement: (...args: unknown[]) => mockEngagement(...args),
+}));
+
 import { POST } from "@/app/api/replies/process-batch/route";
 
 // ==============================================
@@ -39,6 +44,7 @@ beforeEach(() => {
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key");
   mockSweep.mockResolvedValue({ swept: 2, skipped: 1, tenants: 1, errors: [] });
   mockProcess.mockResolvedValue({ created: 2, skipped: 0, errors: [] });
+  mockEngagement.mockResolvedValue({ created: 0, skipped: 0, errors: [] });
 });
 
 function createRequest(authHeader?: string): NextRequest {
@@ -75,16 +81,34 @@ describe("POST /api/replies/process-batch", () => {
     expect(mockSweep).not.toHaveBeenCalled();
   });
 
-  it("happy path: sweep + process e retorna resumo", async () => {
+  it("happy path: sweep + process + engagement e retorna resumo", async () => {
     const res = await POST(createRequest(`Bearer ${CRON_SECRET}`));
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json).toEqual({ swept: 2, created: 2, skipped: 1, errors: [] });
+    expect(json).toEqual({
+      swept: 2,
+      created: 2,
+      skipped: 1,
+      engagementCreated: 0,
+      engagementSkipped: 0,
+      errors: [],
+    });
     expect(mockSweep).toHaveBeenCalledTimes(1);
     expect(mockProcess).toHaveBeenCalledTimes(1);
+    expect(mockEngagement).toHaveBeenCalledTimes(1);
   });
 
-  it("agrega erros de sweep e process com scope", async () => {
+  it("inclui contadores de engajamento no resumo (Story 21.6)", async () => {
+    mockEngagement.mockResolvedValue({ created: 3, skipped: 5, errors: [] });
+
+    const res = await POST(createRequest(`Bearer ${CRON_SECRET}`));
+    const json = await res.json();
+
+    expect(json.engagementCreated).toBe(3);
+    expect(json.engagementSkipped).toBe(5);
+  });
+
+  it("agrega erros de sweep, process e engagement com scope", async () => {
     mockSweep.mockResolvedValue({
       swept: 0,
       skipped: 0,
@@ -96,6 +120,11 @@ describe("POST /api/replies/process-batch", () => {
       skipped: 0,
       errors: [{ eventId: "e1", error: "db error" }],
     });
+    mockEngagement.mockResolvedValue({
+      created: 0,
+      skipped: 0,
+      errors: [{ tenantId: "t1", error: "tracking down" }],
+    });
 
     const res = await POST(createRequest(`Bearer ${CRON_SECRET}`));
     const json = await res.json();
@@ -103,6 +132,7 @@ describe("POST /api/replies/process-batch", () => {
     expect(json.errors).toEqual([
       { scope: "sweep", tenantId: "t1", error: "api down" },
       { scope: "process", eventId: "e1", error: "db error" },
+      { scope: "engagement", tenantId: "t1", error: "tracking down" },
     ]);
   });
 

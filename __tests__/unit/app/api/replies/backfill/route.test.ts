@@ -28,6 +28,11 @@ vi.mock("@/lib/utils/reply-processor", () => ({
   processReplies: (...args: unknown[]) => mockProcess(...args),
 }));
 
+const mockEngagement = vi.fn();
+vi.mock("@/lib/utils/engagement-processor", () => ({
+  processEngagement: (...args: unknown[]) => mockEngagement(...args),
+}));
+
 import { POST } from "@/app/api/replies/backfill/route";
 
 // ==============================================
@@ -40,6 +45,7 @@ beforeEach(() => {
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key");
   mockSweep.mockResolvedValue({ swept: 5, skipped: 0, tenants: 1, errors: [] });
   mockProcess.mockResolvedValue({ created: 5, skipped: 0, errors: [] });
+  mockEngagement.mockResolvedValue({ created: 0, skipped: 0, errors: [] });
 });
 
 function profile(role: string, tenantId: string | null = "tenant-1") {
@@ -84,6 +90,22 @@ describe("POST /api/replies/backfill", () => {
       expect.anything(),
       expect.objectContaining({ tenantId: "tenant-1" })
     );
+    // Story 21.6: engajamento também roda no backfill, escopado ao tenant do admin.
+    expect(mockEngagement).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tenantId: "tenant-1" })
+    );
+  });
+
+  it("inclui contadores de engajamento no resumo (Story 21.6)", async () => {
+    mockGetProfile.mockResolvedValue(profile("gestor"));
+    mockEngagement.mockResolvedValue({ created: 4, skipped: 2, errors: [] });
+
+    const res = await POST();
+    const json = await res.json();
+
+    expect(json.engagementCreated).toBe(4);
+    expect(json.engagementSkipped).toBe(2);
   });
 
   it("admin (diretor) também tem acesso", async () => {

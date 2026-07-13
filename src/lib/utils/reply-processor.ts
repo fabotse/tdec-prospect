@@ -15,6 +15,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CampaignEventRow } from "@/types/tracking";
+import { ACTIVE_OPPORTUNITY_STATUSES } from "@/types/opportunity";
 
 // ==============================================
 // TYPES
@@ -97,8 +98,11 @@ function logWarn(message: string, meta?: Record<string, unknown>): void {
 // HELPERS
 // ==============================================
 
-/** Normaliza e-mail (trim + lowercase). Null se ausente. */
-function normalizeEmail(raw: string | null | undefined): string | null {
+/**
+ * Normaliza e-mail (trim + lowercase). Null se ausente.
+ * Exportado p/ reuso pelo engagement-processor (Story 21.6) — NÃO recolar a lógica.
+ */
+export function normalizeEmail(raw: string | null | undefined): string | null {
   if (!raw || typeof raw !== "string") return null;
   const normalized = raw.trim().toLowerCase();
   return normalized.length > 0 ? normalized : null;
@@ -117,8 +121,11 @@ function escapeLikePattern(value: string): string {
  * Match de lead por e-mail + tenant. `.ilike` cobre divergência de caixa; sem
  * `.single()` (a tabela não tem UNIQUE(tenant,email) — >1 linha é possível).
  * Zero matches é esperado e válido (AC7) → retorna null.
+ *
+ * Exportado p/ reuso pelo engagement-processor (Story 21.6) — reusa o escape de
+ * LIKE já corrigido na review 21.2. NÃO recolar a lógica.
  */
-async function matchLeadId(
+export async function matchLeadId(
   supabase: SupabaseClient,
   tenantId: string,
   email: string | null
@@ -138,6 +145,33 @@ async function matchLeadId(
     return null;
   }
   return (data as { id: string } | null)?.id ?? null;
+}
+
+/**
+ * Loga a interação `campaign_reply` (secundária: NÃO falha a oportunidade —
+ * precedente import-results). Só chamada quando o lead casou (lead_id NOT NULL).
+ * Compartilhada entre o caminho de INSERT e o de upgrade (Story 21.6).
+ */
+async function logCampaignReplyInteraction(
+  supabase: SupabaseClient,
+  event: CampaignEventRow,
+  leadId: string,
+  replySubject: string | null
+): Promise<void> {
+  const { error } = await supabase.from("lead_interactions").insert({
+    lead_id: leadId,
+    tenant_id: event.tenant_id,
+    type: "campaign_reply",
+    content: `Resposta de campanha: ${replySubject ?? "(sem assunto)"}`,
+    created_by: null,
+  });
+
+  if (error) {
+    logWarn("failed to log lead_interaction (secondary)", {
+      eventId: event.id,
+      error: error.message,
+    });
+  }
 }
 
 // ==============================================
@@ -169,6 +203,69 @@ export async function processReplyEvent(
   const iStatus = payload.i_status;
   // Normalização string→int é da 21.3 — aqui só grava se já for int, senão null.
   const ltInterestStatus = typeof iStatus === "number" ? iStatus : null;
+
+  // Story 21.6 (AC4): upgrade IN-PLACE engagement → reply. Se já existe oportunidade
+  // ATIVA source='engagement' do MESMO lead, promove-a a 'reply' (preserva
+  // open_count/click_count/created_at) em vez de criar card duplicado. Ramo NOVO e
+  // aditivo: só dispara com leadId não-nulo E engajamento ativo. O caminho "reply sem
+  // engajamento prévio" (o único exercitado pelos testes da 21.2) segue INTOCADO abaixo.
+  if (leadId) {
+    const { data: engagement, error: engagementLookupError } = await supabase
+      .from("opportunities")
+      .select("id")
+      .eq("tenant_id", event.tenant_id)
+      .eq("lead_id", leadId)
+      .eq("source", "engagement")
+      .in("status", ACTIVE_OPPORTUNITY_STATUSES as unknown as string[])
+      .limit(1)
+      .maybeSingle();
+
+    // Erro transitório no pré-check NÃO pode cair no INSERT abaixo: criaria um 2º card
+    // (reply) além do engajamento ativo → duplicata que o AC4 proíbe. Falha → o evento
+    // NÃO é marcado como processado e reentra no próximo ciclo (espelha o `activeError`
+    // do engagement-processor).
+    if (engagementLookupError) {
+      logError("engagement upgrade pre-check failed — deferring to next cycle", {
+        eventId: event.id,
+        error: engagementLookupError.message,
+      });
+      return { success: false, error: engagementLookupError.message };
+    }
+
+    const engagementId = (engagement as { id: string } | null)?.id;
+    if (engagementId) {
+      const { error: upgradeError } = await supabase
+        .from("opportunities")
+        .update({
+          source: "reply",
+          // Alinha com a convenção do INSERT (usa event.campaign_id): sem isto, um reply
+          // em campanha diferente da de engajamento deixaria campaign_id ≠ campanha do
+          // reply_event_id (inconsistência que a 21.4 consumiria).
+          campaign_id: event.campaign_id,
+          reply_event_id: event.id,
+          reply_text: replyText,
+          reply_subject: replySubject,
+          unibox_url: uniboxUrl,
+          lt_interest_status: ltInterestStatus,
+        })
+        .eq("id", engagementId);
+
+      if (upgradeError) {
+        // reply_event_id pode já pertencer a outra linha (outro reply) → 23505 benigno.
+        if (upgradeError.code === "23505") {
+          return { success: true, skipped: true, reason: "already-processed" };
+        }
+        logError("failed to upgrade engagement to reply", {
+          eventId: event.id,
+          error: upgradeError.message,
+        });
+        return { success: false, error: upgradeError.message };
+      }
+
+      await logCampaignReplyInteraction(supabase, event, leadId, replySubject);
+      return { success: true, opportunityId: engagementId };
+    }
+  }
 
   // NFR2: reply_event_id SEMPRE setado (idempotência). intent null (21.3);
   // status/id/created_at/updated_at preenchidos pelo DB (payload parcial).
@@ -202,23 +299,7 @@ export async function processReplyEvent(
   // AC5: lead_interaction só quando o lead casou (lead_id é NOT NULL na tabela —
   // Option A: sem lead → oportunidade criada, interaction pulada).
   if (leadId) {
-    const { error: interactionError } = await supabase
-      .from("lead_interactions")
-      .insert({
-        lead_id: leadId,
-        tenant_id: event.tenant_id,
-        type: "campaign_reply",
-        content: `Resposta de campanha: ${replySubject ?? "(sem assunto)"}`,
-        created_by: null,
-      });
-
-    if (interactionError) {
-      // Interaction é secundária — NÃO falha a oportunidade (precedente import-results).
-      logWarn("failed to log lead_interaction (secondary)", {
-        eventId: event.id,
-        error: interactionError.message,
-      });
-    }
+    await logCampaignReplyInteraction(supabase, event, leadId, replySubject);
   }
 
   return { success: true, opportunityId };

@@ -41,6 +41,9 @@ const MOCK_OPPORTUNITY_ROW_FULL: OpportunityRow = {
   suggestion: "Enviar apresentação e propor call de 15 minutos.",
   status: "new",
   meeting_booked_at: "2026-07-15T14:00:00Z",
+  open_count: 4,
+  click_count: 2,
+  last_engagement_at: "2026-07-12T09:00:00Z",
   created_at: "2026-07-13T10:00:00Z",
   updated_at: "2026-07-13T10:00:00Z",
 };
@@ -61,6 +64,9 @@ const MOCK_OPPORTUNITY_ROW_NULLABLE: OpportunityRow = {
   suggestion: null,
   status: "viewed",
   meeting_booked_at: null,
+  open_count: null,
+  click_count: null,
+  last_engagement_at: null,
   created_at: "2026-07-13T11:00:00Z",
   updated_at: "2026-07-13T11:30:00Z",
 };
@@ -222,6 +228,9 @@ describe("toOpportunity", () => {
       suggestion: "Enviar apresentação e propor call de 15 minutos.",
       status: "new",
       meetingBookedAt: "2026-07-15T14:00:00Z",
+      openCount: 4,
+      clickCount: 2,
+      lastEngagementAt: "2026-07-12T09:00:00Z",
       createdAt: "2026-07-13T10:00:00Z",
       updatedAt: "2026-07-13T10:00:00Z",
     });
@@ -239,8 +248,19 @@ describe("toOpportunity", () => {
     expect(result.ltInterestStatus).toBeNull();
     expect(result.suggestion).toBeNull();
     expect(result.meetingBookedAt).toBeNull();
+    expect(result.openCount).toBeNull();
+    expect(result.clickCount).toBeNull();
+    expect(result.lastEngagementAt).toBeNull();
     expect(result.source).toBe("engagement");
     expect(result.status).toBe("viewed");
+  });
+
+  it("maps engagement metrics (open/click/last engagement) round-trip", () => {
+    const result = toOpportunity(MOCK_OPPORTUNITY_ROW_FULL);
+
+    expect(result.openCount).toBe(4);
+    expect(result.clickCount).toBe(2);
+    expect(result.lastEngagementAt).toBe("2026-07-12T09:00:00Z");
   });
 });
 

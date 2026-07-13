@@ -17,6 +17,7 @@ import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { hasAdminAccess } from "@/lib/auth/capabilities";
 import { sweepReplies } from "@/lib/utils/reply-sweep";
 import { processReplies } from "@/lib/utils/reply-processor";
+import { processEngagement } from "@/lib/utils/engagement-processor";
 
 /** Janela ampla do backfill (histórico do Instantly começa em mar/2026). */
 const BACKFILL_SINCE = "2026-01-01T00:00:00.000Z";
@@ -47,14 +48,19 @@ export async function POST() {
 
     const sweep = await sweepReplies(supabase, { since: BACKFILL_SINCE, tenantId });
     const processed = await processReplies(supabase, { tenantId });
+    // Story 21.6: engajamento também no backfill (idempotente por construção).
+    const engagement = await processEngagement(supabase, { tenantId });
 
     return NextResponse.json({
       swept: sweep.swept,
       created: processed.created,
       skipped: sweep.skipped + processed.skipped,
+      engagementCreated: engagement.created,
+      engagementSkipped: engagement.skipped,
       errors: [
         ...sweep.errors.map((e) => ({ scope: "sweep", ...e })),
         ...processed.errors.map((e) => ({ scope: "process", ...e })),
+        ...engagement.errors.map((e) => ({ scope: "engagement", ...e })),
       ],
     });
   } catch (error) {

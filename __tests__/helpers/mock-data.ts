@@ -347,6 +347,7 @@ export function createMockLeadTracking(
     clickCount: 2,
     hasReplied: false,
     lastOpenAt: "2026-02-08T14:30:00.000Z",
+    lastClickAt: null,
     events: [],
     firstName: "João",
     lastName: "Silva",
@@ -424,6 +425,8 @@ export function createMockOpportunityLead(
     ...createMockLeadTracking(),
     qualifiedAt: "2026-02-10T12:00:00.000Z",
     isInOpportunityWindow: true,
+    qualifiedBy: "opens",
+    lastEngagementAt: "2026-02-08T14:30:00.000Z",
     ...overrides,
   };
 }

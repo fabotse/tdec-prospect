@@ -78,6 +78,7 @@ function makeTrackingLead(overrides: Partial<LeadTracking> = {}): LeadTracking {
     clickCount: 1,
     hasReplied: false,
     lastOpenAt: "2026-02-10T12:00:00Z",
+    lastClickAt: null,
     events: [],
     firstName: "John",
     lastName: "Doe",

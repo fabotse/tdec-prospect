@@ -295,10 +295,12 @@ describe("Type structure validation", () => {
       clickCount: 1,
       hasReplied: false,
       lastOpenAt: null,
+      lastClickAt: null,
       events: [],
     };
 
     expect(tracking.lastOpenAt).toBeNull();
+    expect(tracking.lastClickAt).toBeNull();
     expect(tracking.events).toEqual([]);
   });
 
@@ -310,6 +312,7 @@ describe("Type structure validation", () => {
       clickCount: 1,
       hasReplied: false,
       lastOpenAt: null,
+      lastClickAt: null,
       events: [],
       espCode: "Google",
       esgCode: "Barracuda",
@@ -347,6 +350,7 @@ describe("Type structure validation", () => {
       clickCount: 2,
       hasReplied: true,
       lastOpenAt: "2026-02-09T10:00:00Z",
+      lastClickAt: null,
       events: [transformCampaignEventRow(MOCK_CAMPAIGN_EVENT_ROW)],
     };
 
@@ -362,13 +366,18 @@ describe("Type structure validation", () => {
       clickCount: 3,
       hasReplied: true,
       lastOpenAt: "2026-02-09T10:00:00Z",
+      lastClickAt: "2026-02-09T11:00:00Z",
       events: [],
       qualifiedAt: "2026-02-09T12:00:00Z",
       isInOpportunityWindow: true,
+      qualifiedBy: "both",
+      lastEngagementAt: "2026-02-09T11:00:00Z",
     };
 
     expect(opportunityLead.qualifiedAt).toBe("2026-02-09T12:00:00Z");
     expect(opportunityLead.isInOpportunityWindow).toBe(true);
+    expect(opportunityLead.qualifiedBy).toBe("both");
+    expect(opportunityLead.lastEngagementAt).toBe("2026-02-09T11:00:00Z");
   });
 
   it("InstantlyLeadEntry accepts Story 14.1 optional fields", () => {

@@ -237,7 +237,9 @@ export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps
         .filter((lead) => selectedEmails.has(lead.leadEmail))
         .map((lead) => ({
           leadEmail: lead.leadEmail,
-          phone: (lead.phone || localPhones.get(lead.leadEmail))!,
+          // Só leads selecionáveis (com phone) entram em selectedEmails, então o
+          // fallback "" é inalcançável — mas evita o non-null assertion (eslint).
+          phone: lead.phone || localPhones.get(lead.leadEmail) || "",
           firstName: lead.firstName,
           lastName: lead.lastName,
         }));
@@ -363,6 +365,15 @@ export const OpportunityPanel = forwardRef<HTMLDivElement, OpportunityPanelProps
                           <span className="text-sm text-muted-foreground ml-auto shrink-0">
                             {lead.openCount} abertura{lead.openCount > 1 ? "s" : ""}
                           </span>
+                          {/* Story 21.6: cliques (sinal mais forte) ao lado das aberturas */}
+                          {lead.clickCount > 0 && (
+                            <span
+                              data-testid="opportunity-lead-clicks"
+                              className="text-sm text-muted-foreground shrink-0"
+                            >
+                              · {lead.clickCount} clique{lead.clickCount > 1 ? "s" : ""}
+                            </span>
+                          )}
                           <span className="text-xs text-muted-foreground shrink-0">
                             {lead.lastOpenAt ? formatRelativeTime(lead.lastOpenAt) : "-"}
                           </span>

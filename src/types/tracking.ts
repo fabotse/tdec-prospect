@@ -148,6 +148,8 @@ export interface LeadTracking {
   clickCount: number;
   hasReplied: boolean;
   lastOpenAt: string | null;
+  /** Story 21.6 — timestamp do último clique (Instantly `timestamp_last_click`). */
+  lastClickAt: string | null;
   events: CampaignEvent[];
   firstName?: string;
   lastName?: string;
@@ -179,9 +181,20 @@ export interface LeadTracking {
 // OPPORTUNITY LEAD
 // ==============================================
 
+/**
+ * Story 21.6 — o que fez o lead qualificar na Janela de Oportunidade:
+ * só aberturas, só cliques, ou ambos. Consumido pelo engagement-processor
+ * (métricas) e, futuramente, pela badge da Central (21.4).
+ */
+export type OpportunityQualifier = "opens" | "clicks" | "both";
+
 export interface OpportunityLead extends LeadTracking {
   qualifiedAt: string;
   isInOpportunityWindow: boolean;
+  /** Story 21.6 — sinal que qualificou o lead (opens | clicks | both). */
+  qualifiedBy: OpportunityQualifier;
+  /** Story 21.6 — último engajamento = max(lastOpenAt, lastClickAt); null se ambos nulos. */
+  lastEngagementAt: string | null;
 }
 
 // ==============================================

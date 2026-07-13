@@ -149,6 +149,8 @@ export function mapToLeadTracking(
     clickCount: item.email_click_count ?? 0,
     hasReplied: (item.email_reply_count ?? 0) > 0,
     lastOpenAt: item.timestamp_last_open ?? null,
+    // Story 21.6: timestamp_last_click já existe em InstantlyLeadEntry, nunca fora mapeado.
+    lastClickAt: item.timestamp_last_click ?? null,
     events: [],
     firstName: item.first_name,
     lastName: item.last_name,

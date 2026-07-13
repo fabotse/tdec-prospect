@@ -24,7 +24,13 @@ import type { CampaignEventRow } from "@/types/tracking";
 // ==============================================
 
 interface TableResponses {
-  [table: string]: { data?: unknown; error?: unknown };
+  [table: string]: { data?: unknown; error?: unknown } | undefined;
+  /**
+   * Story 21.6 — resposta do PRÉ-CHECK de engajamento (SELECT ... .maybeSingle()
+   * na tabela opportunities). Distinto do INSERT/anti-join. Default {data:null} =
+   * "sem engajamento ativo", então os testes da 21.2 seguem no caminho de INSERT.
+   */
+  opportunitiesEngagement?: { data?: unknown; error?: unknown };
 }
 
 function makeSupabase(responses: TableResponses): {
@@ -33,18 +39,36 @@ function makeSupabase(responses: TableResponses): {
 } {
   const chains: Record<string, ChainBuilder> = {};
   const ensure = (table: string): ChainBuilder => {
-    if (!chains[table]) {
-      const r = responses[table] ?? {};
-      chains[table] = createChainBuilder({
-        data: r.data ?? null,
-        error: r.error ?? null,
-      });
+    if (table in chains) return chains[table];
+
+    if (table === "opportunities") {
+      // A tabela opportunities recebe 3 formas de query no reply-processor:
+      //   1. anti-join (processReplies): SELECT ... await direto      → resposta `opportunities`
+      //   2. INSERT: .insert().select().maybeSingle()                 → resposta `opportunities`
+      //   3. pré-check de engajamento (21.6): SELECT ... .maybeSingle → resposta `opportunitiesEngagement`
+      //   4. upgrade: .update().eq() await direto                     → resposta `opportunities`
+      const r = responses.opportunities ?? {};
+      const eng = responses.opportunitiesEngagement ?? {};
+      const base = createChainBuilder({ data: r.data ?? null, error: r.error ?? null });
+      const insertChain = createChainBuilder({ data: r.data ?? null, error: r.error ?? null });
+      base.insert = vi.fn().mockReturnValue(insertChain);
+      base.maybeSingle = vi
+        .fn()
+        .mockResolvedValue({ data: eng.data ?? null, error: eng.error ?? null });
+      chains[table] = base;
+      return base;
     }
+
+    const r = responses[table] ?? {};
+    chains[table] = createChainBuilder({ data: r.data ?? null, error: r.error ?? null });
     return chains[table];
   };
   // Pre-instancia chains das tabelas declaradas, para permitir asserções
   // "not.toHaveBeenCalled()" mesmo quando o código faz short-circuit (ex: auto-reply).
-  for (const table of Object.keys(responses)) ensure(table);
+  for (const table of Object.keys(responses)) {
+    if (table === "opportunitiesEngagement") continue;
+    ensure(table);
+  }
   const from = vi.fn((table: string) => ensure(table));
   return { supabase: { from } as unknown as SupabaseClient, chains };
 }
@@ -271,6 +295,111 @@ describe("processReplyEvent", () => {
     expect(chains.opportunities.insert).toHaveBeenCalledWith(
       expect.objectContaining({ lt_interest_status: null })
     );
+  });
+});
+
+// ==============================================
+// processReplyEvent — upgrade engagement→reply (Story 21.6 AC4)
+// ==============================================
+
+describe("processReplyEvent — upgrade engagement→reply (Story 21.6)", () => {
+  it("engajamento ativo do lead + reply → UPDATE in-place (não INSERT novo)", async () => {
+    const { supabase, chains } = makeSupabase({
+      leads: { data: { id: "lead-99" } },
+      opportunitiesEngagement: { data: { id: "eng-1" } }, // engajamento ativo do lead
+      opportunities: { data: null, error: null }, // UPDATE ok
+      lead_interactions: { error: null },
+    });
+
+    const result = await processReplyEvent(makeReplyEvent(), supabase);
+
+    expect(result.success).toBe(true);
+    expect(result.skipped).toBeUndefined();
+    expect(result.opportunityId).toBe("eng-1");
+    // Promove a linha existente em vez de criar um card duplicado.
+    expect(chains.opportunities.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "reply",
+        // campaign_id realinhado para a campanha do reply (convenção do INSERT).
+        campaign_id: "campaign-1",
+        reply_event_id: "event-1",
+        reply_text: "Tenho interesse em avançar.",
+        reply_subject: "RE: proposta",
+      })
+    );
+    expect(chains.opportunities.eq).toHaveBeenCalledWith("id", "eng-1");
+    expect(chains.opportunities.insert).not.toHaveBeenCalled();
+    // Pré-check considera meeting_booked como ativo (evita 2º card p/ lead com reunião marcada).
+    expect(chains.opportunities.in).toHaveBeenCalledWith(
+      "status",
+      expect.arrayContaining(["meeting_booked"])
+    );
+    // Reply casado ainda registra a interação.
+    expect(chains.lead_interactions.insert).toHaveBeenCalled();
+  });
+
+  it("sem engajamento prévio → INSERT normal (caminho 21.2 intocado)", async () => {
+    const { supabase, chains } = makeSupabase({
+      leads: { data: { id: "lead-99" } },
+      opportunitiesEngagement: { data: null }, // nenhum engajamento ativo
+      opportunities: { data: { id: "opp-1" }, error: null },
+      lead_interactions: { error: null },
+    });
+
+    const result = await processReplyEvent(makeReplyEvent(), supabase);
+
+    expect(result.success).toBe(true);
+    expect(result.opportunityId).toBe("opp-1");
+    expect(chains.opportunities.insert).toHaveBeenCalled();
+    expect(chains.opportunities.update).not.toHaveBeenCalled();
+  });
+
+  it("23505 no UPDATE (reply_event_id já usado) é benigno → skipped", async () => {
+    const { supabase, chains } = makeSupabase({
+      leads: { data: { id: "lead-99" } },
+      opportunitiesEngagement: { data: { id: "eng-1" } },
+      opportunities: { data: null, error: { code: "23505", message: "dup reply_event_id" } },
+    });
+
+    const result = await processReplyEvent(makeReplyEvent(), supabase);
+
+    expect(result.success).toBe(true);
+    expect(result.skipped).toBe(true);
+    expect(result.reason).toBe("already-processed");
+    expect(chains.opportunities.insert).not.toHaveBeenCalled();
+  });
+
+  it("upgrade só dispara com lead local casado (sem lead → INSERT normal, sem pré-check)", async () => {
+    const { supabase, chains } = makeSupabase({
+      leads: { data: null }, // sem lead local
+      opportunitiesEngagement: { data: { id: "eng-1" } }, // não deve ser consultado
+      opportunities: { data: { id: "opp-1" }, error: null },
+    });
+
+    const result = await processReplyEvent(makeReplyEvent(), supabase);
+
+    expect(result.success).toBe(true);
+    expect(chains.opportunities.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ lead_id: null, source: "reply" })
+    );
+    expect(chains.opportunities.update).not.toHaveBeenCalled();
+  });
+
+  it("erro transitório no pré-check de engajamento → falha (NÃO cai no INSERT duplicado)", async () => {
+    const { supabase, chains } = makeSupabase({
+      leads: { data: { id: "lead-99" } },
+      opportunitiesEngagement: { error: { message: "select failed" } }, // pré-check falha
+      opportunities: { data: { id: "opp-1" }, error: null },
+    });
+
+    const result = await processReplyEvent(makeReplyEvent(), supabase);
+
+    // Falha em vez de INSERT: um INSERT aqui criaria um 2º card além do engajamento ativo
+    // (viola AC4). O evento reentra no próximo ciclo (não marcado como processado).
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("select failed");
+    expect(chains.opportunities.insert).not.toHaveBeenCalled();
+    expect(chains.opportunities.update).not.toHaveBeenCalled();
   });
 });
 

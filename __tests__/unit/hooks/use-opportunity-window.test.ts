@@ -190,9 +190,10 @@ describe("useOpportunityLeads (AC: #6)", () => {
   });
 
   it("retorna leads qualificados com base na config", () => {
+    // clickCount=0 → teste opens-only (Story 21.6: cliques também qualificam).
     const leads = [
-      createMockLeadTracking({ openCount: 5, lastOpenAt: "2026-02-09T10:00:00.000Z" }),
-      createMockLeadTracking({ openCount: 1, lastOpenAt: "2026-02-09T10:00:00.000Z" }),
+      createMockLeadTracking({ openCount: 5, clickCount: 0, lastOpenAt: "2026-02-09T10:00:00.000Z" }),
+      createMockLeadTracking({ openCount: 1, clickCount: 0, lastOpenAt: "2026-02-09T10:00:00.000Z" }),
     ];
     const config = createMockOpportunityConfig({ minOpens: 3, periodDays: 7 });
 

@@ -32,6 +32,22 @@ export const OPPORTUNITY_STATUSES = [
 ] as const;
 export type OpportunityStatus = (typeof OPPORTUNITY_STATUSES)[number];
 
+/**
+ * Status considerados "ativos" (lead ainda vivo na Central) para o dedup de
+ * oportunidades. Story 21.6: inclui `meeting_booked` — não re-abordar (nem re-carding)
+ * um lead com reunião já marcada. `discarded` fica DE FORA de propósito: um lead
+ * descartado que volta a engajar é um sinal novo que pode ressurgir (decisão Fabossi
+ * 2026-07-13, code review 21.6). Compartilhado pelo `engagement-processor` (dedup
+ * app-level) e pelo `reply-processor` (pré-check do upgrade engagement→reply) — fonte
+ * única para os dois não divergirem.
+ */
+export const ACTIVE_OPPORTUNITY_STATUSES: readonly OpportunityStatus[] = [
+  "new",
+  "viewed",
+  "contacted",
+  "meeting_booked",
+];
+
 export function isValidOpportunitySource(value: string): value is OpportunitySource {
   return (OPPORTUNITY_SOURCES as readonly string[]).includes(value);
 }
@@ -64,6 +80,10 @@ export interface OpportunityRow {
   suggestion: string | null;
   status: OpportunityStatus;
   meeting_booked_at: string | null;
+  // Story 21.6: métricas de engajamento (nullable — só source='engagement')
+  open_count: number | null;
+  click_count: number | null;
+  last_engagement_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -87,6 +107,10 @@ export interface Opportunity {
   suggestion: string | null;
   status: OpportunityStatus;
   meetingBookedAt: string | null;
+  // Story 21.6: métricas de engajamento (nullable — só source='engagement')
+  openCount: number | null;
+  clickCount: number | null;
+  lastEngagementAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -108,6 +132,9 @@ export function toOpportunity(row: OpportunityRow): Opportunity {
     suggestion: row.suggestion,
     status: row.status,
     meetingBookedAt: row.meeting_booked_at,
+    openCount: row.open_count,
+    clickCount: row.click_count,
+    lastEngagementAt: row.last_engagement_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -133,6 +160,9 @@ export function toOpportunityRow(o: Opportunity): OpportunityRow {
     suggestion: o.suggestion,
     status: o.status,
     meeting_booked_at: o.meetingBookedAt,
+    open_count: o.openCount,
+    click_count: o.clickCount,
+    last_engagement_at: o.lastEngagementAt,
     created_at: o.createdAt,
     updated_at: o.updatedAt,
   };
