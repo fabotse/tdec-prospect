@@ -1,0 +1,2062 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TDec Prospect — Apresentação V1</title>
+
+<!-- Brand favicon · concentric ripple in TDec azure -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%233d9be0' stroke-width='2'%3E%3Ccircle cx='24' cy='24' r='5'/%3E%3Ccircle cx='24' cy='24' r='12' opacity='0.6'/%3E%3Ccircle cx='24' cy='24' r='19' opacity='0.3'/%3E%3C/svg%3E">
+
+<!-- Fonts · paper style default -->
+<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+
+<style>
+/* ================================================================
+   THEME TOKENS · re-skinned to TDec Network Group (azure on black)
+   ================================================================ */
+:root {
+  --bg: #000;
+  --bg-elev: #0a0a0a;
+  --surface: #111;
+  --border: #1a1a1a;
+  --border-hover: #333;
+  --text: #e0e0e0;
+  --text-paper: #f1ece0;
+  --text-dim: #888;
+  --muted: #555;
+  --accent: #3d9be0;
+  --accent-hl: rgba(61, 155, 224, 0.28);
+  --accent-hl-strong: rgba(61, 155, 224, 0.55);
+  --accent-glow: rgba(61, 155, 224, 0.35);
+  --teal: #50e3c2;
+  --teal-glow: rgba(80, 227, 194, 0.28);
+  --amber: #f5a623;
+  --amber-glow: rgba(245, 166, 35, 0.3);
+  --violet: #8b5cf6;
+  --violet-glow: rgba(139, 92, 246, 0.32);
+  --cyan: #22d3ee;
+  --cyan-glow: rgba(34, 211, 238, 0.3);
+  --red: #ef4444;
+
+  --font-display: 'Instrument Serif', serif;
+  --font-body: 'Outfit', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --title-size: clamp(2.6rem, 8vw, 7rem);
+  --h2-size: clamp(1.3rem, 2.8vw, 2.4rem);
+  --h3-size: clamp(0.7rem, 1.1vw, 0.95rem);
+  --body-size: clamp(0.95rem, 1.4vw, 1.2rem);
+  --small-size: clamp(0.72rem, 0.95vw, 0.85rem);
+  --slide-padding: clamp(2rem, 6vw, 6rem);
+  --content-gap: clamp(1rem, 2.2vw, 2rem);
+
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration: 0.9s;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  overflow-x: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-weight: 300;
+  -webkit-font-smoothing: antialiased;
+}
+
+html { scroll-snap-type: y mandatory; scroll-behavior: smooth; }
+
+.slide {
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.slide-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  max-height: 100%;
+  overflow: hidden;
+  padding: var(--slide-padding);
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 50% -10%, rgba(61, 155, 224, 0.05), transparent 55%),
+    radial-gradient(ellipse at 20% 110%, rgba(80, 227, 194, 0.02), transparent 50%);
+}
+
+/* ===== Hexagon mesh canvas ===== */
+#hexBg {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* ===== Scattered pixel-agent decorations ===== */
+.pixel-agent {
+  position: fixed;
+  pointer-events: none;
+  z-index: 0;
+  image-rendering: pixelated;
+}
+
+/* ===== Cursor glow follow ===== */
+.cursor-glow {
+  position: fixed;
+  width: 500px; height: 500px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(61,155,224,0.05) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+  transform: translate(-50%, -50%);
+  transition: opacity 0.3s;
+}
+
+.slide > * { position: relative; z-index: 1; }
+
+/* Per-slide radial spotlight that fades in on .visible */
+.slide::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at var(--spot-x, 25%) var(--spot-y, 30%), rgba(61, 155, 224, 0.05), transparent 50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 1.5s var(--ease);
+  z-index: 0;
+}
+.slide.visible::after { opacity: 1; }
+.slide:nth-child(2n)::after { --spot-x: 75%; --spot-y: 70%; }
+.slide:nth-child(3n)::after { --spot-x: 50%; --spot-y: 85%; }
+
+/* ================================================================
+   TYPOGRAPHY · paper style (LOCKED)
+   ================================================================ */
+h1.display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: var(--title-size);
+  line-height: 1.02;
+  letter-spacing: -0.018em;
+  color: var(--text-paper);
+  max-width: 14ch;
+}
+
+h1.display em,
+h1.display .italic {
+  font-style: italic;
+  color: var(--accent);
+}
+
+/* Animated highlight sweep — triggers on slide enter */
+h1.display .hl, .hl {
+  background: linear-gradient(90deg, var(--accent-hl) 0%, var(--accent-hl-strong) 100%);
+  background-size: 0% 70%;
+  background-repeat: no-repeat;
+  background-position: 0 82%;
+  padding: 0 8px;
+  animation: hlSweep 5s ease infinite;
+  animation-play-state: paused;
+}
+.slide.visible .hl { animation-play-state: running; }
+@keyframes hlSweep {
+  0% { background-size: 0% 70%; }
+  40%, 80% { background-size: 100% 70%; }
+  100% { background-size: 0% 70%; }
+}
+
+.hl-static {
+  background: linear-gradient(90deg, transparent 0%, var(--accent-hl) 10%, var(--accent-hl) 90%, transparent 100%);
+  background-size: 100% 65%;
+  background-repeat: no-repeat;
+  background-position: 0 85%;
+  padding: 0 6px;
+}
+
+/* Teal variant for evergreen/success semantics */
+.hl.teal-hl {
+  background: linear-gradient(90deg, rgba(80, 227, 194, 0.22) 0%, rgba(80, 227, 194, 0.5) 100%);
+}
+.hl.amber-hl {
+  background: linear-gradient(90deg, rgba(245, 166, 35, 0.22) 0%, rgba(245, 166, 35, 0.5) 100%);
+}
+.hl.violet-hl {
+  background: linear-gradient(90deg, rgba(139, 92, 246, 0.24) 0%, rgba(139, 92, 246, 0.55) 100%);
+}
+h1.display .teal {
+  font-style: italic;
+  color: var(--teal);
+  text-shadow: 0 0 30px var(--teal-glow);
+}
+h1.display .violet {
+  font-style: italic;
+  color: var(--violet);
+  text-shadow: 0 0 30px var(--violet-glow);
+}
+
+h2 {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: var(--h2-size);
+  line-height: 1.35;
+  color: #a8a296;
+  letter-spacing: 0;
+  max-width: 36ch;
+  margin-inline: auto;
+}
+
+h3.kicker {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: var(--h3-size);
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.24em;
+  margin-bottom: clamp(1.2rem, 2vw, 2rem);
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+h3.kicker::before {
+  content: '';
+  display: inline-block;
+  width: 28px;
+  height: 1px;
+  background: var(--accent);
+}
+h3.kicker.violet { color: var(--violet); }
+h3.kicker.violet::before { background: var(--violet); }
+h3.kicker.cyan { color: var(--cyan); }
+h3.kicker.cyan::before { background: var(--cyan); }
+h3.kicker.amber { color: var(--amber); }
+h3.kicker.amber::before { background: var(--amber); }
+h3.kicker.teal { color: var(--teal); }
+h3.kicker.teal::before { background: var(--teal); }
+
+h3.section-label {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: var(--h3-size);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  margin-bottom: clamp(1rem, 1.6vw, 1.5rem);
+}
+
+strong, .accent { color: var(--accent); font-weight: inherit; }
+
+/* ================================================================
+   SLIDE VARIANTS
+   ================================================================ */
+.lead .slide-content {
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+.lead h1.display { max-width: 16ch; }
+.lead h2 { margin-top: clamp(1.2rem, 2.4vw, 2rem); }
+
+/* Iso slide — two column: text + scene */
+.iso-slide .slide-content {
+  display: grid;
+  grid-template-columns: 1fr 1.1fr;
+  gap: clamp(24px, 4vw, 80px);
+  align-items: center;
+  padding: clamp(2rem, 5vw, 5rem) var(--slide-padding);
+}
+@media (max-width: 960px) {
+  .iso-slide .slide-content { grid-template-columns: 1fr; gap: 32px; }
+}
+.iso-text h2.scene-title {
+  font-family: var(--font-display);
+  font-style: normal;
+  font-weight: 400;
+  font-size: clamp(2rem, 4.6vw, 4.2rem);
+  line-height: 1.05;
+  letter-spacing: -0.015em;
+  color: var(--text-paper);
+  max-width: 16ch;
+  margin: 0 0 clamp(1rem, 1.8vw, 1.4rem);
+}
+.iso-text h2.scene-title em { font-style: italic; color: var(--accent); }
+.iso-text h2.scene-title .violet { font-style: italic; color: var(--violet); }
+.iso-text .body-text {
+  font-family: var(--font-body);
+  font-weight: 300;
+  font-size: clamp(0.95rem, 1.3vw, 1.15rem);
+  color: var(--text-dim);
+  line-height: 1.6;
+  max-width: 42ch;
+}
+.iso-text .body-text strong { color: var(--text-paper); font-weight: 500; }
+.iso-text .fine-list {
+  list-style: none;
+  margin-top: clamp(1.2rem, 2vw, 1.8rem);
+  border-top: 1px solid var(--border);
+}
+.iso-text .fine-list li {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  color: var(--text-dim);
+}
+.iso-text .fine-list li .k { color: var(--muted); }
+.iso-text .fine-list li .v { color: var(--accent); font-weight: 600; text-align: right; }
+.iso-text .fine-list li.teal .v { color: var(--teal); }
+.iso-text .fine-list li.cyan .v { color: var(--cyan); }
+.iso-text .fine-list li.amber .v { color: var(--amber); }
+.iso-text .fine-list li.violet .v { color: var(--violet); }
+
+.iso-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-width: 560px;
+  max-height: 60vh;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ================================================================
+   COMPONENTS · reusable
+   ================================================================ */
+.bullets {
+  list-style: none;
+  margin: clamp(1.6rem, 3vw, 2.5rem) 0;
+  max-width: min(85vw, 680px);
+}
+.bullets li {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: clamp(1.1rem, 1.8vw, 1.6rem);
+  color: #b8b2a4;
+  line-height: 1.5;
+  margin-bottom: clamp(0.8rem, 1.6vw, 1.2rem);
+  padding-left: clamp(1.6rem, 2.5vw, 2.2rem);
+  position: relative;
+}
+.bullets li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.75em;
+  width: clamp(14px, 1.4vw, 20px);
+  height: 1px;
+  background: var(--accent);
+}
+.bullets li strong {
+  color: var(--text-paper);
+  font-weight: 400;
+  font-style: normal;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.bullets li.teal::before { background: var(--teal); }
+.bullets li.amber::before { background: var(--amber); }
+.bullets li.cyan::before { background: var(--cyan); }
+.bullets li.violet::before { background: var(--violet); }
+.bullets li.red::before { background: var(--red); }
+.bullets li.teal strong { color: var(--teal); }
+.bullets li.amber strong { color: var(--amber); }
+.bullets li.red strong { color: var(--red); }
+.bullets li.violet strong { color: var(--violet); }
+
+.logos-row {
+  display: flex;
+  gap: clamp(0.8rem, 1.6vw, 1.4rem);
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: clamp(2rem, 4vw, 3rem);
+  max-width: 90vw;
+}
+.logo-pill {
+  padding: clamp(0.7rem, 1.2vw, 1rem) clamp(1.2rem, 2vw, 1.6rem);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: clamp(0.78rem, 1vw, 0.95rem);
+  color: var(--text-dim);
+  background: var(--bg-elev);
+  letter-spacing: 0.04em;
+  transition: all 0.3s var(--ease);
+}
+.logo-pill:hover {
+  color: var(--text-paper);
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.fine {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  margin-top: clamp(2rem, 4vw, 3rem);
+}
+
+/* ================================================================
+   REVEAL ANIMATIONS
+   ================================================================ */
+.reveal {
+  opacity: 0;
+  transform: translateY(30px) scale(0.98);
+  filter: blur(4px);
+  transition: opacity var(--duration) var(--ease), transform var(--duration) var(--ease), filter var(--duration) var(--ease);
+}
+.slide.visible .reveal {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+}
+.slide.visible .reveal:nth-child(1) { transition-delay: 0.1s; }
+.slide.visible .reveal:nth-child(2) { transition-delay: 0.25s; }
+.slide.visible .reveal:nth-child(3) { transition-delay: 0.4s; }
+.slide.visible .reveal:nth-child(4) { transition-delay: 0.55s; }
+.slide.visible .reveal:nth-child(5) { transition-delay: 0.7s; }
+.slide.visible h1.reveal { transition-duration: 1.2s; }
+
+.bullets li {
+  opacity: 0;
+  transform: translateX(-12px);
+  transition: opacity 0.6s var(--ease), transform 0.6s var(--ease);
+}
+.slide.visible .bullets li { opacity: 1; transform: translateX(0); }
+.slide.visible .bullets li:nth-child(1) { transition-delay: 0.35s; }
+.slide.visible .bullets li:nth-child(2) { transition-delay: 0.46s; }
+.slide.visible .bullets li:nth-child(3) { transition-delay: 0.57s; }
+.slide.visible .bullets li:nth-child(4) { transition-delay: 0.68s; }
+.slide.visible .bullets li:nth-child(5) { transition-delay: 0.79s; }
+.slide.visible .bullets li:nth-child(6) { transition-delay: 0.90s; }
+
+.logos-row .logo-pill {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: all 0.55s var(--ease);
+}
+.slide.visible .logos-row .logo-pill { opacity: 1; transform: translateY(0); }
+.slide.visible .logos-row .logo-pill:nth-child(1) { transition-delay: 0.25s; }
+.slide.visible .logos-row .logo-pill:nth-child(2) { transition-delay: 0.32s; }
+.slide.visible .logos-row .logo-pill:nth-child(3) { transition-delay: 0.39s; }
+.slide.visible .logos-row .logo-pill:nth-child(4) { transition-delay: 0.46s; }
+.slide.visible .logos-row .logo-pill:nth-child(5) { transition-delay: 0.53s; }
+.slide.visible .logos-row .logo-pill:nth-child(6) { transition-delay: 0.6s; }
+
+/* ================================================================
+   FIXED UI · progress / nav / watermark / brand
+   ================================================================ */
+.progress-bar {
+  position: fixed;
+  top: 0; left: 0;
+  height: 2px;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), #9bd0f5);
+  z-index: 1000;
+  transition: width 0.3s var(--ease);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+.nav-dots {
+  position: fixed;
+  right: clamp(12px, 1.8vw, 28px);
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(7px, 0.8vw, 12px);
+  z-index: 1000;
+}
+.nav-dots button {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--text-dim);
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.3s var(--ease);
+}
+.nav-dots button:hover { border-color: var(--accent); transform: scale(1.3); }
+.nav-dots button.active { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 8px var(--accent-glow); }
+
+.slide-number {
+  position: fixed;
+  bottom: clamp(14px, 2vw, 26px);
+  right: clamp(18px, 2.4vw, 32px);
+  z-index: 1000;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  letter-spacing: 0.15em;
+}
+.slide-number .curr { color: var(--text-paper); }
+
+/* ===== Brand watermark · TDec Prospect · every slide ===== */
+.watermark {
+  position: fixed;
+  bottom: clamp(14px, 2vw, 26px);
+  left: clamp(18px, 2.4vw, 32px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 0.7rem;
+  color: var(--muted);
+  letter-spacing: 0.14em;
+  text-transform: none;
+}
+.watermark svg { color: var(--accent); flex-shrink: 0; }
+.watermark .bar { width: 14px; height: 1px; background: var(--muted); }
+
+/* ===== Prev/Next arrows · bottom center ===== */
+.nav-arrows {
+  position: fixed;
+  bottom: clamp(14px, 2vw, 26px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  z-index: 1000;
+}
+.nav-arrow {
+  width: 42px; height: 42px;
+  border: 1px solid var(--border);
+  background: rgba(10, 10, 10, 0.75);
+  backdrop-filter: blur(8px);
+  border-radius: 100px;
+  color: var(--text-dim);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.3s var(--ease);
+  padding: 0;
+}
+.nav-arrow:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 16px var(--accent-glow);
+  transform: scale(1.08);
+}
+.nav-arrow:active { transform: scale(0.95); }
+.nav-arrow svg { width: 18px; height: 18px; }
+.nav-arrow:disabled { opacity: 0.25; cursor: not-allowed; }
+.nav-arrow:disabled:hover { border-color: var(--border); color: var(--text-dim); box-shadow: none; transform: none; }
+
+/* ================================================================
+   TITLE BRAND BLOCK · white logo PNG + ripple
+   ================================================================ */
+.brand-block {
+  display: flex;
+  align-items: center;
+  gap: clamp(14px, 1.6vw, 20px);
+  margin-top: clamp(1.8rem, 3vw, 2.6rem);
+  padding-top: clamp(1.4rem, 2.4vw, 2rem);
+  border-top: 1px solid var(--border);
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.8s var(--ease) 0.9s, transform 0.8s var(--ease) 0.9s;
+}
+.slide.visible .brand-block { opacity: 1; transform: translateY(0); }
+.brand-block .logo-wrap {
+  position: relative;
+  width: clamp(54px, 6vw, 78px);
+  height: clamp(54px, 6vw, 78px);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.brand-block .logo-wrap img {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  animation: brandFloat 4s ease-in-out infinite;
+}
+/* concentric ripple rings behind the logo */
+.brand-block .ripple {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 60%; height: 60%;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(0.6);
+  opacity: 0;
+  animation: rippleOut 3.6s ease-out infinite;
+  z-index: 1;
+}
+.brand-block .ripple.r2 { animation-delay: 1.2s; }
+.brand-block .ripple.r3 { animation-delay: 2.4s; }
+@keyframes rippleOut {
+  0% { transform: translate(-50%, -50%) scale(0.55); opacity: 0.7; }
+  100% { transform: translate(-50%, -50%) scale(2.4); opacity: 0; }
+}
+.brand-block .text { text-align: left; line-height: 1.3; }
+.brand-block .title-line {
+  font-family: var(--font-body);
+  font-size: clamp(0.95rem, 1.2vw, 1.15rem);
+  color: var(--text-paper);
+  letter-spacing: 0.16em;
+  text-transform: none;
+}
+.brand-block .title-line strong { font-weight: 800; color: var(--text-paper); }
+.brand-block .title-line .thin { font-weight: 200; color: var(--accent); }
+.brand-block .tag-line {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: clamp(0.8rem, 0.98vw, 0.92rem);
+  color: var(--muted);
+  letter-spacing: 0;
+  text-transform: none;
+  margin-top: 4px;
+}
+
+/* ================================================================
+   RESPONSIVE
+   ================================================================ */
+@media (max-height: 760px) {
+  :root { --slide-padding: clamp(1.2rem, 4vw, 3.4rem); --title-size: clamp(1.9rem, 6vw, 4.4rem); }
+}
+@media (max-height: 640px) {
+  :root { --title-size: clamp(1.6rem, 5vw, 3.2rem); --body-size: clamp(0.8rem, 1.2vw, 1rem); }
+  .nav-dots { display: none; }
+}
+@media (max-width: 800px) {
+  .logos-row { gap: 0.5rem; }
+  .nav-dots { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.2s !important; }
+  html { scroll-behavior: auto; }
+}
+
+/* ================================================================
+   PER-SLIDE GRAPHIC STYLES
+   ================================================================ */
+
+/* ─── Subtle per-slide motion ─── */
+@keyframes brandFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+.slide.lead.visible h1.display em,
+.slide.lead.visible h1.display .italic {
+  animation: accentGlow 3.5s ease-in-out infinite;
+}
+@keyframes accentGlow {
+  0%, 100% { text-shadow: 0 0 0 transparent; }
+  50% { text-shadow: 0 0 22px var(--accent-glow); }
+}
+.slide.lead.visible h1.display .teal { animation: tealGlow 3.5s ease-in-out infinite; }
+@keyframes tealGlow {
+  0%, 100% { text-shadow: 0 0 0 transparent; }
+  50% { text-shadow: 0 0 24px var(--teal-glow); }
+}
+.slide.lead.visible h1.display .violet { animation: violetGlow 3.5s ease-in-out infinite; }
+@keyframes violetGlow {
+  0%, 100% { text-shadow: 0 0 0 transparent; }
+  50% { text-shadow: 0 0 26px var(--violet-glow); }
+}
+.logos-row .logo-pill {
+  animation: pillFloat 5s ease-in-out infinite;
+  animation-delay: calc(var(--i, 0) * 0.4s);
+}
+@keyframes pillFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+.bullets li::before { animation: markerPulse 3s ease-in-out infinite; }
+@keyframes markerPulse {
+  0%, 100% { opacity: 0.55; transform: scaleX(1); }
+  50% { opacity: 1; transform: scaleX(1.35); }
+}
+
+/* ─── shared scene frame ─── */
+.scene-frame {
+  position: relative;
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+/* ─── Scene · fragmentation (slide 02) · scattered disconnected nodes ─── */
+.scene-frag {
+  background: radial-gradient(ellipse at 50% 50%, #14101a 0%, #0a0a0f 72%);
+}
+.scene-frag svg { width: 100%; height: 100%; }
+.scene-frag .fnode {
+  fill: #15151d; stroke: #2a2a36; stroke-width: 1;
+}
+.scene-frag .fnode.cyan { stroke: var(--cyan); }
+.scene-frag .fnode.amber { stroke: var(--amber); }
+.scene-frag .fnode.red { stroke: var(--red); }
+.scene-frag .fnode-pulse {
+  animation: fragFloat 5s ease-in-out infinite;
+  transform-box: fill-box; transform-origin: center;
+}
+@keyframes fragFloat {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-4px) rotate(2deg); }
+}
+.scene-frag .broken {
+  stroke: #2a2a36; stroke-width: 1; stroke-dasharray: 3 6; fill: none;
+  animation: brokenBlink 3.2s ease-in-out infinite;
+}
+@keyframes brokenBlink {
+  0%, 100% { opacity: 0.18; }
+  50% { opacity: 0.5; }
+}
+.scene-frag .flabel {
+  font-family: var(--font-mono); font-size: 6.5px; letter-spacing: 0.12em;
+  text-transform: uppercase; fill: var(--text-dim);
+}
+.scene-frag .qmark {
+  font-family: var(--font-display); font-style: italic; font-size: 22px;
+  fill: var(--red); opacity: 0.5;
+  animation: qFloat 4s ease-in-out infinite;
+}
+@keyframes qFloat { 0%,100%{opacity:.3;} 50%{opacity:.7;} }
+
+/* ─── Scene · hub + spoke unification (slide 03) ─── */
+.scene-hub {
+  background: radial-gradient(ellipse at 50% 50%, #081722 0%, #0a0a0f 70%);
+}
+.scene-hub svg.lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.scene-hub .hub-line {
+  stroke: #2a2a36; stroke-width: 1; stroke-dasharray: 3 4; fill: none;
+  animation: hubFlow 2.8s linear infinite;
+}
+.scene-hub .hub-line:nth-child(1) { animation-delay: 0s; }
+.scene-hub .hub-line:nth-child(2) { animation-delay: 0.25s; }
+.scene-hub .hub-line:nth-child(3) { animation-delay: 0.5s; }
+.scene-hub .hub-line:nth-child(4) { animation-delay: 0.75s; }
+.scene-hub .hub-line:nth-child(5) { animation-delay: 1s; }
+.scene-hub .hub-line:nth-child(6) { animation-delay: 1.25s; }
+@keyframes hubFlow {
+  0%, 100% { stroke-dashoffset: 14; stroke: #2a2a36; opacity: 0.5; }
+  50% { stroke-dashoffset: 0; stroke: rgba(61, 155, 224, 0.7); opacity: 1; }
+}
+.scene-hub .hub-center {
+  position: relative; width: 64px; height: 64px; border-radius: 14px;
+  background: linear-gradient(135deg, var(--accent), #1f6fb0);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 3; color: #051018;
+  box-shadow: 0 0 0 6px rgba(61, 155, 224, 0.14), 0 0 40px var(--accent-glow);
+  animation: hubPulse 2.8s ease infinite;
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.16em;
+}
+@keyframes hubPulse {
+  0%, 100% { box-shadow: 0 0 0 6px rgba(61,155,224,0.14), 0 0 40px var(--accent-glow); }
+  50% { box-shadow: 0 0 0 11px rgba(61,155,224,0.2), 0 0 58px rgba(61,155,224,0.6); }
+}
+.scene-hub .hub-node {
+  position: absolute; padding: 7px 11px; background: #11161d;
+  border: 1px solid #2a2a36; border-radius: 8px; z-index: 2;
+  font-family: var(--font-mono); font-size: 9.5px; font-weight: 600;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-dim);
+  white-space: nowrap;
+}
+.scene-hub .hub-node.lit { border-color: rgba(61,155,224,0.5); background: rgba(61,155,224,0.08); color: var(--accent); box-shadow: 0 0 16px rgba(61,155,224,0.3); }
+.scene-hub .hub-node.p1 { left: 7%; top: 16%; }
+.scene-hub .hub-node.p2 { right: 7%; top: 16%; }
+.scene-hub .hub-node.p3 { left: 2%; top: 50%; transform: translateY(-50%); }
+.scene-hub .hub-node.p4 { right: 2%; top: 50%; transform: translateY(-50%); }
+.scene-hub .hub-node.p5 { left: 7%; bottom: 16%; }
+.scene-hub .hub-node.p6 { right: 7%; bottom: 16%; }
+
+/* ─── Scene · 6-stage pipeline (slide 04) ─── */
+.scene-pipeline {
+  background: radial-gradient(ellipse at 50% 40%, #101820 0%, #0a0a0f 72%);
+  flex-direction: column; gap: 10px; padding: 18px;
+}
+.pipe-track { display: flex; flex-direction: column; gap: 9px; width: 100%; }
+.pipe-stage {
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+  background: #11151c; border: 1px solid var(--border); border-radius: 10px;
+  position: relative; overflow: hidden;
+}
+.pipe-stage::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--c, var(--accent)); box-shadow: 0 0 12px var(--c, var(--accent));
+}
+.pipe-stage .pn {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  color: var(--c, var(--accent)); min-width: 18px;
+}
+.pipe-stage .pl {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 500;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-paper);
+}
+.pipe-stage .ppulse {
+  margin-left: auto; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--c, var(--accent)); box-shadow: 0 0 8px var(--c, var(--accent));
+  animation: pipePulse 3.6s ease-in-out infinite; animation-delay: var(--d, 0s);
+}
+@keyframes pipePulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.25); }
+}
+
+/* ─── Scene · chat / voice prompt (slide 05) ─── */
+.scene-chat {
+  background: radial-gradient(ellipse at 50% 40%, #0d1620 0%, #0a0a0f 72%);
+  flex-direction: column; gap: 12px; padding: 22px;
+}
+.chat-bubble {
+  width: 100%; max-width: 320px; background: #11151c; border: 1px solid var(--border);
+  border-radius: 12px; padding: 13px 15px; font-family: var(--font-body); font-size: 12.5px;
+  color: var(--text-paper); line-height: 1.45; position: relative;
+}
+.chat-bubble.user { align-self: flex-end; border-color: rgba(61,155,224,0.4); background: rgba(61,155,224,0.07); }
+.chat-bubble.user .who { color: var(--accent); }
+.chat-bubble .who {
+  font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.16em;
+  text-transform: none; color: var(--cyan); margin-bottom: 6px; display: flex; align-items: center; gap: 6px;
+}
+.chat-bubble .who .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: dotBlink 1.4s ease-in-out infinite; }
+@keyframes dotBlink { 0%,100%{opacity:1;} 50%{opacity:.3;} }
+.chat-bubble .cur { display: inline-block; width: 1px; height: 11px; background: var(--cyan); margin-left: 2px; vertical-align: middle; animation: curBlink 0.6s step-end infinite; }
+@keyframes curBlink { 50% { opacity: 0; } }
+.chat-mic {
+  display: flex; align-items: center; gap: 9px; font-family: var(--font-mono);
+  font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
+}
+.chat-mic .ring {
+  width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid var(--accent);
+  display: flex; align-items: center; justify-content: center; color: var(--accent);
+  box-shadow: 0 0 0 0 var(--accent-glow); animation: micPulse 2.4s ease-out infinite;
+}
+@keyframes micPulse {
+  0% { box-shadow: 0 0 0 0 rgba(61,155,224,0.4); }
+  100% { box-shadow: 0 0 0 14px rgba(61,155,224,0); }
+}
+
+/* ─── Scene · technology bridge (slide 06) ─── */
+.scene-tech {
+  background: radial-gradient(ellipse at 50% 50%, #0d1620 0%, #0a0a0f 72%);
+  flex-direction: column; gap: 0; padding: 20px;
+}
+.tech-stack { display: flex; flex-direction: column; gap: 8px; width: 100%; align-items: center; }
+.tech-chip {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+  padding: 8px 16px; border-radius: 100px; border: 1px solid var(--cyan);
+  color: var(--cyan); background: rgba(34,211,238,0.07);
+}
+.tech-arrow {
+  width: 2px; height: 26px; background: linear-gradient(180deg, var(--cyan), var(--accent));
+  position: relative;
+}
+.tech-arrow .flow {
+  position: absolute; left: -1.5px; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 8px var(--accent);
+  animation: techFlow 1.8s linear infinite;
+}
+@keyframes techFlow { 0%{top:-3px;opacity:0;} 20%{opacity:1;} 80%{opacity:1;} 100%{top:24px;opacity:0;} }
+.tech-companies { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.tech-co {
+  font-family: var(--font-mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.06em;
+  padding: 7px 12px; border-radius: 8px; border: 1px solid rgba(61,155,224,0.4);
+  color: var(--accent); background: rgba(61,155,224,0.07);
+}
+.tech-co.lead { border-color: rgba(61,155,224,0.7); box-shadow: 0 0 14px rgba(61,155,224,0.25); }
+.tech-contacts { display: flex; gap: 6px; margin-top: 4px; }
+.tech-contacts .ct { width: 9px; height: 9px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 6px var(--teal); animation: ctPulse 2.6s ease-in-out infinite; }
+.tech-contacts .ct:nth-child(2){animation-delay:.4s;} .tech-contacts .ct:nth-child(3){animation-delay:.8s;}
+@keyframes ctPulse { 0%,100%{opacity:.4;transform:scale(.8);} 50%{opacity:1;transform:scale(1.2);} }
+
+/* ─── Scene · enrichment reveal (slide 07) ─── */
+.scene-enrich {
+  background: radial-gradient(ellipse at 50% 50%, #0c1518 0%, #0a0a0f 72%);
+  flex-direction: column; gap: 11px; padding: 22px;
+}
+.contact-card {
+  width: 100%; max-width: 300px; background: #11151c; border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 16px;
+}
+.contact-card .name { font-family: var(--font-display); font-style: italic; font-size: 17px; color: var(--text-paper); margin-bottom: 10px; }
+.contact-row {
+  display: flex; align-items: center; gap: 10px; padding: 6px 0;
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);
+  border-top: 1px solid var(--border);
+}
+.contact-row .ic { color: var(--accent); }
+.contact-row .val { color: var(--text-paper); }
+.contact-row .reveal-chip {
+  margin-left: auto; font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 100px;
+}
+.contact-row.email .reveal-chip { background: rgba(80,227,194,0.14); color: var(--teal); }
+.contact-row.phone .reveal-chip { background: rgba(245,166,35,0.14); color: var(--amber); animation: hotPulse 2s ease-in-out infinite; }
+@keyframes hotPulse { 0%,100%{opacity:.7;} 50%{opacity:1;} }
+.contact-row.phone .val { color: var(--amber); }
+
+/* ─── Scene · icebreaker / LinkedIn post (slide 08) ─── */
+.scene-ice {
+  background: radial-gradient(ellipse at 50% 40%, #0d1620 0%, #0a0a0f 72%);
+  flex-direction: column; gap: 14px; padding: 22px;
+}
+.li-post {
+  width: 100%; max-width: 300px; background: #11151c; border: 1px solid var(--border);
+  border-radius: 12px; padding: 13px 15px; position: relative; overflow: hidden;
+}
+.li-post::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: scanBar 2.6s linear infinite;
+}
+@keyframes scanBar { 0%{transform:translateX(-100%);} 100%{transform:translateX(100%);} }
+.li-post .li-head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); }
+.li-post .li-avatar { width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), #1f6fb0); }
+.li-post .li-body { font-family: var(--font-body); font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+.li-post .li-body b { color: var(--text-paper); font-weight: 500; }
+.ice-arrow {
+  font-family: var(--font-mono); font-size: 16px; color: var(--accent);
+  animation: iceArrow 2.2s ease-in-out infinite;
+}
+@keyframes iceArrow { 0%,100%{transform:translateY(0);opacity:.6;} 50%{transform:translateY(4px);opacity:1;} }
+.ice-out {
+  width: 100%; max-width: 300px; background: rgba(61,155,224,0.07);
+  border: 1px solid rgba(61,155,224,0.4); border-radius: 12px; padding: 13px 15px;
+  font-family: var(--font-display); font-style: italic; font-size: 13px; color: var(--text-paper); line-height: 1.5;
+  box-shadow: 0 0 22px rgba(61,155,224,0.15);
+}
+.ice-out .tag { display:block; font-family: var(--font-mono); font-style: normal; font-size: 8px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); margin-bottom: 6px; }
+
+/* ─── Scene · campaign builder blocks (slide 09) ─── */
+.scene-builder {
+  background: radial-gradient(ellipse at 50% 40%, #0d1620 0%, #0a0a0f 72%);
+  flex-direction: column; gap: 9px; padding: 22px;
+}
+.cb-block {
+  width: 100%; max-width: 290px; display: flex; align-items: center; gap: 11px;
+  padding: 10px 13px; background: #11151c; border: 1px solid var(--border);
+  border-radius: 9px; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-paper);
+  letter-spacing: 0.05em;
+}
+.cb-block .grip { display: flex; flex-direction: column; gap: 2px; }
+.cb-block .grip span { width: 11px; height: 1.5px; background: var(--muted); border-radius: 2px; }
+.cb-block .badge { margin-left: auto; font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase; padding: 2px 7px; border-radius: 100px; }
+.cb-block.email { border-color: rgba(61,155,224,0.4); }
+.cb-block.email .badge { background: rgba(61,155,224,0.14); color: var(--accent); }
+.cb-block.wait { border-color: rgba(245,166,35,0.4); }
+.cb-block.wait .badge { background: rgba(245,166,35,0.14); color: var(--amber); }
+.cb-block.ai { border-color: rgba(139,92,246,0.45); background: rgba(139,92,246,0.06); }
+.cb-block.ai .badge { background: rgba(139,92,246,0.16); color: var(--violet); }
+.cb-drop {
+  width: 100%; max-width: 290px; height: 26px; border: 1px dashed var(--accent);
+  border-radius: 9px; display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent);
+  animation: dropPulse 2.4s ease-in-out infinite;
+}
+@keyframes dropPulse { 0%,100%{opacity:.5;border-color:rgba(61,155,224,0.3);} 50%{opacity:1;border-color:rgba(61,155,224,0.7);} }
+
+/* ─── Scene · multichannel dispatch (slide 10) ─── */
+.scene-dispatch {
+  background: radial-gradient(ellipse at 50% 50%, #0d1620 0%, #0a0a0f 72%);
+}
+.scene-dispatch svg.lines { position: absolute; inset: 0; width: 100%; height: 100%; }
+.scene-dispatch .d-line { stroke-width: 1.4; fill: none; stroke-dasharray: 4 6; animation: dFlow 1.8s linear infinite; }
+.scene-dispatch .d-line.l1 { stroke: var(--accent); }
+.scene-dispatch .d-line.l2 { stroke: var(--teal); animation-delay: .4s; }
+.scene-dispatch .d-line.l3 { stroke: var(--cyan); animation-delay: .8s; }
+@keyframes dFlow { to { stroke-dashoffset: -20; } }
+.scene-dispatch .d-hub {
+  position: relative; z-index: 3; width: 58px; height: 58px; border-radius: 14px;
+  background: linear-gradient(135deg, var(--accent), #1f6fb0); display: flex; align-items: center; justify-content: center;
+  color: #051018; font-family: var(--font-mono); font-size: 8px; font-weight: 700; letter-spacing: 0.12em;
+  box-shadow: 0 0 0 6px rgba(61,155,224,0.12), 0 0 36px var(--accent-glow); animation: hubPulse 2.8s ease infinite;
+}
+.scene-dispatch .d-node {
+  position: absolute; z-index: 2; padding: 8px 12px; border-radius: 9px;
+  font-family: var(--font-mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.06em;
+  background: #11161d; white-space: nowrap;
+}
+.scene-dispatch .d-node.email { top: 14%; left: 50%; transform: translateX(-50%); border: 1px solid rgba(61,155,224,0.5); color: var(--accent); box-shadow: 0 0 14px rgba(61,155,224,0.25); }
+.scene-dispatch .d-node.wa { bottom: 20%; left: 12%; border: 1px solid rgba(80,227,194,0.5); color: var(--teal); box-shadow: 0 0 14px rgba(80,227,194,0.2); }
+.scene-dispatch .d-node.csv { bottom: 20%; right: 12%; border: 1px solid rgba(34,211,238,0.5); color: var(--cyan); box-shadow: 0 0 14px rgba(34,211,238,0.2); }
+
+/* ─── Scene · metric cards (slides 11) ─── */
+.scene-metrics {
+  background: radial-gradient(ellipse at 50% 40%, #0d1620 0%, #0a0a0f 72%);
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 18px; align-content: center;
+}
+.metric-card {
+  background: #11151c; border: 1px solid var(--border); border-radius: 12px; padding: 14px 14px 12px;
+  display: flex; flex-direction: column; gap: 7px;
+}
+.metric-card.opp { border-color: rgba(61,155,224,0.45); box-shadow: 0 0 0 1px rgba(61,155,224,0.12), 0 16px 40px -20px var(--accent-glow); grid-column: span 2; }
+.metric-card .mlabel { font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.metric-card .mval { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; color: var(--cyan); font-variant-numeric: tabular-nums; }
+.metric-card .mval .unit { font-size: 11px; color: var(--muted); font-weight: 500; margin-left: 2px; }
+.metric-card .mdelta { font-family: var(--font-mono); font-size: 9px; font-weight: 600; color: var(--teal); }
+.metric-card .spark { height: 30px; }
+.metric-card .spark svg { width: 100%; height: 100%; overflow: visible; }
+.metric-card .spark path.line { stroke: var(--cyan); stroke-width: 2; fill: none; stroke-linecap: round; stroke-dasharray: 200; stroke-dashoffset: 200; animation: sparkDraw 4s var(--ease) infinite; filter: drop-shadow(0 0 5px rgba(34,211,238,0.4)); }
+@keyframes sparkDraw { 0%{stroke-dashoffset:200;} 40%,80%{stroke-dashoffset:0;} 100%{stroke-dashoffset:-200;} }
+.metric-card.opp .mval { color: var(--accent); }
+.metric-card.opp .otitle { font-family: var(--font-display); font-style: italic; font-size: 16px; color: var(--text-paper); }
+.metric-card.opp .otitle b { color: var(--accent); font-style: normal; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.05em; }
+.metric-card.opp .hotbar { display: flex; gap: 5px; margin-top: 4px; }
+.metric-card.opp .hotbar .hb { flex: 1; height: 5px; border-radius: 3px; background: #1f2630; }
+.metric-card.opp .hotbar .hb.on { background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: hbPulse 2.4s ease-in-out infinite; }
+.metric-card.opp .hotbar .hb.on:nth-child(2){animation-delay:.3s;} .metric-card.opp .hotbar .hb.on:nth-child(3){animation-delay:.6s;}
+@keyframes hbPulse { 0%,100%{opacity:.55;} 50%{opacity:1;} }
+
+/* ─── Scene · LinkedIn monitoring radar (slide 12) ─── */
+.scene-radar {
+  background: radial-gradient(ellipse at 50% 50%, #0d1620 0%, #0a0a0f 72%);
+}
+.radar-rig { position: relative; width: 220px; height: 220px; }
+.radar-rig .ring { position: absolute; left: 50%; top: 50%; border: 1px solid rgba(61,155,224,0.25); border-radius: 50%; transform: translate(-50%, -50%); }
+.radar-rig .ring.a { width: 70px; height: 70px; }
+.radar-rig .ring.b { width: 140px; height: 140px; }
+.radar-rig .ring.c { width: 210px; height: 210px; }
+.radar-rig .sweep {
+  position: absolute; left: 50%; top: 50%; width: 105px; height: 105px;
+  transform-origin: 0 0;
+  background: conic-gradient(from 0deg, rgba(61,155,224,0.32), transparent 55%);
+  border-radius: 0 100% 0 0; animation: radarSpin 4s linear infinite;
+}
+@keyframes radarSpin { to { transform: rotate(360deg); } }
+.radar-rig .core {
+  position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent); transform: translate(-50%, -50%); box-shadow: 0 0 16px var(--accent-glow); z-index: 3;
+}
+.radar-rig .blip {
+  position: absolute; width: 9px; height: 9px; border-radius: 50%; background: var(--cyan);
+  box-shadow: 0 0 8px var(--cyan); animation: blipPulse 2.6s ease-in-out infinite;
+}
+.radar-rig .blip.b1 { top: 22%; left: 64%; } .radar-rig .blip.b2 { top: 60%; left: 30%; animation-delay:.6s; }
+.radar-rig .blip.hot { background: var(--amber); box-shadow: 0 0 10px var(--amber); top: 35%; left: 28%; animation-delay:1.2s; }
+@keyframes blipPulse { 0%,100%{opacity:.4;transform:scale(.8);} 50%{opacity:1;transform:scale(1.3);} }
+
+/* ─── Scene · autonomous agent hero (slide 13) ─── */
+.scene-agent {
+  background: radial-gradient(ellipse at 50% 45%, #170d24 0%, #0a0a0f 72%);
+  flex-direction: column; gap: 16px; padding: 22px;
+}
+.agent-hero-canvas {
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 24px var(--violet-glow));
+  animation: agentBob 3.4s ease-in-out infinite;
+}
+@keyframes agentBob { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-7px);} }
+.agent-steps { display: flex; flex-direction: column; gap: 7px; width: 100%; max-width: 300px; }
+.agent-step {
+  display: flex; align-items: center; gap: 9px; padding: 7px 12px;
+  background: #14101c; border: 1px solid rgba(139,92,246,0.3); border-radius: 8px;
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; color: var(--text-paper);
+}
+.agent-step .sn { color: var(--violet); font-weight: 700; }
+.agent-step .arrow { margin-left: auto; color: var(--violet); animation: stepFlow 2.4s ease-in-out infinite; animation-delay: var(--d, 0s); }
+@keyframes stepFlow { 0%,100%{opacity:.3;transform:translateX(0);} 50%{opacity:1;transform:translateX(3px);} }
+.agent-gate {
+  display: flex; gap: 8px; font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.agent-gate .g { padding: 4px 10px; border-radius: 100px; border: 1px solid; }
+.agent-gate .g.gate { color: var(--amber); border-color: rgba(245,166,35,0.5); background: rgba(245,166,35,0.08); }
+.agent-gate .g.cost { color: var(--cyan); border-color: rgba(34,211,238,0.5); background: rgba(34,211,238,0.08); }
+
+/* ─── Integration buckets (slide 14) ─── */
+.int-buckets { display: flex; flex-direction: column; gap: clamp(0.9rem, 1.8vw, 1.4rem); margin-top: clamp(1.6rem, 3vw, 2.4rem); width: min(90vw, 920px); }
+.int-bucket {
+  display: flex; align-items: center; gap: clamp(0.8rem, 1.6vw, 1.4rem); flex-wrap: wrap;
+  padding: clamp(0.7rem, 1.4vw, 1.1rem) clamp(1rem, 2vw, 1.4rem);
+  border: 1px solid var(--border); border-radius: 14px; background: var(--bg-elev);
+  opacity: 0; transform: translateY(16px); transition: all 0.55s var(--ease);
+}
+.slide.visible .int-bucket { opacity: 1; transform: translateY(0); }
+.slide.visible .int-bucket:nth-child(1){transition-delay:.2s;} .slide.visible .int-bucket:nth-child(2){transition-delay:.32s;}
+.slide.visible .int-bucket:nth-child(3){transition-delay:.44s;} .slide.visible .int-bucket:nth-child(4){transition-delay:.56s;}
+.int-bucket .blabel {
+  font-family: var(--font-mono); font-size: 0.7rem; font-weight: 600; letter-spacing: 0.14em;
+  text-transform: uppercase; min-width: 168px; text-align: left;
+}
+.int-bucket.violet .blabel { color: var(--violet); } .int-bucket.cyan .blabel { color: var(--cyan); }
+.int-bucket.teal .blabel { color: var(--teal); } .int-bucket.accent .blabel { color: var(--accent); }
+.int-chip {
+  font-family: var(--font-mono); font-size: 0.78rem; font-weight: 500; letter-spacing: 0.03em;
+  padding: 0.5rem 1rem; border-radius: 100px; border: 1px solid var(--border-hover); color: var(--text-dim);
+  background: var(--surface); transition: all 0.3s var(--ease);
+}
+.int-bucket.violet .int-chip { border-color: rgba(139,92,246,0.4); color: #c4b5fd; }
+.int-bucket.cyan .int-chip { border-color: rgba(34,211,238,0.4); color: #a5edfb; }
+.int-bucket.teal .int-chip { border-color: rgba(80,227,194,0.4); color: #a5f0e0; }
+.int-bucket.accent .int-chip { border-color: rgba(61,155,224,0.4); color: #b8def5; }
+
+/* ─── Cost model two-column (slide 15) ─── */
+.cost-cols { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: clamp(0.9rem, 2vw, 1.4rem); margin-top: clamp(1.6rem, 3vw, 2.2rem); width: min(92vw, 1040px); }
+@media (max-width: 880px) { .cost-cols { grid-template-columns: 1fr; } }
+.cost-col {
+  border: 1px solid var(--border); border-radius: 14px; padding: clamp(1rem, 2vw, 1.5rem); background: var(--bg-elev);
+  text-align: left; opacity: 0; transform: translateY(18px); transition: all 0.55s var(--ease);
+}
+.slide.visible .cost-col:nth-child(1){opacity:1;transform:none;transition-delay:.2s;}
+.slide.visible .cost-col:nth-child(2){opacity:1;transform:none;transition-delay:.34s;}
+.slide.visible .cost-col:nth-child(3){opacity:1;transform:none;transition-delay:.48s;}
+.cost-col .ctag { font-family: var(--font-mono); font-size: 0.68rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.cost-col .ctag::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+.cost-col.violet .ctag { color: var(--violet); } .cost-col.cyan .ctag { color: var(--cyan); } .cost-col.amber .ctag { color: var(--amber); }
+.cost-col .ctitle { font-family: var(--font-display); font-style: italic; font-size: clamp(1.1rem, 2vw, 1.5rem); color: var(--text-paper); line-height: 1.2; margin-bottom: 10px; }
+.cost-col .cdesc { font-family: var(--font-body); font-size: clamp(0.82rem, 1.1vw, 0.95rem); color: var(--text-dim); line-height: 1.55; }
+.cost-col .cdesc b { color: var(--text-paper); font-weight: 500; }
+.cost-note { font-family: var(--font-display); font-style: italic; font-size: clamp(0.95rem, 1.5vw, 1.25rem); color: #b8b2a4; margin-top: clamp(1.4rem, 2.6vw, 2rem); max-width: 60ch; }
+.cost-note b { color: var(--amber); font-style: normal; font-family: var(--font-mono); font-size: 0.82em; letter-spacing: 0.04em; }
+
+/* ─── Cost numbers scenario cards (slide 16) ─── */
+.scen-cols { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(1rem, 2.2vw, 1.6rem); margin-top: clamp(1.4rem, 2.6vw, 2rem); width: min(92vw, 980px); }
+@media (max-width: 760px) { .scen-cols { grid-template-columns: 1fr; } }
+.scen-card {
+  border: 1px solid var(--border); border-radius: 16px; padding: clamp(1.1rem, 2.2vw, 1.7rem); background: var(--bg-elev);
+  text-align: left; opacity: 0; transform: translateY(18px); transition: all 0.55s var(--ease);
+}
+.slide.visible .scen-card:nth-child(1){opacity:1;transform:none;transition-delay:.2s;}
+.slide.visible .scen-card:nth-child(2){opacity:1;transform:none;transition-delay:.36s;}
+.scen-card.prod { border-color: rgba(245,166,35,0.4); box-shadow: 0 0 0 1px rgba(245,166,35,0.1), 0 18px 50px -22px var(--amber-glow); }
+.scen-card .stag { font-family: var(--font-mono); font-size: 0.68rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--cyan); margin-bottom: 10px; }
+.scen-card.prod .stag { color: var(--amber); }
+.scen-card .sval { font-size: clamp(1.8rem, 3.6vw, 2.8rem); font-weight: 700; letter-spacing: -0.02em; color: var(--cyan); font-variant-numeric: tabular-nums; line-height: 1; }
+.scen-card.prod .sval { color: var(--amber); }
+.scen-card .sval .brl { font-family: var(--font-mono); font-size: 0.42em; font-weight: 500; color: var(--text-dim); letter-spacing: 0.04em; margin-left: 8px; }
+.scen-card .sitems { font-family: var(--font-mono); font-size: clamp(0.7rem, 0.95vw, 0.82rem); color: var(--text-dim); line-height: 1.7; margin-top: 12px; }
+.scen-card .sitems b { color: var(--text-paper); font-weight: 500; }
+.scen-callout {
+  font-family: var(--font-display); font-style: italic; font-size: clamp(1rem, 1.6vw, 1.35rem); color: var(--text-paper);
+  margin-top: clamp(1.2rem, 2.2vw, 1.7rem); padding: clamp(0.7rem, 1.4vw, 1rem) clamp(1rem, 2vw, 1.4rem);
+  border: 1px solid rgba(80,227,194,0.4); border-radius: 12px; background: rgba(80,227,194,0.06); display: inline-block;
+}
+.scen-callout b { color: var(--teal); font-style: normal; font-family: var(--font-mono); font-size: 0.78em; letter-spacing: 0.04em; }
+.scen-foot { font-family: var(--font-mono); font-size: 0.62rem; color: var(--muted); letter-spacing: 0.08em; margin-top: clamp(0.9rem, 1.8vw, 1.3rem); }
+
+/* ─── Status list (slide 17) ─── */
+.status-list { list-style: none; margin: clamp(1.4rem, 2.8vw, 2.2rem) 0 0; max-width: min(90vw, 860px); text-align: left; }
+.status-list li {
+  display: flex; gap: 14px; padding: clamp(0.6rem, 1.2vw, 0.9rem) 0; border-bottom: 1px solid var(--border);
+  font-family: var(--font-body); font-size: clamp(0.92rem, 1.3vw, 1.15rem); color: #b8b2a4; line-height: 1.45;
+  opacity: 0; transform: translateX(-12px); transition: all 0.55s var(--ease);
+}
+.slide.visible .status-list li { opacity: 1; transform: none; }
+.slide.visible .status-list li:nth-child(1){transition-delay:.25s;} .slide.visible .status-list li:nth-child(2){transition-delay:.37s;}
+.slide.visible .status-list li:nth-child(3){transition-delay:.49s;} .slide.visible .status-list li:nth-child(4){transition-delay:.61s;}
+.status-list li .ico { font-family: var(--font-mono); font-size: 1.1em; flex-shrink: 0; margin-top: 1px; }
+.status-list li.done .ico { color: var(--teal); } .status-list li.done b { color: var(--teal); }
+.status-list li.review .ico { color: var(--amber); } .status-list li.review b { color: var(--amber); }
+.status-list li.pending .ico { color: var(--red); } .status-list li.pending b { color: var(--red); }
+.status-list li.note { color: var(--text-dim); font-style: italic; font-family: var(--font-display); border-bottom: none; }
+.status-list li.note .ico { color: var(--muted); }
+.status-list li b { font-weight: 500; font-family: var(--font-mono); font-size: 0.78em; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-paper); }
+
+/* ─── CTA closing line (slide 18) ─── */
+.cta-lines { list-style: none; margin: clamp(1.2rem, 2.4vw, 1.8rem) 0 0; }
+.cta-lines li {
+  font-family: var(--font-display); font-style: italic; font-size: clamp(1.05rem, 1.9vw, 1.55rem); color: #b8b2a4;
+  line-height: 1.5; margin-bottom: 0.5rem;
+}
+.cta-lines li b { color: var(--accent); font-style: normal; font-family: var(--font-mono); font-size: 0.7em; letter-spacing: 0.06em; text-transform: uppercase; margin-right: 8px; }
+.cta-close {
+  font-family: var(--font-display); font-style: italic; font-size: clamp(1.2rem, 2.4vw, 2rem);
+  color: var(--accent); margin-top: clamp(1.6rem, 3vw, 2.4rem); text-shadow: 0 0 24px var(--accent-glow);
+}
+
+/* ─── Cost blocks (slide 15 · o modelo · 2 blocos) ─── */
+.bloco-cols { display: grid; grid-template-columns: 1fr 1.12fr; gap: clamp(1rem, 2.2vw, 1.5rem); margin-top: clamp(1rem, 2.2vw, 1.7rem); width: min(94vw, 1080px); text-align: left; }
+@media (max-width: 900px) { .bloco-cols { grid-template-columns: 1fr; } }
+.bloco-card {
+  border: 1px solid var(--border); border-radius: 16px; background: var(--bg-elev);
+  padding: clamp(0.9rem, 1.7vw, 1.4rem) clamp(1rem, 1.9vw, 1.5rem);
+  opacity: 0; transform: translateY(20px); transition: all 0.6s var(--ease);
+}
+.slide.visible .bloco-card:nth-child(1){opacity:1;transform:none;transition-delay:.2s;}
+.slide.visible .bloco-card:nth-child(2){opacity:1;transform:none;transition-delay:.36s;}
+.bloco-card.accent { border-color: rgba(61,155,224,0.4); box-shadow: 0 0 0 1px rgba(61,155,224,0.08), 0 16px 46px -24px var(--accent-glow); }
+.bloco-card.teal { border-color: rgba(80,227,194,0.4); box-shadow: 0 0 0 1px rgba(80,227,194,0.08), 0 16px 46px -24px var(--teal-glow); }
+.bloco-head { display: flex; align-items: center; gap: 12px; margin-bottom: clamp(0.6rem,1.3vw,0.95rem); }
+.bnum { flex-shrink:0; width: 30px; height: 30px; border-radius: 50%; display:grid; place-items:center; font-family: var(--font-mono); font-weight: 700; font-size: 0.92rem; color: #000; }
+.bloco-card.accent .bnum { background: var(--accent); box-shadow: 0 0 14px var(--accent-glow); }
+.bloco-card.teal .bnum { background: var(--teal); box-shadow: 0 0 14px var(--teal-glow); }
+.bttl { font-family: var(--font-display); font-style: italic; font-size: clamp(1.05rem,2vw,1.45rem); color: var(--text-paper); line-height: 1.1; }
+.btag { font-family: var(--font-mono); font-size: 0.6rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-dim); margin-top: 3px; }
+.bloco-card.accent .btag { color: var(--accent); } .bloco-card.teal .btag { color: var(--teal); }
+.bloco-list { list-style: none; display: flex; flex-direction: column; }
+.bloco-list li { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-family: var(--font-body); font-size: clamp(0.78rem,1.02vw,0.92rem); color: #b8b2a4; border-bottom: 1px dashed rgba(255,255,255,0.06); padding: clamp(0.26rem,0.62vw,0.44rem) 0; }
+.bloco-list li:last-child { border-bottom: none; }
+.bloco-list li b { font-family: var(--font-mono); font-size: 0.82em; font-weight: 600; color: var(--text-paper); white-space: nowrap; letter-spacing: 0.02em; }
+.bloco-list li.hot span::after { content: '  \26A0'; }
+.bloco-list li.hot, .bloco-list li.hot b { color: var(--amber); }
+.bloco-foot { margin-top: clamp(0.6rem,1.3vw,0.95rem); font-family: var(--font-body); font-size: clamp(0.76rem,1vw,0.88rem); color: var(--text-dim); line-height: 1.5; }
+.bloco-foot b { font-family: var(--font-mono); font-size: 0.86em; font-weight: 600; letter-spacing: 0.02em; }
+.bloco-card.accent .bloco-foot b { color: var(--accent); } .bloco-card.teal .bloco-foot b { color: var(--teal); }
+
+/* ─── 3-scenario grid (slide 16 · Bloco 3 · cenários) ─── */
+.scen-cols.three { grid-template-columns: 1fr 1fr 1fr; width: min(95vw, 1120px); }
+@media (max-width: 900px) { .scen-cols.three { grid-template-columns: 1fr; } }
+.scen-cols.three .sval { font-size: clamp(1.25rem, 2.3vw, 1.95rem); }
+.scen-cols.three .sval .brl { display: block; margin-left: 0; margin-top: 5px; font-size: 0.5em; }
+.slide.visible .scen-card:nth-child(3){opacity:1;transform:none;transition-delay:.52s;}
+.scen-card.lo { border-color: rgba(80,227,194,0.4); box-shadow: 0 0 0 1px rgba(80,227,194,0.1), 0 18px 50px -22px var(--teal-glow); }
+.scen-card.lo .stag { color: var(--teal); } .scen-card.lo .sval { color: var(--teal); }
+.scen-card.hi { border-color: rgba(239,68,68,0.4); box-shadow: 0 0 0 1px rgba(239,68,68,0.1), 0 18px 50px -22px rgba(239,68,68,0.3); }
+.scen-card.hi .stag { color: var(--red); } .scen-card.hi .sval { color: var(--red); }
+</style>
+</head>
+
+<body>
+
+<!-- Hex mesh + cursor glow bg -->
+<canvas id="hexBg"></canvas>
+<div class="cursor-glow" id="cursorGlow"></div>
+
+<!-- Fixed UI · do not remove -->
+<div class="progress-bar" id="progressBar"></div>
+<nav class="nav-dots" id="navDots" aria-label="Navegação de slides"></nav>
+<div class="slide-number"><span class="curr" id="slideCurr">01</span> / <span id="slideTotal">18</span></div>
+
+<!-- Prev / Next arrows -->
+<div class="nav-arrows">
+  <button class="nav-arrow" id="navPrev" aria-label="Slide anterior">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+  </button>
+  <button class="nav-arrow" id="navNext" aria-label="Próximo slide">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+  </button>
+</div>
+
+<!-- Brand watermark · TDec Prospect · bottom-left every slide -->
+<div class="watermark" aria-label="TDec Prospect">
+  <svg width="14" height="14" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+    <circle cx="24" cy="24" r="5"/>
+    <circle cx="24" cy="24" r="12" opacity="0.6"/>
+    <circle cx="24" cy="24" r="19" opacity="0.3"/>
+  </svg>
+  <span class="bar"></span>
+  <span>TDec Prospect</span>
+</div>
+
+<!-- ==================================================================
+   TDEC PROSPECT · APRESENTAÇÃO V1 · 18 slides
+   ================================================================== -->
+
+<!-- 01 · TITLE -->
+<section class="slide lead" data-title="Título">
+  <div class="slide-content">
+    <h3 class="kicker reveal">Apresentação V1</h3>
+    <h1 class="display reveal">TDec <em>Prospect</em></h1>
+    <h2 class="reveal">A plataforma de prospecção outbound com IA — do primeiro lead ao disparo, em um só lugar.</h2>
+
+    <div class="brand-block">
+      <div class="logo-wrap">
+        <span class="ripple r1"></span>
+        <span class="ripple r2"></span>
+        <span class="ripple r3"></span>
+        <img src="Logo-TDec-branco.png" alt="TDec Network Group" />
+      </div>
+      <div class="text">
+        <div class="title-line"><strong>TDec</strong> <span class="thin">Network Group</span></div>
+        <div class="tag-line">Apresentação V1 · Junho 2026</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 02 · O PROBLEMA -->
+<section class="slide iso-slide" data-title="O problema">
+  <div class="slide-content">
+    <div class="iso-text">
+      <h3 class="kicker cyan reveal">O problema</h3>
+      <h2 class="scene-title reveal">Prospectar hoje é um <em>quebra-cabeça</em>.</h2>
+      <p class="body-text reveal">Dados espalhados, ferramentas que não conversam e horas de trabalho manual antes de o primeiro e-mail sair.</p>
+      <ul class="fine-list reveal">
+        <li class="cyan"><span class="k">Ferramentas</span><span class="v">Apollo · SignalHire · planilhas</span></li>
+        <li class="amber"><span class="k">Trabalho</span><span class="v">Manual e repetitivo</span></li>
+        <li class="amber"><span class="k">Personalização</span><span class="v">Não escala</span></li>
+        <li class="red"><span class="k">Quem comprar?</span><span class="v">Sem visão</span></li>
+      </ul>
+    </div>
+    <div class="iso-stage reveal">
+      <div class="scene-frame scene-frag">
+        <svg viewBox="0 0 200 200">
+          <line class="broken" x1="48" y1="44" x2="120" y2="70"/>
+          <line class="broken" x1="150" y1="50" x2="110" y2="120"/>
+          <line class="broken" x1="40" y1="140" x2="95" y2="105"/>
+          <line class="broken" x1="155" y1="150" x2="120" y2="120"/>
+          <g class="fnode-pulse"><rect class="fnode cyan" x="30" y="30" width="36" height="26" rx="4"/><text class="flabel" x="34" y="46">APOLLO</text></g>
+          <g class="fnode-pulse" style="animation-delay:.8s"><rect class="fnode amber" x="132" y="34" width="42" height="26" rx="4"/><text class="flabel" x="136" y="50">PLANILHA</text></g>
+          <g class="fnode-pulse" style="animation-delay:1.6s"><rect class="fnode cyan" x="100" y="92" width="46" height="26" rx="4"/><text class="flabel" x="104" y="108">SIGNALHIRE</text></g>
+          <g class="fnode-pulse" style="animation-delay:.4s"><rect class="fnode amber" x="22" y="124" width="40" height="26" rx="4"/><text class="flabel" x="26" y="140">ENVIO</text></g>
+          <g class="fnode-pulse" style="animation-delay:1.2s"><rect class="fnode red" x="138" y="138" width="40" height="26" rx="4"/><text class="flabel" x="142" y="154">CRM?</text></g>
+          <text class="qmark" x="92" y="178">?</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 03 · A SOLUÇÃO -->
+<section class="slide iso-slide" data-title="A solução">
+  <div class="slide-content">
+    <div class="iso-text">
+      <h3 class="kicker reveal">A solução</h3>
+      <h2 class="scene-title reveal">Uma plataforma. <em>O ciclo inteiro.</em></h2>
+      <p class="body-text reveal">Encontrar, enriquecer, personalizar, disparar e acompanhar — <strong>sem trocar de ferramenta.</strong> Tudo converge para um único hub.</p>
+      <ul class="fine-list reveal">
+        <li><span class="k">Antes</span><span class="v">5+ ferramentas soltas</span></li>
+        <li class="teal"><span class="k">Agora</span><span class="v">1 plataforma · 6 etapas</span></li>
+      </ul>
+    </div>
+    <div class="iso-stage reveal">
+      <div class="scene-frame scene-hub">
+        <svg class="lines" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <line class="hub-line" x1="50" y1="50" x2="18" y2="22"/>
+          <line class="hub-line" x1="50" y1="50" x2="82" y2="22"/>
+          <line class="hub-line" x1="50" y1="50" x2="10" y2="50"/>
+          <line class="hub-line" x1="50" y1="50" x2="90" y2="50"/>
+          <line class="hub-line" x1="50" y1="50" x2="18" y2="78"/>
+          <line class="hub-line" x1="50" y1="50" x2="82" y2="78"/>
+        </svg>
+        <div class="hub-center">TDec</div>
+        <div class="hub-node p1 lit">Encontrar</div>
+        <div class="hub-node p2 lit">Enriquecer</div>
+        <div class="hub-node p3">Personalizar</div>
+        <div class="hub-node p4 lit">Campanha</div>
+        <div class="hub-node p5">Disparar</div>
+        <div class="hub-node p6 lit">Acompanhar</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 04 · O FLUXO PONTA A PONTA -->
+<section class="slide iso-slide" data-title="O fluxo ponta a ponta">
+  <div class="slide-content">
+    <div class="iso-text">
+      <h3 class="kicker reveal">Como funciona</h3>
+      <h2 class="scene-title reveal">Do lead frio ao cliente — <em>em um fluxo só.</em></h2>
+      <p class="body-text reveal">Seis etapas encadeadas. Cada uma alimenta a próxima. Esse é o roteiro da demonstração.</p>
+      <ul class="fine-list reveal">
+        <li class="cyan"><span class="k">Início</span><span class="v">Encontrar</span></li>
+        <li class="teal"><span class="k">Fim</span><span class="v">Acompanhar</span></li>
+      </ul>
+    </div>
+    <div class="iso-stage reveal">
+      <div class="scene-frame scene-pipeline">
+        <div class="pipe-track">
+          <div class="pipe-stage" style="--c:var(--cyan)"><span class="pn">1</span><span class="pl">Encontrar</span><span class="ppulse" style="--d:0s"></span></div>
+          <div class="pipe-stage" style="--c:var(--teal)"><span class="pn">2</span><span class="pl">Enriquecer</span><span class="ppulse" style="--d:.5s"></span></div>
+          <div class="pipe-stage" style="--c:var(--violet)"><span class="pn">3</span><span class="pl">Personalizar</span><span class="ppulse" style="--d:1s"></span></div>
+          <div class="pipe-stage" style="--c:var(--accent)"><span class="pn">4</span><span class="pl">Construir campanha</span><span class="ppulse" style="--d:1.5s"></span></div>
+          <div class="pipe-stage" style="--c:var(--amber)"><span class="pn">5</span><span class="pl">Disparar</span><span class="ppulse" style="--d:2s"></span></div>
+          <div class="pipe-stage" style="--c:var(--teal)"><span class="pn">6</span><span class="pl">Acompanhar</span><span class="ppulse" style="--d:2.5s"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 05 · DESCOBERTA DE LEADS -->
+<section class="slide iso-slide" data-title="Descoberta de leads">
+  <div class="slide-content">
+    <div class="iso-text">
+      <h3 class="kicker cyan reveal">Descoberta · Epic 3</h3>
+      <h2 class="scene-title reveal">Busque leads <em>conversando</em> — ou por voz.</h2>
+      <p class="body-text reveal">Escreva (ou fale) <strong>"me traz 50 leads de empresas de tech em SP com 50-200 funcionários"</strong> e a IA monta a busca real. Também há filtros tradicionais e filtros salvos.</p>
+      <ul class="fine-list reveal">
+        <li class="cyan"><span class="k">Entrada</span><span class="v">Texto ou voz</span></li>
+        <li class="teal"><span class="k">Benefício</span><span class="v">Acaba o preenchimento de 10 campos</span></li>
+      </ul>
+    </div>
+    <div class="iso-stage reveal">
+      <div class="scene-frame scene-chat">
+        <div class="chat-bubble user">
+          <div class="who"><span class="dot"></span>Você</div>
+          me traz 50 leads de empresas de tech em SP com 50-200 funcionários<span class="cur"></span>
+        </div>
+        <div class="chat-bubble">
+          <div class="who"><span class="dot"></span>TDec IA</div>
+          Montando busca: setor = tech · local = SP · headcount 50–200 · limite 50…
+        </div>
+        <div class="chat-mic">
+          <span class="ring">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+          </span>
+          ou fale a busca
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 06 · PROSPECÇÃO POR TECNOLOGIA -->
+<section class="slide iso-slide" data-title="Prospecção por tecnologia">
+  <div class="slide-content">
+    <div class="iso-text">
+      <h3 class="kicker cyan reveal">Technographic · Epic 15</h3>
+      <h2 class="scene-title reveal">Encontre empresas pela <em>tecnologia</em> que usam.</h2>
+      <p class="body-text reveal">Ex.: <strong>"empresas que usam Netskope"</strong> traz as empresas e, com a ponte automática para o Apollo, os contatos certos dentro delas. Um ângulo que a concorrência não oferece fácil.</p>
+      <ul class="fine-list reveal">
+        <li class="cyan"><span class="k">Fonte</span><span class="v">theirStack</span></li>
+        <li class="teal"><span class="k">Ponte</span><span class="v">Apollo · contatos certos</span></li>
+      </ul>
+    </div>
+    <div class="iso-stage reveal">
+      <div class="scene-frame scene-tech">
+        <div class="tech-stack">
+          <div class="tech-chip">tech: Netskope</div>
+          <div class="tech-arrow"><span class="flow"></span></div>
+          <div class="tech-companies">
+            <div class="tech-co lead">Empresa A</div>
+            <div class="tech-co">Empresa B</div>
+            <div class="tech-co">Empresa C</div>
+          </div>
+          <div class="tech-arrow"><span class="flow" style="animation-delay:.9s"></span></div>
+          <div class="tech-contacts"><span class="ct"></span><span class="ct"></span><span class="ct"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 07 · ENRIQUECIMENTO DE CONTATOS -->
+<section class="slide iso-slide" data-title="Enriquecimento de contatos">
+  <div class="slide-content">
+    <div class="iso-text">
+      <h3 class="kicker teal reveal">Enriquecimento</h3>
+      <h2 class="scene-title reveal">Dados de contato completos, <em>sob demanda.</em></h2>
+      <p class="body-text reveal">E-mail e telefone revelados quando você precisa — <strong>Apollo + SignalHire</strong> — com indicadores visuais de disponibilidade. Telefone direto para escalonar leads quentes.</p>
+      <ul class="fine-list reveal">
+        <li class="teal"><span class="k">E-mail</span><span class="v">Revelado on-demand</span></li>
+        <li class="amber"><span class="k">Telefone</span><span class="v">Para leads quentes</span></li>
+      </ul>
+    </div>
+    <div class="iso-stage reveal">
+      <div class="scene-frame scene-enrich">
+        <div class="contact-card">
+          <div class="name">Maria Andrade · VP Eng</div>
+          <div class="contact-row email">
+            <span class="ic">✉</span><span class="val">m.andrade@empresa.com</span>
+            <span class="reveal-chip">revelado</span>
+          </div>
+          <div class="contact-row phone">
+            <span class="ic">☎</span><span class="val">+55 11 9 ••••-••••</span>
+            <span class="reveal-chip">revelar · quente</span>
+          </div>
+        </div>
+        <div class="contact-card" style="opacity:.55">
+          <div class="name">João Lima · CTO</div>
+          <div class="contact-row email"><span class="ic">✉</span><span class="val">disponível</span><span class="reveal-chip">revelar</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 08 · ICEBREAKERS PREMIUM -->
+<section class="slide iso-slide" data-title="Icebreakers premium">
+  <div class="slide-content">
+    <div class="iso-text">
+      <h3 class="kicker reveal">Personalização · Epic 6.5</h3>
+      <h2 class="scene-title reveal">Aberturas escritas a partir de <em>posts reais.</em></h2>
+      <p class="body-text reveal">A IA lê o que o lead realmente publicou no <span class="hl"><em>LinkedIn</em></span> e cria uma abertura genuína — não um template. É o maior alavancador de taxa de resposta.</p>
+      <ul class="fine-list reveal">
+        <li><span class="k">Fonte</span><span class="v">Posts reais do LinkedIn</span></li>
+        <li class="teal"><span class="k">Impacto</span><span class="v">+ taxa de resposta</span></li>
+      </ul>
+    </div>
+    <div class="iso-stage reveal">
+      <div class="scene-frame scene-ice">
+        <div class="li-post">
+          <div class="li-head"><span class="li-avatar"></span>Post do lead · LinkedIn</div>
+          <div class="li-body">"Acabamos de migrar nosso time para <b>zero-trust</b> e a diferença na visibilidade foi enorme…"</div>
+        </div>
+        <div class="ice-arrow">↓</div>
+        <div class="ice-out">
+          <span class="tag">Abertura gerada</span>
+          "Vi seu post sobre a migração para zero-trust — a parte de visibilidade ressoou muito por aqui…"
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 09 · CONSTRUTOR DE CAMPANHAS + IA -->
+<section class="slide iso-slide" data-title="Construtor de campanhas">
+  <div class="slide-content">
+    <div class="iso-text">
+      <h3 class="kicker violet reveal">Campanhas · Epics 5/6</h3>
+      <h2 class="scene-title reveal">Monte arrastando blocos — ou deixe a <span class="violet">IA</span> montar tudo.</h2>
+      <p class="body-text reveal">Builder visual drag-and-drop (e-mail + intervalos); ou um assistente que gera a campanha inteira usando a Base de Conhecimento e o catálogo de produtos. Follow-up que dá continuidade à conversa.</p>
+      <ul class="fine-list reveal">
+        <li><span class="k">Manual</span><span class="v">Drag-and-drop</span></li>
+        <li class="violet"><span class="k">Automático</span><span class="v">IA monta tudo</span></li>
+      </ul>
+    </div>
+    <div class="iso-stage reveal">
+      <div class="scene-frame scene-builder">
+        <div class="cb-block email"><span class="grip"><span></span><span></span><span></span></span>E-mail 1 · abertura<span class="badge">e-mail</span></div>
+        <div class="cb-block wait"><span class="grip"><span></span><span></span><span></span></span>Aguardar 3 dias<span class="badge">intervalo</span></div>
+        <div class="cb-block email"><span class="grip"><span></span><span></span><span></span></span>E-mail 2 · follow-up<span class="badge">e-mail</span></div>
+        <div class="cb-block ai"><span class="grip"><span></span><span></span><span></span></span>Gerado pela IA<span class="badge">assistente</span></div>
+        <div class="cb-drop">solte um bloco aqui</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 10 · DISPARO MULTICANAL -->
+<section class="slide iso-slide" data-title="Disparo multicanal">
+  <div class="slide-content">
+    <div class="iso-text">
+      <h3 class="kicker amber reveal">Disparo · Epics 7/11</h3>
+      <h2 class="scene-title reveal">Cold e-mail e WhatsApp, <em>direto da plataforma.</em></h2>
+      <p class="body-text reveal">Exportação para o <strong>Instantly</strong> em 1 clique (campanha + leads + variáveis); <strong>WhatsApp via Z-API</strong> para leads quentes; e CSV/clipboard como saída universal que nunca falha.</p>
+      <ul class="fine-list reveal">
+        <li><span class="k">E-mail</span><span class="v">Instantly · 1 clique</span></li>
+        <li class="teal"><span class="k">WhatsApp</span><span class="v">Z-API · leads quentes</span></li>
+        <li class="cyan"><span class="k">Fallback</span><span class="v">CSV / clipboard</span></li>
+      </ul>
+    </div>
+    <div class="iso-stage reveal">
+      <div class="scene-frame scene-dispatch">
+        <svg class="lines" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <line class="d-line l1" x1="50" y1="50" x2="50" y2="20"/>
+          <line class="d-line l2" x1="50" y1="50" x2="20" y2="78"/>
+          <line class="d-line l3" x1="50" y1="50" x2="80" y2="78"/>
+        </svg>
+        <div class="d-hub">DISPARO</div>
+        <div class="d-node email">Instantly · E-mail</div>
+        <div class="d-node wa">WhatsApp · Z-API</div>
+        <div class="d-node csv">CSV / Clipboard</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 11 · ANALYTICS + JANELA DE OPORTUNIDADE -->
+<section class="slide iso-slide" data-title="Analytics e janela de oportunidade">
+  <div class="slide-content">
+    <div class="iso-text">
+      <h3 class="kicker cyan reveal">Resultados · Epics 10/14</h3>
+      <h2 class="scene-title reveal">Veja quem abriu, clicou e respondeu — <em>e aja na hora.</em></h2>
+      <p class="body-text reveal">Dashboard com aberturas, cliques e respostas e evolução diária. A <strong>Janela de Oportunidade</strong> detecta automaticamente os leads quentes e os destaca para ação imediata.</p>
+      <ul class="fine-list reveal">
+        <li class="cyan"><span class="k">Métricas</span><span class="v">Aberturas · cliques · respostas</span></li>
+        <li><span class="k">Oportunidade</span><span class="v">Leads quentes destacados</span></li>
+      </ul>
+    </div>
+    <div class="iso-stage reveal">
+      <div class="scene-frame scene-metrics">
+        <div class="metric-card">
+          <div class="mlabel">Aberturas</div>
+          <div class="mval">58<span class="unit">%</span></div>
+          <div class="spark"><svg viewBox="0 0 100 30" preserveAspectRatio="none"><path class="line" d="M0,26 L18,22 L36,24 L54,15 L72,12 L100,5"/></svg></div>
+        </div>
+        <div class="metric-card">
+          <div class="mlabel">Respostas</div>
+          <div class="mval">14<span class="unit">%</span></div>
+          <div class="mdelta">▲ subindo</div>
+          <div class="spark"><svg viewBox="0 0 100 30" preserveAspectRatio="none"><path class="line" d="M0,27 L20,25 L40,20 L60,18 L80,11 L100,7" style="animation-delay:.6s"/></svg></div>
+        </div>
+        <div class="metric-card opp">
+          <div class="mlabel">Janela de Oportunidade</div>
+          <div class="otitle"><b>3</b> leads quentes — múltiplas aberturas</div>
+          <div class="hotbar"><span class="hb on"></span><span class="hb on"></span><span class="hb on"></span><span class="hb"></span><span class="hb"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 12 · MONITORAMENTO LINKEDIN + INSIGHTS -->
+<section class="slide iso-slide" data-title="Monitoramento LinkedIn">
+  <div class="slide-content">
+    <div class="iso-text">
+      <h3 class="kicker violet reveal">Inteligência · Epic 13</h3>
+      <h2 class="scene-title reveal">A IA acompanha seus leads e sugere a <em>hora certa.</em></h2>
+      <p class="body-text reveal">Monitora semanalmente os posts dos leads-alvo. A página de Insights identifica <strong>"ganchos" recentes</strong>, explica por que o lead é relevante agora e sugere a abordagem — com envio direto.</p>
+      <ul class="fine-list reveal">
+        <li class="violet"><span class="k">Cadência</span><span class="v">Semanal · automática</span></li>
+        <li class="amber"><span class="k">Saída</span><span class="v">Gancho + abordagem</span></li>
+      </ul>
+    </div>
+    <div class="iso-stage reveal">
+      <div class="scene-frame scene-radar">
+        <div class="radar-rig">
+          <div class="ring a"></div><div class="ring b"></div><div class="ring c"></div>
+          <div class="sweep"></div>
+          <div class="blip b1"></div>
+          <div class="blip b2"></div>
+          <div class="blip hot"></div>
+          <div class="core"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 13 · AGENTE DE PROSPECÇÃO AUTÔNOMO (climax) -->
+<section class="slide iso-slide" data-title="Agente autônomo">
+  <div class="slide-content">
+    <div class="iso-text">
+      <h3 class="kicker violet reveal">O diferencial · Epics 16/17</h3>
+      <h2 class="scene-title reveal">Descreva a campanha. O <span class="violet">Agente</span> executa o pipeline.</h2>
+      <p class="body-text reveal">O usuário descreve em texto livre; o Agente busca empresas, busca leads, cria a campanha e exporta/ativa — com <strong>portões de aprovação</strong> (guiado ou autopilot) e <strong>estimativa de custo</strong> antes de rodar.</p>
+      <ul class="fine-list reveal">
+        <li class="violet"><span class="k">Modos</span><span class="v">Guiado · autopilot</span></li>
+        <li class="cyan"><span class="k">Antes de rodar</span><span class="v">Estimativa de custo</span></li>
+      </ul>
+    </div>
+    <div class="iso-stage reveal">
+      <div class="scene-frame scene-agent">
+        <canvas class="agent-hero-canvas" data-agent="agent-d" width="200" height="200" style="width:96px;height:96px;"></canvas>
+        <div class="agent-steps">
+          <div class="agent-step"><span class="sn">1</span>Busca empresas<span class="arrow" style="--d:0s">→</span></div>
+          <div class="agent-step"><span class="sn">2</span>Busca leads<span class="arrow" style="--d:.4s">→</span></div>
+          <div class="agent-step"><span class="sn">3</span>Cria campanha<span class="arrow" style="--d:.8s">→</span></div>
+          <div class="agent-step"><span class="sn">4</span>Exporta / ativa<span class="arrow" style="--d:1.2s">→</span></div>
+        </div>
+        <div class="agent-gate">
+          <span class="g gate">Portões de aprovação</span>
+          <span class="g cost">Estimativa de custo</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 14 · STACK DE INTEGRAÇÕES -->
+<section class="slide lead" data-title="Stack de integrações">
+  <div class="slide-content">
+    <h3 class="section-label reveal">Tecnologia</h3>
+    <h1 class="display reveal" style="font-size: clamp(1.8rem, 5vw, 3.6rem);">9 plataformas <em>trabalhando juntas.</em></h1>
+    <div class="int-buckets">
+      <div class="int-bucket violet"><span class="blabel">IA</span><span class="int-chip">OpenAI</span></div>
+      <div class="int-bucket cyan"><span class="blabel">Dados & enriquecimento</span><span class="int-chip">Apollo.io</span><span class="int-chip">theirStack</span><span class="int-chip">SignalHire</span><span class="int-chip">Apify</span></div>
+      <div class="int-bucket teal"><span class="blabel">Disparo</span><span class="int-chip">Instantly</span><span class="int-chip">Z-API (WhatsApp)</span></div>
+      <div class="int-bucket accent"><span class="blabel">Infraestrutura</span><span class="int-chip">Supabase</span><span class="int-chip">Vercel</span></div>
+    </div>
+    <div class="fine reveal">Cada cliente conecta as próprias contas com segurança · chaves criptografadas</div>
+  </div>
+</section>
+
+<!-- 15 · CUSTOS — O MODELO (2 blocos: fixo + variável) -->
+<section class="slide" data-title="Custos — o modelo">
+  <div class="slide-content" style="justify-content:center; align-items:center; text-align:center;">
+    <h3 class="section-label reveal">Custos · o modelo</h3>
+    <h1 class="display reveal" style="font-size: clamp(1.5rem, 4.2vw, 3rem); max-width: 24ch;">Dois blocos: <em>um fixo, um variável.</em></h1>
+    <div class="bloco-cols">
+      <div class="bloco-card accent">
+        <div class="bloco-head">
+          <span class="bnum">1</span>
+          <div><div class="bttl">Infraestrutura</div><div class="btag">Fixo · roda o app · paga a TDec</div></div>
+        </div>
+        <ul class="bloco-list">
+          <li><span>Vercel · hospedagem</span><b>US$ 20</b></li>
+          <li><span>Supabase · banco + auth</span><b>US$ 25</b></li>
+          <li><span>Z-API · WhatsApp</span><b>R$ 99,99</b></li>
+          <li><span>OpenAI · IA (sem mensalidade)</span><b>US$ 0 fixo</b></li>
+        </ul>
+        <div class="bloco-foot">Piso fixo ≈ <b>R$ 347 / mês</b> · quase não escala com volume</div>
+      </div>
+      <div class="bloco-card teal">
+        <div class="bloco-head">
+          <span class="bnum">2</span>
+          <div><div class="bttl">Dados &amp; Disparo</div><div class="btag">Variável · plano + quantidade · paga o cliente</div></div>
+        </div>
+        <ul class="bloco-list">
+          <li><span>Apollo · Basic</span><b>$59 · ~1.000 e-mails</b></li>
+          <li><span>SignalHire · telefone</span><b>$99 · ilimitado</b></li>
+          <li><span>Instantly · Growth</span><b>$47 · 1.000 contatos</b></li>
+          <li><span>Apify · posts LinkedIn</span><b>~$6 · 3.000 posts</b></li>
+          <li><span>OpenAI · gerar e-mails</span><b>~$3 · ~3.500 ger.</b></li>
+          <li><span>TheirStack · empresas (opcional)</span><b>$59 · ≈500 empr.</b></li>
+        </ul>
+        <div class="bloco-foot">1.000 leads/mês (e-mail): <b>≈ US$ 178</b> · + telefone ilimitado <b>+US$ 99 flat</b></div>
+      </div>
+    </div>
+    <p class="cost-note reveal">A IA custa centavos · telefone é <b>flat</b> · o que escala de verdade é o <b>Apollo.</b></p>
+  </div>
+</section>
+
+<!-- 16 · CUSTOS — OS NÚMEROS (Bloco 3 · cenários) -->
+<section class="slide" data-title="Custos — os números">
+  <div class="slide-content" style="justify-content:center; align-items:center; text-align:center;">
+    <h3 class="section-label reveal">Custos · cenários</h3>
+    <h1 class="display reveal" style="font-size: clamp(1.6rem, 4.4vw, 3.2rem);">Três cenários, <em>do piloto à escala.</em></h1>
+    <div class="scen-cols three">
+      <div class="scen-card lo">
+        <div class="stag">🟢 Enxuta · 1.000 leads/mês · só e-mail</div>
+        <div class="sval">≈ R$ 1.000<span class="brl">US$ 178 / mês</span></div>
+        <div class="sitems">Infra + <b>Apollo Basic</b> + <b>Instantly Growth</b> + Apify + OpenAI</div>
+      </div>
+      <div class="scen-card prod">
+        <div class="stag">🟡 Completa · 1.000 leads/mês · + telefone</div>
+        <div class="sval">≈ R$ 1.540<span class="brl">US$ 277 / mês</span></div>
+        <div class="sitems">Tudo da Enxuta + <b>SignalHire</b> telefone ilimitado <b>$99</b></div>
+      </div>
+      <div class="scen-card hi">
+        <div class="stag">🔴 Escala · 5.000 leads/mês</div>
+        <div class="sval">≈ R$ 4.300–5.400<span class="brl">US$ 780–980 / mês</span></div>
+        <div class="sitems"><b>Apollo</b> (export + seats) + <b>Instantly Hyper</b> + tiers maiores — Apollo domina</div>
+      </div>
+    </div>
+    <div class="scen-callout reveal">Telefone é <b>flat: $99/mês ilimitado.</b> Quem escala é o Apollo (export + seats).</div>
+    <div class="scen-foot reveal">Pesquisa 09/06/2026 · câmbio premissa R$ 5,50/US$ · varia conforme volume e nº de usuários.</div>
+  </div>
+</section>
+
+<!-- 17 · STATUS DA V1 -->
+<section class="slide" data-title="Status da V1">
+  <div class="slide-content" style="justify-content:center; align-items:center; text-align:center;">
+    <h3 class="section-label reveal">Entrega</h3>
+    <h1 class="display reveal" style="font-size: clamp(1.7rem, 4.6vw, 3.4rem);">O que já está <span class="teal">pronto</span> para a V1.</h1>
+    <ul class="status-list">
+      <li class="done"><span class="ico">✓</span><span><b>Pronto e demonstrável</b> — descoberta, enriquecimento, icebreakers, campanhas + IA, disparo (Instantly + WhatsApp), analytics, monitoramento LinkedIn, Agente autônomo, multi-tenant (Epics 1–17).</span></li>
+      <li class="review"><span class="ico">◐</span><span><b>Em revisão final</b> — identidade visual TDec (Epic 19).</span></li>
+      <li class="pending"><span class="ico">○</span><span><b>Planejado</b> — níveis de acesso Gestor/Diretor/SDR (Epic 20); resiliência do Agente (Epic 18).</span></li>
+      <li class="note"><span class="ico">!</span><span>Ressalvas honestas: telefone SignalHire pronto, aguardando upgrade do plano; export Snov.io adiado (Instantly cobre).</span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- 18 · CTA / PRÓXIMOS PASSOS -->
+<section class="slide lead" data-title="Próximos passos">
+  <div class="slide-content">
+    <h3 class="kicker reveal">Próximos passos</h3>
+    <h1 class="display reveal">Pronto para o <em>V1.</em></h1>
+    <ul class="cta-lines reveal">
+      <li><b>01</b>Definir níveis de acesso (Epic 20)</li>
+      <li><b>02</b>Confirmar quem assume cada custo</li>
+      <li><b>03</b>Publicar e treinar o time</li>
+    </ul>
+    <div class="cta-close reveal">TDec Prospect — prospecção inteligente, do lead ao cliente.</div>
+  </div>
+</section>
+
+<!-- =================== END SLIDES SECTION =================== -->
+
+<script>
+/* ================================================================
+   SLIDE CONTROLLER · do not modify
+   Keyboard: ↑↓←→ / Space / PgUp/PgDn / j/k / Home/End
+   Touch swipe, click nav dots
+   ================================================================ */
+const BG_CONFIG = {
+  hexAlphaMax:       0.08,  // 0 (invisible) → 0.15 (loud) · halve for subtle bg
+  hexCellSize:       20,    // 12 (dense) → 40 (sparse) · bigger = sparser grid
+  hexLineWidth:      0.6,   // 0.3 (thin) → 1 (thick)
+  hexFadeExponent:   2,     // 1 (even) → 4 (sharp vignette) · higher = darker edges
+  hexRotationSpeed:  0.0001, // rads/frame
+  scatterCount:      12,    // 0 → 20 · how many agents to scatter
+  scatterOpacityMin: 0.04,
+  scatterOpacityMax: 0.08,
+  cursorGlowAlpha:   0.04,  // 0 → 0.1 · accent cursor halo intensity
+};
+
+class SlidePresentation {
+  constructor() {
+    this.slides = Array.from(document.querySelectorAll('.slide'));
+    this.navDots = document.getElementById('navDots');
+    this.progressBar = document.getElementById('progressBar');
+    this.currSpan = document.getElementById('slideCurr');
+    this.totalSpan = document.getElementById('slideTotal');
+    this.navPrev = document.getElementById('navPrev');
+    this.navNext = document.getElementById('navNext');
+    this.current = 0;
+    this.totalSpan.textContent = String(this.slides.length).padStart(2, '0');
+    this.buildNavDots();
+    this.attachObserver();
+    this.attachKeyboard();
+    this.attachTouch();
+    this.attachScroll();
+    this.attachArrows();
+  }
+
+  attachArrows() {
+    if (this.navPrev) this.navPrev.addEventListener('click', () => this.goTo(this.current - 1));
+    if (this.navNext) this.navNext.addEventListener('click', () => this.goTo(this.current + 1));
+  }
+
+  updateArrowState() {
+    if (this.navPrev) this.navPrev.disabled = this.current <= 0;
+    if (this.navNext) this.navNext.disabled = this.current >= this.slides.length - 1;
+  }
+
+  buildNavDots() {
+    this.navDots.innerHTML = '';
+    this.slides.forEach((slide, i) => {
+      const btn = document.createElement('button');
+      btn.setAttribute('aria-label', `Slide ${i + 1}: ${slide.dataset.title || ''}`);
+      btn.addEventListener('click', () => this.goTo(i));
+      this.navDots.appendChild(btn);
+    });
+  }
+
+  attachObserver() {
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.intersectionRatio < 0.55) return;
+        entry.target.classList.add('visible');
+        const i = this.slides.indexOf(entry.target);
+        if (i !== -1) this.setCurrent(i);
+      });
+    }, { threshold: [0, 0.55, 0.9] });
+    this.slides.forEach((s) => io.observe(s));
+  }
+
+  setCurrent(i) {
+    this.current = i;
+    [...this.navDots.children].forEach((b, j) => b.classList.toggle('active', j === i));
+    this.currSpan.textContent = String(i + 1).padStart(2, '0');
+    this.progressBar.style.width = ((i + 1) / this.slides.length * 100) + '%';
+    this.updateArrowState();
+  }
+
+  goTo(i) {
+    if (i < 0 || i >= this.slides.length) return;
+    this.slides[i].scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  attachKeyboard() {
+    document.addEventListener('keydown', (e) => {
+      if (e.target.matches('input, textarea')) return;
+      const keys = {
+        'ArrowDown': 1, 'ArrowRight': 1, 'PageDown': 1, ' ': 1, 'j': 1,
+        'ArrowUp': -1, 'ArrowLeft': -1, 'PageUp': -1, 'k': -1,
+        'Home': -Infinity, 'End': Infinity,
+      };
+      if (e.key in keys) {
+        e.preventDefault();
+        const delta = keys[e.key];
+        if (delta === -Infinity) this.goTo(0);
+        else if (delta === Infinity) this.goTo(this.slides.length - 1);
+        else this.goTo(this.current + delta);
+      }
+    });
+  }
+
+  attachTouch() {
+    let startY = 0;
+    document.addEventListener('touchstart', (e) => { startY = e.touches[0].clientY; }, { passive: true });
+    document.addEventListener('touchend', (e) => {
+      const diff = startY - e.changedTouches[0].clientY;
+      if (Math.abs(diff) < 50) return;
+      this.goTo(this.current + (diff > 0 ? 1 : -1));
+    }, { passive: true });
+  }
+
+  attachScroll() {
+    let raf = null;
+    document.addEventListener('scroll', () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = null;
+        const sh = document.documentElement.scrollHeight - window.innerHeight;
+        const pct = Math.max(0, Math.min(100, (window.scrollY / sh) * 100));
+        this.progressBar.style.width = pct + '%';
+      });
+    }, { passive: true });
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  new SlidePresentation();
+  document.querySelector('.slide')?.classList.add('visible');
+  initAgentIcons();
+  initHexBg();
+  initAgentScatter();
+  initCursorGlow();
+});
+
+/* ================================================================
+   Agent pixel icon system
+   ================================================================ */
+const PIXELS = {
+  'agent-a': { color: '#ffffff', grid: [[0,0,1,0],[1,1,1,1],[1,1,1,1],[1,0,1,1],[1,1,1,1],[1,1,1,1],[1,0,0,1],[0,0,0,0]] },
+  'agent-b': { color: '#3d9be0', grid: [[0,0,1,0],[0,1,1,1],[1,1,1,1],[0,1,0,1],[0,1,1,1],[1,1,1,0],[0,0,1,0],[0,0,0,0]] },
+  'agent-c': { color: '#f5a623', grid: [[0,0,1,0],[0,0,1,1],[0,1,1,1],[0,1,0,1],[0,1,1,1],[1,1,1,1],[1,0,1,0],[0,0,0,0]] },
+  'agent-d': { color: '#8b5cf6', grid: [[1,0,0,0],[1,1,0,0],[0,1,1,1],[0,1,1,1],[1,1,0,1],[0,1,1,1],[0,1,0,1],[0,0,0,0]] },
+  'agent-e': { color: '#50e3c2', grid: [[0,0,1,0],[0,0,1,1],[0,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,1],[1,0,0,1],[0,0,0,0]] },
+  'agent-f': { color: '#22d3ee', grid: [[0,0,1,1],[0,1,1,1],[1,1,1,1],[1,1,0,1],[1,1,1,1],[0,1,1,1],[0,0,1,1],[0,0,0,0]] },
+};
+
+function drawPixelAgent(canvas, agent, size, colorOverride) {
+  const data = PIXELS[agent];
+  if (!data) return;
+  const cols = 8, rows = data.grid.length;
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = colorOverride || data.color;
+  const px = size / cols, py = size / rows;
+  for (let r = 0; r < rows; r++) {
+    const row = data.grid[r];
+    for (let c = 0; c < 4; c++) {
+      if (row[c]) {
+        ctx.fillRect(Math.floor(c * px), Math.floor(r * py), Math.ceil(px), Math.ceil(py));
+        ctx.fillRect(Math.floor((cols - 1 - c) * px), Math.floor(r * py), Math.ceil(px), Math.ceil(py));
+      }
+    }
+  }
+}
+
+function initAgentIcons() {
+  document.querySelectorAll('canvas[data-agent]').forEach((c) => {
+    drawPixelAgent(c, c.dataset.agent, parseInt(c.getAttribute('width')) || 56);
+  });
+}
+
+/* ================================================================
+   Hex mesh bg
+   ================================================================ */
+function initHexBg() {
+  const hexCanvas = document.getElementById('hexBg');
+  if (!hexCanvas) return;
+  const hexCtx = hexCanvas.getContext('2d');
+  let hexAngle = 0;
+
+  function drawHexGrid() {
+    const W = hexCanvas.width = window.innerWidth;
+    const H = hexCanvas.height = window.innerHeight;
+    hexCtx.clearRect(0, 0, W, H);
+    hexCtx.save();
+    hexCtx.translate(W / 2, H / 2);
+    hexCtx.rotate(hexAngle);
+    hexCtx.translate(-W / 2, -H / 2);
+
+    const hexSize = BG_CONFIG.hexCellSize;
+    const hSpacing = hexSize * Math.sqrt(3);
+    const vSpacing = hexSize * 1.5;
+    const cx0 = W / 2, cy0 = H / 2;
+    const maxDist = Math.sqrt(cx0 * cx0 + cy0 * cy0);
+    const fadeExp = BG_CONFIG.hexFadeExponent;
+    const alphaMax = BG_CONFIG.hexAlphaMax;
+
+    for (let row = -1; row < H / vSpacing + 2; row++) {
+      for (let col = -1; col < W / hSpacing + 2; col++) {
+        const hx = col * hSpacing + (row % 2 ? hSpacing / 2 : 0);
+        const hy = row * vSpacing;
+        const dist = Math.sqrt((hx - cx0) * (hx - cx0) + (hy - cy0) * (hy - cy0));
+        let fade = Math.max(0, 1 - (dist / maxDist) * 0.6);
+        for (let f = 1; f < fadeExp; f++) fade *= fade;
+        const alpha = alphaMax * fade;
+        if (alpha < 0.005) continue;
+        hexCtx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = Math.PI / 3 * i - Math.PI / 6;
+          const px = hx + hexSize * Math.cos(a);
+          const py = hy + hexSize * Math.sin(a);
+          i === 0 ? hexCtx.moveTo(px, py) : hexCtx.lineTo(px, py);
+        }
+        hexCtx.closePath();
+        hexCtx.strokeStyle = 'rgba(255,255,255,' + alpha + ')';
+        hexCtx.lineWidth = BG_CONFIG.hexLineWidth;
+        hexCtx.stroke();
+      }
+    }
+    hexCtx.restore();
+  }
+
+  function animate() {
+    hexAngle += BG_CONFIG.hexRotationSpeed;
+    drawHexGrid();
+    requestAnimationFrame(animate);
+  }
+  drawHexGrid();
+  requestAnimationFrame(animate);
+  window.addEventListener('resize', drawHexGrid);
+}
+
+/* ================================================================
+   Scattered agent pixel decorations
+   ================================================================ */
+function initAgentScatter() {
+  const decos = [
+    { agent: 'agent-a', top: '12%', left: '5%', size: 48, rotate: -12 },
+    { agent: 'agent-b', top: '28%', right: '7%', size: 56, rotate: 8 },
+    { agent: 'agent-c', top: '55%', left: '3%', size: 40, rotate: 15 },
+    { agent: 'agent-d', top: '72%', right: '4%', size: 52, rotate: -6 },
+    { agent: 'agent-e', bottom: '15%', left: '8%', size: 44, rotate: 22 },
+    { agent: 'agent-f', top: '18%', left: '88%', size: 60, rotate: -10 },
+    { agent: 'agent-a', top: '42%', right: '10%', size: 44, rotate: 5 },
+    { agent: 'agent-b', top: '85%', left: '12%', size: 50, rotate: -15 },
+    { agent: 'agent-c', top: '65%', left: '92%', size: 42, rotate: 12 },
+    { agent: 'agent-e', top: '8%', left: '50%', size: 36, rotate: -8 },
+    { agent: 'agent-d', top: '48%', left: '6%', size: 72, rotate: 3 },
+    { agent: 'agent-f', bottom: '25%', right: '15%', size: 80, rotate: -3 }
+  ];
+
+  const limit = Math.min(BG_CONFIG.scatterCount, decos.length);
+  const opSpan = BG_CONFIG.scatterOpacityMax - BG_CONFIG.scatterOpacityMin;
+
+  decos.slice(0, limit).forEach((d, i) => {
+    const c = document.createElement('canvas');
+    c.className = 'pixel-agent';
+    if (d.top) c.style.top = d.top;
+    if (d.bottom) c.style.bottom = d.bottom;
+    if (d.left) c.style.left = d.left;
+    if (d.right) c.style.right = d.right;
+    c.style.width = d.size + 'px';
+    c.style.height = d.size + 'px';
+    c.style.opacity = (BG_CONFIG.scatterOpacityMin + (i % 5) / 4 * opSpan).toFixed(3);
+    c.style.transform = 'rotate(' + d.rotate + 'deg)';
+    document.body.appendChild(c);
+    drawPixelAgent(c, d.agent, d.size * 2, '#3d9be0');
+  });
+}
+
+/* ================================================================
+   Cursor glow (gentle trailing highlight)
+   ================================================================ */
+function initCursorGlow() {
+  const glow = document.getElementById('cursorGlow');
+  if (!glow) return;
+  let mx = window.innerWidth / 2, my = window.innerHeight / 2;
+  let gx = mx, gy = my;
+  document.addEventListener('mousemove', (e) => { mx = e.clientX; my = e.clientY; });
+  (function tick() {
+    gx += (mx - gx) * 0.12;
+    gy += (my - gy) * 0.12;
+    glow.style.left = gx + 'px';
+    glow.style.top = gy + 'px';
+    requestAnimationFrame(tick);
+  })();
+}
+</script>
+</body>
+</html>
