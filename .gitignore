@@ -82,3 +82,20 @@ my-tasks.md
 **/credentials*.md
 **/credenciais*.md
 **/credentials.local.md
+
+# Backups de config (BMAD upgrade)
+*.bak
+
+# Artefatos de teste/browser gerados
+playwright-report/
+test-results/
+.playwright-mcp/
+
+# Screenshots e diagramas ad-hoc na raiz (evidência de QA local)
+/*.png
+/*.excalidraw
+
+# Tooling pessoal de agentes (symlinks/instalações locais, não do projeto)
+.agents/
+.claude/skills/vercel-react-best-practices/
+.claude/skills/skill-builder/
