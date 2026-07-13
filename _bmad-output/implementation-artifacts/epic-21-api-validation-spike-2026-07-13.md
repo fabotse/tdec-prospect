@@ -83,6 +83,29 @@ Payload documentado do evento `reply_received` (guia oficial "Webhook Events"):
 
 ---
 
+## ✅ VALIDAÇÃO REAL EXECUTADA — 2026-07-13 (fecha as 4 pendências)
+
+Chamadas reais contra a conta Instantly do cliente (chave de `.env.local`) e o banco de produção (service role, somente leitura). Executado durante a criação da Story 21.1.
+
+| # | Pendência | VEREDITO REAL |
+|---|---|---|
+| 1 | Webhook registrado | **NÃO** — `GET /api/v2/webhooks` → `{"items":[]}` (HTTP 200). Nenhum webhook jamais esteve ativo |
+| 2 | Gating de plano | **Webhooks BLOQUEADOS no plano atual** (confirmado por Fabossi na UI do Instantly). **`GET /api/v2/emails` FUNCIONA** (HTTP 200 com dados reais) — o caminho de polling está liberado |
+| 3 | Backfill via `campaign_events` | **IMPOSSÍVEL via banco** — tabela com **0 linhas** (`SELECT count(*)` = 0; consequência direta do webhook nunca ativo). **POSSÍVEL via API** — `GET /emails?email_type=received` retorna histórico completo (amostra real de março/2026 recuperada) |
+| 4 | Escopo da API key | **`all:all`** (2 chaves no workspace: `tdec-prospect`, `tdec-prospect-local`) — inclui `emails:read` ✅ |
+
+**Amostra real de `GET /api/v2/emails?email_type=received&limit=1` (sanitizada):** item com `id` (UUID), `timestamp_created`, `timestamp_email`, `message_id` (RFC 5322 — chave natural de dedupe), `subject` (`"RE: ..."`), `to_address_email_list`, e **`body.text` com o texto COMPLETO da resposta do lead** (incl. thread anterior citada). A resposta amostrada é um caso real de intent `nao_agora`/`objecao` ("não está na lista de prioridades no momento... renovaram recentemente o [concorrente]") — validando que o material para classificação IA é rico.
+
+### Consequências arquiteturais (decisão registrada)
+
+1. **Polling é o caminho PRIMÁRIO, não a rede de segurança.** A cláusula condicional do épico se ativou na forma máxima: o sweep por polling (antiga Story 21.8) foi **absorvido pela Story 21.2** e é a fonte de ingestão do pipeline (decisão Fabossi 2026-07-13). O receiver de webhook (Epic 10) permanece intocado e vira o "upgrade path" se o cliente mudar de plano no futuro (dual-source com dedupe já previsto por design).
+2. **O pipeline não muda:** o sweep grava `campaign_events` com `source='polling'` e payload equivalente ao do webhook — o processador (21.2) consome identicamente. `message_id` + `lead_email` + timestamp cobrem o dedupe.
+3. **Backfill (FR7) = primeiro sweep com janela ampla** (o histórico está na API), não leitura retroativa de `campaign_events`.
+4. **Rate limit é confortável:** 1 chamada workspace-wide (`email_type=received` + filtro de timestamp) por ciclo cobre TODAS as campanhas — cron de 5 min = 1 req/5min contra limite de 20 req/min. **NFR3 (≤5 min) permanece atingível** com cron ≤5 min (padrão existente: monitoring cron 13.3 / migration 00045).
+5. **Abertura como gatilho principal (decisão de produto, Fabossi 2026-07-13):** com poucas respostas esperadas nas campanhas, o gatilho dominante da Central é **engajamento (aberturas/cliques)** — que já flui 100% por polling hoje (`POST /leads/list` → `openCount`/`clickCount`/`hasReplied`/`lt_interest_status` em `src/lib/services/tracking.ts:142-166`; `opportunity-engine` já qualifica por `openCount >= minOpens`). A Story 21.6 (oportunidades por engajamento) sobe de prioridade na sequência do épico.
+
+---
+
 ## Veredito
 
-**Epic 21 é viável sem incerteza técnica de contrato.** O caminho principal (webhook → `campaign_events.payload.reply_text` → classificação IA → Central de Oportunidades → notificação Z-API) usa dados que a plataforma provavelmente já recebe hoje. Riscos remanescentes são operacionais (webhook configurado? gating de plano?) e estão isolados nas pendências acima.
+**Epic 21 é viável sem incerteza técnica de contrato — e agora sem incerteza operacional.** O caminho principal revisado é: **polling `GET /emails` → `campaign_events` (`source='polling'`) → classificação IA → Central de Oportunidades → notificação Z-API**, com engajamento (aberturas/cliques, já disponível via polling existente) como gatilho dominante. Webhook vira upgrade path futuro.

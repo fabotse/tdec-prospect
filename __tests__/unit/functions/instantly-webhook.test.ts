@@ -83,6 +83,22 @@ describe("mapEventType", () => {
 });
 
 // ==============================================
+// Story 21.2 Task 6.2: Regressão de auto-reply
+// Garante que um webhook futuro nunca gere campaign_events de auto-reply
+// (o filtro de OOO no polling é do processador — reply-processor.ts).
+// ==============================================
+
+describe("Story 21.2 — regressão auto_reply_received", () => {
+  it("auto_reply_received NÃO está no EVENT_TYPE_MAP", () => {
+    expect(Object.keys(EVENT_TYPE_MAP)).not.toContain("auto_reply_received");
+  });
+
+  it("mapEventType('auto_reply_received') retorna null (dropado por omissão)", () => {
+    expect(mapEventType("auto_reply_received")).toBeNull();
+  });
+});
+
+// ==============================================
 // Task 2.2 & 2.6: Teste de payload inválido
 // ==============================================
 

@@ -16,6 +16,7 @@ import type {
   LeadTracking,
   InstantlyAnalyticsResponse,
   InstantlyLeadEntry,
+  InstantlyReceivedEmail,
   OpportunityConfig,
   OpportunityLead,
 } from "@/types/tracking";
@@ -247,6 +248,33 @@ export function createMockInstantlyWebhookPayload(
     step: 1,
     variant: 0,
     is_first: true,
+    ...overrides,
+  };
+}
+
+/**
+ * Creates an InstantlyReceivedEmail mock (GET /api/v2/emails item)
+ * Story 21.2 — resposta de lead recebida via polling
+ */
+export function createMockInstantlyReceivedEmail(
+  overrides: Partial<InstantlyReceivedEmail> = {}
+): InstantlyReceivedEmail {
+  return {
+    id: "email-uuid-1",
+    message_id: "<reply-abc@mail.empresa.com>",
+    timestamp_created: "2026-03-10T12:00:00.000Z",
+    timestamp_email: "2026-03-10T11:59:30.000Z",
+    subject: "RE: proposta comercial",
+    body: {
+      text: "Olá, tenho interesse. Podemos conversar na próxima semana?",
+      html: "<p>Olá, tenho interesse. Podemos conversar na próxima semana?</p>",
+    },
+    campaign_id: "instantly-campaign-abc-123",
+    to_address_email_list: "vendas@minha-empresa.com",
+    lead: "joao@empresa.com.br",
+    email_type: "received",
+    ue_type: 2,
+    i_status: 1,
     ...overrides,
   };
 }

@@ -26,6 +26,9 @@ import type {
   InstantlyAnalyticsResponse,
   InstantlyLeadEntry,
   InstantlyLeadListResponse,
+  GetReceivedEmailsParams,
+  InstantlyReceivedEmail,
+  InstantlyEmailsListResponse,
 } from "@/types/tracking";
 
 // ==============================================
@@ -36,6 +39,7 @@ const INSTANTLY_API_BASE = "https://api.instantly.ai";
 const ANALYTICS_ENDPOINT = "/api/v2/campaigns/analytics";
 const DAILY_ANALYTICS_ENDPOINT = "/api/v2/campaigns/analytics/daily";
 const LEADS_LIST_ENDPOINT = "/api/v2/leads/list";
+const EMAILS_ENDPOINT = "/api/v2/emails";
 const MAX_PAGINATION_PAGES = 50;
 
 // ==============================================
@@ -317,5 +321,60 @@ export class TrackingService extends ExternalService {
     } while (cursor && pageCount < MAX_PAGINATION_PAGES);
 
     return allLeads;
+  }
+
+  /**
+   * Get received emails (lead replies) via polling with cursor pagination.
+   * Story 21.2 AC#1/#2 — GET /api/v2/emails?email_type=received.
+   *
+   * Estruturalmente espelha getLeadTracking (cursor starting_after ->
+   * next_starting_after, teto MAX_PAGINATION_PAGES). Uma chamada workspace-wide
+   * cobre todas as campanhas do workspace (rate limit 20 req/min — NFR5).
+   * Filtra defensivamente por received no cliente (Task 1.3) — nunca sent/manual.
+   */
+  async getReceivedEmails(
+    params: GetReceivedEmailsParams
+  ): Promise<InstantlyReceivedEmail[]> {
+    const { apiKey, since } = params;
+
+    const allEmails: InstantlyReceivedEmail[] = [];
+    let cursor: string | undefined = undefined;
+    let pageCount = 0;
+
+    do {
+      const query = new URLSearchParams({
+        email_type: "received",
+        limit: "100",
+        min_timestamp_created: since,
+      });
+      if (cursor) query.set("starting_after", cursor);
+
+      const url = `${INSTANTLY_API_BASE}${EMAILS_ENDPOINT}?${query.toString()}`;
+
+      const response = await this.request<InstantlyEmailsListResponse>(url, {
+        method: "GET",
+        headers: buildAuthHeaders(apiKey),
+      });
+
+      // Defensive client-side filter (Task 1.3): only genuine received emails.
+      const received = (response.items ?? []).filter(
+        (email) => email.email_type === "received" || email.ue_type === 2
+      );
+      allEmails.push(...received);
+
+      cursor = response.next_starting_after ?? undefined;
+      pageCount++;
+    } while (cursor && pageCount < MAX_PAGINATION_PAGES);
+
+    if (cursor) {
+      // Cap atingido com cursor remanescente: há mais e-mails além das
+      // MAX_PAGINATION_PAGES páginas. Não silencie — o backfill amplo pode perder
+      // dados; a janela incremental os ingere no próximo ciclo.
+      console.warn(
+        `[TrackingService] getReceivedEmails atingiu o teto de ${MAX_PAGINATION_PAGES} páginas com cursor remanescente — e-mails além do teto ficam para o próximo ciclo (reduza a janela do backfill se precisar de tudo de uma vez).`
+      );
+    }
+
+    return allEmails;
   }
 }

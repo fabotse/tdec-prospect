@@ -486,6 +486,149 @@ describe("TrackingService", () => {
   });
 
   // ==============================================
+  // Story 21.2 Task 7.1: getReceivedEmails
+  // ==============================================
+
+  describe("getReceivedEmails", () => {
+    const EMAILS_URL = /api\.instantly\.ai\/api\/v2\/emails/;
+    const SINCE = "2026-03-01T00:00:00.000Z";
+
+    function makeEmail(overrides: Record<string, unknown> = {}) {
+      return {
+        id: "email-1",
+        message_id: "<abc@mail.com>",
+        timestamp_created: "2026-03-10T12:00:00.000Z",
+        subject: "RE: proposta",
+        body: { text: "Tenho interesse", html: "<p>Tenho interesse</p>" },
+        campaign_id: "ext-campaign-1",
+        lead: "lead@empresa.com",
+        email_type: "received",
+        ue_type: 2,
+        i_status: 1,
+        ...overrides,
+      };
+    }
+
+    it("fetches received emails and returns InstantlyReceivedEmail[]", async () => {
+      createMockFetch([
+        {
+          url: EMAILS_URL,
+          method: "GET",
+          response: mockJsonResponse({
+            items: [makeEmail({ id: "e1" }), makeEmail({ id: "e2" })],
+            next_starting_after: undefined,
+          }),
+        },
+      ]);
+
+      const result = await service.getReceivedEmails({
+        apiKey: TEST_API_KEY,
+        since: SINCE,
+      });
+
+      expect(result).toHaveLength(2);
+      expect(result[0].id).toBe("e1");
+      expect(result[0].body?.text).toBe("Tenho interesse");
+    });
+
+    it("propagates `since` as min_timestamp_created and email_type=received", async () => {
+      const mock = createMockFetch([
+        {
+          url: EMAILS_URL,
+          method: "GET",
+          response: mockJsonResponse({ items: [], next_starting_after: undefined }),
+        },
+      ]);
+
+      await service.getReceivedEmails({ apiKey: TEST_API_KEY, since: SINCE });
+
+      const call = mock.calls()[0];
+      expect(call.url).toContain("email_type=received");
+      expect(call.url).toContain(`min_timestamp_created=${encodeURIComponent(SINCE)}`);
+    });
+
+    it("paginates via cursor (next_starting_after)", async () => {
+      let callCount = 0;
+      createMockFetch([
+        {
+          url: EMAILS_URL,
+          method: "GET",
+          response: {
+            ok: true,
+            status: 200,
+            json: () => {
+              callCount++;
+              if (callCount === 1) {
+                return Promise.resolve({
+                  items: [makeEmail({ id: "p1" })],
+                  next_starting_after: "cursor-2",
+                });
+              }
+              return Promise.resolve({
+                items: [makeEmail({ id: "p2" })],
+                next_starting_after: undefined,
+              });
+            },
+            text: () => Promise.resolve(""),
+          },
+        },
+      ]);
+
+      const result = await service.getReceivedEmails({ apiKey: TEST_API_KEY, since: SINCE });
+
+      expect(result).toHaveLength(2);
+      expect(result.map((e) => e.id)).toEqual(["p1", "p2"]);
+    });
+
+    it("defensively filters out non-received emails (sent/manual)", async () => {
+      createMockFetch([
+        {
+          url: EMAILS_URL,
+          method: "GET",
+          response: mockJsonResponse({
+            items: [
+              makeEmail({ id: "recv", email_type: "received", ue_type: 2 }),
+              makeEmail({ id: "sent", email_type: "sent", ue_type: 1 }),
+              makeEmail({ id: "manual", email_type: "manual", ue_type: 3 }),
+            ],
+            next_starting_after: undefined,
+          }),
+        },
+      ]);
+
+      const result = await service.getReceivedEmails({ apiKey: TEST_API_KEY, since: SINCE });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe("recv");
+    });
+
+    it("respeita o teto MAX_PAGINATION_PAGES e avisa ao truncar (rate limit / AC9)", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      // Cursor que nunca termina → o loop precisa parar pelo teto, não por cursor null.
+      createMockFetch([
+        {
+          url: EMAILS_URL,
+          method: "GET",
+          response: {
+            ok: true,
+            status: 200,
+            json: () =>
+              Promise.resolve({ items: [makeEmail()], next_starting_after: "cursor-forever" }),
+            text: () => Promise.resolve(""),
+          },
+        },
+      ]);
+
+      const result = await service.getReceivedEmails({ apiKey: TEST_API_KEY, since: SINCE });
+
+      // Para em 50 páginas (MAX_PAGINATION_PAGES) — não loopa infinitamente.
+      expect(result).toHaveLength(50);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("atingiu o teto"));
+      warnSpy.mockRestore();
+    });
+  });
+
+  // ==============================================
   // Task 6.7-6.10: Error handling
   // ==============================================
 

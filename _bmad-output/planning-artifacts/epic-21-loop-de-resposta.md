@@ -24,19 +24,28 @@ Este documento contém o breakdown de epic e stories para o Loop de Resposta (Ep
 
 **Spike de validação:** `_bmad-output/implementation-artifacts/epic-21-api-validation-spike-2026-07-13.md` — webhook `reply_received` entrega `reply_text`/`reply_html` completos; nosso receiver já persiste o payload bruto em `campaign_events.payload` (JSONB); fallback por polling via `GET /api/v2/emails` (`email_type=received`, rate limit 20 req/min); `lt_interest_status` com escala documentada (Interested=1 … Not Interested=-1).
 
+> **⚠️ ATUALIZAÇÃO 2026-07-13 — Validação real concluída + re-sequenciamento (decisão Fabossi).**
+> As 4 pendências do spike foram fechadas com chamadas reais (ver seção "✅ VALIDAÇÃO REAL EXECUTADA" no artefato do spike):
+> **webhooks estão BLOQUEADOS no plano do cliente** e `campaign_events` está vazia (webhook nunca ativo) — mas **`GET /api/v2/emails` funciona** (texto completo das respostas, escopo `all:all`, histórico disponível).
+> A cláusula condicional deste épico foi **ativada**, com dois efeitos:
+> 1. **Polling é o caminho primário de ingestão** — o sweep da antiga Story 21.8 foi **absorvido pela Story 21.2** (agora "Ingestão de Respostas por Polling + Processador + Backfill"). O receiver de webhook (Epic 10) permanece intocado como upgrade path futuro. NFR3 (≤5 min) permanece atingível: 1 chamada workspace-wide por ciclo, cron ≤5 min (1 de 20 req/min).
+> 2. **Decisão de produto:** com poucas respostas esperadas nas campanhas, **abertura/clique é o gatilho dominante** da Central — a **Story 21.6 foi promovida** para logo após a 21.2 (engajamento já flui 100% por polling existente do Epic 10).
+>
+> **Sequência revisada (7 stories):** 21.1 → 21.2' → **21.6** → 21.3 → 21.4 → 21.5 → 21.7. A 21.8 deixa de existir como story separada.
+
 ## Requirements Inventory
 
 ### Functional Requirements
 
 **Detecção e Classificação de Respostas**
-- FR1: Sistema detecta automaticamente respostas de leads via webhook Instantly (`reply_received`), sem reconciliação manual
+- FR1: Sistema detecta automaticamente respostas de leads via polling da API Instantly (`GET /api/v2/emails`, `email_type=received`), sem reconciliação manual — webhook `reply_received` como upgrade path futuro se o plano do cliente mudar (revisado 2026-07-13: webhooks bloqueados no plano atual)
 - FR2: Sistema diferencia respostas automáticas (`auto_reply_received`, out-of-office) de respostas reais — auto-reply não gera lead quente
 - FR3: Sistema classifica a intenção da resposta por IA: `interessado` / `pediu_info` / `objecao` / `nao_agora` / `opt_out`
 - FR4: Sistema combina a classificação IA com o `lt_interest_status` nativo do Instantly quando disponível
 - FR5: Sistema atualiza o status do lead automaticamente conforme a classificação (ex.: → `interessado`)
 - FR6: Sistema registra a resposta no histórico de interações do lead (`lead_interactions`)
 - FR7: Sistema processa retroativamente respostas já armazenadas em `campaign_events` (backfill)
-- FR17: Sistema reconcilia respostas periodicamente via polling (`GET /api/v2/emails`) como rede de segurança do webhook — nenhuma resposta se perde silenciosamente se o webhook falhar
+- FR17: Sistema ingere respostas periodicamente via polling (`GET /api/v2/emails`) como **caminho primário** de detecção (revisado 2026-07-13 — webhooks indisponíveis no plano do cliente); se webhooks forem habilitados no futuro, o dual-source webhook+polling deduplica pela constraint existente — nenhuma resposta se perde silenciosamente
 
 **Central de Oportunidades**
 - FR8: Usuário pode acessar Central de Oportunidades cross-campanha (nova página na sidebar, badge de contagem)
@@ -57,7 +66,7 @@ Este documento contém o breakdown de epic e stories para o Loop de Resposta (Ep
 - NFR2: Processamento idempotente — cada evento de `campaign_events` classificado no máximo 1 vez (constraint unique preservada)
 - NFR3: Notificação proativa em ≤5 min após o evento de resposta
 - NFR4: RLS por `tenant_id` em toda tabela nova; mensagens de erro em PT-BR
-- NFR5: A reconciliação por polling (story 21.8) respeita o rate limit do Instantly (20 req/min) e não duplica eventos já capturados via webhook
+- NFR5: A ingestão por polling (story 21.2, sweep ex-21.8) respeita o rate limit do Instantly (20 req/min) e não duplica eventos (dedupe pela UNIQUE constraint de `campaign_events`)
 - NFR6: Custo de IA por classificação ~centavos (gpt-4o-mini), registrado em `api_usage_logs`
 
 ### Additional Requirements
@@ -114,7 +123,7 @@ Quando um lead responde uma campanha, o sistema detecta, classifica a intenção
 
 **Standalone:** usa apenas Epics 10/11/13/14 (todos done); não requer épicos futuros. Habilita os Epics 22 (lead score alimenta a Central) e 23 (FR16 alimenta o relatório de ROI).
 
-**Sequência interna de valor:** fundação (schema + validações do spike) → detecção (processador de `campaign_events` + backfill) → inteligência (classificação IA + ensemble) → entrega (Central de Oportunidades) → proatividade (notificações + config) → resiliência (reconciliação por polling — prioridade condicionada ao resultado do gating validado na 21.1: se webhooks bloqueados no plano do cliente, a 21.8 sobe para logo após a 21.2).
+**Sequência interna de valor (revisada 2026-07-13):** fundação (schema + validações do spike ✅) → ingestão (sweep de polling + processador + backfill — 21.2', absorve a antiga 21.8) → **engajamento (21.6 promovida — gatilho dominante: aberturas/cliques)** → inteligência (classificação IA + ensemble) → entrega (Central de Oportunidades + ações) → proatividade (notificações + config).
 
 ---
 
@@ -137,7 +146,9 @@ So that as stories seguintes tenham fundação de dados e zero incerteza operaci
 5. **Given** o banco do ambiente de referência **When** executo `SELECT payload FROM campaign_events WHERE event_type='email_replied' LIMIT 5` **Then** o resultado (payload real com/sem `reply_text`) é documentado no artefato do spike, junto com: webhook registrado no workspace (ou registrado via API de webhooks), gating de plano verificado, escopo `emails:read` da API key conferido
 6. **Given** a migration segue o padrão defensivo do projeto **Then** usa `to_regclass`/idempotência (aprendizado do banco gerenciado à mão — migration 00053)
 
-### Story 21.2: Processador de Respostas + Backfill
+### Story 21.2: Ingestão de Respostas por Polling + Processador + Backfill
+
+> **Revisada 2026-07-13 (decisão Fabossi):** absorve o sweep de polling da antiga Story 21.8 — com webhooks bloqueados no plano do cliente, o polling é o **caminho primário** de ingestão, não rede de segurança. O pipeline interno não muda: sweep grava `campaign_events` (`source='polling'`) e o processador consome de lá.
 
 As a usuario,
 I want que respostas de leads sejam detectadas e registradas automaticamente,
@@ -145,13 +156,15 @@ So that eu nunca mais precise importar CSV de resultados para saber quem respond
 
 **Acceptance Criteria:**
 
-1. **Given** um evento `email_replied` novo em `campaign_events` (via webhook) **When** o processador roda **Then** cria uma `opportunity` (`source='reply'`) com `reply_text`/`reply_subject`/`unibox_url` extraídos de `payload` **And** não duplica se o evento já foi processado (UNIQUE `reply_event_id`)
-2. **Given** o receiver existente já descarta `auto_reply_received` (não mapeado em `EVENT_TYPE_MAP` — a filtragem do FR2 acontece na camada do receiver, verificado em `supabase/functions/instantly-webhook/index.ts`) **Then** teste de regressão garante que `auto_reply_received` permanece fora do mapa (nunca gera `campaign_events`) **And** o processador aplica heurística defensiva para OOO disfarçado em `email_replied` (ex.: `lt_interest_status = 0` "Out of Office" → NÃO cria oportunidade, motivo em log estruturado) (FR2)
-3. **Given** uma oportunidade é criada **Then** uma `lead_interaction` do tipo `campaign_reply` é registrada para o lead correspondente (match por `lead_email` + tenant) (FR6)
-4. **Given** eventos `email_replied` históricos já existentes em `campaign_events` **When** o backfill é executado (ação idempotente, disparável por rota admin) **Then** oportunidades retroativas são criadas sem duplicatas (FR7)
-5. **Given** o lead da resposta não existe na base **When** o processador roda **Then** a oportunidade é criada mesmo assim com os dados do payload **And** `lead_id` nullable é tratado em toda a cadeia
-6. **Given** o receiver do webhook (`instantly-webhook`) **Then** NENHUMA modificação é feita nele — o processador é um consumidor aditivo (trigger de banco, cron ou invocação pós-insert via padrão existente) **And** o mecanismo escolhido deve satisfazer NFR3 (notificação ≤5 min): cron exige cadência ≤5 min; trigger/realtime satisfaz por construção — registrar a decisão na story
-7. Testes unitários para extração de payload, filtro de auto-reply, idempotência e backfill
+1. **[Sweep — ex-21.8]** **Given** o cron de ingestão roda (cadência ≤5 min — NFR3; padrão do monitoring cron 13.3 / migration 00045) **When** o sweep executa **Then** busca respostas via `GET /api/v2/emails` (`email_type=received`, workspace-wide, janela desde o último sweep) **And** grava eventos em `campaign_events` com `source='polling'`, `event_type='email_replied'` e payload equivalente ao do webhook (`reply_text` ← `body.text`, `reply_subject` ← `subject`, `lead_email`, timestamp, `message_id`) **And** não duplica (dedupe pela UNIQUE constraint existente de `campaign_events` + `message_id` no payload) (FR1, FR17)
+2. **[Rate limit — ex-21.8]** **Given** o rate limit do Instantly (20 req/min — NFR5) **Then** o sweep respeita o limite (1 chamada workspace-wide por ciclo + paginação limitada) **And** degrada graciosamente: o que não couber no ciclo atual é ingerido no próximo **And** falha de API loga erro estruturado sem quebrar o cron (fail-open)
+3. **[Processador]** **Given** um evento `email_replied` novo em `campaign_events` **When** o processador roda **Then** cria uma `opportunity` (`source='reply'`) com `reply_text`/`reply_subject`/`unibox_url` extraídos de `payload` **And** não duplica se o evento já foi processado (UNIQUE `reply_event_id`) **And** `unibox_url` pode ser null via polling (campo nullable; presente apenas em payload de webhook)
+4. **[Auto-reply]** **Given** respostas OOO/automáticas **Then** o processador aplica heurística defensiva (ex.: `lt_interest_status = 0` "Out of Office" → NÃO cria oportunidade, motivo em log estruturado) **And** teste de regressão garante que `auto_reply_received` permanece fora do `EVENT_TYPE_MAP` do receiver (nunca gera `campaign_events` via webhook futuro) (FR2)
+5. **Given** uma oportunidade é criada **Then** uma `lead_interaction` do tipo `campaign_reply` é registrada para o lead correspondente (match por `lead_email` + tenant) (FR6)
+6. **[Backfill]** **Given** o histórico de respostas disponível na API (validado: desde mar/2026) **When** o backfill é executado (primeiro sweep com janela ampla, ação idempotente disparável por rota admin) **Then** oportunidades retroativas são criadas sem duplicatas (FR7 — revisado: via API, pois `campaign_events` está vazia)
+7. **Given** o lead da resposta não existe na base **When** o processador roda **Then** a oportunidade é criada mesmo assim com os dados do payload **And** `lead_id` nullable é tratado em toda a cadeia
+8. **Given** o receiver do webhook (`instantly-webhook`) **Then** NENHUMA modificação é feita nele — permanece como upgrade path se o cliente habilitar webhooks (dual-source deduplica por construção)
+9. Testes unitários para: sweep (mock da API Instantly), dedupe, rate limit, extração de payload, filtro de auto-reply, idempotência e backfill
 
 ### Story 21.3: Classificação de Intenção por IA
 
@@ -204,6 +217,8 @@ So that eu responda o lead quente em minutos, não em dias.
 
 ### Story 21.6: Janela de Oportunidade Cross-Campanha
 
+> **PROMOVIDA 2026-07-13 (decisão Fabossi):** executa logo após a 21.2 — com poucas respostas esperadas nas campanhas, **abertura/clique é o gatilho dominante** da Central. Zero dependência de webhook: o polling existente do Epic 10 (`POST /leads/list`) já entrega `openCount`/`clickCount` por lead e o `opportunity-engine` já qualifica por abertura.
+
 As a usuario,
 I want que leads com alto engajamento (aberturas/cliques) também apareçam na Central,
 So that eu aja sobre leads quentes que ainda não responderam — antes do concorrente.
@@ -232,34 +247,20 @@ So that o "pop-up do lead" chegue até mim mesmo quando não estou na plataforma
 6. **Given** múltiplas respostas em rajada **Then** notificações WhatsApp são agrupadas se >3 no intervalo de 5 min ("4 novos leads quentes — abrir Central")
 7. Testes unitários para gatilhos, agrupamento, fallback e configurações
 
-### Story 21.8: Reconciliação por Polling (Rede de Segurança)
+### ~~Story 21.8: Reconciliação por Polling (Rede de Segurança)~~ — ABSORVIDA PELA 21.2 (2026-07-13)
 
-As a usuario,
-I want que respostas de leads sejam capturadas mesmo se o webhook falhar ou estiver indisponível,
-So that nenhum lead quente se perca silenciosamente — a promessa do loop de resposta não depende de um único ponto de falha.
+A validação real da 21.1 AC5 concluiu que **webhooks estão bloqueados no plano do cliente** — a prioridade condicional desta story se ativou na forma máxima: o sweep de polling não é rede de segurança, é o **caminho primário de ingestão**, e por isso foi fundido na Story 21.2 (ACs 1, 2 e parte do 9). Não existe mais como story separada. A cadência definida (cron ≤5 min, 1 chamada workspace-wide por ciclo) mantém NFR3 atingível dentro do rate limit (NFR5). Se o cliente habilitar webhooks no futuro, o receiver existente (Epic 10, intocado) passa a coexistir com o sweep — o dedupe pela UNIQUE constraint de `campaign_events` já cobre o dual-source.
 
-**Prioridade condicional:** por padrão executa por último (pós-demo). Se a validação de gating da 21.1 AC5 concluir que webhooks estão indisponíveis no plano do cliente (Growth), esta story é promovida para imediatamente após a 21.2 e o polling passa a ser o caminho primário.
-
-**Acceptance Criteria:**
-
-1. **Given** o sync de analytics existente (`TrackingService`) roda para uma campanha ativa **When** o sweep de reconciliação executa **Then** busca respostas via `GET /api/v2/emails` (`email_type=received`, `campaign_id`, janela desde o último sync) **And** grava eventos ausentes em `campaign_events` com `source='polling'` e payload equivalente ao do webhook (`reply_text`, `reply_subject`, `lead_email`, timestamp) — o pipeline da 21.2 processa eventos `source='polling'` identicamente, sem mudança no processador (FR17)
-2. **Given** uma resposta já capturada pelo webhook **When** o sweep encontra a mesma resposta **Then** NÃO duplica (dedupe pela unique constraint de `campaign_events` / match por id do e-mail + lead + timestamp)
-3. **Given** o rate limit do Instantly (20 req/min — NFR5) **Then** o sweep respeita o limite (chamadas espaçadas/paginação limitada por ciclo) **And** degrada graciosamente: o que não couber no ciclo atual é reconciliado no próximo
-4. **Given** a API key sem escopo `emails:read` ou endpoint indisponível **Then** o sweep loga erro estruturado claro e NÃO quebra o sync de analytics existente (fail-open)
-5. **Given** o polling é o caminho primário (webhook indisponível por gating) **Then** a cadência do sync é ajustada para o menor intervalo viável dentro do rate limit **And** a latência esperada de notificação é documentada (NFR3 pode não ser atingível — registrar o desvio)
-6. Testes unitários para o sweep (mock da API Instantly), dedupe webhook×polling e comportamento sob rate limit
-
-### Cobertura final
+### Cobertura final (revisada 2026-07-13)
 
 | Story | FRs | UX-DRs |
 |---|---|---|
-| 21.1 | fundação (habilita todos) + pendências do spike | — |
-| 21.2 | FR1, FR2, FR6, FR7 | — |
+| 21.1 | fundação (habilita todos) + pendências do spike ✅ | — |
+| 21.2 | FR1, FR2, FR6, FR7, FR17 (absorveu a 21.8) | — |
+| 21.6 (promovida — 3ª na sequência) | FR12 | — |
 | 21.3 | FR3, FR4, FR5 | — |
 | 21.4 | FR8, FR9 | UX-DR1, UX-DR2 |
 | 21.5 | FR10, FR11, FR16 | — |
-| 21.6 | FR12 | — |
 | 21.7 | FR13, FR14, FR15 | — |
-| 21.8 | FR17 | — |
 
-17/17 FRs e 2/2 UX-DRs cobertos.
+17/17 FRs e 2/2 UX-DRs cobertos. Sequência de execução: 21.1 → 21.2 → 21.6 → 21.3 → 21.4 → 21.5 → 21.7.
