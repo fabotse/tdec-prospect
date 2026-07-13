@@ -23,6 +23,7 @@ export * from "./apify";
 export * from "./api-usage";
 export * from "./export";
 export * from "./tracking";
+export * from "./opportunity";
 export * from "./monitoring";
 export * from "./agent";
 // Note: team.ts exports UserRole which conflicts with database.ts
