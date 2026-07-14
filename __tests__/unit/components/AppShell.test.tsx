@@ -17,6 +17,11 @@ vi.mock("@/hooks/use-lead-insights", () => ({
   useNewInsightsCount: vi.fn(() => ({ data: 0 })),
 }));
 
+// Story 21.4: mock use-opportunities (Sidebar uses useNewOpportunitiesCount)
+vi.mock("@/hooks/use-opportunities", () => ({
+  useNewOpportunitiesCount: vi.fn(() => ({ data: 0 })),
+}));
+
 // Mock useUser hook
 vi.mock("@/hooks/use-user", () => ({
   useUser: () => ({

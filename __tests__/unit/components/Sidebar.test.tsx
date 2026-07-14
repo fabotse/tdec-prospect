@@ -16,6 +16,12 @@ vi.mock('@/hooks/use-lead-insights', () => ({
   useNewInsightsCount: vi.fn(() => ({ data: 0 })),
 }))
 
+// Story 21.4: mock use-opportunities (badge de Oportunidades)
+const mockUseNewOpportunitiesCount = vi.fn(() => ({ data: 0 }))
+vi.mock('@/hooks/use-opportunities', () => ({
+  useNewOpportunitiesCount: () => mockUseNewOpportunitiesCount(),
+}))
+
 // Story 20.5 (AC4/AC5): Sidebar agora é ciente de papel via useUser.
 vi.mock('@/hooks/use-user', () => ({
   useUser: vi.fn(),
@@ -58,6 +64,8 @@ describe('Sidebar', () => {
     mockUsePathname.mockReturnValue('/leads')
     // Default: Gestor (admin) — mantém as asserções pré-existentes válidas.
     mockUseUser.mockReturnValue(mockUserReturn())
+    // Story 21.4: default sem oportunidades novas (badge oculto)
+    mockUseNewOpportunitiesCount.mockReturnValue({ data: 0 })
   })
 
   afterEach(() => {
@@ -623,6 +631,55 @@ describe('Sidebar', () => {
           expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: /buscar/i }))
         })
       })
+    })
+  })
+
+  // ==============================================
+  // Story 21.4 (AC1/AC7) — Item "Oportunidades" + badge de contagem
+  // Espelha o InsightsBadge; SEM adminOnly (SDR vê).
+  // ==============================================
+  describe('Oportunidades nav item + badge (Story 21.4)', () => {
+    it('should render Oportunidades link with /opportunities href', () => {
+      render(<Sidebar {...defaultProps} />)
+
+      const link = screen.getByRole('link', { name: /oportunidades/i })
+      expect(link).toHaveAttribute('href', '/opportunities')
+    })
+
+    it('should mark Oportunidades as active when on /opportunities route', () => {
+      mockUsePathname.mockReturnValue('/opportunities')
+      render(<Sidebar {...defaultProps} />)
+
+      const link = screen.getByRole('link', { name: /oportunidades/i })
+      expect(link).toHaveAttribute('aria-current', 'page')
+    })
+
+    it('should show badge with count of new opportunities', () => {
+      mockUseNewOpportunitiesCount.mockReturnValue({ data: 7 })
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByTestId('opportunities-badge')).toHaveTextContent('7')
+    })
+
+    it('should hide badge when count is 0', () => {
+      mockUseNewOpportunitiesCount.mockReturnValue({ data: 0 })
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.queryByTestId('opportunities-badge')).not.toBeInTheDocument()
+    })
+
+    it('should show "99+" when count exceeds 99', () => {
+      mockUseNewOpportunitiesCount.mockReturnValue({ data: 150 })
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByTestId('opportunities-badge')).toHaveTextContent('99+')
+    })
+
+    it('should be visible for SDR (sem adminOnly — AC7)', () => {
+      mockUseUser.mockReturnValue(mockUserReturn({ isAdmin: false, role: 'sdr' }))
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByRole('link', { name: /oportunidades/i })).toBeInTheDocument()
     })
   })
 

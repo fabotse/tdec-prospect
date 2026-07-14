@@ -15,6 +15,7 @@ import {
   Lightbulb,
   Radar,
   Bot,
+  Inbox,
 } from "lucide-react";
 import {
   Tooltip,
@@ -26,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { BrandLogo } from "@/components/common/BrandLogo";
 import { BRAND } from "@/lib/constants/brand";
 import { useNewInsightsCount } from "@/hooks/use-lead-insights";
+import { useNewOpportunitiesCount } from "@/hooks/use-opportunities";
 import { useUser } from "@/hooks/use-user";
 
 const TRANSITION_DURATION = 200;
@@ -56,6 +58,8 @@ const navItems: NavItem[] = [
   },
   { label: "Technographic", href: "/technographic", icon: Radar, adminOnly: true },
   { label: "Campanhas", href: "/campaigns", icon: Send },
+  // Story 21.4 (AC1/AC7): SEM adminOnly — a Central é ferramenta de trabalho do SDR.
+  { label: "Oportunidades", href: "/opportunities", icon: Inbox },
   { label: "Insights", href: "/insights", icon: Lightbulb },
   { label: `Agente ${BRAND.name}`, href: "/agent", icon: Bot },
   { label: "Configurações", href: "/settings", icon: Settings, adminOnly: true },
@@ -66,6 +70,21 @@ function InsightsBadge() {
   if (!count || count === 0) return null;
   return (
     <Badge variant="default" className="ml-auto text-[10px] h-5 min-w-[20px] px-1.5">
+      {count > 99 ? "99+" : count}
+    </Badge>
+  );
+}
+
+/** Story 21.4 (AC1): contagem de oportunidades status='new' — espelha InsightsBadge. */
+function OpportunitiesBadge() {
+  const { data: count } = useNewOpportunitiesCount();
+  if (!count || count === 0) return null;
+  return (
+    <Badge
+      variant="default"
+      className="ml-auto text-[10px] h-5 min-w-[20px] px-1.5"
+      data-testid="opportunities-badge"
+    >
       {count > 99 ? "99+" : count}
     </Badge>
   );
@@ -408,6 +427,7 @@ export function Sidebar({ isCollapsed, onToggleCollapse, width, isHydrated }: Si
                 {item.label}
               </span>
               {item.href === "/insights" && <InsightsBadge />}
+              {item.href === "/opportunities" && <OpportunitiesBadge />}
             </>
           )}
         </Link>

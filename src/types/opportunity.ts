@@ -61,6 +61,68 @@ export function isValidOpportunityStatus(value: string): value is OpportunitySta
 }
 
 // ==============================================
+// APRESENTAÇÃO — Story 21.4 (Central de Oportunidades)
+// Espelha o padrão leadStatusVariants/LEAD_STATUSES/getStatusConfig de lead.ts
+// e o idioma de cor do LeadStatusBadge (bg-{cor}-500/20 + text-{cor}-600/400).
+// ==============================================
+
+export interface OpportunityIntentConfig {
+  label: string;
+  badgeClasses: string;
+}
+
+export const OPPORTUNITY_INTENT_CONFIG: Record<OpportunityIntent, OpportunityIntentConfig> = {
+  interessado: {
+    label: "Interessado",
+    badgeClasses: "bg-green-500/20 text-green-600 dark:text-green-400",
+  },
+  pediu_info: {
+    label: "Pediu informações",
+    badgeClasses: "bg-blue-500/20 text-blue-600 dark:text-blue-400",
+  },
+  objecao: {
+    label: "Objeção",
+    badgeClasses: "bg-amber-500/20 text-amber-600 dark:text-amber-400",
+  },
+  nao_agora: {
+    label: "Não agora",
+    badgeClasses: "bg-muted text-muted-foreground",
+  },
+  opt_out: {
+    label: "Opt-out",
+    badgeClasses: "bg-destructive/20 text-destructive",
+  },
+};
+
+/**
+ * Fallback neutro para `intent` null — caso real e legítimo: a 21.3 é fail-open
+ * (resposta ainda não classificada / irresolvível) e `source='engagement'`
+ * nunca é classificado.
+ */
+export const UNCLASSIFIED_INTENT_CONFIG: OpportunityIntentConfig = {
+  label: "Não classificado",
+  badgeClasses: "bg-muted text-muted-foreground",
+};
+
+export function getIntentConfig(
+  intent: OpportunityIntent | null | undefined
+): OpportunityIntentConfig {
+  if (!intent) return UNCLASSIFIED_INTENT_CONFIG;
+  // Fallback também para uma chave fora do enum (ex.: valor gravado por futura
+  // migration que amplie o CHECK sem atualizar o config) — nunca retornar undefined.
+  return OPPORTUNITY_INTENT_CONFIG[intent] ?? UNCLASSIFIED_INTENT_CONFIG;
+}
+
+/** Labels pt-BR de status do card — fonte única para filtros/exibição (21.4). */
+export const OPPORTUNITY_STATUS_CONFIG: Record<OpportunityStatus, { label: string }> = {
+  new: { label: "Nova" },
+  viewed: { label: "Vista" },
+  contacted: { label: "Contatada" },
+  meeting_booked: { label: "Reunião marcada" },
+  discarded: { label: "Descartada" },
+};
+
+// ==============================================
 // OPPORTUNITY — DB Row (snake_case)
 // nullable espelha exatamente o schema (00055)
 // ==============================================
