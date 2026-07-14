@@ -18,6 +18,7 @@ import { createClient } from "@supabase/supabase-js";
 import { sweepReplies } from "@/lib/utils/reply-sweep";
 import { processReplies } from "@/lib/utils/reply-processor";
 import { processEngagement } from "@/lib/utils/engagement-processor";
+import { classifyPendingReplies } from "@/lib/utils/reply-classifier";
 
 export async function POST(req: NextRequest) {
   // Auth: cron secret (lido em tempo de request para testabilidade).
@@ -44,6 +45,8 @@ export async function POST(req: NextRequest) {
     const sweep = await sweepReplies(supabase);
     const processed = await processReplies(supabase);
     const engagement = await processEngagement(supabase);
+    // Story 21.3: classifica intenção das respostas persistidas (DEPOIS de processReplies).
+    const classify = await classifyPendingReplies(supabase);
 
     return NextResponse.json({
       swept: sweep.swept,
@@ -51,10 +54,13 @@ export async function POST(req: NextRequest) {
       skipped: sweep.skipped + processed.skipped,
       engagementCreated: engagement.created,
       engagementSkipped: engagement.skipped,
+      classified: classify.classified,
+      classifySkipped: classify.skipped,
       errors: [
         ...sweep.errors.map((e) => ({ scope: "sweep", ...e })),
         ...processed.errors.map((e) => ({ scope: "process", ...e })),
         ...engagement.errors.map((e) => ({ scope: "engagement", ...e })),
+        ...classify.errors.map((e) => ({ scope: "classify", ...e })),
       ],
     });
   } catch (error) {

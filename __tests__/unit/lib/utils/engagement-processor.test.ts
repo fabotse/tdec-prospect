@@ -290,4 +290,33 @@ describe("processEngagement", () => {
     expect(chains.opportunities.insert).not.toHaveBeenCalled();
     expect(result.errors.some((e) => e.error === "config-load-failed")).toBe(true);
   });
+
+  it("normaliza lt_interest_status string→int no insert (regressão 21.6 fechada pela 21.3)", async () => {
+    // LeadTracking.ltInterestStatus é string; antes da 21.3 o ramo `typeof number` gravava
+    // sempre null. Agora normalizeLtInterestStatus("1") → 1.
+    mockGetLeadTracking.mockResolvedValue([
+      createMockLeadTracking({
+        leadEmail: "hot@test.com",
+        openCount: 5,
+        clickCount: 2,
+        lastOpenAt: "2026-07-10T10:00:00.000Z",
+        lastClickAt: "2026-07-12T10:00:00.000Z",
+        leadId: "instantly-lead-99",
+        ltInterestStatus: "1",
+      }),
+    ]);
+    const { supabase, chains } = makeSupabase({
+      campaigns: EXPORTED_CAMPAIGNS,
+      leads: { data: { id: "local-lead-99" } },
+      opportunitiesActive: { data: null },
+      opportunities: { data: null, error: null },
+    });
+
+    const result = await processEngagement(supabase, { tenantId: "tenant-1" });
+
+    expect(result.created).toBe(1);
+    expect(chains.opportunities.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ lt_interest_status: 1 })
+    );
+  });
 });

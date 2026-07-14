@@ -28,6 +28,7 @@ import {
   type OpportunityLead,
 } from "@/types/tracking";
 import { ACTIVE_OPPORTUNITY_STATUSES } from "@/types/opportunity";
+import { normalizeLtInterestStatus } from "@/lib/utils/lt-interest";
 
 // ==============================================
 // CONSTANTS
@@ -192,9 +193,10 @@ async function createEngagementOpportunity(
     return { outcome: "skipped" };
   }
 
-  // Normalização string→int do interest status é da 21.3 — aqui só grava se já for int.
-  const rawStatus: unknown = lead.ltInterestStatus;
-  const ltInterestStatus = typeof rawStatus === "number" ? rawStatus : null;
+  // Story 21.3 (Task 3.2): normaliza string→int. `LeadTracking.ltInterestStatus` é `string`,
+  // então o ramo `typeof === "number"` anterior era MORTO e gravava sempre null. Fecha o
+  // defer da 21.6 (lt_interest_status sempre null p/ engagement) — aditivo: só "null → valor real".
+  const ltInterestStatus = normalizeLtInterestStatus(lead.ltInterestStatus);
 
   const { error } = await supabase.from("opportunities").insert({
     tenant_id: tenantId,

@@ -923,6 +923,40 @@ Máximo 150 palavras.`,
     },
   },
 
+  // Reply intent classification (Story 21.3)
+  reply_intent_classification: {
+    template: `Você é um analista de vendas B2B que classifica a INTENÇÃO de respostas de e-mail de prospecção.
+
+ASSUNTO DA RESPOSTA:
+{{reply_subject}}
+
+TEXTO DA RESPOSTA:
+{{reply_text}}
+
+TAREFA:
+Classifique a intenção do lead em EXATAMENTE um dos 5 valores abaixo, usando as definições:
+- "interessado" — demonstra interesse claro, quer avançar/conversar/agendar reunião.
+- "pediu_info" — pede mais detalhes, preço, material ou apresentação, sem compromisso ainda.
+- "objecao" — tem algum interesse mas levanta uma barreira (preço, timing, concorrente, falta de autoridade/orçamento).
+- "nao_agora" — não é o momento ("me procure em X", "renovamos recentemente", "não é prioridade agora").
+- "opt_out" — pede para parar de receber, descadastrar, ou manifesta desinteresse definitivo.
+
+REGRAS:
+- Escolha o valor que melhor representa a intenção DOMINANTE da resposta.
+- Se a resposta menciona um obstáculo temporal ("acabamos de renovar", "sem prioridade agora"), prefira "nao_agora" a "objecao".
+- Se pede explicitamente para não ser mais contatado, é sempre "opt_out".
+
+Responda EXCLUSIVAMENTE com JSON válido (sem markdown, sem explicação):
+{"intent": "<um dos 5 valores>", "reasoning": "<justificativa BEM curta, no máximo uma frase>"}`,
+    modelPreference: "gpt-4o-mini",
+    metadata: {
+      temperature: 0.2,
+      // 200 (não 150): margem p/ o JSON não truncar (intent + reasoning) → evita parse-fail
+      // → skip silencioso + custo gasto (review 21.3, P3; espelha relevance-classifier).
+      maxTokens: 200,
+    },
+  },
+
   // WhatsApp message generation (Story 11.3)
   whatsapp_message_generation: {
     template: `Você é um especialista em comunicação WhatsApp B2B no Brasil.

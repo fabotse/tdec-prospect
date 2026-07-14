@@ -33,6 +33,11 @@ vi.mock("@/lib/utils/engagement-processor", () => ({
   processEngagement: (...args: unknown[]) => mockEngagement(...args),
 }));
 
+const mockClassify = vi.fn();
+vi.mock("@/lib/utils/reply-classifier", () => ({
+  classifyPendingReplies: (...args: unknown[]) => mockClassify(...args),
+}));
+
 import { POST } from "@/app/api/replies/backfill/route";
 
 // ==============================================
@@ -46,6 +51,7 @@ beforeEach(() => {
   mockSweep.mockResolvedValue({ swept: 5, skipped: 0, tenants: 1, errors: [] });
   mockProcess.mockResolvedValue({ created: 5, skipped: 0, errors: [] });
   mockEngagement.mockResolvedValue({ created: 0, skipped: 0, errors: [] });
+  mockClassify.mockResolvedValue({ classified: 0, skipped: 0, errors: [] });
 });
 
 function profile(role: string, tenantId: string | null = "tenant-1") {
@@ -95,6 +101,22 @@ describe("POST /api/replies/backfill", () => {
       expect.anything(),
       expect.objectContaining({ tenantId: "tenant-1" })
     );
+    // Story 21.3: classificação também roda no backfill, escopada ao tenant do admin.
+    expect(mockClassify).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tenantId: "tenant-1" })
+    );
+  });
+
+  it("inclui contadores de classificação no resumo (Story 21.3)", async () => {
+    mockGetProfile.mockResolvedValue(profile("gestor"));
+    mockClassify.mockResolvedValue({ classified: 7, skipped: 3, errors: [] });
+
+    const res = await POST();
+    const json = await res.json();
+
+    expect(json.classified).toBe(7);
+    expect(json.classifySkipped).toBe(3);
   });
 
   it("inclui contadores de engajamento no resumo (Story 21.6)", async () => {

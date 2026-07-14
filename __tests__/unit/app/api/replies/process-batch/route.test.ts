@@ -29,6 +29,11 @@ vi.mock("@/lib/utils/engagement-processor", () => ({
   processEngagement: (...args: unknown[]) => mockEngagement(...args),
 }));
 
+const mockClassify = vi.fn();
+vi.mock("@/lib/utils/reply-classifier", () => ({
+  classifyPendingReplies: (...args: unknown[]) => mockClassify(...args),
+}));
+
 import { POST } from "@/app/api/replies/process-batch/route";
 
 // ==============================================
@@ -45,6 +50,7 @@ beforeEach(() => {
   mockSweep.mockResolvedValue({ swept: 2, skipped: 1, tenants: 1, errors: [] });
   mockProcess.mockResolvedValue({ created: 2, skipped: 0, errors: [] });
   mockEngagement.mockResolvedValue({ created: 0, skipped: 0, errors: [] });
+  mockClassify.mockResolvedValue({ classified: 0, skipped: 0, errors: [] });
 });
 
 function createRequest(authHeader?: string): NextRequest {
@@ -91,11 +97,24 @@ describe("POST /api/replies/process-batch", () => {
       skipped: 1,
       engagementCreated: 0,
       engagementSkipped: 0,
+      classified: 0,
+      classifySkipped: 0,
       errors: [],
     });
     expect(mockSweep).toHaveBeenCalledTimes(1);
     expect(mockProcess).toHaveBeenCalledTimes(1);
     expect(mockEngagement).toHaveBeenCalledTimes(1);
+    expect(mockClassify).toHaveBeenCalledTimes(1);
+  });
+
+  it("inclui contadores de classificação no resumo (Story 21.3)", async () => {
+    mockClassify.mockResolvedValue({ classified: 4, skipped: 2, errors: [] });
+
+    const res = await POST(createRequest(`Bearer ${CRON_SECRET}`));
+    const json = await res.json();
+
+    expect(json.classified).toBe(4);
+    expect(json.classifySkipped).toBe(2);
   });
 
   it("inclui contadores de engajamento no resumo (Story 21.6)", async () => {
@@ -125,6 +144,11 @@ describe("POST /api/replies/process-batch", () => {
       skipped: 0,
       errors: [{ tenantId: "t1", error: "tracking down" }],
     });
+    mockClassify.mockResolvedValue({
+      classified: 0,
+      skipped: 0,
+      errors: [{ tenantId: "t1", opportunityId: "o1", error: "openai down" }],
+    });
 
     const res = await POST(createRequest(`Bearer ${CRON_SECRET}`));
     const json = await res.json();
@@ -133,6 +157,7 @@ describe("POST /api/replies/process-batch", () => {
       { scope: "sweep", tenantId: "t1", error: "api down" },
       { scope: "process", eventId: "e1", error: "db error" },
       { scope: "engagement", tenantId: "t1", error: "tracking down" },
+      { scope: "classify", tenantId: "t1", opportunityId: "o1", error: "openai down" },
     ]);
   });
 
