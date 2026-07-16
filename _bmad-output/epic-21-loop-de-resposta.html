@@ -26,6 +26,7 @@ body {
   background:var(--bg); color:var(--text);
   font-family:'Outfit',sans-serif; font-weight:400; font-size:16px; line-height:1.55;
   transition:background .25s, color .25s;
+  overflow-x:hidden; /* trava anti-scroll-horizontal no mobile */
 }
 .doto { font-family:'Doto',sans-serif; font-weight:900; margin:0 .18em; }
 .kicker { font-size:11px; font-weight:400; letter-spacing:6px; text-transform:uppercase; color:var(--muted); }
@@ -221,7 +222,31 @@ footer { padding:64px 0 80px; }
   .cards2 { grid-template-columns:1fr; }
   .stats { grid-template-columns:1fr 1fr; }
 }
-@media (max-width:460px) { .stats { grid-template-columns:1fr; } }
+@media (max-width:560px) {
+  /* tabelas viram cartões empilhados — fim do scroll lateral no mobile */
+  .tblbox { overflow-x:visible; }
+  table, tbody, tr, td { display:block; width:100%; }
+  thead { display:none; }
+  table tr {
+    border:2px solid var(--cardline); background:var(--card);
+    box-shadow:4px 4px 0 var(--shadow); margin-bottom:16px; padding:2px;
+  }
+  table tr.hot { --cardline:var(--accent); --shadow:var(--accent); }
+  html[data-theme="dark"] table tr.hot { --cardline:#24221c; }
+  table td { border-bottom:1px solid var(--line); padding:11px 15px; }
+  table td:last-child { border-bottom:none; }
+  /* sombras mais leves + sem hover-translate no touch */
+  .rcard, .stat, .callout, .term, .check, .foot { box-shadow:4px 4px 0 var(--shadow); }
+  .rcard:hover { box-shadow:4px 4px 0 var(--shadow); transform:none; }
+  /* terminal: fonte menor cabe mais antes de rolar */
+  .term-body { font-size:11px; padding:14px 14px 18px; }
+}
+@media (max-width:460px) {
+  .wrap { padding:0 16px; }
+  .stats { grid-template-columns:1fr; }
+  .hero-h { font-size:clamp(32px,10vw,44px); letter-spacing:-1px; }
+  .badge { font-size:10.5px; letter-spacing:1.5px; padding:6px 11px; }
+}
 </style>
 </head>
 <body>
@@ -238,10 +263,10 @@ footer { padding:64px 0 80px; }
       </div>
       <h1 class="hero-h">Loop de<span class="doto">RESPOSTA</span></h1>
       <div class="hero-sub">o pop-up do lead</div>
-      <p class="hero-s">O momento mais valioso do funil é quando o lead responde — ou demonstra interesse. Antes, esse momento <b>não disparava nada</b>: a resposta ficava parada, reconciliada à mão por planilha. Agora o sistema <b>detecta, entende, rascunha a resposta e entrega</b> a oportunidade pronta para o vendedor agir em um clique.</p>
+      <p class="hero-s">O momento mais valioso do funil é quando o lead responde — ou demonstra interesse. Antes, esse momento <b>não disparava nada</b>: a resposta ficava parada, reconciliada à mão por planilha. Agora o sistema <b>detecta, entende, rascunha a resposta, entrega e avisa</b> — a oportunidade chega pronta no WhatsApp e no app, para o vendedor agir em um clique.</p>
       <div class="badges">
-        <span class="badge hot">6 de 7 stories</span>
-        <span class="badge">6.627 testes verdes</span>
+        <span class="badge hot">7 de 7 stories</span>
+        <span class="badge">6.691 testes verdes</span>
         <span class="badge">validado em produção</span>
         <span class="badge muted">aguardando deploy</span>
       </div>
@@ -267,7 +292,7 @@ footer { padding:64px 0 80px; }
         <canvas class="rcard-ic" id="icBell"></canvas>
         <div class="rcard-k">Agora</div>
         <div class="rcard-t">O sistema avisa sozinho</div>
-        <div class="rcard-s">A cada poucos minutos o sistema varre as respostas, a IA classifica a intenção e a oportunidade aparece na <b>Central</b> — com o <b>próximo passo já rascunhado</b> e o WhatsApp a um clique.</div>
+        <div class="rcard-s">A cada poucos minutos o sistema varre as respostas, a IA classifica a intenção e a oportunidade aparece na <b>Central</b> — com o <b>próximo passo já rascunhado</b>. E o vendedor é <b>avisado no WhatsApp e no app</b> no instante em que o lead esquenta.</div>
       </div>
     </div>
   </section>
@@ -277,7 +302,7 @@ footer { padding:64px 0 80px; }
     <header class="sec">
       <div class="sec-top"><span class="sec-no">02</span><span class="kicker">O fluxo</span><span class="sec-rule"></span></div>
       <h2 class="sec-h">O caminho da resposta até o vendedor</h2>
-      <p class="sec-s">Sete etapas, na ordem em que foram construídas. Seis prontas — o loop já fecha do sinal até a ação. Falta só o aviso proativo, marcado em laranja.</p>
+      <p class="sec-s">Sete etapas, na ordem em que foram construídas. As sete prontas — o loop fecha inteiro, do primeiro sinal até o aviso proativo no bolso do vendedor.</p>
     </header>
     <ol class="tl">
       <li class="tl-item done"><span class="tl-dot"></span>
@@ -316,11 +341,11 @@ footer { padding:64px 0 80px; }
         <div class="tl-s">A IA <b>rascunha o próximo passo</b> lendo a resposta do lead, o produto e o tom de voz da empresa. O vendedor <b>copia, envia WhatsApp, dispara e-mail, busca telefone ou marca "reunião marcada"</b> sem sair do card.</div>
         <div class="tl-tags"><span class="tag">rascunho por IA</span><span class="tag">WhatsApp · e-mail · telefone</span><span class="tag">1 geração por oportunidade</span><span class="tag">+128 testes</span></div>
       </li>
-      <li class="tl-item next"><span class="tl-dot"></span>
-        <div class="tl-when">Story 21.7 <span class="pill next">Próxima</span></div>
+      <li class="tl-item done"><span class="tl-dot"></span>
+        <div class="tl-when">Story 21.7 <span class="pill">Pronto</span></div>
         <div class="tl-t">Aviso — o lead te encontra</div>
-        <div class="tl-s">Lead quente avisa no <b>WhatsApp e dentro do app</b> — o pop-up chega mesmo com a plataforma fechada.</div>
-        <div class="tl-tags"><span class="tag">WhatsApp + in-app</span><span class="tag">aviso em ≤ 5 min</span></div>
+        <div class="tl-s">Lead quente avisa no <b>WhatsApp e dentro do app</b> — o pop-up chega mesmo com a plataforma fechada. O admin configura números, canais e quais intenções disparam; muitos leads no mesmo ciclo viram <b>um aviso agrupado</b>, sem bombardear o vendedor.</div>
+        <div class="tl-tags"><span class="tag">WhatsApp + sino in-app</span><span class="tag">config por tenant</span><span class="tag">aviso em ≤ 5 min</span><span class="tag">migration 00060</span></div>
       </li>
     </ol>
   </section>
@@ -421,7 +446,7 @@ footer { padding:64px 0 80px; }
     </div>
     <aside class="callout">
       <div class="callout-k">O que a tela ensinou</div>
-      <div class="callout-b">Rodar o app achou três defeitos que <b>6.627 testes verdes não pegaram</b> — inclusive rascunhos assinando "[Seu Nome]". A causa não era a IA: o nome da empresa <b>já estava cadastrado</b> e nunca chegava até ela. Corrigido sem trocar de modelo e sem custo extra.</div>
+      <div class="callout-b">Rodar o app achou três defeitos que <b>milhares de testes verdes não pegaram</b> — inclusive rascunhos assinando "[Seu Nome]". A causa não era a IA: o nome da empresa <b>já estava cadastrado</b> e nunca chegava até ela. Corrigido sem trocar de modelo e sem custo extra.</div>
     </aside>
   </section>
 
@@ -430,19 +455,19 @@ footer { padding:64px 0 80px; }
     <header class="sec">
       <div class="sec-top"><span class="sec-no">07</span><span class="kicker">Onde estamos</span><span class="sec-rule"></span></div>
       <h2 class="sec-h">Status de construção</h2>
-      <p class="sec-s">O loop fecha: detecta, entende, rascunha e age. Falta a camada de aviso proativo — e subir para produção.</p>
+      <p class="sec-s">O loop fecha inteiro: detecta, entende, rascunha, age e avisa. As sete stories prontas — falta subir para produção.</p>
     </header>
 
     <div class="stats">
-      <div class="stat hot"><div class="stat-k">Stories</div><div class="stat-n">6/7</div><div class="stat-d">loop <b>fechado</b> ponta a ponta</div></div>
-      <div class="stat"><div class="stat-k">Testes</div><div class="stat-n">6.627</div><div class="stat-d"><b>386</b> arquivos de teste</div></div>
+      <div class="stat hot"><div class="stat-k">Stories</div><div class="stat-n">7/7</div><div class="stat-d">épico <b>completo</b> ponta a ponta</div></div>
+      <div class="stat"><div class="stat-k">Testes</div><div class="stat-n">6.691</div><div class="stat-d"><b>391</b> arquivos de teste</div></div>
       <div class="stat"><div class="stat-k">Falhando</div><div class="stat-n">0</div><div class="stat-d">build <b>verde</b></div></div>
-      <div class="stat"><div class="stat-k">Migrations</div><div class="stat-n">4</div><div class="stat-d">00055 – 00058 <b>aplicadas</b></div></div>
+      <div class="stat"><div class="stat-k">Migrations</div><div class="stat-n">5</div><div class="stat-d">00055 – 00060 <b>aplicadas</b></div></div>
     </div>
 
     <div class="prog-row">
-      <div class="prog-top"><span class="prog-l">Epic 21 · Loop de Resposta</span><span class="prog-v">86%</span></div>
-      <div class="prog-track"><div class="prog-fill" style="width:86%"></div></div>
+      <div class="prog-top"><span class="prog-l">Epic 21 · Loop de Resposta</span><span class="prog-v">100%</span></div>
+      <div class="prog-track"><div class="prog-fill" style="width:100%"></div></div>
     </div>
 
     <div class="tblbox">
@@ -455,13 +480,13 @@ footer { padding:64px 0 80px; }
           <tr><td class="code">21.3</td><td><b>Classificação de intenção por IA</b><small>gpt-4o-mini · fail-open · migration 00058</small></td><td><span class="pill">Pronto</span></td></tr>
           <tr><td class="code">21.4</td><td><b>Central de Oportunidades — página e cards</b><small>rota /opportunities · +112 testes</small></td><td><span class="pill">Pronto</span></td></tr>
           <tr><td class="code">21.5</td><td><b>Ações do card + próximo passo por IA</b><small>WhatsApp · e-mail · telefone · reunião · +128 testes</small></td><td><span class="pill">Pronto</span></td></tr>
-          <tr><td class="code">21.7</td><td><b>Notificações proativas + configurações</b><small>WhatsApp + in-app · config por tenant</small></td><td><span class="pill next">Próxima</span></td></tr>
+          <tr><td class="code">21.7</td><td><b>Notificações proativas + configurações</b><small>WhatsApp + sino in-app · config por tenant · migration 00060 · +64 testes</small></td><td><span class="pill">Pronto</span></td></tr>
         </tbody>
       </table>
     </div>
 
     <div class="term">
-      <div class="term-bar"><span class="term-dot on"></span><span class="term-dot"></span><span class="term-dot"></span><span class="term-title">caminhos de teste · central de oportunidades</span></div>
+      <div class="term-bar"><span class="term-dot on"></span><span class="term-dot"></span><span class="term-dot"></span><span class="term-title">caminhos de teste · notificações proativas</span></div>
       <div class="term-body" id="termOut"></div>
     </div>
   </section>
@@ -471,15 +496,16 @@ footer { padding:64px 0 80px; }
     <header class="sec">
       <div class="sec-top"><span class="sec-no">08</span><span class="kicker">Para fechar o loop</span><span class="sec-rule"></span></div>
       <h2 class="sec-h">Próximos passos</h2>
-      <p class="sec-s">O motor está construído e provado contra dados reais. O que falta é automação e o aviso proativo.</p>
+      <p class="sec-s">As sete stories estão prontas e provadas contra dados reais. O que falta é subir para produção e ligar o piloto automático.</p>
     </header>
     <div class="check">
       <div class="check-head kicker">O que falta</div>
       <div class="check-row done"><span class="check-box"></span><span><b>Story 21.5 — Ações do card.</b> <span class="cm">Rascunho por IA, WhatsApp, e-mail, telefone e "reunião marcada" em um clique.</span></span></div>
-      <div class="check-row"><span class="check-box"></span><span><b>Story 21.7 — Notificações proativas.</b> <span class="cm">Lead quente no WhatsApp e no app; canais configuráveis pelo admin.</span></span></div>
+      <div class="check-row done"><span class="check-box"></span><span><b>Story 21.7 — Notificações proativas.</b> <span class="cm">Lead quente no WhatsApp e no app; canais configuráveis pelo admin. Revisada e testada contra o banco real.</span></span></div>
       <div class="check-row"><span class="check-box"></span><span><b>Deploy na Vercel.</b> <span class="cm">É o que liga o piloto automático: hoje o motor roda quando alguém pede; depois, sozinho a cada 5 minutos.</span></span></div>
-      <div class="check-row"><span class="check-box"></span><span><b>Checklist pós-deploy.</b> <span class="cm">Confirmar o ciclo fechando sozinho e o segredo idêntico entre Vercel e Supabase.</span></span></div>
+      <div class="check-row"><span class="check-box"></span><span><b>Checklist pós-deploy.</b> <span class="cm">Confirmar o ciclo fechando sozinho, o segredo idêntico entre Vercel e Supabase, e o endereço da Central no link do WhatsApp.</span></span></div>
       <div class="check-row"><span class="check-box"></span><span><b>Primeiro WhatsApp real a partir de um card.</b> <span class="cm">O único caminho do épico que ainda não foi exercitado com uma mensagem de verdade.</span></span></div>
+      <div class="check-row"><span class="check-box"></span><span><b>Retrospectiva do épico.</b> <span class="cm">Fechamento do Epic 21: lições e o que carregar para a próxima fase.</span></span></div>
     </div>
   </section>
 
@@ -501,7 +527,7 @@ footer { padding:64px 0 80px; }
         </div>
       </div>
       <div class="foot-base">
-        <span>Documento vivo · 15/07/2026</span>
+        <span>Documento vivo · 16/07/2026</span>
         <span>branch epic/21-loop-de-resposta</span>
       </div>
     </div>
@@ -623,16 +649,14 @@ window.roboRedraw();
 /* ============ terminal: caminhos de teste ============ */
 (function () {
   const LINES = [
-    ['p', '> npx vitest run opportunities'],
-    ['ok', '✓ __tests__/unit/lib/utils/opportunity-suggestion.test.ts'],
-    ['ok', '✓ __tests__/unit/app/api/opportunities/[opportunityId]/suggestion/route.test.ts'],
-    ['ok', '✓ __tests__/unit/app/api/opportunities/[opportunityId]/route.test.ts'],
-    ['ok', '✓ __tests__/unit/actions/whatsapp-from-opportunity.test.ts'],
-    ['ok', '✓ __tests__/unit/hooks/use-whatsapp-send-from-opportunity.test.ts'],
-    ['ok', '✓ __tests__/unit/components/opportunities/OpportunityCard.test.tsx'],
-    ['ok', '✓ __tests__/unit/components/opportunities/OpportunitiesPageContent.test.tsx'],
-    ['ok', '✓ __tests__/unit/hooks/use-opportunities.test.ts'],
-    ['m', 'Test Files  386 passed · Tests  6627 passed · 0 failed']
+    ['p', '> npx vitest run notification'],
+    ['ok', '✓ __tests__/unit/lib/utils/notification-processor.test.ts'],
+    ['ok', '✓ __tests__/unit/app/api/settings/notifications/route.test.ts'],
+    ['ok', '✓ __tests__/unit/app/api/notifications/route.test.ts'],
+    ['ok', '✓ __tests__/unit/components/common/NotificationBell.test.tsx'],
+    ['ok', '✓ __tests__/unit/components/settings/NotificationSettings.test.tsx'],
+    ['ok', '✓ __tests__/unit/lib/utils/reply-processor.test.ts'],
+    ['m', 'Test Files  391 passed · Tests  6691 passed · 2 skipped · 0 failed']
   ];
   const out = document.getElementById('termOut');
   const esc = s => s.replace(/</g, '&lt;').replace(/>/g, '&gt;');

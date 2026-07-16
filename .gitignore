@@ -106,3 +106,6 @@ test-results/
 .claude/skills/vercel-react-best-practices/
 .claude/skills/skill-builder/
 .claude/skills/epic-recap/
+
+# Roteiro de demo/teste local da Story 21.7 (contém IDs de tenant/lead + passos operacionais — não versionar)
+docs/roteiro-demo-notificacoes-21-7.md
