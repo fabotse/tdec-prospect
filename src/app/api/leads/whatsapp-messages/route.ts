@@ -45,10 +45,14 @@ export async function GET(request: Request) {
       return NextResponse.json({ data: [] });
     }
 
-    // Fetch all WhatsApp messages for this lead with campaign names
+    // Fetch all WhatsApp messages for this lead with campaign names.
+    // LEFT join (sem `!inner`): desde a migration 00059 (Story 13.11) `campaign_id`
+    // é nullable — mensagens que não nascem de campanha (envio a partir de um insight
+    // do LinkedIn, Story 13.7) têm `campaign_id NULL`. Um INNER JOIN as descartaria
+    // em silêncio: a mensagem seria enviada e sumiria do histórico do lead.
     const { data: messages, error: messagesError } = await supabase
       .from("whatsapp_messages")
-      .select("*, campaigns!inner(name)")
+      .select("*, campaigns(name)")
       .eq("lead_id", lead.id)
       .eq("tenant_id", profile.tenant_id)
       .order("created_at", { ascending: false });
@@ -60,14 +64,17 @@ export async function GET(request: Request) {
       );
     }
 
-    // Transform to include campaign_name
+    // Transform to include campaign_name. Com LEFT join, `campaigns` é null para
+    // mensagens sem campanha — o acesso precisa ser null-safe (o `?.` aqui não é
+    // defensivo por precaução: é o caminho real do envio a partir do insight).
+    // `campaign_name: null` degrada para o rótulo "Sem campanha" na UI.
     const result = (messages ?? []).map((msg) => {
-      const campaignData = msg.campaigns as unknown as { name: string };
+      const campaignData = msg.campaigns as unknown as { name: string } | null;
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { campaigns: _campaigns, ...messageFields } = msg;
       return {
         ...messageFields,
-        campaign_name: campaignData.name,
+        campaign_name: campaignData?.name ?? null,
       };
     });
 

@@ -74,7 +74,12 @@ export type WhatsAppMessageStatus =
 export interface WhatsAppMessage {
   id: string;
   tenant_id: string;
-  campaign_id: string;
+  /**
+   * Campanha de origem. NULL quando a mensagem não nasce de uma campanha
+   * (envio a partir de um insight do LinkedIn — Story 13.7). A coluna virou
+   * nullable na migration 00059 (Story 13.11).
+   */
+  campaign_id: string | null;
   lead_id: string;
   phone: string;
   message: string;

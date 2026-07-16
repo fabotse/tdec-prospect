@@ -82,3 +82,30 @@ my-tasks.md
 **/credentials*.md
 **/credenciais*.md
 **/credentials.local.md
+
+# Backups de config (BMAD upgrade)
+*.bak
+
+# Artefatos de teste/browser gerados
+playwright-report/
+test-results/
+.playwright-mcp/
+
+# Screenshots e diagramas ad-hoc na raiz (evidência de QA local)
+/*.png
+/*.excalidraw
+
+# Artefatos de design gerados localmente (brand-book, design-system) — não do repo
+/design/
+
+# Tooling pessoal de agentes (symlinks/instalações locais, não do projeto)
+# Importante: symlinks aqui que apontam para FORA do projeto (ex.: vault do Obsidian)
+# quebram o Turbopack se não estiverem ignorados — o Tailwind v4 auto-detecta conteúdo
+# respeitando o .gitignore, segue o symlink e entra em panic ("leaves the filesystem root").
+.agents/
+.claude/skills/vercel-react-best-practices/
+.claude/skills/skill-builder/
+.claude/skills/epic-recap/
+
+# Roteiro de demo/teste local da Story 21.7 (contém IDs de tenant/lead + passos operacionais — não versionar)
+docs/roteiro-demo-notificacoes-21-7.md

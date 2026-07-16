@@ -219,6 +219,7 @@ export async function loadKBContext(
   if (icp?.pain_points) icpParts.push(`Dores: ${icp.pain_points}`);
 
   return {
+    companyName: company.company_name || "",
     companyContext: company.business_description,
     productsServices: company.products_services || "",
     competitiveAdvantages: company.competitive_advantages || "",

@@ -26,6 +26,12 @@ export interface RelevanceClassification {
 }
 
 export interface KBContextForClassification {
+  /**
+   * Nome da empresa remetente (`CompanyProfile.company_name`, obrigatório na KB).
+   * Sem ele os geradores de texto não têm como se referir à própria empresa e a
+   * IA escreve "[Sua Empresa]" — o dado existia no banco e era descartado aqui.
+   */
+  companyName: string;
   companyContext: string;
   productsServices: string;
   competitiveAdvantages: string;

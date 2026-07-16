@@ -5,6 +5,7 @@ import { LogOut, User } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUser, resetAuthState } from "@/hooks/use-user";
 import { ThemeToggle } from "./ThemeToggle";
+import { NotificationBell } from "./NotificationBell";
 import { Button } from "@/components/ui/button";
 
 interface HeaderProps {
@@ -48,6 +49,7 @@ export function Header({ sidebarWidth = 240 }: HeaderProps) {
 
       {/* Right side - User info and theme toggle */}
       <div className="flex items-center gap-4">
+        <NotificationBell />
         <ThemeToggle />
 
         {/* User info */}

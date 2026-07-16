@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<title>Arquitetura de Prompts — TDEC Prospect</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Kalam:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #343a40;
+    --line: #495057;
+    --blue: #a5d8ff;
+    --yellow: #ffec99;
+    --green: #b2f2bb;
+    --coral: #ffa8a8;
+    --purple: #d0bfff;
+    --gray-soft: #dee2e6;
+    --gray-mid: #adb5bd;
+    --gold: #fab005;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+    font-family: 'Kalam', system-ui, sans-serif;
+    color: var(--ink);
+  }
+  .canvas {
+    width: 1600px;
+    margin: 0 auto;
+    padding: 40px 60px 60px 60px;
+    position: relative;
+  }
+  h1.title {
+    font-family: 'Caveat', cursive;
+    font-size: 56px;
+    font-weight: 700;
+    text-align: center;
+    margin: 0 0 6px 0;
+    color: var(--ink);
+    letter-spacing: 0.5px;
+  }
+  p.subtitle {
+    font-family: 'Caveat', cursive;
+    font-size: 28px;
+    text-align: center;
+    color: var(--gray-mid);
+    margin: 0 0 30px 0;
+  }
+  svg { display: block; margin: 0 auto; }
+
+  /* Hand-drawn rectangle base */
+  .box {
+    fill: white;
+    stroke: var(--line);
+    stroke-width: 2.5;
+    filter: url(#wobble);
+  }
+  .box.blue   { fill: var(--blue); }
+  .box.yellow { fill: var(--yellow); }
+  .box.green  { fill: var(--green); }
+  .box.coral  { fill: var(--coral); }
+  .box.purple { fill: var(--purple); }
+  .box.gold   { fill: var(--gold); fill-opacity: 0.25; }
+  .box.gray   { fill: var(--gray-soft); }
+  .box.inactive {
+    fill: #f1f3f5;
+    stroke: var(--gray-mid);
+    stroke-dasharray: 8 6;
+  }
+
+  .arrow {
+    stroke: var(--line);
+    stroke-width: 2.5;
+    fill: none;
+    filter: url(#wobble);
+    marker-end: url(#arrowhead);
+  }
+  .arrow.dashed {
+    stroke-dasharray: 8 6;
+    stroke: var(--gray-mid);
+    marker-end: url(#arrowhead-gray);
+  }
+  .arrow.thick {
+    stroke-width: 3.5;
+  }
+
+  text {
+    font-family: 'Kalam', cursive;
+    fill: var(--ink);
+  }
+  text.tlabel  { font-size: 22px; font-weight: 700; }
+  text.tsmall  { font-size: 16px; }
+  text.tmeta   { font-size: 14px; fill: var(--gray-mid); font-style: italic; }
+  text.tsection {
+    font-family: 'Caveat', cursive;
+    font-size: 32px;
+    font-weight: 700;
+    fill: var(--line);
+  }
+  text.tarrow  { font-size: 13px; fill: var(--line); font-style: italic; }
+  text.tbig    { font-size: 26px; font-weight: 700; }
+  text.tcheck  { font-size: 18px; font-weight: 700; fill: #2f9e44; }
+  text.tinact  { font-size: 14px; fill: #868e96; font-style: italic; font-weight: 700; }
+
+  /* Footer note */
+  .note {
+    margin-top: 30px;
+    border: 2.5px solid var(--gold);
+    background: #fff9db;
+    border-radius: 14px;
+    padding: 18px 24px;
+    box-shadow: 3px 4px 0 rgba(250,176,5,0.25);
+    filter: url(#wobble);
+  }
+  .note h3 {
+    font-family: 'Caveat', cursive;
+    font-size: 28px;
+    margin: 0 0 6px 0;
+    color: #c9750c;
+  }
+  .note p {
+    margin: 4px 0;
+    font-size: 16px;
+    line-height: 1.45;
+  }
+  .note .row { display: flex; gap: 14px; align-items: flex-start; }
+  .note .badge {
+    background: var(--gold);
+    color: white;
+    border-radius: 8px;
+    padding: 3px 10px;
+    font-family: 'Caveat', cursive;
+    font-size: 20px;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .footer {
+    text-align: center;
+    margin-top: 24px;
+    font-family: 'Caveat', cursive;
+    font-size: 22px;
+    color: var(--gray-mid);
+  }
+  .legend {
+    display: flex;
+    justify-content: center;
+    gap: 36px;
+    margin-top: 16px;
+    font-family: 'Kalam', cursive;
+    font-size: 15px;
+    color: var(--ink);
+  }
+  .legend .item { display: flex; align-items: center; gap: 8px; }
+  .legend .swatch {
+    width: 22px; height: 22px; border-radius: 6px;
+    border: 2px solid var(--line);
+  }
+  .legend .swatch.active   { background: var(--green); }
+  .legend .swatch.inactive { background: #f1f3f5; border-style: dashed; border-color: var(--gray-mid); }
+  .legend .swatch.orch     { background: var(--blue); }
+</style>
+</head>
+<body>
+<div class="canvas">
+
+  <h1 class="title">Arquitetura de Prompts — TDEC Prospect</h1>
+  <p class="subtitle">Sistema multi-camada com fallback inteligente</p>
+
+  <svg width="1480" height="900" viewBox="0 0 1480 900" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <!-- Hand-drawn wobble filter (simulates Excalidraw roughness) -->
+      <filter id="wobble" x="-5%" y="-5%" width="110%" height="110%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.025" numOctaves="2" seed="3" />
+        <feDisplacementMap in="SourceGraphic" scale="1.8" />
+      </filter>
+
+      <!-- Arrowheads -->
+      <marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5"
+              markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#495057" />
+      </marker>
+      <marker id="arrowhead-gray" viewBox="0 0 10 10" refX="9" refY="5"
+              markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#adb5bd" />
+      </marker>
+    </defs>
+
+    <!-- ===== SECTION HEADERS ===== -->
+    <text class="tsection" x="170"  y="40" text-anchor="middle">Endpoints da Aplicação</text>
+    <text class="tsection" x="740"  y="40" text-anchor="middle">Orquestrador</text>
+    <text class="tsection" x="1240" y="40" text-anchor="middle">3 Camadas de Resolução</text>
+
+    <!-- ============================================================ -->
+    <!-- LEFT COLUMN — Endpoints / Consumers                          -->
+    <!-- ============================================================ -->
+
+    <g>
+      <rect class="box purple" x="30"  y="70"  width="280" height="60" rx="14"/>
+      <text class="tlabel" x="170" y="100" text-anchor="middle">/api/ai/generate</text>
+      <text class="tsmall" x="170" y="120" text-anchor="middle">E-mail (assunto + corpo)</text>
+    </g>
+    <g>
+      <rect class="box purple" x="30"  y="148" width="280" height="60" rx="14"/>
+      <text class="tlabel" x="170" y="178" text-anchor="middle">/api/leads/enrich-icebreaker</text>
+      <text class="tsmall" x="170" y="198" text-anchor="middle">Ice-breaker</text>
+    </g>
+    <g>
+      <rect class="box purple" x="30"  y="226" width="280" height="60" rx="14"/>
+      <text class="tlabel" x="170" y="256" text-anchor="middle">/api/ai/search</text>
+      <text class="tsmall" x="170" y="276" text-anchor="middle">Busca em linguagem natural</text>
+    </g>
+    <g>
+      <rect class="box purple" x="30"  y="304" width="280" height="60" rx="14"/>
+      <text class="tlabel" x="170" y="334" text-anchor="middle">Campaign Structure</text>
+      <text class="tsmall" x="170" y="354" text-anchor="middle">Estrutura da campanha (JSON)</text>
+    </g>
+    <g>
+      <rect class="box purple" x="30"  y="382" width="280" height="60" rx="14"/>
+      <text class="tlabel" x="170" y="412" text-anchor="middle">Follow-up</text>
+      <text class="tsmall" x="170" y="432" text-anchor="middle">E-mail + assunto</text>
+    </g>
+    <g>
+      <rect class="box purple" x="30"  y="460" width="280" height="60" rx="14"/>
+      <text class="tlabel" x="170" y="490" text-anchor="middle">Monitoring</text>
+      <text class="tsmall" x="170" y="510" text-anchor="middle">Relevância + abordagem</text>
+    </g>
+    <g>
+      <rect class="box purple" x="30"  y="538" width="280" height="60" rx="14"/>
+      <text class="tlabel" x="170" y="568" text-anchor="middle">WhatsApp Message</text>
+      <text class="tsmall" x="170" y="588" text-anchor="middle">Mensagem conversacional</text>
+    </g>
+
+    <!-- Arrows from endpoints → PromptManager -->
+    <path class="arrow" d="M315 100 C 470 100, 520 320, 600 340"/>
+    <path class="arrow" d="M315 178 C 470 178, 520 330, 600 350"/>
+    <path class="arrow" d="M315 256 C 470 256, 520 340, 600 360"/>
+    <path class="arrow" d="M315 334 C 480 334, 540 350, 600 370"/>
+    <path class="arrow" d="M315 412 C 470 412, 520 400, 600 380"/>
+    <path class="arrow" d="M315 490 C 470 490, 520 410, 600 390"/>
+    <path class="arrow" d="M315 568 C 470 568, 520 420, 600 400"/>
+
+    <!-- ============================================================ -->
+    <!-- CENTER — PromptManager                                       -->
+    <!-- ============================================================ -->
+
+    <g>
+      <rect class="box blue" x="580" y="290" width="320" height="170" rx="18"/>
+      <text class="tbig"   x="740" y="330" text-anchor="middle">PromptManager</text>
+      <text class="tmeta"  x="740" y="354" text-anchor="middle">src/lib/ai/prompt-manager.ts</text>
+      <line x1="615" y1="368" x2="865" y2="368" stroke="#495057" stroke-width="1.5" filter="url(#wobble)"/>
+      <text class="tsmall" x="740" y="394" text-anchor="middle">Resolve prompt em 3 níveis</text>
+      <text class="tsmall" x="740" y="418" text-anchor="middle">Cache de 5 minutos (TTL)</text>
+      <text class="tsmall" x="740" y="442" text-anchor="middle">Fonte de verdade do app</text>
+    </g>
+
+    <!-- PromptManager → Resolution Stack -->
+    <path class="arrow thick" d="M900 375 C 970 375, 980 165, 1020 165"/>
+    <text class="tarrow" x="945" y="262" text-anchor="middle">1º tenta</text>
+
+    <!-- ============================================================ -->
+    <!-- RIGHT COLUMN — 3 Resolution Layers                           -->
+    <!-- ============================================================ -->
+
+    <!-- Nível 1 — Tenant (INACTIVE) -->
+    <g>
+      <rect class="box inactive" x="1020" y="80" width="420" height="170" rx="16"/>
+      <text class="tbig"   x="1230" y="118" text-anchor="middle" fill="#868e96">Nível 1 — Tenant Prompt</text>
+      <text class="tsmall" x="1230" y="148" text-anchor="middle" fill="#868e96">Banco ai_prompts (tenant_id = X)</text>
+      <text class="tsmall" x="1230" y="172" text-anchor="middle" fill="#868e96">Override customizado por cliente</text>
+      <text class="tsmall" x="1230" y="196" text-anchor="middle" fill="#868e96">Suporte multi-tenant com RLS</text>
+      <text class="tinact" x="1230" y="228" text-anchor="middle">✗ INATIVO HOJE</text>
+    </g>
+
+    <!-- Arrow N1 → N2 -->
+    <path class="arrow dashed" d="M1230 252 L 1230 332"/>
+    <text class="tarrow" x="1330" y="295" text-anchor="start">fallback se não existe</text>
+
+    <!-- Nível 2 — Global (INACTIVE) -->
+    <g>
+      <rect class="box inactive" x="1020" y="335" width="420" height="170" rx="16"/>
+      <text class="tbig"   x="1230" y="373" text-anchor="middle" fill="#868e96">Nível 2 — Global Prompt</text>
+      <text class="tsmall" x="1230" y="403" text-anchor="middle" fill="#868e96">Banco ai_prompts (tenant_id = NULL)</text>
+      <text class="tsmall" x="1230" y="427" text-anchor="middle" fill="#868e96">Prompt global da aplicação</text>
+      <text class="tsmall" x="1230" y="451" text-anchor="middle" fill="#868e96">Desativado na migration 00038</text>
+      <text class="tinact" x="1230" y="483" text-anchor="middle">✗ INATIVO HOJE</text>
+    </g>
+
+    <!-- Arrow N2 → N3 -->
+    <path class="arrow dashed" d="M1230 507 L 1230 587"/>
+    <text class="tarrow" x="1330" y="550" text-anchor="start">fallback se não existe</text>
+
+    <!-- Nível 3 — Code Default (ACTIVE) -->
+    <g>
+      <rect class="box green" x="1020" y="590" width="420" height="200" rx="16"/>
+      <text class="tbig"   x="1230" y="628" text-anchor="middle">Nível 3 — Code Default</text>
+      <text class="tmeta"  x="1230" y="653" text-anchor="middle">src/lib/ai/prompts/defaults.ts</text>
+      <line x1="1060" y1="668" x2="1400" y2="668" stroke="#495057" stroke-width="1.5" filter="url(#wobble)"/>
+      <text class="tsmall" x="1230" y="694" text-anchor="middle">12 prompts hardcoded versionados em git</text>
+      <text class="tsmall" x="1230" y="718" text-anchor="middle">+ filter-extraction.ts (parsing Apollo)</text>
+      <text class="tcheck" x="1230" y="752" text-anchor="middle">✓ ATIVO — Fonte de verdade em produção</text>
+    </g>
+
+  </svg>
+
+  <!-- ============================================================ -->
+  <!-- FOOTER NOTE                                                   -->
+  <!-- ============================================================ -->
+  <div class="note">
+    <div class="row">
+      <div class="badge">HOJE</div>
+      <p>Só o <strong>Nível 3</strong> está ativo. Alterar qualquer prompt = editar <code>src/lib/ai/prompts/defaults.ts</code> + fazer deploy. Versionado em git, com testes.</p>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <div class="badge" style="background:#37b24d">PRÓXIMO</div>
+      <p>Ativar <strong>Níveis 1 e 2</strong> + construir <strong>UI de admin</strong> para editar prompts sem deploy. Habilita customização por tenant (cliente).</p>
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="item"><span class="swatch active"></span> Camada ativa em produção</div>
+    <div class="item"><span class="swatch inactive"></span> Camada inativa (infra pronta, roadmap)</div>
+    <div class="item"><span class="swatch orch"></span> Orquestrador (PromptManager)</div>
+  </div>
+
+  <p class="footer">TDEC Prospect • Arquitetura de Prompts • Pronto para escala multi-tenant</p>
+</div>
+</body>
+</html>

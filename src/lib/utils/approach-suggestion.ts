@@ -197,6 +197,7 @@ export async function generateApproachSuggestion(
 
     // Interpolate variables
     const prompt = interpolateTemplate(template, {
+      company_name: kbContext.companyName,
       company_context: kbContext.companyContext,
       products_services: kbContext.productsServices,
       competitive_advantages: kbContext.competitiveAdvantages,

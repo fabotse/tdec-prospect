@@ -229,6 +229,19 @@ describe("OpportunityPanel", () => {
       expect(screen.getByText("4 aberturas")).toBeInTheDocument();
     });
 
+    it("exibe contagem de cliques ao lado das aberturas, só quando > 0 (Story 21.6)", () => {
+      const leads = [
+        createMockOpportunityLead({ leadEmail: "click@test.com", openCount: 4, clickCount: 3 }),
+        createMockOpportunityLead({ leadEmail: "noclick@test.com", openCount: 5, clickCount: 0 }),
+      ];
+      render(<OpportunityPanel leads={leads} isLoading={false} />);
+
+      // Só o lead com clickCount>0 exibe o badge de cliques.
+      const clickBadges = screen.getAllByTestId("opportunity-lead-clicks");
+      expect(clickBadges).toHaveLength(1);
+      expect(clickBadges[0]).toHaveTextContent("3 cliques");
+    });
+
     it("exibe dados de contato: email com link mailto", () => {
       render(<OpportunityPanel leads={defaultLeads} isLoading={false} />);
 

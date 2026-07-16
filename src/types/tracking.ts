@@ -148,6 +148,8 @@ export interface LeadTracking {
   clickCount: number;
   hasReplied: boolean;
   lastOpenAt: string | null;
+  /** Story 21.6 — timestamp do último clique (Instantly `timestamp_last_click`). */
+  lastClickAt: string | null;
   events: CampaignEvent[];
   firstName?: string;
   lastName?: string;
@@ -179,9 +181,20 @@ export interface LeadTracking {
 // OPPORTUNITY LEAD
 // ==============================================
 
+/**
+ * Story 21.6 — o que fez o lead qualificar na Janela de Oportunidade:
+ * só aberturas, só cliques, ou ambos. Consumido pelo engagement-processor
+ * (métricas) e, futuramente, pela badge da Central (21.4).
+ */
+export type OpportunityQualifier = "opens" | "clicks" | "both";
+
 export interface OpportunityLead extends LeadTracking {
   qualifiedAt: string;
   isInOpportunityWindow: boolean;
+  /** Story 21.6 — sinal que qualificou o lead (opens | clicks | both). */
+  qualifiedBy: OpportunityQualifier;
+  /** Story 21.6 — último engajamento = max(lastOpenAt, lastClickAt); null se ambos nulos. */
+  lastEngagementAt: string | null;
 }
 
 // ==============================================
@@ -312,6 +325,56 @@ export interface InstantlyLeadEntry {
 export interface InstantlyLeadListResponse {
   items: InstantlyLeadEntry[];
   next_starting_after?: string;
+}
+
+// ==============================================
+// INSTANTLY EMAILS API — GET /api/v2/emails (Story 21.2)
+// Ingestão de respostas por polling. Shape validado no spike EP21
+// (2026-07-13). NÃO adicionar campos não validados na amostra real.
+// ==============================================
+
+export interface InstantlyEmailBody {
+  text?: string;
+  html?: string;
+}
+
+/**
+ * Item retornado por GET /api/v2/emails.
+ * Campos confirmados na amostra real do spike: id, message_id,
+ * timestamp_created, timestamp_email, subject, body.text/html,
+ * campaign_id/campaign, to_address_email_list, lead, email_type,
+ * ue_type (2 = received), i_status (interest status).
+ */
+export interface InstantlyReceivedEmail {
+  id: string;
+  message_id?: string;
+  timestamp_created: string;
+  timestamp_email?: string;
+  subject?: string;
+  body?: InstantlyEmailBody;
+  /** ID externo da campanha (Instantly). Alguns endpoints usam `campaign`. */
+  campaign_id?: string;
+  campaign?: string;
+  to_address_email_list?: string;
+  /** E-mail do lead (remetente da resposta). */
+  lead?: string;
+  /** "received" | "sent" | "manual" */
+  email_type?: string;
+  /** 2 = received */
+  ue_type?: number;
+  /** Interest status (escala: 0 = Out of Office, 1 = Interested, ...) */
+  i_status?: number;
+}
+
+export interface InstantlyEmailsListResponse {
+  items: InstantlyReceivedEmail[];
+  next_starting_after?: string;
+}
+
+export interface GetReceivedEmailsParams {
+  apiKey: string;
+  /** ISO timestamp — filtro `min_timestamp_created` (janela incremental). */
+  since: string;
 }
 
 // ==============================================

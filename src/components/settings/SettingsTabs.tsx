@@ -17,6 +17,7 @@ const tabs: Tab[] = [
   { id: "products", label: "Produtos", href: "/settings/products" },
   { id: "usage", label: "Uso da API", href: "/settings/usage" },
   { id: "monitoring", label: "Monitoramento", href: "/settings/monitoring" },
+  { id: "notifications", label: "Notificações", href: "/settings/notifications" },
   { id: "team", label: "Equipe", href: "/settings/team" },
 ];
 

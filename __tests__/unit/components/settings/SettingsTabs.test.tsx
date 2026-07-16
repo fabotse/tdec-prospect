@@ -148,7 +148,7 @@ describe('SettingsTabs', () => {
       render(<SettingsTabs />)
 
       const tabs = screen.getAllByRole('tab')
-      expect(tabs).toHaveLength(6) // Integrações, Base de Conhecimento, Produtos, Uso da API, Monitoramento, Equipe
+      expect(tabs).toHaveLength(7) // Integrações, Base de Conhecimento, Produtos, Uso da API, Monitoramento, Notificações, Equipe
     })
 
     it('should be keyboard accessible', () => {

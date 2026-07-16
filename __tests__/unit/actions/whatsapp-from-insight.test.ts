@@ -115,7 +115,6 @@ function setupMockClient() {
   });
 
   let whatsappCallCount = 0;
-  let insightCallCount = 0;
 
   client.from.mockImplementation((table: string) => {
     if (table === "api_configs") return apiConfigsChain;
@@ -124,10 +123,7 @@ function setupMockClient() {
       if (whatsappCallCount === 1) return insertChain;
       return updateChain;
     }
-    if (table === "lead_insights") {
-      insightCallCount++;
-      return insightUpdateChain;
-    }
+    if (table === "lead_insights") return insightUpdateChain;
     if (table === "leads") return leadsChain;
     return createChainBuilder();
   });
@@ -162,7 +158,12 @@ describe("sendWhatsAppFromInsight", () => {
       }
     });
 
-    it("inserts message with campaign_id=null", async () => {
+    // Story 13.11 (AC #2, Task 3.1): CONTRATO. O insight não tem campanha — o `null`
+    // é semanticamente correto e é exatamente o que a migration 00059 legaliza (a
+    // coluna era NOT NULL → 23502 → o envio falhava em 100% das tentativas em prod).
+    // Se alguém "consertar" isto inventando uma campanha, este teste quebra: dado
+    // falso poluiria as métricas por campanha (idx_whatsapp_messages_campaign_status).
+    it("13.11 AC#2: inserts message with campaign_id=null (contract — do NOT invent a campaign)", async () => {
       const { insertChain } = setupMockClient();
 
       await sendWhatsAppFromInsight(validInput);
@@ -173,6 +174,33 @@ describe("sendWhatsAppFromInsight", () => {
           lead_id: validInput.leadId,
         })
       );
+    });
+
+    // Story 13.11 (AC #2): o fluxo completo que a 00059 destrava, ponta a ponta —
+    // insert (campaign_id null) → sendText → update 'sent' → insight 'used'.
+    // O AC5 da 13.7 nunca era alcançado porque o insert falhava antes.
+    it("13.11 AC#2: completes the full chain insert → sendText → sent → insight used", async () => {
+      const { insertChain, updateChain, insightUpdateChain } = setupMockClient();
+
+      const result = await sendWhatsAppFromInsight(validInput);
+
+      expect(insertChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({ campaign_id: null, status: "pending" })
+      );
+      expect(mockSendText).toHaveBeenCalledWith(
+        "zapi-credentials",
+        validInput.phone,
+        validInput.message
+      );
+      expect(updateChain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "sent",
+          external_message_id: "MSG-456",
+          external_zaap_id: "ZAAP-123",
+        })
+      );
+      expect(insightUpdateChain.update).toHaveBeenCalledWith({ status: "used" });
+      expect(result.success).toBe(true);
     });
 
     it("uses leadId directly without email resolution", async () => {
@@ -366,6 +394,65 @@ describe("sendWhatsAppFromInsight", () => {
       if (!result.success) {
         expect(result.error).toContain("Erro ao registrar mensagem");
       }
+    });
+
+    // Story 13.11 (AC #4): ESTE é o ramo que escondeu o bug. O insert violava o
+    // NOT NULL de campaign_id (23502) e o early-return genérico engolia o erro —
+    // nem log, nem propagação. Uma feature entregue, code-review aprovada e 100%
+    // quebrada. Agora o erro real do Postgres é logado; o usuário segue vendo a
+    // mensagem pt-BR genérica (não vaza detalhe de banco).
+    it("13.11 AC#4: logs the real Postgres error while keeping the pt-BR message", async () => {
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const client = createMockSupabaseClient();
+      const apiConfigsChain = createChainBuilder({
+        data: { encrypted_key: "encrypted:key" },
+        error: null,
+      });
+      const leadsChain = createChainBuilder({ data: { id: validInput.leadId }, error: null });
+      const insertChain = createChainBuilder({
+        data: null,
+        error: {
+          code: "23502",
+          message: 'null value in column "campaign_id" violates not-null constraint',
+          // O PostgREST devolve a linha que falhou em `details` — telefone e corpo
+          // da mensagem. NÃO pode ir para o log (ver assert de PII abaixo).
+          details: `Failing row contains (msg-1, tenant-1, null, lead-1, ${validInput.phone}, ${validInput.message}, pending).`,
+        },
+      });
+
+      client.from.mockImplementation((table: string) => {
+        if (table === "api_configs") return apiConfigsChain;
+        if (table === "leads") return leadsChain;
+        if (table === "whatsapp_messages") return insertChain;
+        return createChainBuilder();
+      });
+      vi.mocked(createClient).mockResolvedValue(client as never);
+
+      const result = await sendWhatsAppFromInsight(validInput);
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining("falha ao registrar mensagem"),
+        "23502",
+        expect.stringContaining("not-null constraint")
+      );
+
+      // O log leva código + mensagem, NUNCA o objeto de erro inteiro: `details`
+      // carrega telefone e corpo da mensagem (PII) e não pode vazar para o log.
+      const loggedOutput = consoleSpy.mock.calls.flat().join(" ");
+      expect(loggedOutput).not.toContain(validInput.phone);
+      expect(loggedOutput).not.toContain(validInput.message);
+
+      // Contrato do early-return: NÃO enviar mensagem que não foi registrada.
+      // Sem este assert, mover o sendText para antes da guarda passa despercebido.
+      expect(mockSendText).not.toHaveBeenCalled();
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error).toBe("Erro ao registrar mensagem. Tente novamente.");
+        expect(result.error).not.toContain("23502");
+      }
+
+      consoleSpy.mockRestore();
     });
   });
 

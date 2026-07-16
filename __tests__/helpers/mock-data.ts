@@ -16,6 +16,7 @@ import type {
   LeadTracking,
   InstantlyAnalyticsResponse,
   InstantlyLeadEntry,
+  InstantlyReceivedEmail,
   OpportunityConfig,
   OpportunityLead,
 } from "@/types/tracking";
@@ -252,6 +253,33 @@ export function createMockInstantlyWebhookPayload(
 }
 
 /**
+ * Creates an InstantlyReceivedEmail mock (GET /api/v2/emails item)
+ * Story 21.2 — resposta de lead recebida via polling
+ */
+export function createMockInstantlyReceivedEmail(
+  overrides: Partial<InstantlyReceivedEmail> = {}
+): InstantlyReceivedEmail {
+  return {
+    id: "email-uuid-1",
+    message_id: "<reply-abc@mail.empresa.com>",
+    timestamp_created: "2026-03-10T12:00:00.000Z",
+    timestamp_email: "2026-03-10T11:59:30.000Z",
+    subject: "RE: proposta comercial",
+    body: {
+      text: "Olá, tenho interesse. Podemos conversar na próxima semana?",
+      html: "<p>Olá, tenho interesse. Podemos conversar na próxima semana?</p>",
+    },
+    campaign_id: "instantly-campaign-abc-123",
+    to_address_email_list: "vendas@minha-empresa.com",
+    lead: "joao@empresa.com.br",
+    email_type: "received",
+    ue_type: 2,
+    i_status: 1,
+    ...overrides,
+  };
+}
+
+/**
  * Creates a complete CampaignEventRow mock (persisted event)
  * Task 4.2 — evento persistido no banco
  */
@@ -319,6 +347,7 @@ export function createMockLeadTracking(
     clickCount: 2,
     hasReplied: false,
     lastOpenAt: "2026-02-08T14:30:00.000Z",
+    lastClickAt: null,
     events: [],
     firstName: "João",
     lastName: "Silva",
@@ -396,6 +425,8 @@ export function createMockOpportunityLead(
     ...createMockLeadTracking(),
     qualifiedAt: "2026-02-10T12:00:00.000Z",
     isInOpportunityWindow: true,
+    qualifiedBy: "opens",
+    lastEngagementAt: "2026-02-08T14:30:00.000Z",
     ...overrides,
   };
 }

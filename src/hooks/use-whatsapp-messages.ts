@@ -26,7 +26,12 @@ export const WHATSAPP_MESSAGES_QUERY_KEY = (campaignId?: string) =>
 // ==============================================
 
 interface WhatsAppMessageWithCampaign extends WhatsAppMessageWithLead {
-  campaign_name?: string;
+  /**
+   * Nome da campanha de origem. `null` quando a mensagem não nasce de uma
+   * campanha (envio a partir de um insight — Story 13.7); a UI degrada para
+   * o rótulo "Sem campanha".
+   */
+  campaign_name?: string | null;
 }
 
 interface UseWhatsAppMessagesReturn {
@@ -93,7 +98,12 @@ export function useWhatsAppMessages(
       if (campaignId) {
         return fetchCampaignMessages(campaignId, leadEmail);
       }
-      return fetchLeadMessages(leadEmail!);
+      // `enabled` já garante campaignId || leadEmail, mas o TS não sabe disso.
+      // Leitura guardada em vez de `leadEmail!` (regra no-non-null-assertion).
+      if (!leadEmail) {
+        throw new Error("leadEmail é obrigatório quando campaignId não é informado");
+      }
+      return fetchLeadMessages(leadEmail);
     },
     staleTime: 5 * 60 * 1000,
     enabled,

@@ -17,6 +17,18 @@ vi.mock("@/hooks/use-lead-insights", () => ({
   useNewInsightsCount: vi.fn(() => ({ data: 0 })),
 }));
 
+// Story 21.4: mock use-opportunities (Sidebar uses useNewOpportunitiesCount)
+vi.mock("@/hooks/use-opportunities", () => ({
+  useNewOpportunitiesCount: vi.fn(() => ({ data: 0 })),
+}));
+
+// Story 21.7: Header renders NotificationBell (react-query hooks) — mock to avoid provider.
+vi.mock("@/hooks/use-notifications", () => ({
+  useNotifications: vi.fn(() => ({ notifications: [], meta: null, isLoading: false, error: null })),
+  useUnreadNotificationsCount: vi.fn(() => ({ data: 0 })),
+  useMarkNotificationRead: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+}));
+
 // Mock useUser hook
 vi.mock("@/hooks/use-user", () => ({
   useUser: () => ({
