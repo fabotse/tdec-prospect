@@ -95,6 +95,9 @@ test-results/
 /*.png
 /*.excalidraw
 
+# Artefatos de design gerados localmente (brand-book, design-system) — não do repo
+/design/
+
 # Tooling pessoal de agentes (symlinks/instalações locais, não do projeto)
 # Importante: symlinks aqui que apontam para FORA do projeto (ex.: vault do Obsidian)
 # quebram o Turbopack se não estiverem ignorados — o Tailwind v4 auto-detecta conteúdo
