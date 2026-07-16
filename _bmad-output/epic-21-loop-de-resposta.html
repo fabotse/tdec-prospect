@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loop de Resposta · Epic 21</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Cpath d='M38 18 L58 24 L62 42 L48 60 L24 56 L18 34 Z' fill='%23ff6b1a'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Doto:wght@700;900&display=swap" rel="stylesheet">
+<style>
+/* ============ /robo tokens (LOCKED) ============ */
+html { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+:root, html[data-theme="light"] {
+  --bg:#f2efe8; --card:#faf8f2; --text:#1c1a16; --muted:#6f6a5c; --accent:#ff6b1a;
+  --line:rgba(28,26,22,.18); --shadow:rgba(28,26,22,.9); --cardline:#1c1a16;
+}
+html[data-theme="dark"] {
+  --bg:#131311; --card:#24221c; --text:#e8e2d2; --muted:#8d8775; --accent:#ff6b1a;
+  --line:rgba(232,226,210,.22); --shadow:#000; --cardline:#24221c;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+::selection { background:#ff6b1a; color:#fff; }
+body {
+  background:var(--bg); color:var(--text);
+  font-family:'Outfit',sans-serif; font-weight:400; font-size:16px; line-height:1.55;
+  transition:background .25s, color .25s;
+}
+.doto { font-family:'Doto',sans-serif; font-weight:900; margin:0 .18em; }
+.kicker { font-size:11px; font-weight:400; letter-spacing:6px; text-transform:uppercase; color:var(--muted); }
+.wrap { max-width:960px; margin:0 auto; padding:0 28px; }
+a { color:var(--text); }
+
+#themeToggle {
+  position:fixed; top:16px; right:16px; z-index:100;
+  width:40px; height:40px; border:2px solid var(--text); background:var(--card);
+  color:var(--text); border-radius:0; cursor:pointer; font-size:18px; line-height:1;
+  font-family:'Outfit',sans-serif; box-shadow:3px 3px 0 var(--shadow);
+}
+#themeToggle:active { box-shadow:1px 1px 0 var(--shadow); transform:translate(2px,2px); }
+
+/* ============ HERO ============ */
+.hero { display:grid; grid-template-columns:1.25fr .75fr; gap:44px; align-items:center; padding:88px 0 56px; }
+.hero-k { margin-bottom:22px; display:flex; align-items:center; gap:14px; }
+.hero-k svg { width:26px; height:26px; color:var(--accent); flex:none; }
+.hero-h { font-size:clamp(40px,6.5vw,60px); font-weight:500; letter-spacing:-2px; line-height:1.04; margin-bottom:14px; }
+.hero-h .doto { color:var(--accent); font-size:.92em; }
+.hero-sub { font-size:19px; font-weight:500; letter-spacing:-.3px; margin-bottom:18px; }
+.hero-sub::before { content:"“"; } .hero-sub::after { content:"”"; }
+.hero-s { font-size:16.5px; color:var(--muted); line-height:1.6; max-width:52ch; margin-bottom:28px; }
+.hero-s b { font-weight:500; color:var(--text); }
+.hero-art { justify-self:center; }
+.badges { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+.badge {
+  display:inline-flex; align-items:center; gap:8px; font-size:11.5px; font-weight:500;
+  letter-spacing:2.5px; text-transform:uppercase; padding:7px 14px;
+  border:2px solid var(--text); background:var(--card); white-space:nowrap;
+}
+.badge::before { content:''; width:7px; height:7px; background:var(--text); flex:none; }
+.badge.hot { border-color:var(--accent); color:#fff; background:var(--accent); }
+.badge.hot::before { background:#fff; }
+.badge.muted { border-color:var(--line); color:var(--muted); }
+.badge.muted::before { background:var(--muted); }
+
+/* ============ SECTION HEADER ============ */
+section { padding:46px 0 10px; }
+.sec { max-width:680px; margin-bottom:30px; }
+.sec-top { display:flex; align-items:center; gap:16px; margin-bottom:16px; }
+.sec-no { font-family:'Doto',sans-serif; font-weight:900; font-size:15px; color:var(--accent); letter-spacing:1px; }
+.sec-rule { flex:1; height:2px; background:var(--line); }
+.sec-h { font-size:clamp(26px,4vw,34px); font-weight:500; letter-spacing:-1.2px; line-height:1.15; margin-bottom:12px; }
+.sec-s { font-size:15.5px; color:var(--muted); line-height:1.6; }
+
+/* ============ CARDS — Ink Well Soft ============ */
+.cards2 { display:grid; grid-template-columns:1fr 1fr; gap:26px; }
+.rcard {
+  position:relative; border:2px solid var(--cardline); background:var(--card); border-radius:8px;
+  padding:26px 26px 24px;
+  box-shadow:6px 6px 0 var(--shadow); transition:transform .18s ease, box-shadow .18s ease;
+}
+.rcard:hover { transform:translate(-2px,-4px); box-shadow:9px 9px 0 var(--shadow); }
+.rcard.hot { --shadow:var(--accent); }
+.rcard.hot .rcard-t { color:var(--accent); }
+html[data-theme="light"] .rcard.hot { --cardline:var(--accent); }
+.rcard-ic { width:40px; height:40px; margin-bottom:16px; image-rendering:pixelated; }
+.rcard-k { font-size:10px; letter-spacing:5px; text-transform:uppercase; color:var(--muted); margin-bottom:8px; }
+.rcard-t { font-size:21px; font-weight:500; letter-spacing:-.5px; margin-bottom:8px; transition:color .15s; }
+.rcard-s { font-size:14.5px; color:var(--muted); line-height:1.55; }
+.rcard-s b { font-weight:500; color:var(--text); }
+
+/* ============ TIMELINE ============ */
+.tl { max-width:680px; position:relative; padding-left:34px; list-style:none; }
+.tl::before { content:''; position:absolute; left:6px; top:8px; bottom:8px; width:2px; background:var(--line); }
+.tl-item { position:relative; padding-bottom:34px; }
+.tl-item:last-child { padding-bottom:0; }
+.tl-dot { position:absolute; left:-34px; top:4px; width:14px; height:14px; background:var(--bg); border:2px solid var(--text); }
+.tl-item.done .tl-dot { background:var(--text); }
+.tl-item.next .tl-dot { background:var(--accent); border-color:var(--accent); }
+.tl-item.todo .tl-dot { border-color:var(--muted); }
+.tl-when { font-size:10px; letter-spacing:4px; text-transform:uppercase; color:var(--muted); margin-bottom:6px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.tl-t { font-size:18px; font-weight:500; letter-spacing:-.3px; margin-bottom:5px; }
+.tl-item.next .tl-t { color:var(--accent); }
+.tl-s { font-size:14px; color:var(--muted); line-height:1.55; max-width:58ch; }
+.tl-s b { font-weight:500; color:var(--text); }
+.tl-tags { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+.tag { display:inline-block; border:1.5px solid var(--line); padding:3px 9px; font-size:11.5px; font-weight:500; color:var(--muted); letter-spacing:.5px; }
+.pill { font-size:9px; letter-spacing:3px; text-transform:uppercase; padding:3px 9px; border:1.5px solid var(--text); color:var(--text); font-weight:600; }
+.pill.todo { border-color:var(--line); color:var(--muted); font-weight:500; }
+.pill.next { border-color:var(--accent); background:var(--accent); color:#fff; }
+
+/* ============ TABLE ============ */
+.tblbox { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; font-size:15px; }
+th, td { text-align:left; padding:12px 14px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { font-weight:600; font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); }
+tr.hot td { background:rgba(255,107,26,.08); }
+td .intent { font-weight:600; font-size:12.5px; letter-spacing:1.5px; text-transform:uppercase; white-space:nowrap; }
+tr.hot td .intent { color:var(--accent); }
+td.mut { color:var(--muted); font-size:14px; }
+td.code { font-family:'Doto',sans-serif; font-weight:900; font-size:15px; white-space:nowrap; }
+td b { font-weight:500; }
+td small { display:block; color:var(--muted); font-size:12.5px; margin-top:3px; letter-spacing:.3px; }
+
+/* ============ CALLOUT ============ */
+.callout {
+  border:2px solid var(--cardline); border-left:6px solid var(--accent); border-radius:0;
+  background:var(--card); padding:20px 24px; max-width:680px; margin-top:26px;
+  box-shadow:5px 5px 0 var(--shadow); display:grid; gap:8px;
+}
+.callout-k { font-size:10px; letter-spacing:5px; text-transform:uppercase; color:var(--accent); font-weight:500; }
+.callout-b { font-size:15px; line-height:1.6; }
+.callout-b b { font-weight:500; }
+
+/* ============ STAT TILES ============ */
+.stats { display:grid; grid-template-columns:repeat(4,1fr); gap:22px; margin-bottom:30px; }
+.stat { border:2px solid var(--cardline); background:var(--card); padding:20px 22px 18px; box-shadow:5px 5px 0 var(--shadow); }
+.stat-k { font-size:10px; letter-spacing:4px; text-transform:uppercase; color:var(--muted); margin-bottom:12px; }
+.stat-n { font-family:'Doto',sans-serif; font-weight:900; font-size:40px; line-height:1; letter-spacing:-1px; }
+.stat.hot { --cardline:var(--accent); --shadow:var(--accent); }
+html[data-theme="dark"] .stat.hot { --cardline:#24221c; }
+.stat.hot .stat-n { color:var(--accent); }
+.stat-d { font-size:12.5px; color:var(--muted); margin-top:10px; }
+.stat-d b { font-weight:500; color:var(--text); }
+
+/* ============ PROGRESS ============ */
+.prog-row { display:grid; gap:9px; max-width:680px; margin-bottom:34px; }
+.prog-top { display:flex; justify-content:space-between; align-items:baseline; }
+.prog-l { font-size:13.5px; font-weight:500; letter-spacing:.3px; }
+.prog-v { font-family:'Doto',sans-serif; font-weight:900; font-size:16px; color:var(--accent); }
+.prog-track { height:14px; border:2px solid var(--text); background:var(--card); }
+.prog-fill { height:100%; background:var(--accent); }
+
+/* ============ TERMINAL ============ */
+.term { width:100%; border:2px solid var(--cardline); background:var(--card); box-shadow:6px 6px 0 var(--shadow); margin-top:30px; }
+.term-bar { display:flex; align-items:center; gap:8px; padding:10px 16px; border-bottom:2px solid var(--line); }
+.term-dot { width:9px; height:9px; border:2px solid var(--text); }
+.term-dot.on { background:var(--accent); border-color:var(--accent); }
+.term-title { margin-left:auto; font-size:10px; letter-spacing:3px; text-transform:uppercase; color:var(--muted); }
+.term-body { padding:18px 20px 22px; font:12.5px/1.8 ui-monospace,Menlo,Consolas,monospace; min-height:230px; overflow-x:auto; }
+.term-body div { white-space:nowrap; }
+.term-body .p { color:var(--accent); }
+.term-body .m { color:var(--muted); }
+.term-body .ok { color:var(--accent); font-weight:600; }
+.caret { display:inline-block; width:8px; height:14px; background:var(--accent); vertical-align:-2px; animation:blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity:0; } }
+
+/* ============ CHECKLIST ============ */
+.check { display:grid; gap:0; max-width:600px; border:2px solid var(--cardline); background:var(--card); box-shadow:6px 6px 0 var(--shadow); }
+.check-head { padding:14px 20px; border-bottom:2px solid var(--line); }
+.check-row { display:flex; align-items:flex-start; gap:16px; padding:16px 20px; border-bottom:1px solid var(--line); font-size:15px; line-height:1.5; }
+.check-row:last-child { border-bottom:none; }
+.check-box { width:20px; height:20px; flex:none; border:2px solid var(--text); display:grid; place-items:center; margin-top:2px; }
+.check-row.done .check-box { background:var(--accent); border-color:var(--accent); }
+.check-row.done .check-box::after { content:''; width:10px; height:6px; border-left:2.5px solid #fff; border-bottom:2.5px solid #fff; transform:rotate(-45deg) translate(1px,-1px); }
+.check-row.done > span:last-child { color:var(--muted); text-decoration:line-through; text-decoration-thickness:1.5px; }
+.check-row b { font-weight:500; }
+.check-row .cm { color:var(--muted); }
+
+/* ============ FOOTER ============ */
+footer { padding:64px 0 80px; }
+.foot { border:2px solid var(--cardline); background:var(--card); box-shadow:6px 6px 0 var(--shadow); padding:30px 34px 24px; }
+.foot-grid { display:flex; justify-content:space-between; align-items:center; gap:28px; padding-bottom:22px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+.foot-brand { display:flex; align-items:center; gap:12px; font-weight:500; letter-spacing:2px; text-transform:uppercase; font-size:13px; }
+.foot-brand svg { width:28px; height:28px; color:var(--accent); flex:none; }
+.foot-tag { font-size:13px; color:var(--muted); margin-top:6px; }
+.agents { display:flex; gap:18px; align-items:flex-end; }
+.agent { display:grid; justify-items:center; gap:2px; }
+.agent canvas { image-rendering:pixelated; animation:bob 1.2s ease-in-out infinite; }
+.agent:nth-child(2) canvas { animation-delay:.2s; }
+.agent:nth-child(3) canvas { animation-delay:.4s; }
+.agent .gs { width:22px; height:5px; border-radius:50%; background:var(--text); opacity:.12; animation:squash 1.2s ease-in-out infinite; }
+.agent:nth-child(2) .gs { animation-delay:.2s; }
+.agent:nth-child(3) .gs { animation-delay:.4s; }
+@keyframes bob { 0%,100% { transform:translateY(0); } 15% { transform:translateY(-3px); } 30% { transform:translateY(0); } }
+@keyframes squash { 0%,100% { opacity:.12; transform:scaleX(1); } 15% { opacity:.06; transform:scaleX(.7); } }
+.foot-base { display:flex; justify-content:space-between; gap:10px; padding-top:16px; font-size:11.5px; color:var(--muted); letter-spacing:1px; flex-wrap:wrap; }
+
+/* ============ HEX CURSOR ============ */
+@media (pointer:fine) {
+  body.hexcur, body.hexcur a, body.hexcur button { cursor:none; }
+  #hexCursor {
+    position:fixed; z-index:9999; pointer-events:none; top:0; left:0;
+    width:22px; height:22px; margin:-11px 0 0 -11px;
+    transition:transform .08s ease;
+  }
+  #hexCursor svg { width:100%; height:100%; display:block; }
+  #hexCursor path { fill:var(--card); stroke:var(--text); stroke-width:6; stroke-linejoin:round; transition:fill .12s, stroke .12s; }
+  #hexCursor.on { transform:scale(1.25); filter:drop-shadow(0 0 6px rgba(255,107,26,.7)); }
+  #hexCursor.on path { fill:var(--accent); stroke:var(--accent); }
+}
+
+/* ============ MOTION / RESPONSIVE ============ */
+@media (prefers-reduced-motion:reduce) {
+  .agent canvas, .agent .gs, .caret { animation:none; }
+  .rcard, .rcard:hover { transition:none; transform:none; }
+}
+@media (max-width:760px) {
+  .hero { grid-template-columns:1fr; padding-top:72px; }
+  .hero-art { display:none; }
+  .cards2 { grid-template-columns:1fr; }
+  .stats { grid-template-columns:1fr 1fr; }
+}
+@media (max-width:460px) { .stats { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<button id="themeToggle" aria-label="Alternar tema claro/escuro">◐</button>
+
+<div class="wrap">
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <div>
+      <div class="hero-k">
+        <svg viewBox="0 0 80 80" aria-label="marca"><path d="M58 24 L62 28 L66 46 L62 42 Z" fill="currentColor" opacity="0.55" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M62 42 L66 46 L52 64 L48 60 Z" fill="currentColor" opacity="0.55" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M48 60 L52 64 L28 60 L24 56 Z" fill="currentColor" opacity="0.55" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M38 18 L58 24 L62 42 L48 60 L24 56 L18 34 Z" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>
+        <span class="kicker">TDec Prospect · Epic 21 · Máquina de Resultado</span>
+      </div>
+      <h1 class="hero-h">Loop de<span class="doto">RESPOSTA</span></h1>
+      <div class="hero-sub">o pop-up do lead</div>
+      <p class="hero-s">O momento mais valioso do funil é quando o lead responde — ou demonstra interesse. Antes, esse momento <b>não disparava nada</b>: a resposta ficava parada, reconciliada à mão por planilha. Agora o sistema <b>detecta, entende, rascunha a resposta e entrega</b> a oportunidade pronta para o vendedor agir em um clique.</p>
+      <div class="badges">
+        <span class="badge hot">6 de 7 stories</span>
+        <span class="badge">6.627 testes verdes</span>
+        <span class="badge">validado em produção</span>
+        <span class="badge muted">aguardando deploy</span>
+      </div>
+    </div>
+    <canvas class="hero-art" id="heroDots"></canvas>
+  </header>
+
+  <!-- ============ 01 · A VIRADA ============ -->
+  <section>
+    <header class="sec">
+      <div class="sec-top"><span class="sec-no">01</span><span class="kicker">A virada</span><span class="sec-rule"></span></div>
+      <h2 class="sec-h">De ferramenta de envio a máquina que entrega leads</h2>
+      <p class="sec-s">A plataforma sempre soube mandar e-mail em escala. Faltava o outro lado do funil: fazer algo no instante em que o lead reage.</p>
+    </header>
+    <div class="cards2">
+      <div class="rcard">
+        <canvas class="rcard-ic" id="icCsv"></canvas>
+        <div class="rcard-k">Antes</div>
+        <div class="rcard-t">CSV na mão, lead esfriando</div>
+        <div class="rcard-s">O lead respondia e a mensagem ficava na Instantly. Para saber quem tinha respondido, alguém exportava um CSV e cruzava na mão.</div>
+      </div>
+      <div class="rcard hot">
+        <canvas class="rcard-ic" id="icBell"></canvas>
+        <div class="rcard-k">Agora</div>
+        <div class="rcard-t">O sistema avisa sozinho</div>
+        <div class="rcard-s">A cada poucos minutos o sistema varre as respostas, a IA classifica a intenção e a oportunidade aparece na <b>Central</b> — com o <b>próximo passo já rascunhado</b> e o WhatsApp a um clique.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 02 · O FLUXO ============ -->
+  <section>
+    <header class="sec">
+      <div class="sec-top"><span class="sec-no">02</span><span class="kicker">O fluxo</span><span class="sec-rule"></span></div>
+      <h2 class="sec-h">O caminho da resposta até o vendedor</h2>
+      <p class="sec-s">Sete etapas, na ordem em que foram construídas. Seis prontas — o loop já fecha do sinal até a ação. Falta só o aviso proativo, marcado em laranja.</p>
+    </header>
+    <ol class="tl">
+      <li class="tl-item done"><span class="tl-dot"></span>
+        <div class="tl-when">Story 21.1 <span class="pill">Pronto</span></div>
+        <div class="tl-t">A base de dados</div>
+        <div class="tl-s">Onde toda oportunidade e notificação passa a viver. Invisível ao usuário; segura todo o resto de pé.</div>
+        <div class="tl-tags"><span class="tag">tabela opportunities</span><span class="tag">migration 00055</span><span class="tag">27 testes</span></div>
+      </li>
+      <li class="tl-item done"><span class="tl-dot"></span>
+        <div class="tl-when">Story 21.2 <span class="pill">Pronto</span></div>
+        <div class="tl-t">Detecção — o sistema lê as respostas sozinho</div>
+        <div class="tl-s">A cada poucos minutos consulta a Instantly e captura <b>quem respondeu</b>, sem CSV. Traz o histórico antigo (backfill) e ignora respostas automáticas ("estou de férias").</div>
+        <div class="tl-tags"><span class="tag">cadência ≤ 5 min</span><span class="tag">histórico desde mar/2026</span><span class="tag">filtro auto-reply</span></div>
+      </li>
+      <li class="tl-item done"><span class="tl-dot"></span>
+        <div class="tl-when">Story 21.6 <span class="pill">Pronto</span></div>
+        <div class="tl-t">Engajamento — quem se interessa sem responder</div>
+        <div class="tl-s">Quem <b>abre várias vezes ou clica</b> também vira oportunidade — atravessando todas as campanhas, para agir antes do concorrente.</div>
+        <div class="tl-tags"><span class="tag">abriu OU ≥ 1 clique</span><span class="tag">cross-campanha</span><span class="tag">badge "Alto engajamento"</span></div>
+      </li>
+      <li class="tl-item done"><span class="tl-dot"></span>
+        <div class="tl-when">Story 21.3 <span class="pill">Pronto</span></div>
+        <div class="tl-t">Inteligência — a IA lê e entende</div>
+        <div class="tl-s">A IA classifica a <b>intenção</b> da resposta em cinco tipos e atualiza o status do lead. Se a IA falhar, a oportunidade continua visível — nada se perde.</div>
+        <div class="tl-tags"><span class="tag">gpt-4o-mini</span><span class="tag">custo em centavos</span><span class="tag">fail-open</span></div>
+      </li>
+      <li class="tl-item done"><span class="tl-dot"></span>
+        <div class="tl-when">Story 21.4 <span class="pill">Pronto</span></div>
+        <div class="tl-t">Central de Oportunidades — tudo numa tela só</div>
+        <div class="tl-s">Um card por oportunidade: <b>lead, empresa, campanha, texto da resposta, engajamento, telefone e link para o Unibox</b>. Filtros, busca e contador na barra lateral.</div>
+        <div class="tl-tags"><span class="tag">rota /opportunities</span><span class="tag">badge na sidebar</span><span class="tag">+112 testes</span></div>
+      </li>
+      <li class="tl-item done"><span class="tl-dot"></span>
+        <div class="tl-when">Story 21.5 <span class="pill">Pronto</span></div>
+        <div class="tl-t">Ação — responder direto do card</div>
+        <div class="tl-s">A IA <b>rascunha o próximo passo</b> lendo a resposta do lead, o produto e o tom de voz da empresa. O vendedor <b>copia, envia WhatsApp, dispara e-mail, busca telefone ou marca "reunião marcada"</b> sem sair do card.</div>
+        <div class="tl-tags"><span class="tag">rascunho por IA</span><span class="tag">WhatsApp · e-mail · telefone</span><span class="tag">1 geração por oportunidade</span><span class="tag">+128 testes</span></div>
+      </li>
+      <li class="tl-item next"><span class="tl-dot"></span>
+        <div class="tl-when">Story 21.7 <span class="pill next">Próxima</span></div>
+        <div class="tl-t">Aviso — o lead te encontra</div>
+        <div class="tl-s">Lead quente avisa no <b>WhatsApp e dentro do app</b> — o pop-up chega mesmo com a plataforma fechada.</div>
+        <div class="tl-tags"><span class="tag">WhatsApp + in-app</span><span class="tag">aviso em ≤ 5 min</span></div>
+      </li>
+    </ol>
+  </section>
+
+  <!-- ============ 03 · A LEITURA DA IA ============ -->
+  <section>
+    <header class="sec">
+      <div class="sec-top"><span class="sec-no">03</span><span class="kicker">A leitura da IA</span><span class="sec-rule"></span></div>
+      <h2 class="sec-h">Cinco intenções, cinco reações</h2>
+      <p class="sec-s">A classificação não é só um rótulo — ela decide o que acontece com o status do lead.</p>
+    </header>
+    <div class="tblbox">
+      <table>
+        <thead><tr><th>Intenção</th><th>O que significa</th><th>O que acontece</th></tr></thead>
+        <tbody>
+          <tr class="hot"><td><span class="intent">interessado</span></td><td>Quer conversar</td><td>Lead vira <b>interessado</b> — prioridade máxima</td></tr>
+          <tr><td><span class="intent">pediu_info</span></td><td>Quer saber mais</td><td>Também vira <b>interessado</b></td></tr>
+          <tr><td><span class="intent">objecao</span></td><td class="mut">Levantou uma trava</td><td class="mut">Fica para triagem manual</td></tr>
+          <tr><td><span class="intent">nao_agora</span></td><td class="mut">Momento errado</td><td class="mut">Segue visível, status intacto</td></tr>
+          <tr><td><span class="intent">opt_out</span></td><td class="mut">Pediu para sair</td><td class="mut">Marcado <b>não interessado</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 04 · DOIS CAMINHOS ============ -->
+  <section>
+    <header class="sec">
+      <div class="sec-top"><span class="sec-no">04</span><span class="kicker">De onde vem uma oportunidade</span><span class="sec-rule"></span></div>
+      <h2 class="sec-h">Dois caminhos, uma central</h2>
+      <p class="sec-s">Um sinal é o lead falando; o outro é o lead demonstrando interesse em silêncio.</p>
+    </header>
+    <div class="cards2">
+      <div class="rcard hot">
+        <canvas class="rcard-ic" id="icReply"></canvas>
+        <div class="rcard-k">Resposta</div>
+        <div class="rcard-t">O lead falou</div>
+        <div class="rcard-s">Respondeu ao e-mail da campanha. Sinal mais forte e explícito — a IA lê o texto e classifica a intenção.</div>
+      </div>
+      <div class="rcard">
+        <canvas class="rcard-ic" id="icEye"></canvas>
+        <div class="rcard-k">Engajamento</div>
+        <div class="rcard-t">O lead demonstrou interesse</div>
+        <div class="rcard-s">Abriu várias vezes ou clicou, mas ainda não respondeu. Sinal silencioso — a chance de chegar primeiro.</div>
+      </div>
+    </div>
+    <aside class="callout">
+      <div class="callout-k">Regra de ouro</div>
+      <div class="callout-b">Se um lead de engajamento depois responde, a oportunidade é <b>promovida para resposta</b> — a mesma oportunidade evolui, nunca duplica.</div>
+    </aside>
+  </section>
+
+  <!-- ============ 05 · O CARD EM AÇÃO ============ -->
+  <section>
+    <header class="sec">
+      <div class="sec-top"><span class="sec-no">05</span><span class="kicker">O card em ação</span><span class="sec-rule"></span></div>
+      <h2 class="sec-h">Da leitura para a ação, em um clique</h2>
+      <p class="sec-s">Ver a oportunidade não fecha negócio. A Story 21.5 transformou cada card de leitura em ação — o vendedor responde em minutos, não em dias.</p>
+    </header>
+    <div class="cards2">
+      <div class="rcard hot">
+        <canvas class="rcard-ic" id="icDraft"></canvas>
+        <div class="rcard-k">Próximo passo por IA</div>
+        <div class="rcard-t">A resposta já vem escrita</div>
+        <div class="rcard-s">Ao abrir o card, a IA lê a resposta do lead, a intenção, o seu produto e o seu tom de voz — e <b>rascunha a mensagem pronta</b>. Copiar, regenerar, ou mandar direto.</div>
+      </div>
+      <div class="rcard">
+        <canvas class="rcard-ic" id="icHand"></canvas>
+        <div class="rcard-k">Triagem</div>
+        <div class="rcard-t">O card sai da fila</div>
+        <div class="rcard-s">Contatada, descartada ou <b>reunião marcada</b> — esta última carimba a data e <b>promove o lead no pipeline</b>. Um card resolvido nunca ressuscita.</div>
+      </div>
+    </div>
+    <aside class="callout">
+      <div class="callout-k">Custo sob controle</div>
+      <div class="callout-b">O rascunho é gerado <b>uma vez por oportunidade, para sempre</b> — reabrir o card não gasta nada. Custo real medido: <b>menos de um centavo</b> por oportunidade, auditável no registro de uso.</div>
+    </aside>
+  </section>
+
+  <!-- ============ 06 · PROVA REAL ============ -->
+  <section>
+    <header class="sec">
+      <div class="sec-top"><span class="sec-no">06</span><span class="kicker">Prova real</span><span class="sec-rule"></span></div>
+      <h2 class="sec-h">Rodado contra os dados de verdade</h2>
+      <p class="sec-s">Testes verdes provam o código; não provam a tela. O motor foi executado ponta a ponta contra a base real do cliente — e o que ele encontrou é o argumento do épico.</p>
+    </header>
+    <div class="tblbox">
+      <table>
+        <thead><tr><th>O que rodou</th><th>Resultado</th></tr></thead>
+        <tbody>
+          <tr><td><b>Varredura de respostas</b><small>consulta à Instantly, sem CSV</small></td><td class="mut">6 e-mails lidos, zero duplicados</td></tr>
+          <tr class="hot"><td><b>Leads quentes descobertos</b><small>abriram várias vezes, nunca responderam</small></td><td><b>4 novos</b> — CISO, CTO e superintendentes de TI que estavam invisíveis</td></tr>
+          <tr><td><b>Leitura da IA</b><small>classificação de intenção</small></td><td>2 respostas lidas como <b>não agora</b> — e a IA acertou: ambos disseram "não é prioridade este ano"</td></tr>
+          <tr><td><b>Pipeline do cliente</b><small>status dos leads</small></td><td class="mut">Intacto — "não agora" não rebaixa ninguém</td></tr>
+          <tr><td><b>Erros</b></td><td class="mut">Nenhum</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <aside class="callout">
+      <div class="callout-k">O que a tela ensinou</div>
+      <div class="callout-b">Rodar o app achou três defeitos que <b>6.627 testes verdes não pegaram</b> — inclusive rascunhos assinando "[Seu Nome]". A causa não era a IA: o nome da empresa <b>já estava cadastrado</b> e nunca chegava até ela. Corrigido sem trocar de modelo e sem custo extra.</div>
+    </aside>
+  </section>
+
+  <!-- ============ 07 · STATUS ============ -->
+  <section>
+    <header class="sec">
+      <div class="sec-top"><span class="sec-no">07</span><span class="kicker">Onde estamos</span><span class="sec-rule"></span></div>
+      <h2 class="sec-h">Status de construção</h2>
+      <p class="sec-s">O loop fecha: detecta, entende, rascunha e age. Falta a camada de aviso proativo — e subir para produção.</p>
+    </header>
+
+    <div class="stats">
+      <div class="stat hot"><div class="stat-k">Stories</div><div class="stat-n">6/7</div><div class="stat-d">loop <b>fechado</b> ponta a ponta</div></div>
+      <div class="stat"><div class="stat-k">Testes</div><div class="stat-n">6.627</div><div class="stat-d"><b>386</b> arquivos de teste</div></div>
+      <div class="stat"><div class="stat-k">Falhando</div><div class="stat-n">0</div><div class="stat-d">build <b>verde</b></div></div>
+      <div class="stat"><div class="stat-k">Migrations</div><div class="stat-n">4</div><div class="stat-d">00055 – 00058 <b>aplicadas</b></div></div>
+    </div>
+
+    <div class="prog-row">
+      <div class="prog-top"><span class="prog-l">Epic 21 · Loop de Resposta</span><span class="prog-v">86%</span></div>
+      <div class="prog-track"><div class="prog-fill" style="width:86%"></div></div>
+    </div>
+
+    <div class="tblbox">
+      <table>
+        <thead><tr><th>Story</th><th>Entrega</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td class="code">21.1</td><td><b>Schema, tipos e validação do spike</b><small>migration 00055 · 27 testes</small></td><td><span class="pill">Pronto</span></td></tr>
+          <tr><td class="code">21.2</td><td><b>Ingestão de respostas por polling + backfill</b><small>detecção automática · dedupe · filtro auto-reply</small></td><td><span class="pill">Pronto</span></td></tr>
+          <tr><td class="code">21.6</td><td><b>Janela de oportunidade cross-campanha</b><small>abertura/clique · migration 00057</small></td><td><span class="pill">Pronto</span></td></tr>
+          <tr><td class="code">21.3</td><td><b>Classificação de intenção por IA</b><small>gpt-4o-mini · fail-open · migration 00058</small></td><td><span class="pill">Pronto</span></td></tr>
+          <tr><td class="code">21.4</td><td><b>Central de Oportunidades — página e cards</b><small>rota /opportunities · +112 testes</small></td><td><span class="pill">Pronto</span></td></tr>
+          <tr><td class="code">21.5</td><td><b>Ações do card + próximo passo por IA</b><small>WhatsApp · e-mail · telefone · reunião · +128 testes</small></td><td><span class="pill">Pronto</span></td></tr>
+          <tr><td class="code">21.7</td><td><b>Notificações proativas + configurações</b><small>WhatsApp + in-app · config por tenant</small></td><td><span class="pill next">Próxima</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="term">
+      <div class="term-bar"><span class="term-dot on"></span><span class="term-dot"></span><span class="term-dot"></span><span class="term-title">caminhos de teste · central de oportunidades</span></div>
+      <div class="term-body" id="termOut"></div>
+    </div>
+  </section>
+
+  <!-- ============ 08 · PRÓXIMOS PASSOS ============ -->
+  <section>
+    <header class="sec">
+      <div class="sec-top"><span class="sec-no">08</span><span class="kicker">Para fechar o loop</span><span class="sec-rule"></span></div>
+      <h2 class="sec-h">Próximos passos</h2>
+      <p class="sec-s">O motor está construído e provado contra dados reais. O que falta é automação e o aviso proativo.</p>
+    </header>
+    <div class="check">
+      <div class="check-head kicker">O que falta</div>
+      <div class="check-row done"><span class="check-box"></span><span><b>Story 21.5 — Ações do card.</b> <span class="cm">Rascunho por IA, WhatsApp, e-mail, telefone e "reunião marcada" em um clique.</span></span></div>
+      <div class="check-row"><span class="check-box"></span><span><b>Story 21.7 — Notificações proativas.</b> <span class="cm">Lead quente no WhatsApp e no app; canais configuráveis pelo admin.</span></span></div>
+      <div class="check-row"><span class="check-box"></span><span><b>Deploy na Vercel.</b> <span class="cm">É o que liga o piloto automático: hoje o motor roda quando alguém pede; depois, sozinho a cada 5 minutos.</span></span></div>
+      <div class="check-row"><span class="check-box"></span><span><b>Checklist pós-deploy.</b> <span class="cm">Confirmar o ciclo fechando sozinho e o segredo idêntico entre Vercel e Supabase.</span></span></div>
+      <div class="check-row"><span class="check-box"></span><span><b>Primeiro WhatsApp real a partir de um card.</b> <span class="cm">O único caminho do épico que ainda não foi exercitado com uma mensagem de verdade.</span></span></div>
+    </div>
+  </section>
+
+  <!-- ============ FOOTER ============ -->
+  <footer>
+    <div class="foot">
+      <div class="foot-grid">
+        <div>
+          <div class="foot-brand">
+            <svg viewBox="0 0 80 80" aria-label="marca"><path d="M58 24 L62 28 L66 46 L62 42 Z" fill="currentColor" opacity="0.55" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M62 42 L66 46 L52 64 L48 60 Z" fill="currentColor" opacity="0.55" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M48 60 L52 64 L28 60 L24 56 Z" fill="currentColor" opacity="0.55" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M38 18 L58 24 L62 42 L48 60 L24 56 L18 34 Z" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>
+            TDec Prospect
+          </div>
+          <div class="foot-tag">Epic 21 — Loop de Resposta. O lead responde, o sistema entrega.</div>
+        </div>
+        <div class="agents" aria-hidden="true">
+          <span class="agent"><canvas id="ag1"></canvas><span class="gs"></span></span>
+          <span class="agent"><canvas id="ag2"></canvas><span class="gs"></span></span>
+          <span class="agent"><canvas id="ag3"></canvas><span class="gs"></span></span>
+        </div>
+      </div>
+      <div class="foot-base">
+        <span>Documento vivo · 15/07/2026</span>
+        <span>branch epic/21-loop-de-resposta</span>
+      </div>
+    </div>
+  </footer>
+
+</div>
+
+<div id="hexCursor" aria-hidden="true"><svg viewBox="0 0 80 80"><path d="M38 18 L58 24 L62 42 L48 60 L24 56 L18 34 Z"/></svg></div>
+
+<script>
+/* ============ theme (robo standard) ============ */
+(function () {
+  const root = document.documentElement;
+  const apply = t => {
+    root.setAttribute('data-theme', t);
+    root.style.colorScheme = t;
+    if (window.roboRedraw) window.roboRedraw();
+  };
+  const forced = new URLSearchParams(location.search).get('theme');
+  apply(forced || localStorage.getItem('robo-theme') || 'light');
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('robo-theme', next);
+    apply(next);
+  });
+  window.addEventListener('message', e => {
+    if (e.data && e.data.roboTheme) { localStorage.setItem('robo-theme', e.data.roboTheme); apply(e.data.roboTheme); }
+  });
+})();
+
+/* ============ halftone engine (verbatim) ============ */
+function halftone(id, w, h, step, maxR, color, fn, color2, fn2) {
+  const c = document.getElementById(id); if (!c) return;
+  const ctx = c.getContext('2d'); const dpr = window.devicePixelRatio || 1;
+  c.width = w * dpr; c.height = h * dpr; c.style.width = w + 'px'; c.style.height = h + 'px'; ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+  for (let y = step / 2; y < h; y += step) for (let x = step / 2; x < w; x += step) {
+    const u = x / w, v = y / h;
+    let b = fn(u, v), col = color;
+    if (fn2) { const b2 = fn2(u, v); if (b2 > b) { b = b2; col = color2; } }
+    if (b <= 0.02) continue;
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, Math.min(maxR, b * maxR), 0, Math.PI * 2); ctx.fill();
+  }
+}
+function inkDot() {
+  return document.documentElement.getAttribute('data-theme') === 'light'
+    ? 'rgba(28,26,22,0.88)' : 'rgba(232,226,210,0.85)';
+}
+function inkSolid() {
+  return document.documentElement.getAttribute('data-theme') === 'light' ? '#1c1a16' : '#e8e2d2';
+}
+
+/* hero: shaded sphere (lambert, top-left light) + orange notification crescent */
+function drawHero() {
+  halftone('heroDots', 300, 300, 6, 1.9, inkDot(), (u, v) => {
+    const dx = u - .5, dy = v - .5, d = Math.sqrt(dx*dx + dy*dy);
+    if (d > .42) return 0;
+    const z = Math.sqrt(Math.max(0, .42*.42 - d*d)) / .42;
+    const nx = dx/.42, ny = dy/.42;
+    return Math.max(0, (-nx*.55 - ny*.55 + z*.62)) + .08;
+  }, '#ff6b1a', (u, v) => {
+    const dx = u - .62, dy = v - .36, d = Math.sqrt(dx*dx + dy*dy);
+    return (d > .07 && d < .13) ? .95 : 0;
+  });
+}
+
+/* ============ pixel sprite icons ============ */
+function sprite(canvasId, rows, palette, px) {
+  const c = document.getElementById(canvasId); if (!c) return;
+  const ctx = c.getContext('2d');
+  c.width = rows[0].length * px; c.height = rows.length * px;
+  ctx.clearRect(0, 0, c.width, c.height);
+  rows.forEach((row, y) => [...row].forEach((k, x) => {
+    if (k !== '.') { ctx.fillStyle = palette[k]; ctx.fillRect(x * px, y * px, px, px); }
+  }));
+}
+function drawIcons() {
+  const ink = inkSolid();
+  /* CSV / spreadsheet — outline (Antes) */
+  sprite('icCsv', ['..........','.kkkkkkkk.','.k......k.','.kkkkkkkk.','.k..k...k.','.kkkkkkkk.','.k..k...k.','.kkkkkkkk.','..........','..........'], { k: ink }, 4);
+  /* bell — solid orange (o highlight do "Agora") */
+  sprite('icBell', ['....o.....','...ooo....','..ooooo...','..ooooo...','..ooooo...','.ooooooo..','ooooooooo.','....o.....','...ooo....','..........'], { o: '#ff6b1a' }, 4);
+  /* reply arrow — solid orange (card hot "Resposta") */
+  sprite('icReply', ['..........','...o......','..oo......','.ooooooo..','ooooooooo.','.ooooooo.o','..oo....oo','...o...ooo','..........','..........'], { o: '#ff6b1a' }, 4);
+  /* eye — outline ink (Engajamento) */
+  sprite('icEye', ['..........','..kkkkkk..','.k......k.','k...kk...k','k..kkkk..k','k..kkkk..k','k...kk...k','.k......k.','..kkkkkk..','..........'], { k: ink }, 4);
+  /* sparkle/draft — solid orange (o rascunho por IA = destaque da 21.5) */
+  sprite('icDraft', ['....o.....','....o.....','..o.o.o...','...ooo....','oooooooo..','...ooo....','..o.o.o...','....o..oo.','....o..oo.','..........'], { o: '#ff6b1a' }, 4);
+  /* hand/click — outline ink (triagem) */
+  sprite('icHand', ['..kk......','..k.k.....','..k.k.....','..k.kkk...','..k.k.k.k.','kk.k.k.k.k','.k.......k','.k.......k','..k.....k.','...kkkkk..'], { k: ink }, 4);
+}
+
+/* ============ agent sprites (A1 orange lead + A3 + A5) ============ */
+const AGENTS = {
+  a1:[[0,0,1,0],[1,1,1,1],[1,1,1,1],[1,0,1,1],[1,1,1,1],[1,1,1,1],[1,0,0,1],[0,0,0,0]],
+  a3:[[0,0,1,0],[0,0,1,1],[0,1,1,1],[0,1,0,1],[0,1,1,1],[1,1,1,1],[1,0,1,0],[0,0,0,0]],
+  a5:[[0,0,1,0],[0,0,1,1],[0,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,1],[1,0,0,1],[0,0,0,0]]
+};
+function drawAgent(canvasId, key, color, px) {
+  const c = document.getElementById(canvasId); if (!c) return;
+  const d = AGENTS[key]; const ctx = c.getContext('2d');
+  c.width = 8 * px; c.height = 8 * px;
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.fillStyle = color;
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 4; x++) {
+    if (d[y][x]) { ctx.fillRect(x*px, y*px, px, px); ctx.fillRect((7-x)*px, y*px, px, px); }
+  }
+}
+function drawAgents() {
+  const ink = inkSolid();
+  drawAgent('ag1', 'a1', '#ff6b1a', 3);  /* A1 = lead, laranja */
+  drawAgent('ag2', 'a3', ink, 3);
+  drawAgent('ag3', 'a5', ink, 3);
+}
+
+window.roboRedraw = function () { drawHero(); drawIcons(); drawAgents(); };
+window.roboRedraw();
+
+/* ============ terminal: caminhos de teste ============ */
+(function () {
+  const LINES = [
+    ['p', '> npx vitest run opportunities'],
+    ['ok', '✓ __tests__/unit/lib/utils/opportunity-suggestion.test.ts'],
+    ['ok', '✓ __tests__/unit/app/api/opportunities/[opportunityId]/suggestion/route.test.ts'],
+    ['ok', '✓ __tests__/unit/app/api/opportunities/[opportunityId]/route.test.ts'],
+    ['ok', '✓ __tests__/unit/actions/whatsapp-from-opportunity.test.ts'],
+    ['ok', '✓ __tests__/unit/hooks/use-whatsapp-send-from-opportunity.test.ts'],
+    ['ok', '✓ __tests__/unit/components/opportunities/OpportunityCard.test.tsx'],
+    ['ok', '✓ __tests__/unit/components/opportunities/OpportunitiesPageContent.test.tsx'],
+    ['ok', '✓ __tests__/unit/hooks/use-opportunities.test.ts'],
+    ['m', 'Test Files  386 passed · Tests  6627 passed · 0 failed']
+  ];
+  const out = document.getElementById('termOut');
+  const esc = s => s.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  function finish() {
+    const end = document.createElement('div');
+    end.innerHTML = '<span class="p">&gt; </span><span class="caret"></span>';
+    out.appendChild(end);
+  }
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    LINES.forEach(([cls, txt]) => {
+      const d = document.createElement('div');
+      d.innerHTML = '<span class="' + cls + '">' + esc(txt) + '</span>';
+      out.appendChild(d);
+    });
+    finish(); return;
+  }
+  /* digita o comando, depois revela os ✓ linha a linha */
+  const [cmdCls, cmdTxt] = LINES[0];
+  const cmdEl = document.createElement('div'); out.appendChild(cmdEl);
+  let ci = 0;
+  (function typeCmd() {
+    ci++;
+    cmdEl.innerHTML = '<span class="' + cmdCls + '">' + esc(cmdTxt.slice(0, ci)) + '</span>';
+    if (ci < cmdTxt.length) { setTimeout(typeCmd, 22); return; }
+    let li = 1;
+    (function reveal() {
+      if (li >= LINES.length) { finish(); return; }
+      const [cls, txt] = LINES[li++];
+      const d = document.createElement('div');
+      d.innerHTML = '<span class="' + cls + '">' + esc(txt) + '</span>';
+      out.appendChild(d);
+      setTimeout(reveal, 130);
+    })();
+  })();
+})();
+
+/* ============ hex cursor (glows orange on clickables) ============ */
+(function () {
+  if (!matchMedia('(pointer: fine)').matches) return;
+  const cur = document.getElementById('hexCursor');
+  document.body.classList.add('hexcur');
+  cur.style.display = 'none';
+  document.addEventListener('mousemove', e => {
+    cur.style.display = 'block';
+    cur.style.left = e.clientX + 'px';
+    cur.style.top = e.clientY + 'px';
+    const t = e.target.closest('a, button, .rcard, .check-row');
+    cur.classList.toggle('on', !!t);
+  });
+  document.addEventListener('mouseleave', () => { cur.style.display = 'none'; });
+})();
+</script>
+</body>
+</html>

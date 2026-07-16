@@ -299,11 +299,34 @@ describe("loadKBContext", () => {
     const result = await loadKBContext(getClient(), "tenant-1");
 
     expect(result).toEqual({
+      // `company_name` é obrigatório na KB e era DESCARTADO aqui — sem ele os
+      // geradores de texto não sabem o nome da própria empresa e a IA escreve
+      // "[Sua Empresa]" (visto em produção na sugestão do Insights).
+      companyName: "TestCo",
       companyContext: "Tech company",
       productsServices: "SaaS platform",
       competitiveAdvantages: "AI-powered",
       icpSummary: "Cargos: CTO. Setores: SaaS. Dores: Scaling issues",
     });
+  });
+
+  it("company_name ausente na KB degrada para string vazia (não quebra a geração)", async () => {
+    const companyChain = createChainBuilder({
+      data: {
+        content: {
+          business_description: "Tech company",
+          products_services: "SaaS platform",
+          competitive_advantages: "AI-powered",
+        },
+      },
+      error: null,
+    });
+    const icpChain = createChainBuilder({ data: null, error: null });
+    mockFrom.mockReturnValueOnce(companyChain).mockReturnValueOnce(icpChain);
+
+    const result = await loadKBContext(getClient(), "tenant-1");
+
+    expect(result?.companyName).toBe("");
   });
 
   it("should return null when no company profile", async () => {

@@ -1,6 +1,8 @@
 /**
  * Tests for OpportunitiesPageContent Component
  * Story 21.4: Central de Oportunidades — AC #2, #4, #6
+ * Story 21.5: dialogs de ação levantados (composer WhatsApp pré-preenchido com
+ *   o rascunho + PhoneLookup alimentando `localPhones`) — AC #3.
  *
  * Estados loading/error/empty/lista + paginação + busca client-side.
  */
@@ -8,12 +10,30 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import React from "react";
 import { OpportunitiesPageContent } from "@/components/opportunities/OpportunitiesPageContent";
 import type { OpportunityCardData } from "@/hooks/use-opportunities";
+
+/**
+ * O WhatsAppComposerDialog usa `useAIGenerate` (react-query) internamente para
+ * o botão "Gerar com IA" dele — ortogonal ao rascunho da 21.5, mas exige o
+ * provider assim que o dialog monta.
+ */
+function renderWithClient(ui: React.ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    React.createElement(QueryClientProvider, { client: queryClient }, ui)
+  );
+}
 
 // Mock use-opportunities: useOpportunities controlado; filterOpportunitiesBySearch REAL
 const mockUseOpportunities = vi.fn();
 const mockMutate = vi.fn();
+const mockGenerate = vi.fn().mockResolvedValue({ suggestion: null });
+const mockRegenerate = vi.fn().mockResolvedValue({ suggestion: null });
 
 vi.mock("@/hooks/use-opportunities", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/hooks/use-opportunities")>();
@@ -21,8 +41,45 @@ vi.mock("@/hooks/use-opportunities", async (importOriginal) => {
     ...actual,
     useOpportunities: (...args: unknown[]) => mockUseOpportunities(...args),
     useUpdateOpportunityStatus: () => ({ mutate: mockMutate, isPending: false }),
+    useOpportunitySuggestion: () => ({
+      generate: mockGenerate,
+      regenerate: mockRegenerate,
+      isGenerating: false,
+      error: null,
+      data: null,
+    }),
   };
 });
+
+// Story 21.5: o envio real é coberto em use-whatsapp-send-from-opportunity.test.ts
+const mockSend = vi.fn().mockResolvedValue(true);
+vi.mock("@/hooks/use-whatsapp-send-from-opportunity", () => ({
+  useWhatsAppSendFromOpportunity: () => ({
+    send: mockSend,
+    isSending: false,
+    error: null,
+    lastResult: null,
+  }),
+}));
+
+// PhoneLookupDialog real depende de usePhoneLookup (rede) — stub que expõe
+// apenas o contrato usado aqui: onPhoneFound.
+vi.mock("@/components/tracking/PhoneLookupDialog", () => ({
+  PhoneLookupDialog: ({
+    lead,
+    onPhoneFound,
+  }: {
+    lead: { leadEmail: string };
+    onPhoneFound: (phone: string) => void;
+  }) => (
+    <div data-testid="phone-lookup-dialog">
+      <span data-testid="phone-lookup-email">{lead.leadEmail}</span>
+      <button type="button" onClick={() => onPhoneFound("5511988887777")}>
+        Simular telefone encontrado
+      </button>
+    </div>
+  ),
+}));
 
 // Mock useCampaigns (usado pelo FilterBar)
 vi.mock("@/hooks/use-campaigns", () => ({
@@ -237,5 +294,146 @@ describe("OpportunitiesPageContent", () => {
     const cards = screen.getAllByTestId("opportunity-card");
     expect(cards).toHaveLength(1);
     expect(cards[0]).toHaveTextContent("Maria Silva");
+  });
+});
+
+// ==============================================
+// Story 21.5 — dialogs de ação (AC #3)
+// ==============================================
+
+describe("OpportunitiesPageContent — ações (Story 21.5)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGenerate.mockResolvedValue({ suggestion: null });
+  });
+
+  it("abrir o composer via WhatsApp pré-preenche com o rascunho (suggestion)", async () => {
+    const user = userEvent.setup();
+    mockHookReturn({
+      opportunities: [
+        makeOpportunity({
+          suggestion: "Rascunho da IA para o João",
+          lead: {
+            id: "lead-1",
+            firstName: "John",
+            lastName: "Doe",
+            email: "john@acme.com",
+            companyName: "Acme Inc",
+            title: "CTO",
+            phone: "5511999999999",
+            photoUrl: null,
+            isMonitored: false,
+            linkedinUrl: null,
+          },
+        }),
+      ],
+    });
+
+    renderWithClient(<OpportunitiesPageContent />);
+
+    expect(screen.queryByTestId("whatsapp-composer-dialog")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("opportunity-action-whatsapp"));
+
+    expect(screen.getByTestId("whatsapp-composer-dialog")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Rascunho da IA para o João")).toBeInTheDocument();
+  });
+
+  it("onPhoneFound alimenta localPhones → o card passa a oferecer WhatsApp", async () => {
+    const user = userEvent.setup();
+    mockHookReturn({ opportunities: [makeOpportunity()] }); // lead.phone = null
+
+    renderWithClient(<OpportunitiesPageContent />);
+
+    // Sem telefone: o card oferece a busca
+    expect(screen.queryByTestId("opportunity-action-whatsapp")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("opportunity-action-phone-lookup"));
+
+    expect(screen.getByTestId("phone-lookup-dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("phone-lookup-email")).toHaveTextContent("john@acme.com");
+
+    await user.click(screen.getByText("Simular telefone encontrado"));
+
+    // Dialog fecha e o card recebe o telefone (otimista, antes do refetch)
+    expect(screen.queryByTestId("phone-lookup-dialog")).not.toBeInTheDocument();
+    expect(screen.getByTestId("opportunity-action-whatsapp")).toBeInTheDocument();
+  });
+
+  it("envio bem-sucedido fecha o composer e repassa opportunityId/leadId", async () => {
+    const user = userEvent.setup();
+    mockSend.mockResolvedValue(true);
+    mockHookReturn({
+      opportunities: [
+        makeOpportunity({
+          suggestion: "Rascunho",
+          lead: {
+            id: "lead-1",
+            firstName: "John",
+            lastName: "Doe",
+            email: "john@acme.com",
+            companyName: "Acme Inc",
+            title: "CTO",
+            phone: "5511999999999",
+            photoUrl: null,
+            isMonitored: false,
+            linkedinUrl: null,
+          },
+        }),
+      ],
+    });
+
+    renderWithClient(<OpportunitiesPageContent />);
+    await user.click(screen.getByTestId("opportunity-action-whatsapp"));
+    await user.click(screen.getByRole("button", { name: /enviar/i }));
+
+    expect(mockSend).toHaveBeenCalledWith({
+      opportunityId: "opp-1",
+      leadId: "lead-1",
+      phone: "5511999999999",
+      message: "Rascunho",
+    });
+    expect(screen.queryByTestId("whatsapp-composer-dialog")).not.toBeInTheDocument();
+  });
+
+  it("envio que falha mantém o composer aberto (usuário pode tentar de novo)", async () => {
+    const user = userEvent.setup();
+    mockSend.mockResolvedValue(false);
+    mockHookReturn({
+      opportunities: [
+        makeOpportunity({
+          suggestion: "Rascunho",
+          lead: {
+            id: "lead-1",
+            firstName: "John",
+            lastName: "Doe",
+            email: "john@acme.com",
+            companyName: "Acme Inc",
+            title: "CTO",
+            phone: "5511999999999",
+            photoUrl: null,
+            isMonitored: false,
+            linkedinUrl: null,
+          },
+        }),
+      ],
+    });
+
+    renderWithClient(<OpportunitiesPageContent />);
+    await user.click(screen.getByTestId("opportunity-action-whatsapp"));
+    await user.click(screen.getByRole("button", { name: /enviar/i }));
+
+    expect(screen.getByTestId("whatsapp-composer-dialog")).toBeInTheDocument();
+  });
+
+  it("lead null → card sem ações de contato, e nenhum dialog é montado", () => {
+    mockHookReturn({ opportunities: [makeOpportunity({ lead: null })] });
+
+    renderWithClient(<OpportunitiesPageContent />);
+
+    expect(screen.queryByTestId("opportunity-actions")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("whatsapp-composer-dialog")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("phone-lookup-dialog")).not.toBeInTheDocument();
+    // Triagem segue disponível (AC4 não depende de lead)
+    expect(screen.getByTestId("opportunity-triage")).toBeInTheDocument();
   });
 });

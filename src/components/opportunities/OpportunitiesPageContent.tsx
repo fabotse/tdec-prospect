@@ -1,6 +1,8 @@
 /**
  * Opportunities Page Content
  * Story 21.4: Central de Oportunidades — AC #2, #4, #6
+ * Story 21.5: dialogs de ação (WhatsApp/telefone) levantados para o container
+ *   — UM por tipo, não um por card (padrão InsightsPageContent/OpportunityPanel).
  *
  * Espelha InsightsPageContent: filtros + loading/error/empty + lista + paginação.
  */
@@ -9,8 +11,11 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useOpportunities, filterOpportunitiesBySearch } from "@/hooks/use-opportunities";
-import type { OpportunityFilters } from "@/hooks/use-opportunities";
+import type { OpportunityFilters, OpportunityCardData } from "@/hooks/use-opportunities";
 import { OpportunityCard } from "@/components/opportunities/OpportunityCard";
+import { WhatsAppComposerDialog } from "@/components/tracking/WhatsAppComposerDialog";
+import { PhoneLookupDialog } from "@/components/tracking/PhoneLookupDialog";
+import { useWhatsAppSendFromOpportunity } from "@/hooks/use-whatsapp-send-from-opportunity";
 import {
   OpportunitiesFilterBar,
   DEFAULT_OPPORTUNITIES_FILTERS,
@@ -47,6 +52,39 @@ export function OpportunitiesPageContent() {
   };
 
   const { opportunities, meta, isLoading, error } = useOpportunities(filters);
+
+  // Story 21.5 — dialogs de ação (um por tipo, no container)
+  const [composerOpportunity, setComposerOpportunity] =
+    useState<OpportunityCardData | null>(null);
+  const [phoneLookupOpportunity, setPhoneLookupOpportunity] =
+    useState<OpportunityCardData | null>(null);
+  // Telefone encontrado no lookup, por opportunityId (otimista — espelha o
+  // `localPhones` do OpportunityPanel; sobrevive até o próximo refetch).
+  const [localPhones, setLocalPhones] = useState<Map<string, string>>(new Map());
+  const { send: sendWhatsApp, isSending } = useWhatsAppSendFromOpportunity();
+
+  const handleWhatsAppSend = useCallback(
+    async (data: { phone: string; message: string }) => {
+      if (!composerOpportunity?.lead) return;
+      const success = await sendWhatsApp({
+        opportunityId: composerOpportunity.id,
+        leadId: composerOpportunity.lead.id,
+        phone: data.phone,
+        message: data.message,
+      });
+      if (success) setComposerOpportunity(null);
+    },
+    [composerOpportunity, sendWhatsApp]
+  );
+
+  const handlePhoneFound = useCallback(
+    (phone: string) => {
+      if (!phoneLookupOpportunity) return;
+      setLocalPhones((prev) => new Map(prev).set(phoneLookupOpportunity.id, phone));
+      setPhoneLookupOpportunity(null);
+    },
+    [phoneLookupOpportunity]
+  );
 
   // Busca client-side sobre a página carregada (decisão Task 7.2)
   const visibleOpportunities = useMemo(
@@ -145,7 +183,13 @@ export function OpportunitiesPageContent() {
           <CardContent>
             <div className="flex flex-col gap-3">
               {visibleOpportunities.map((opportunity) => (
-                <OpportunityCard key={opportunity.id} opportunity={opportunity} />
+                <OpportunityCard
+                  key={opportunity.id}
+                  opportunity={opportunity}
+                  onWhatsApp={setComposerOpportunity}
+                  onPhoneLookup={setPhoneLookupOpportunity}
+                  localPhone={localPhones.get(opportunity.id)}
+                />
               ))}
             </div>
           </CardContent>
@@ -202,6 +246,48 @@ export function OpportunitiesPageContent() {
             </Button>
           </div>
         </div>
+      )}
+
+      {/* AC3 — composer de WhatsApp pré-preenchido com o rascunho da IA */}
+      {composerOpportunity?.lead && (
+        <WhatsAppComposerDialog
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) setComposerOpportunity(null);
+          }}
+          lead={{
+            firstName: composerOpportunity.lead.firstName,
+            lastName: composerOpportunity.lead.lastName ?? undefined,
+            phone:
+              localPhones.get(composerOpportunity.id) ??
+              composerOpportunity.lead.phone ??
+              undefined,
+            leadEmail: composerOpportunity.lead.email ?? undefined,
+            companyName: composerOpportunity.lead.companyName ?? undefined,
+            title: composerOpportunity.lead.title ?? undefined,
+          }}
+          campaignId=""
+          initialMessage={composerOpportunity.suggestion ?? undefined}
+          isSending={isSending}
+          onSend={handleWhatsAppSend}
+        />
+      )}
+
+      {/* AC3 — busca de telefone (SignalHire exige e-mail ou LinkedIn) */}
+      {phoneLookupOpportunity?.lead?.email && (
+        <PhoneLookupDialog
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) setPhoneLookupOpportunity(null);
+          }}
+          lead={{
+            leadEmail: phoneLookupOpportunity.lead.email,
+            firstName: phoneLookupOpportunity.lead.firstName,
+            lastName: phoneLookupOpportunity.lead.lastName ?? undefined,
+            leadId: phoneLookupOpportunity.lead.id,
+          }}
+          onPhoneFound={handlePhoneFound}
+        />
       )}
     </div>
   );

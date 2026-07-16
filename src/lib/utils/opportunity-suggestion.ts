@@ -1,68 +1,60 @@
 /**
- * Approach Suggestion Generator
- * Story: 13.5 - Geração de Sugestão de Abordagem
+ * Opportunity Next Step Generator
+ * Story: 21.5 - Ações do Card + Próximo Passo por IA
  *
- * Generates contextual approach suggestions when a relevant LinkedIn post is detected.
- * Pure functions + OpenAI fetch call. Designed for cron context (no cookies).
+ * Gera o rascunho de próximo passo de uma oportunidade (resposta de e-mail ou
+ * sinal de engajamento). Espelha `approach-suggestion.ts` (Epic 13): funções puras
+ * + fetch direto na OpenAI, contexto-agnóstico (recebe `supabase` + `openaiKey` por
+ * parâmetro) — logo serve tanto cron quanto request-time. Aqui o uso é request-time
+ * (rota POST /api/opportunities/:id/suggestion), com cache em `opportunities.suggestion`.
  *
- * AC: #3 - Contextual suggestion connecting post with product/service
- * AC: #4 - Different from Icebreaker — focus on temporal opportunity
- * AC: #6 - If generation fails, return suggestion=null (NOT fail-open)
+ * AC: #1 - Rascunho contextualizado (KB + tom + lead + resposta + intenção)
+ * AC: #5 - Falha na geração → suggestion=null (o fail-open é de UX, no card)
+ * AC: #6 - Tokens retornados para o caller registrar o custo em api_usage_logs
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AIPromptMetadata } from "@/types/ai-prompt";
+import type { OpportunityIntent } from "@/types/opportunity";
+import { getIntentConfig } from "@/types/opportunity";
 import { CODE_DEFAULT_PROMPTS } from "@/lib/ai/prompts/defaults";
 import { interpolateTemplate } from "@/lib/utils/relevance-classifier";
-import type { KBContextForClassification } from "@/lib/utils/relevance-classifier";
+// Tipos/custo reusados do gerador do Epic 13 — mesma tarifa (gpt-4o-mini), mesma forma.
+import { calculateSuggestionCost } from "@/lib/utils/approach-suggestion";
+import type {
+  LeadContextForSuggestion,
+  KBContextForSuggestion,
+  SuggestionResult,
+} from "@/lib/utils/approach-suggestion";
+
+export { calculateSuggestionCost };
+export type { LeadContextForSuggestion, KBContextForSuggestion, SuggestionResult };
 
 // ==============================================
 // TYPES
 // ==============================================
 
-export interface LeadContextForSuggestion {
-  leadName: string;
-  leadTitle: string;
-  leadCompany: string;
-  leadIndustry: string;
-}
-
-export interface KBContextForSuggestion extends KBContextForClassification {
-  toneDescription: string;
-  toneStyle: string;
-}
-
-export interface SuggestionResult {
-  suggestion: string | null;
-  promptTokens: number;
-  completionTokens: number;
-  error?: string;
-}
-
-// ==============================================
-// COST CALCULATION
-// ==============================================
-
 /**
- * Calculate cost for a suggestion generation call.
- * gpt-4o-mini: $0.15/1M input, $0.60/1M output.
+ * Contexto da oportunidade. Todos nullable de propósito — são casos reais:
+ * `source='engagement'` não tem reply_text/reply_subject (21.6) e `intent` é
+ * null quando a 21.3 falha (fail-open) ou quando a fonte é engajamento.
  */
-export function calculateSuggestionCost(
-  promptTokens: number,
-  completionTokens: number
-): number {
-  return (promptTokens * 0.15 + completionTokens * 0.6) / 1_000_000;
+export interface OpportunityContextForSuggestion {
+  replyText: string | null;
+  replySubject: string | null;
+  intent: OpportunityIntent | null;
 }
 
+const PROMPT_KEY = "opportunity_next_step";
+
+/** Teto do prompt (guarda de custo — decisão Fabossi #1). Espelha approach-suggestion. */
+const MAX_REPLY_TEXT_CHARS = 4000;
+
 // ==============================================
-// PROMPT LOADING (cron context — no PromptManager)
+// PROMPT LOADING (3 níveis: tenant → global → código)
 // ==============================================
 
-/**
- * Load suggestion prompt template with 3-level fallback: tenant → global → code default.
- * Uses service-role client directly (no cookies needed).
- */
-async function loadSuggestionPromptTemplate(
+async function loadNextStepPromptTemplate(
   supabase: SupabaseClient,
   tenantId: string
 ): Promise<{ template: string; modelPreference: string; metadata: AIPromptMetadata }> {
@@ -70,7 +62,7 @@ async function loadSuggestionPromptTemplate(
   const { data: tenantPrompt } = await supabase
     .from("ai_prompts")
     .select("prompt_template, model_preference, metadata")
-    .eq("prompt_key", "monitoring_approach_suggestion")
+    .eq("prompt_key", PROMPT_KEY)
     .eq("tenant_id", tenantId)
     .eq("is_active", true)
     .order("version", { ascending: false })
@@ -89,7 +81,7 @@ async function loadSuggestionPromptTemplate(
   const { data: globalPrompt } = await supabase
     .from("ai_prompts")
     .select("prompt_template, model_preference, metadata")
-    .eq("prompt_key", "monitoring_approach_suggestion")
+    .eq("prompt_key", PROMPT_KEY)
     .is("tenant_id", null)
     .eq("is_active", true)
     .order("version", { ascending: false })
@@ -104,8 +96,8 @@ async function loadSuggestionPromptTemplate(
     };
   }
 
-  // Level 3: Code default
-  const codeDefault = CODE_DEFAULT_PROMPTS["monitoring_approach_suggestion"];
+  // Level 3: Code default (00038: código é a fonte de verdade dos prompts)
+  const codeDefault = CODE_DEFAULT_PROMPTS[PROMPT_KEY];
   return {
     template: codeDefault.template,
     modelPreference: codeDefault.modelPreference || "gpt-4o-mini",
@@ -114,13 +106,12 @@ async function loadSuggestionPromptTemplate(
 }
 
 // ==============================================
-// OPENAI CALL (direct fetch, no SDK)
+// OPENAI CALL (fetch direto, texto livre)
 // ==============================================
 
 /**
- * Call OpenAI for suggestion generation.
- * Different from classifier: higher temperature (0.7), more tokens (500),
- * longer timeout (30s), NO response_format (free text, not JSON).
+ * Texto livre (NÃO JSON): temperatura alta (0.7), 500 tokens, timeout 30s e
+ * SEM `response_format` — ao contrário do classificador da 21.3.
  */
 async function callOpenAI(
   apiKey: string,
@@ -166,15 +157,14 @@ async function callOpenAI(
 // ==============================================
 
 /**
- * Generate a contextual approach suggestion based on a LinkedIn post.
+ * Gera o rascunho de próximo passo para uma oportunidade.
  *
- * Unlike classification (fail-open), suggestion generation is NOT fail-open:
- * - If generation fails → suggestion=null (insight saved without suggestion)
- * - If OpenAI key missing → suggestion=null
+ * Como o `approach-suggestion`, NÃO forja texto em erro: falha → suggestion=null
+ * (+ `error`). O "fail-open" do AC5 é de UX — quem trata é o card, que segue
+ * utilizável com as demais ações.
  */
-export async function generateApproachSuggestion(
-  postText: string,
-  postUrl: string,
+export async function generateOpportunityNextStep(
+  oppContext: OpportunityContextForSuggestion,
   leadContext: LeadContextForSuggestion,
   kbContext: KBContextForSuggestion,
   openaiKey: string | null,
@@ -183,19 +173,24 @@ export async function generateApproachSuggestion(
 ): Promise<SuggestionResult> {
   const noTokens = { promptTokens: 0, completionTokens: 0 };
 
-  // No OpenAI key — can't generate
+  // Sem chave — não gera e não gasta (AC5: fail-open sem custo)
   if (!openaiKey) {
     return { suggestion: null, ...noTokens, error: "OpenAI key não configurada" };
   }
 
   try {
-    const { template, modelPreference, metadata } = await loadSuggestionPromptTemplate(supabase, tenantId);
+    const { template, modelPreference, metadata } = await loadNextStepPromptTemplate(
+      supabase,
+      tenantId
+    );
 
-    // Truncate long posts (max 4000 chars)
-    const truncatedText =
-      postText.length > 4000 ? postText.substring(0, 4000) + "..." : postText;
+    // Guarda de custo: teto do prompt (decisão #1)
+    const replyText = oppContext.replyText ?? "";
+    const truncatedReplyText =
+      replyText.length > MAX_REPLY_TEXT_CHARS
+        ? replyText.substring(0, MAX_REPLY_TEXT_CHARS) + "..."
+        : replyText;
 
-    // Interpolate variables
     const prompt = interpolateTemplate(template, {
       company_name: kbContext.companyName,
       company_context: kbContext.companyContext,
@@ -208,8 +203,13 @@ export async function generateApproachSuggestion(
       lead_title: leadContext.leadTitle,
       lead_company: leadContext.leadCompany,
       lead_industry: leadContext.leadIndustry,
-      post_text: truncatedText,
-      post_url: postUrl,
+      reply_subject: oppContext.replySubject ?? "",
+      // Vazio quando source='engagement' — o template instrui a abordagem por
+      // engajamento (aberturas/cliques) nesse caso.
+      reply_text: truncatedReplyText,
+      // Rótulo pt-BR legível (fonte única: types/opportunity.ts). intent null
+      // (21.3 fail-open / engagement) vira "Não classificado".
+      intent: getIntentConfig(oppContext.intent).label,
     });
 
     const model = modelPreference;
@@ -217,17 +217,25 @@ export async function generateApproachSuggestion(
     const maxTokens = metadata.maxTokens ?? 500;
 
     const { text, promptTokens, completionTokens } = await callOpenAI(
-      openaiKey, prompt, model, temperature, maxTokens
+      openaiKey,
+      prompt,
+      model,
+      temperature,
+      maxTokens
     );
 
     const suggestion = text.trim();
     if (!suggestion) {
-      return { suggestion: null, promptTokens, completionTokens, error: "Sugestão vazia retornada" };
+      return {
+        suggestion: null,
+        promptTokens,
+        completionTokens,
+        error: "Rascunho vazio retornado",
+      };
     }
 
     return { suggestion, promptTokens, completionTokens };
   } catch (error) {
-    // Generation failed — return null (NOT fail-open)
     const message = error instanceof Error ? error.message : "Erro desconhecido";
     return { suggestion: null, ...noTokens, error: message };
   }

@@ -870,6 +870,9 @@ Responda EXCLUSIVAMENTE com JSON válido (sem markdown, sem explicação):
   monitoring_approach_suggestion: {
     template: `Você é um consultor de vendas B2B especializado em abordagens contextuais baseadas em atividade no LinkedIn.
 
+EMPRESA REMETENTE (a sua): {{company_name}}
+Use este nome ao se referir à própria empresa. NUNCA escreva "[Sua Empresa]".
+
 CONTEXTO DA EMPRESA REMETENTE:
 {{company_context}}
 
@@ -913,6 +916,15 @@ A sugestão NÃO deve:
 - Usar linguagem de template ("Prezado [nome]")
 - Ser longa demais — máximo 3-4 frases objetivas
 
+ASSINATURA — NÃO ASSINE:
+A sugestão NÃO tem bloco de assinatura. Termine no próximo passo (a pergunta ou a
+oferta) e PARE. Não escreva despedida com nome ("Abraço, ...", "Atenciosamente, ..."),
+nem nome, cargo ou telefone do remetente no final.
+Você NÃO SABE quem é a pessoa remetente — a identidade dela não está neste contexto,
+e por isso não há nada para assinar: nem um nome real (seria inventado) nem um
+placeholder como "[Seu Nome]" (é proibido acima). Quem enviar assina por conta
+própria. Para a EMPRESA remetente, use "{{company_name}}" — esse nome você tem.
+
 FORMATO:
 Responda APENAS com a sugestão de abordagem, sem explicações ou formatação extra.
 Máximo 150 palavras.`,
@@ -954,6 +966,92 @@ Responda EXCLUSIVAMENTE com JSON válido (sem markdown, sem explicação):
       // 200 (não 150): margem p/ o JSON não truncar (intent + reasoning) → evita parse-fail
       // → skip silencioso + custo gasto (review 21.3, P3; espelha relevance-classifier).
       maxTokens: 200,
+    },
+  },
+
+  // Opportunity next step draft (Story 21.5)
+  // Texto livre (NÃO JSON) — espelha monitoring_approach_suggestion: temperatura
+  // alta, sem response_format. Serve os dois `source` de oportunidade: 'reply'
+  // (há {{reply_text}}) e 'engagement' ({{reply_text}} vazio — só aberturas/cliques).
+  opportunity_next_step: {
+    template: `Você é um consultor de vendas B2B que acabou de receber um sinal quente de um lead em uma campanha de prospecção.
+
+EMPRESA REMETENTE (a sua): {{company_name}}
+Use este nome ao se referir à própria empresa. NUNCA escreva "[Sua Empresa]".
+
+CONTEXTO DA EMPRESA REMETENTE:
+{{company_context}}
+
+PRODUTOS/SERVIÇOS:
+{{products_services}}
+
+DIFERENCIAIS COMPETITIVOS:
+{{competitive_advantages}}
+
+PÚBLICO-ALVO (ICP):
+{{icp_summary}}
+
+TOM DE VOZ:
+{{tone_description}}
+Estilo: {{tone_style}}
+
+DADOS DO LEAD:
+- Nome: {{lead_name}}
+- Cargo: {{lead_title}}
+- Empresa: {{lead_company}}
+- Setor: {{lead_industry}}
+
+SINAL QUE GEROU A OPORTUNIDADE:
+Assunto do e-mail: {{reply_subject}}
+Intenção classificada: {{intent}}
+Resposta do lead:
+{{reply_text}}
+
+TAREFA:
+Gere um RASCUNHO DE PRÓXIMO PASSO — a mensagem que o vendedor vai enviar agora para este lead.
+
+Se houver uma resposta do lead acima, responda a ela considerando a intenção classificada:
+- "Interessado" → avance: proponha uma conversa/reunião com uma janela concreta.
+- "Pediu informações" → entregue o detalhe/material pedido e mantenha o diálogo aberto.
+- "Objeção" → reconheça a barreira e enderece-a com um diferencial concreto, sem confrontar.
+- "Não agora" → nutra leve, sem pressão, e deixe a porta aberta para o momento certo.
+- "Opt-out" → encerre de forma cordial e respeitosa, sem tentar reverter.
+- "Não classificado" → responda ao conteúdo da resposta pelo que ele diz, sem presumir intenção.
+
+Se NÃO houver resposta do lead (o campo acima está vazio), o sinal veio de ENGAJAMENTO
+(o lead abriu o e-mail várias vezes e/ou clicou em links, mas não respondeu). Nesse caso:
+- Reconheça o interesse demonstrado SEM citar ou inventar uma resposta que não existe.
+- Retome o assunto do e-mail e ofereça um próximo passo de baixo atrito.
+
+O rascunho deve:
+- Conectar o sinal ao PRODUTO/SERVIÇO da empresa remetente
+- Ter um próximo passo claro e de baixo atrito
+- Considerar o cargo e setor do lead para calibrar a abordagem
+- Seguir o tom de voz configurado ({{tone_style}})
+
+O rascunho NÃO deve:
+- Ser genérico ("entre em contato com o lead") — é a mensagem PRONTA, não um conselho
+- Usar linguagem de template ou placeholders entre colchetes ("Prezado [nome]")
+- Inventar fatos, números ou compromissos que não estão no contexto acima
+
+ASSINATURA — NÃO ASSINE:
+O rascunho NÃO tem bloco de assinatura. Termine no próximo passo (a pergunta ou a
+oferta) e PARE. Não escreva despedida com nome ("Abraço, ...", "Atenciosamente, ...",
+"Att,"), nem nome, cargo, empresa ou telefone do remetente no final.
+Você NÃO SABE quem é o remetente — a identidade dele não está neste contexto, e por
+isso não há nada para assinar: nem um nome real (seria inventado) nem um placeholder
+como "[Seu Nome]" (é proibido acima). Quem enviar a mensagem assina por conta própria
+(o cliente de e-mail anexa a assinatura; no WhatsApp não se assina).
+Se houver uma assinatura dentro da resposta citada do lead, ela é do histórico —
+NÃO a copie para o final do rascunho.
+
+FORMATO:
+Responda APENAS com o rascunho, sem preâmbulo, explicação ou formatação extra.
+Máximo 150 palavras.`,
+    modelPreference: "gpt-4o-mini",
+    metadata: {
+      temperature: 0.7,
+      maxTokens: 500,
     },
   },
 

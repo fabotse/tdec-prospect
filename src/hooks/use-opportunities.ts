@@ -64,6 +64,22 @@ interface OpportunitiesResponse {
   };
 }
 
+/** Retorno da rota de rascunho (21.5). `cached: true` = veio do cache, sem custo. */
+export interface SuggestionResponse {
+  suggestion: string | null;
+  cached?: boolean;
+}
+
+/**
+ * Resultado do PATCH de status (21.5). `leadPromoted` reflete o efeito
+ * SECUNDÁRIO do servidor (leads.status → 'oportunidade' em `meeting_booked`):
+ * `false` quando a oportunidade não tem lead ou o update falhou. Existe para o
+ * toast não afirmar uma promoção que não aconteceu.
+ */
+export interface UpdateStatusResult {
+  leadPromoted: boolean;
+}
+
 // ========================================
 // Fetch functions
 // ========================================
@@ -90,7 +106,7 @@ async function fetchOpportunities(
 async function updateOpportunityStatus(
   opportunityId: string,
   status: OpportunityStatus
-): Promise<void> {
+): Promise<UpdateStatusResult> {
   const response = await fetch(`/api/opportunities/${opportunityId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -100,6 +116,32 @@ async function updateOpportunityStatus(
     const error = await response.json();
     throw new Error(error.error?.message || "Erro ao atualizar oportunidade");
   }
+  // `meta.leadPromoted` diz se o efeito secundário do servidor REALMENTE ocorreu
+  // (oportunidade sem lead / update do lead falhou → false). Rota antiga ou body
+  // ilegível degradam para `false`: o toast fica genérico, nunca mente.
+  try {
+    const body = (await response.json()) as { meta?: { leadPromoted?: boolean } };
+    return { leadPromoted: body?.meta?.leadPromoted === true };
+  } catch {
+    return { leadPromoted: false };
+  }
+}
+
+async function fetchOpportunitySuggestion(
+  opportunityId: string,
+  regenerate: boolean
+): Promise<SuggestionResponse> {
+  const response = await fetch(`/api/opportunities/${opportunityId}/suggestion`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ regenerate }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error?.message || "Erro ao gerar rascunho");
+  }
+  const result = await response.json();
+  return result.data;
 }
 
 async function fetchNewOpportunitiesCount(): Promise<number> {
@@ -211,10 +253,19 @@ export function useUpdateOpportunityStatus() {
   return useMutation({
     mutationFn: ({ opportunityId, status }: UpdateOpportunityStatusInput) =>
       updateOpportunityStatus(opportunityId, status),
-    onSuccess: (_data, { status, silent }) => {
+    onSuccess: (result, { status, silent }) => {
       if (!silent) {
+        // meeting_booked tem copy própria: o PATCH promove o lead a
+        // 'oportunidade' (21.5) — um efeito que o usuário não vê nesta tela.
+        // Só AFIRMAR a promoção quando ela de fato ocorreu: a oportunidade pode
+        // não ter lead (`lead_id` é nullable — 21.2 cria cards sem lead) e o
+        // update do lead é secundário (erro só loga no servidor).
         toast.success(
-          `Oportunidade marcada como ${OPPORTUNITY_STATUS_CONFIG[status].label.toLowerCase()}`
+          status === "meeting_booked"
+            ? result.leadPromoted
+              ? "Reunião marcada — lead promovido a oportunidade"
+              : "Reunião marcada"
+            : `Oportunidade marcada como ${OPPORTUNITY_STATUS_CONFIG[status].label.toLowerCase()}`
         );
       }
       queryClient.invalidateQueries({ queryKey: ["opportunities"] });
@@ -227,4 +278,62 @@ export function useUpdateOpportunityStatus() {
       if (!silent) toast.error(error.message);
     },
   });
+}
+
+/**
+ * Rascunho de próximo passo por IA (Story 21.5 — AC1/AC2/AC5).
+ *
+ * `generate()` é a geração PASSIVA (disparada ao abrir o card): silenciosa,
+ * nunca rejeita e nunca dá toast — se a IA falhar, o card segue utilizável
+ * com as demais ações (AC5). `regenerate()` é a ação EXPLÍCITA: bypassa o
+ * cache do servidor e notifica o erro.
+ */
+export function useOpportunitySuggestion(opportunityId: string) {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: ({ regenerate }: { regenerate: boolean }) =>
+      fetchOpportunitySuggestion(opportunityId, regenerate),
+    onSuccess: (data) => {
+      // Update PONTUAL do cache — não `invalidateQueries`. O rascunho muda UM
+      // campo de UMA linha; invalidar a lista inteira a cada abertura de card
+      // amplificaria o churn já apontado no defer da review 21.4.
+      if (!data.suggestion) return;
+      queryClient.setQueriesData<OpportunitiesResponse>(
+        { queryKey: ["opportunities"] },
+        (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            data: old.data.map((opportunity) =>
+              opportunity.id === opportunityId
+                ? { ...opportunity, suggestion: data.suggestion }
+                : opportunity
+            ),
+          };
+        }
+      );
+    },
+    onError: (error: Error, { regenerate }) => {
+      // Só a ação explícita notifica (mesma regra do `silent` do status).
+      if (regenerate) toast.error(error.message);
+    },
+  });
+
+  const run = async (regenerate: boolean): Promise<SuggestionResponse | null> => {
+    try {
+      return await mutation.mutateAsync({ regenerate });
+    } catch {
+      // Erro já tratado no onError. Resolver com null mantém o card intacto (AC5).
+      return null;
+    }
+  };
+
+  return {
+    generate: () => run(false),
+    regenerate: () => run(true),
+    isGenerating: mutation.isPending,
+    error: mutation.error instanceof Error ? mutation.error.message : null,
+    data: mutation.data ?? null,
+  };
 }
