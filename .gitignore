@@ -96,6 +96,10 @@ test-results/
 /*.excalidraw
 
 # Tooling pessoal de agentes (symlinks/instalações locais, não do projeto)
+# Importante: symlinks aqui que apontam para FORA do projeto (ex.: vault do Obsidian)
+# quebram o Turbopack se não estiverem ignorados — o Tailwind v4 auto-detecta conteúdo
+# respeitando o .gitignore, segue o symlink e entra em panic ("leaves the filesystem root").
 .agents/
 .claude/skills/vercel-react-best-practices/
 .claude/skills/skill-builder/
+.claude/skills/epic-recap/
