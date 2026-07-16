@@ -44,6 +44,7 @@ const MOCK_OPPORTUNITY_ROW_FULL: OpportunityRow = {
   open_count: 4,
   click_count: 2,
   last_engagement_at: "2026-07-12T09:00:00Z",
+  notified_at: "2026-07-13T10:05:00Z",
   created_at: "2026-07-13T10:00:00Z",
   updated_at: "2026-07-13T10:00:00Z",
 };
@@ -67,6 +68,7 @@ const MOCK_OPPORTUNITY_ROW_NULLABLE: OpportunityRow = {
   open_count: null,
   click_count: null,
   last_engagement_at: null,
+  notified_at: null,
   created_at: "2026-07-13T11:00:00Z",
   updated_at: "2026-07-13T11:30:00Z",
 };
@@ -231,6 +233,7 @@ describe("toOpportunity", () => {
       openCount: 4,
       clickCount: 2,
       lastEngagementAt: "2026-07-12T09:00:00Z",
+      notifiedAt: "2026-07-13T10:05:00Z",
       createdAt: "2026-07-13T10:00:00Z",
       updatedAt: "2026-07-13T10:00:00Z",
     });
@@ -251,6 +254,7 @@ describe("toOpportunity", () => {
     expect(result.openCount).toBeNull();
     expect(result.clickCount).toBeNull();
     expect(result.lastEngagementAt).toBeNull();
+    expect(result.notifiedAt).toBeNull();
     expect(result.source).toBe("engagement");
     expect(result.status).toBe("viewed");
   });
@@ -299,7 +303,8 @@ describe("toNotificationSettings", () => {
       id: "ns-uuid-001",
       tenantId: "tenant-uuid-001",
       whatsappNumbers: ["5511999999999", "5511888888888"],
-      channels: { whatsapp: true, inApp: false },
+      // Story 21.7: whatsappEngagement default false (chave ausente no row legado).
+      channels: { whatsapp: true, inApp: false, whatsappEngagement: false },
       notifyIntents: ["interessado", "pediu_info"],
       createdAt: "2026-07-13T10:00:00Z",
       updatedAt: "2026-07-13T10:00:00Z",
@@ -316,6 +321,15 @@ describe("toNotificationSettings", () => {
     expect(result.channels.inApp).toBe(true);
   });
 
+  it("mapeia whatsapp_engagement -> whatsappEngagement (AC5)", () => {
+    const result = toNotificationSettings({
+      ...MOCK_NOTIFICATION_SETTINGS_ROW,
+      channels: { whatsapp: true, in_app: true, whatsapp_engagement: true },
+    });
+
+    expect(result.channels.whatsappEngagement).toBe(true);
+  });
+
   it("handles empty whatsapp_numbers and notify_intents arrays", () => {
     const result = toNotificationSettings({
       ...MOCK_NOTIFICATION_SETTINGS_ROW,
@@ -325,6 +339,42 @@ describe("toNotificationSettings", () => {
 
     expect(result.whatsappNumbers).toEqual([]);
     expect(result.notifyIntents).toEqual([]);
+  });
+
+  // Story 21.7 Task 2.3 — leitura defensiva do JSONB (fecha defers 21.1 L17-L18)
+  describe("defesa de JSONB malformado", () => {
+    it("channels null/não-objeto → defaults seguros (não lança)", () => {
+      const result = toNotificationSettings({
+        ...MOCK_NOTIFICATION_SETTINGS_ROW,
+        channels: null as unknown as NotificationSettingsRow["channels"],
+      });
+      expect(result.channels).toEqual({ whatsapp: true, inApp: true, whatsappEngagement: false });
+    });
+
+    it("channels parcial (falta in_app) → default do campo ausente", () => {
+      const result = toNotificationSettings({
+        ...MOCK_NOTIFICATION_SETTINGS_ROW,
+        channels: { whatsapp: false } as unknown as NotificationSettingsRow["channels"],
+      });
+      expect(result.channels.whatsapp).toBe(false);
+      expect(result.channels.inApp).toBe(true); // default (chave ausente)
+    });
+
+    it("notify_intents com valor inválido → filtrado", () => {
+      const result = toNotificationSettings({
+        ...MOCK_NOTIFICATION_SETTINGS_ROW,
+        notify_intents: ["interessado", "lixo", "pediu_info"] as unknown as NotificationSettingsRow["notify_intents"],
+      });
+      expect(result.notifyIntents).toEqual(["interessado", "pediu_info"]);
+    });
+
+    it("whatsapp_numbers não-array → default []", () => {
+      const result = toNotificationSettings({
+        ...MOCK_NOTIFICATION_SETTINGS_ROW,
+        whatsapp_numbers: "5511999999999" as unknown as string[],
+      });
+      expect(result.whatsappNumbers).toEqual([]);
+    });
   });
 });
 
@@ -362,6 +412,22 @@ describe("toAppNotification", () => {
     });
 
     expect(result.payload).toEqual({ nested: { count: 3 }, flag: true });
+  });
+
+  // Story 21.7 Task 2.3 — payload não-objeto degrada para {} (fecha defer 21.1 L18)
+  it("payload não-objeto (array/scalar/null) → {} (não mistipado)", () => {
+    expect(
+      toAppNotification({
+        ...MOCK_APP_NOTIFICATION_ROW,
+        payload: [1, 2, 3] as unknown as Record<string, unknown>,
+      }).payload
+    ).toEqual({});
+    expect(
+      toAppNotification({
+        ...MOCK_APP_NOTIFICATION_ROW,
+        payload: null as unknown as Record<string, unknown>,
+      }).payload
+    ).toEqual({});
   });
 });
 

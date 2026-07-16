@@ -43,6 +43,14 @@ vi.mock("@/components/common/ThemeToggle", () => ({
   ),
 }));
 
+// Story 21.7: Header renders NotificationBell (react-query hooks). Mock to avoid needing
+// a QueryClientProvider in this render.
+vi.mock("@/hooks/use-notifications", () => ({
+  useNotifications: () => ({ notifications: [], meta: null, isLoading: false, error: null }),
+  useUnreadNotificationsCount: () => ({ data: 0 }),
+  useMarkNotificationRead: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 // Store original location
 const originalLocation = window.location;
 

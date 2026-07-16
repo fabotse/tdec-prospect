@@ -34,6 +34,11 @@ vi.mock("@/lib/utils/reply-classifier", () => ({
   classifyPendingReplies: (...args: unknown[]) => mockClassify(...args),
 }));
 
+const mockNotify = vi.fn();
+vi.mock("@/lib/utils/notification-processor", () => ({
+  notifyNewOpportunities: (...args: unknown[]) => mockNotify(...args),
+}));
+
 import { POST } from "@/app/api/replies/process-batch/route";
 
 // ==============================================
@@ -51,6 +56,14 @@ beforeEach(() => {
   mockProcess.mockResolvedValue({ created: 2, skipped: 0, errors: [] });
   mockEngagement.mockResolvedValue({ created: 0, skipped: 0, errors: [] });
   mockClassify.mockResolvedValue({ classified: 0, skipped: 0, errors: [] });
+  mockNotify.mockResolvedValue({
+    inAppCreated: 0,
+    whatsappSent: 0,
+    whatsappGrouped: 0,
+    suppressed: 0,
+    skipped: 0,
+    errors: [],
+  });
 });
 
 function createRequest(authHeader?: string): NextRequest {
@@ -99,12 +112,40 @@ describe("POST /api/replies/process-batch", () => {
       engagementSkipped: 0,
       classified: 0,
       classifySkipped: 0,
+      notified: 0,
+      whatsappSent: 0,
+      whatsappGrouped: 0,
       errors: [],
     });
     expect(mockSweep).toHaveBeenCalledTimes(1);
     expect(mockProcess).toHaveBeenCalledTimes(1);
     expect(mockEngagement).toHaveBeenCalledTimes(1);
     expect(mockClassify).toHaveBeenCalledTimes(1);
+    expect(mockNotify).toHaveBeenCalledTimes(1);
+  });
+
+  it("Story 21.7: notify roda POR ÚLTIMO (depois do classify) e inclui contadores", async () => {
+    mockNotify.mockResolvedValue({
+      inAppCreated: 5,
+      whatsappSent: 2,
+      whatsappGrouped: 1,
+      suppressed: 0,
+      skipped: 0,
+      errors: [{ scope: "whatsapp", tenantId: "t1", error: "z-api down" }],
+    });
+
+    const res = await POST(createRequest(`Bearer ${CRON_SECRET}`));
+    const json = await res.json();
+
+    expect(json.notified).toBe(5);
+    expect(json.whatsappSent).toBe(2);
+    expect(json.whatsappGrouped).toBe(1);
+    // notify.errors já carregam scope próprio.
+    expect(json.errors).toContainEqual({ scope: "whatsapp", tenantId: "t1", error: "z-api down" });
+    // Ordem: classify invocado antes do notify (o WhatsApp por intent depende do intent setado).
+    expect(mockClassify.mock.invocationCallOrder[0]).toBeLessThan(
+      mockNotify.mock.invocationCallOrder[0]
+    );
   });
 
   it("inclui contadores de classificação no resumo (Story 21.3)", async () => {

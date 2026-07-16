@@ -247,6 +247,12 @@ export async function processReplyEvent(
           reply_subject: replySubject,
           unibox_url: uniboxUrl,
           lt_interest_status: ltInterestStatus,
+          // Story 21.7 (Task 6, fecha defer 21.6): re-arma o passe de notificação. Um card de
+          // engajamento já notificado (só in-app por default, opt-in WhatsApp OFF) que vira reply
+          // com intent quente re-entra no passe e dispara o WhatsApp que o engagement não disparou
+          // — o sinal mais forte do funil não pode passar silencioso. Só o ramo de UPDATE muda;
+          // o caminho "reply sem engajamento prévio" (INSERT) já nasce com notified_at NULL.
+          notified_at: null,
         })
         .eq("id", engagementId);
 

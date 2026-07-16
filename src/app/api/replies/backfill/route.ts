@@ -7,6 +7,10 @@
  * Idempotente por construção (dedupe 23505 no sweep + UNIQUE reply_event_id no
  * processador) — chamar de novo é seguro.
  *
+ * Story 21.7 (TRAP central): após ingestão/classificação, chama notifyNewOpportunities com
+ * { suppressOnly: true } — marca TODO o backlog histórico como notified_at SEM ENVIAR nada.
+ * Sem isto, o 1º ciclo do cron pós-backfill dispararia WhatsApp para meses de leads antigos.
+ *
  * Auth: sessão de admin (getCurrentUserProfile + hasAdminAccess). Usa service-role
  * para o INSERT com cross-lookup (bypassa RLS), escopado ao tenant do admin.
  */
@@ -19,6 +23,7 @@ import { sweepReplies } from "@/lib/utils/reply-sweep";
 import { processReplies } from "@/lib/utils/reply-processor";
 import { processEngagement } from "@/lib/utils/engagement-processor";
 import { classifyPendingReplies } from "@/lib/utils/reply-classifier";
+import { notifyNewOpportunities } from "@/lib/utils/notification-processor";
 
 /** Janela ampla do backfill (histórico do Instantly começa em mar/2026). */
 const BACKFILL_SINCE = "2026-01-01T00:00:00.000Z";
@@ -53,6 +58,9 @@ export async function POST() {
     const engagement = await processEngagement(supabase, { tenantId });
     // Story 21.3: classifica intenção das respostas do tenant (DEPOIS de processReplies).
     const classify = await classifyPendingReplies(supabase, { tenantId });
+    // Story 21.7 (guard-rail central): marca todo o backlog como notified_at SEM ENVIAR
+    // (suppressOnly). Só oportunidades detectadas pelo cron DEPOIS do backfill notificam.
+    const notify = await notifyNewOpportunities(supabase, { tenantId, suppressOnly: true });
 
     return NextResponse.json({
       swept: sweep.swept,
@@ -62,11 +70,14 @@ export async function POST() {
       engagementSkipped: engagement.skipped,
       classified: classify.classified,
       classifySkipped: classify.skipped,
+      suppressed: notify.suppressed,
       errors: [
         ...sweep.errors.map((e) => ({ scope: "sweep", ...e })),
         ...processed.errors.map((e) => ({ scope: "process", ...e })),
         ...engagement.errors.map((e) => ({ scope: "engagement", ...e })),
         ...classify.errors.map((e) => ({ scope: "classify", ...e })),
+        // notify.errors já carregam `scope` próprio (suppress).
+        ...notify.errors,
       ],
     });
   } catch (error) {

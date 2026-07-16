@@ -146,6 +146,8 @@ export interface OpportunityRow {
   open_count: number | null;
   click_count: number | null;
   last_engagement_at: string | null;
+  // Story 21.7: marcador de idempotência do passe de notificação (NULL = ainda não avaliada)
+  notified_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -173,6 +175,8 @@ export interface Opportunity {
   openCount: number | null;
   clickCount: number | null;
   lastEngagementAt: string | null;
+  // Story 21.7: marcador de idempotência do passe de notificação (NULL = ainda não avaliada)
+  notifiedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -197,6 +201,7 @@ export function toOpportunity(row: OpportunityRow): Opportunity {
     openCount: row.open_count,
     clickCount: row.click_count,
     lastEngagementAt: row.last_engagement_at,
+    notifiedAt: row.notified_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -225,6 +230,7 @@ export function toOpportunityRow(o: Opportunity): OpportunityRow {
     open_count: o.openCount,
     click_count: o.clickCount,
     last_engagement_at: o.lastEngagementAt,
+    notified_at: o.notifiedAt,
     created_at: o.createdAt,
     updated_at: o.updatedAt,
   };
@@ -238,6 +244,9 @@ export function toOpportunityRow(o: Opportunity): OpportunityRow {
 export interface NotificationChannelsRow {
   whatsapp: boolean;
   in_app: boolean;
+  // Story 21.7 (AC5): opt-in de WhatsApp p/ engajamento. Vive no JSONB `channels` já
+  // existente (00055) — ZERO migration. Opcional (linhas antigas não têm a chave). Default OFF.
+  whatsapp_engagement?: boolean;
 }
 
 export interface NotificationSettingsRow {
@@ -253,6 +262,8 @@ export interface NotificationSettingsRow {
 export interface NotificationChannels {
   whatsapp: boolean;
   inApp: boolean;
+  // Story 21.7 (AC5): WhatsApp p/ oportunidades source='engagement' (default OFF).
+  whatsappEngagement: boolean;
 }
 
 export interface NotificationSettings {
@@ -265,19 +276,55 @@ export interface NotificationSettings {
   updatedAt: string;
 }
 
-/** Row (snake_case) -> TS (camelCase). Mapeia channels.in_app -> channels.inApp. */
+/**
+ * Story 21.7 (Task 2.4) — defaults de settings de notificação. Fonte ÚNICA para o writer
+ * (Task 7) e o passe (Task 3, quando não há linha configurada). Espelha os defaults do
+ * schema (00055:102-104): WhatsApp/in-app ON, engajamento OFF, intents quentes.
+ */
+export const DEFAULT_NOTIFICATION_SETTINGS: {
+  whatsappNumbers: string[];
+  channels: NotificationChannels;
+  notifyIntents: OpportunityIntent[];
+} = {
+  whatsappNumbers: [],
+  channels: { whatsapp: true, inApp: true, whatsappEngagement: false },
+  notifyIntents: ["interessado", "pediu_info"],
+};
+
+/**
+ * Row (snake_case) -> TS (camelCase). Mapeia channels.in_app -> channels.inApp.
+ *
+ * Story 21.7 (Task 2.3, fecha defers 21.1 L17-L18): leitura DEFENSIVA do JSONB — o banco é
+ * gerido à mão e `channels`/`whatsapp_numbers`/`notify_intents` podem vir parciais, null,
+ * não-objeto ou com valores fora do enum. Nunca lança; degrada para os defaults seguros.
+ */
 export function toNotificationSettings(
   row: NotificationSettingsRow
 ): NotificationSettings {
+  // `channels` pode vir null / array / scalar do banco — só trata objeto puro.
+  const rawChannels =
+    row.channels && typeof row.channels === "object" && !Array.isArray(row.channels)
+      ? row.channels
+      : ({} as NotificationChannelsRow);
+
   return {
     id: row.id,
     tenantId: row.tenant_id,
-    whatsappNumbers: row.whatsapp_numbers,
+    whatsappNumbers: Array.isArray(row.whatsapp_numbers)
+      ? row.whatsapp_numbers.filter((n): n is string => typeof n === "string")
+      : DEFAULT_NOTIFICATION_SETTINGS.whatsappNumbers,
     channels: {
-      whatsapp: row.channels.whatsapp,
-      inApp: row.channels.in_app,
+      whatsapp: rawChannels.whatsapp ?? DEFAULT_NOTIFICATION_SETTINGS.channels.whatsapp,
+      inApp: rawChannels.in_app ?? DEFAULT_NOTIFICATION_SETTINGS.channels.inApp,
+      whatsappEngagement:
+        rawChannels.whatsapp_engagement ??
+        DEFAULT_NOTIFICATION_SETTINGS.channels.whatsappEngagement,
     },
-    notifyIntents: row.notify_intents,
+    notifyIntents: Array.isArray(row.notify_intents)
+      ? row.notify_intents.filter((i): i is OpportunityIntent =>
+          typeof i === "string" && isValidOpportunityIntent(i)
+        )
+      : DEFAULT_NOTIFICATION_SETTINGS.notifyIntents,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -305,13 +352,21 @@ export interface AppNotification {
   createdAt: string;
 }
 
-/** Row (snake_case) -> TS (camelCase). */
+/**
+ * Row (snake_case) -> TS (camelCase).
+ *
+ * Story 21.7 (Task 2.3, fecha defer 21.1 L18): `payload` do JSONB pode vir não-objeto
+ * (array / scalar / JSON-null) e ser mistipado como Record — degrada para `{}` nesses casos.
+ */
 export function toAppNotification(row: AppNotificationRow): AppNotification {
   return {
     id: row.id,
     tenantId: row.tenant_id,
     type: row.type,
-    payload: row.payload,
+    payload:
+      row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)
+        ? row.payload
+        : {},
     readAt: row.read_at,
     createdAt: row.created_at,
   };

@@ -38,6 +38,11 @@ vi.mock("@/lib/utils/reply-classifier", () => ({
   classifyPendingReplies: (...args: unknown[]) => mockClassify(...args),
 }));
 
+const mockNotify = vi.fn();
+vi.mock("@/lib/utils/notification-processor", () => ({
+  notifyNewOpportunities: (...args: unknown[]) => mockNotify(...args),
+}));
+
 import { POST } from "@/app/api/replies/backfill/route";
 
 // ==============================================
@@ -52,6 +57,14 @@ beforeEach(() => {
   mockProcess.mockResolvedValue({ created: 5, skipped: 0, errors: [] });
   mockEngagement.mockResolvedValue({ created: 0, skipped: 0, errors: [] });
   mockClassify.mockResolvedValue({ classified: 0, skipped: 0, errors: [] });
+  mockNotify.mockResolvedValue({
+    inAppCreated: 0,
+    whatsappSent: 0,
+    whatsappGrouped: 0,
+    suppressed: 0,
+    skipped: 0,
+    errors: [],
+  });
 });
 
 function profile(role: string, tenantId: string | null = "tenant-1") {
@@ -106,6 +119,28 @@ describe("POST /api/replies/backfill", () => {
       expect.anything(),
       expect.objectContaining({ tenantId: "tenant-1" })
     );
+    // Story 21.7 (TRAP central): notify com suppressOnly=true — marca o backlog SEM enviar.
+    expect(mockNotify).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tenantId: "tenant-1", suppressOnly: true })
+    );
+  });
+
+  it("Story 21.7: inclui contador `suppressed` no resumo do backfill", async () => {
+    mockGetProfile.mockResolvedValue(profile("gestor"));
+    mockNotify.mockResolvedValue({
+      inAppCreated: 0,
+      whatsappSent: 0,
+      whatsappGrouped: 0,
+      suppressed: 42,
+      skipped: 0,
+      errors: [],
+    });
+
+    const res = await POST();
+    const json = await res.json();
+
+    expect(json.suppressed).toBe(42);
   });
 
   it("inclui contadores de classificação no resumo (Story 21.3)", async () => {

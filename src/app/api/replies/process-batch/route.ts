@@ -5,9 +5,11 @@
  *
  * Cron do loop de resposta: além de varrer respostas por polling (sweepReplies →
  * processReplies), processa ENGAJAMENTO cross-campanha (processEngagement → opportunities
- * source='engagement'). Chamada pelo pg_cron via Edge Function (reply-sweep) a cada ≤5 min
- * (NFR3). O nome `replies` da rota permanece por compat do endpoint já deployado (renomear
- * quebraria o NEXT_APP_URL da edge fn em prod) — ver Dev Notes 21.6 "piggyback, não cron novo".
+ * source='engagement'), classifica intenção por IA (classifyPendingReplies) e, POR ÚLTIMO,
+ * NOTIFICA (notifyNewOpportunities → WhatsApp + app_notifications in-app; 21.7). Chamada pelo
+ * pg_cron via Edge Function (reply-sweep) a cada ≤5 min (NFR3). O nome `replies` da rota
+ * permanece por compat do endpoint já deployado (renomear quebraria o NEXT_APP_URL da edge fn
+ * em prod) — ver Dev Notes 21.6 "piggyback, não cron novo".
  *
  * Auth: Bearer token (REPLIES_CRON_SECRET), NÃO sessão de usuário.
  * Usa service-role key para acesso multi-tenant sem RLS.
@@ -19,6 +21,7 @@ import { sweepReplies } from "@/lib/utils/reply-sweep";
 import { processReplies } from "@/lib/utils/reply-processor";
 import { processEngagement } from "@/lib/utils/engagement-processor";
 import { classifyPendingReplies } from "@/lib/utils/reply-classifier";
+import { notifyNewOpportunities } from "@/lib/utils/notification-processor";
 
 export async function POST(req: NextRequest) {
   // Auth: cron secret (lido em tempo de request para testabilidade).
@@ -47,6 +50,9 @@ export async function POST(req: NextRequest) {
     const engagement = await processEngagement(supabase);
     // Story 21.3: classifica intenção das respostas persistidas (DEPOIS de processReplies).
     const classify = await classifyPendingReplies(supabase);
+    // Story 21.7: notifica POR ÚLTIMO — o WhatsApp por intent (AC1) depende de `intent` já
+    // setado pelo classify no mesmo ciclo. Fail-open (in-app criada apesar do WhatsApp falhar).
+    const notify = await notifyNewOpportunities(supabase);
 
     return NextResponse.json({
       swept: sweep.swept,
@@ -56,11 +62,16 @@ export async function POST(req: NextRequest) {
       engagementSkipped: engagement.skipped,
       classified: classify.classified,
       classifySkipped: classify.skipped,
+      notified: notify.inAppCreated,
+      whatsappSent: notify.whatsappSent,
+      whatsappGrouped: notify.whatsappGrouped,
       errors: [
         ...sweep.errors.map((e) => ({ scope: "sweep", ...e })),
         ...processed.errors.map((e) => ({ scope: "process", ...e })),
         ...engagement.errors.map((e) => ({ scope: "engagement", ...e })),
         ...classify.errors.map((e) => ({ scope: "classify", ...e })),
+        // notify.errors já carregam `scope` próprio (notify/whatsapp/select/suppress).
+        ...notify.errors,
       ],
     });
   } catch (error) {

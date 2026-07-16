@@ -325,6 +325,8 @@ describe("processReplyEvent — upgrade engagement→reply (Story 21.6)", () => 
         reply_event_id: "event-1",
         reply_text: "Tenho interesse em avançar.",
         reply_subject: "RE: proposta",
+        // Story 21.7 (Task 6): re-arma o passe de notificação (dispara o WhatsApp do reply quente).
+        notified_at: null,
       })
     );
     expect(chains.opportunities.eq).toHaveBeenCalledWith("id", "eng-1");
