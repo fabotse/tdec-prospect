@@ -145,6 +145,17 @@ export async function sendWhatsAppMessage(
     .single();
 
   if (insertError || !insertedMessage) {
+    // Story 13.11 (AC #4): logar o erro REAL do Postgres. Este early-return genérico
+    // engoliu por meses um 23502 no fluxo de insight (13.7) — feature entregue,
+    // code-review aprovada e 100% quebrada em produção. A mensagem ao usuário
+    // permanece genérica em pt-BR (não vaza detalhe de banco).
+    // Logar SÓ code+message: `insertError.details` traz "Failing row contains (...)"
+    // com telefone e corpo da mensagem — PII não vai para o log.
+    console.error(
+      "[whatsapp] falha ao registrar mensagem:",
+      insertError?.code ?? "sem código",
+      insertError?.message ?? "insert não retornou linha"
+    );
     return {
       success: false,
       error: "Erro ao registrar mensagem. Tente novamente.",
@@ -276,6 +287,19 @@ export async function sendWhatsAppFromInsight(
     .single();
 
   if (insertError || !insertedMessage) {
+    // Story 13.11 (AC #4): logar o erro REAL do Postgres. Foi exatamente AQUI que o
+    // bug se escondeu: `campaign_id: null` violava o NOT NULL de 00042:35 → 23502 →
+    // este early-return genérico → mensagem nunca enviada, erro nunca visto. A
+    // migration 00059 legaliza o null; o log garante que a próxima violação de
+    // schema não fique invisível. Mensagem ao usuário inalterada (pt-BR, sem
+    // detalhe de banco).
+    // Logar SÓ code+message: `insertError.details` traz "Failing row contains (...)"
+    // com telefone e corpo da mensagem — PII não vai para o log.
+    console.error(
+      "[whatsapp-from-insight] falha ao registrar mensagem:",
+      insertError?.code ?? "sem código",
+      insertError?.message ?? "insert não retornou linha"
+    );
     return {
       success: false,
       error: "Erro ao registrar mensagem. Tente novamente.",

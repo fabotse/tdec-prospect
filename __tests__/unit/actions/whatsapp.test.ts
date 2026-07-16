@@ -168,6 +168,22 @@ describe("sendWhatsAppMessage", () => {
       expect(insertChain.insert).toHaveBeenCalled();
     });
 
+    // Story 13.11 (AC #3): a migration 00059 afrouxou whatsapp_messages.campaign_id
+    // para NULLABLE (o fluxo de insight não tem campanha). O fluxo DE CAMPANHA não é
+    // afetado: continua gravando o campaign_id REAL. Regressão explícita.
+    it("13.11 AC#3: inserts the REAL campaign_id (unaffected by nullable relaxation)", async () => {
+      const { insertChain } = setupMockClient();
+
+      await sendWhatsAppMessage(validInput);
+
+      expect(insertChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          campaign_id: validInput.campaignId,
+          lead_id: "lead-1",
+        })
+      );
+    });
+
     it("calls ZApiService.sendText with decrypted key, phone, message", async () => {
       setupMockClient();
 
@@ -404,6 +420,64 @@ describe("sendWhatsAppMessage", () => {
       if (!result.success) {
         expect(result.error).toContain("Erro ao registrar mensagem");
       }
+    });
+
+    // Story 13.11 (AC #4): o early-return genérico deste ramo escondeu um bug de
+    // produção — o 23502 real da 13.7 nunca era logado nem propagado. Agora o erro
+    // do Postgres (código + mensagem) vai para o log, SEM vazar para o usuário.
+    it("13.11 AC#4: logs the real Postgres error while keeping the pt-BR message", async () => {
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const client = createMockSupabaseClient();
+      const apiConfigsChain = createChainBuilder({
+        data: { encrypted_key: "encrypted:key" },
+        error: null,
+      });
+      const leadsChain = createChainBuilder({ data: { id: "lead-1" }, error: null });
+      const insertChain = createChainBuilder({
+        data: null,
+        error: {
+          code: "23502",
+          message: 'null value in column "campaign_id" violates not-null constraint',
+          // O PostgREST devolve a linha que falhou em `details` — telefone e corpo
+          // da mensagem. NÃO pode ir para o log (ver assert de PII abaixo).
+          details: `Failing row contains (msg-1, tenant-1, null, lead-1, ${validInput.phone}, ${validInput.message}, pending).`,
+        },
+      });
+
+      client.from.mockImplementation((table: string) => {
+        if (table === "api_configs") return apiConfigsChain;
+        if (table === "leads") return leadsChain;
+        if (table === "whatsapp_messages") return insertChain;
+        return createChainBuilder();
+      });
+      vi.mocked(createClient).mockResolvedValue(client as never);
+
+      const result = await sendWhatsAppMessage(validInput);
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining("falha ao registrar mensagem"),
+        "23502",
+        expect.stringContaining("not-null constraint")
+      );
+
+      // O log leva código + mensagem, NUNCA o objeto de erro inteiro: `details`
+      // carrega telefone e corpo da mensagem (PII) e não pode vazar para o log.
+      const loggedOutput = consoleSpy.mock.calls.flat().join(" ");
+      expect(loggedOutput).not.toContain(validInput.phone);
+      expect(loggedOutput).not.toContain(validInput.message);
+
+      // Contrato do early-return: NÃO enviar mensagem que não foi registrada.
+      // Sem este assert, mover o sendText para antes da guarda passa despercebido.
+      expect(mockSendText).not.toHaveBeenCalled();
+
+      // A mensagem ao usuário permanece genérica em pt-BR (não vaza detalhe de banco)
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error).toBe("Erro ao registrar mensagem. Tente novamente.");
+        expect(result.error).not.toContain("23502");
+      }
+
+      consoleSpy.mockRestore();
     });
   });
 });
