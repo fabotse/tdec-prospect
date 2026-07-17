@@ -16,7 +16,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { ChevronUp, ChevronDown, ChevronsUpDown, MailOpen, AlertCircle, MessageCircle, Check, CheckCheck, X, Clock } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, MailOpen, AlertCircle, MessageCircle, Check, CheckCheck, X, Clock, MoreHorizontal, Trash2, Loader2, Ban } from "lucide-react";
 import {
   Table,
   TableHeader,
@@ -31,11 +31,20 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { LeadTracking } from "@/types/tracking";
 import type { WhatsAppMessageStatus } from "@/types/database";
+import type { SequenceStopReason } from "@/hooks/use-lead-sequence-action";
+import { INSTANTLY_LEAD_STATUS_LABELS } from "@/lib/services/instantly";
 import { formatRelativeTime } from "@/components/tracking/SyncIndicator";
 
 // ==============================================
@@ -65,6 +74,15 @@ interface LeadTrackingTableProps {
   onHighInterestClick?: () => void;
   stepsMap?: Map<number, string>;
   onStepClick?: (stepNumber: number) => void;
+  /**
+   * Story 21.9 — a tabela EMITE as ações; os AlertDialogs de confirmação vivem
+   * no container (analytics page), padrão LeadTable→DeleteLeadsDialog.
+   */
+  onStopSequence?: (lead: LeadTracking, reason: SequenceStopReason) => void;
+  /** Story 21.9 — passado apenas para admin (defesa em profundidade: a rota barra 403). */
+  onRemoveLead?: (lead: LeadTracking) => void;
+  /** Story 21.9 — e-mail da linha com ação pendente (desabilita o trigger). */
+  pendingLeadEmail?: string | null;
 }
 
 // ==============================================
@@ -237,7 +255,7 @@ function SortableHeader({
 // SKELETON ROWS
 // ==============================================
 
-function SkeletonRows() {
+function SkeletonRows({ withActions }: { withActions: boolean }) {
   return (
     <>
       {Array.from({ length: 5 }).map((_, i) => (
@@ -247,11 +265,15 @@ function SkeletonRows() {
           <TableCell><Skeleton className="h-4 w-16" /></TableCell>
           <TableCell><Skeleton className="h-4 w-16" /></TableCell>
           <TableCell><Skeleton className="h-4 w-12" /></TableCell>
+          {/* Story 21.9: coluna Sequência */}
+          <TableCell><Skeleton className="h-4 w-16" /></TableCell>
           <TableCell><Skeleton className="h-4 w-24" /></TableCell>
           <TableCell><Skeleton className="h-4 w-16" /></TableCell>
           <TableCell><Skeleton className="h-4 w-20" /></TableCell>
           <TableCell><Skeleton className="h-4 w-16" /></TableCell>
           <TableCell><Skeleton className="h-4 w-4" /></TableCell>
+          {/* Story 21.9: coluna de ações (condicional aos handlers) */}
+          {withActions && <TableCell><Skeleton className="h-4 w-4" /></TableCell>}
         </TableRow>
       ))}
     </>
@@ -286,7 +308,8 @@ function ErrorState() {
 // LEAD TRACKING TABLE
 // ==============================================
 
-export function LeadTrackingTable({ leads, isLoading, isError, highInterestThreshold, onHighInterestClick, stepsMap, onStepClick }: LeadTrackingTableProps) {
+export function LeadTrackingTable({ leads, isLoading, isError, highInterestThreshold, onHighInterestClick, stepsMap, onStepClick, onStopSequence, onRemoveLead, pendingLeadEmail }: LeadTrackingTableProps) {
+  const showActions = Boolean(onStopSequence || onRemoveLead);
   const [sort, setSort] = useState<SortState>({ column: null, direction: null });
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -301,10 +324,13 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
     setCurrentPage(1);
   };
 
+  // Destructuring dá o narrowing que elimina o non-null assertion (pre-commit
+  // linta o arquivo inteiro com --max-warnings=0 — lição do projeto).
+  const { column: sortColumn, direction: sortDirection } = sort;
   const sortedLeads = useMemo(() => {
-    if (!sort.column || !sort.direction) return leads;
-    return [...leads].sort((a, b) => compareLead(a, b, sort.column!, sort.direction!));
-  }, [leads, sort.column, sort.direction]);
+    if (!sortColumn || !sortDirection) return leads;
+    return [...leads].sort((a, b) => compareLead(a, b, sortColumn, sortDirection));
+  }, [leads, sortColumn, sortDirection]);
 
   const totalPages = Math.max(1, Math.ceil(sortedLeads.length / LEADS_PER_PAGE));
   const effectivePage = Math.min(currentPage, totalPages);
@@ -333,6 +359,8 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
             <SortableHeader label="Aberturas" column="openCount" sort={sort} onSort={handleSort} />
             <SortableHeader label="Cliques" column="clickCount" sort={sort} onSort={handleSort} />
             <SortableHeader label="Respondeu" column="hasReplied" sort={sort} onSort={handleSort} />
+            {/* Story 21.9 AC#4: status do lead na sequência do Instantly (não-ordenável — OQ3) */}
+            <TableHead>Sequência</TableHead>
             <SortableHeader label="Ultimo Open" column="lastOpenAt" sort={sort} onSort={handleSort} />
             <SortableHeader label="Step Abertura" column="emailOpenedStep" sort={sort} onSort={handleSort} />
             <SortableHeader label="Provedor" column="espCode" sort={sort} onSort={handleSort} />
@@ -345,11 +373,16 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
               </Tooltip>
             </TableHead>
             <TableHead className="w-10">WA</TableHead>
+            {showActions && (
+              <TableHead className="w-10">
+                <span className="sr-only">Ações</span>
+              </TableHead>
+            )}
           </TableRow>
         </TableHeader>
         <TableBody>
           {isLoading ? (
-            <SkeletonRows />
+            <SkeletonRows withActions={showActions} />
           ) : (
             paginatedLeads.map((lead) => {
               const waCount = lead.whatsappMessageCount ?? 0;
@@ -379,6 +412,17 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
                 </TableCell>
                 <TableCell>{lead.clickCount}</TableCell>
                 <TableCell>{lead.hasReplied ? "Sim" : "Nao"}</TableCell>
+                {/* Story 21.9 AC#4: item.status do leads/list, antes descartado no map */}
+                <TableCell data-testid="sequence-status-cell">
+                  {typeof lead.sequenceStatus === "number" &&
+                  INSTANTLY_LEAD_STATUS_LABELS[lead.sequenceStatus] ? (
+                    <Badge variant="outline" data-testid="sequence-status-badge">
+                      {INSTANTLY_LEAD_STATUS_LABELS[lead.sequenceStatus]}
+                    </Badge>
+                  ) : (
+                    "—"
+                  )}
+                </TableCell>
                 <TableCell>{lead.lastOpenAt ? formatRelativeTime(lead.lastOpenAt) : "-"}</TableCell>
                 <TableCell>
                   {(() => {
@@ -444,6 +488,60 @@ export function LeadTrackingTable({ leads, isLoading, isError, highInterestThres
                     </Tooltip>
                   )}
                 </TableCell>
+                {/* Story 21.9 AC#5: menu de ações por linha (padrão LeadTable) */}
+                {showActions && (
+                  <TableCell className="w-10">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          disabled={pendingLeadEmail === lead.leadEmail}
+                          data-testid={`sequence-actions-${lead.leadEmail}`}
+                        >
+                          {pendingLeadEmail === lead.leadEmail ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <MoreHorizontal className="h-4 w-4" />
+                          )}
+                          <span className="sr-only">Ações de sequência</span>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {onStopSequence && (
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              // Item único (Review 21.9): o motivo é escolhido no radio do
+                              // StopSequenceDialog. Aqui só passamos o default; o "Parar
+                              // sequência" deixa de ser um DropdownMenuLabel não-clicável.
+                              onStopSequence(lead, "responded_other_channel");
+                            }}
+                            data-testid={`stop-sequence-${lead.leadEmail}`}
+                          >
+                            <Ban className="mr-2 h-4 w-4" />
+                            Parar sequência
+                          </DropdownMenuItem>
+                        )}
+                        {onStopSequence && onRemoveLead && <DropdownMenuSeparator />}
+                        {onRemoveLead && (
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onRemoveLead(lead);
+                            }}
+                            className="text-destructive focus:text-destructive"
+                            data-testid={`remove-lead-${lead.leadEmail}`}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Remover do Instantly
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                )}
               </TableRow>
               );
             })

@@ -53,6 +53,21 @@ vi.mock("@/hooks/use-campaign-steps", () => ({
   useCampaignSteps: (...args: unknown[]) => mockUseCampaignSteps(...args),
 }));
 
+// Story 21.9: papel do usuário (gating do "Remover do Instantly") + mutation de sequência
+const mockUseUser = vi.fn();
+vi.mock("@/hooks/use-user", () => ({
+  useUser: (...args: unknown[]) => mockUseUser(...args),
+}));
+
+const mockUseLeadSequenceAction = vi.fn();
+vi.mock("@/hooks/use-lead-sequence-action", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/hooks/use-lead-sequence-action")>();
+  return {
+    ...actual,
+    useLeadSequenceAction: (...args: unknown[]) => mockUseLeadSequenceAction(...args),
+  };
+});
+
 vi.mock("@/lib/services/opportunity-engine", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/services/opportunity-engine")>();
   return {
@@ -96,6 +111,7 @@ async function renderPage() {
 describe("CampaignAnalyticsPage (AC: #1, #2, #4, #5)", () => {
   const mockAnalytics = createMockCampaignAnalytics({ campaignId });
   const mockMutate = vi.fn();
+  const mockSequenceMutate = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -132,6 +148,13 @@ describe("CampaignAnalyticsPage (AC: #1, #2, #4, #5)", () => {
       stepsData: undefined,
       isLoading: false,
       isError: false,
+    });
+
+    // Story 21.9: admin por padrão (perfil carregado); mutation ociosa
+    mockUseUser.mockReturnValue({ isAdmin: true, isProfileLoading: false });
+    mockUseLeadSequenceAction.mockReturnValue({
+      mutate: mockSequenceMutate,
+      isPending: false,
     });
 
     // Clear localStorage for toast tests
@@ -849,6 +872,145 @@ describe("CampaignAnalyticsPage (AC: #1, #2, #4, #5)", () => {
     // StepPreviewPanel should open
     await waitFor(() => {
       expect(screen.getByTestId("step-preview-panel")).toBeInTheDocument();
+    });
+  });
+
+  // ==============================================
+  // Story 21.9: ações de sequência (wiring tabela → dialogs → mutation)
+  // ==============================================
+
+  describe("ações de sequência (Story 21.9)", () => {
+    const trackedLead = createMockLeadTracking({
+      leadEmail: "lead@test.com",
+      sequenceStatus: 1,
+    });
+
+    function setupExportedWithLead() {
+      mockUseCampaign.mockReturnValue({
+        data: { name: "Campanha X", externalCampaignId: "ext-1" },
+        isLoading: false,
+      });
+      mockUseCampaignAnalytics.mockReturnValue({
+        data: mockAnalytics,
+        isLoading: false,
+      });
+      mockUseLeadTracking.mockReturnValue({
+        data: [trackedLead],
+        isLoading: false,
+        isError: false,
+      });
+    }
+
+    it("usa o campaignId da página no hook de mutation", async () => {
+      setupExportedWithLead();
+      await renderPage();
+
+      expect(mockUseLeadSequenceAction).toHaveBeenCalledWith(campaignId);
+    });
+
+    it("parar sequência: menu → dialog de confirmação → mutate stop com o motivo", async () => {
+      const user = userEvent.setup();
+      setupExportedWithLead();
+      await renderPage();
+
+      await user.click(
+        screen.getByTestId(`sequence-actions-${trackedLead.leadEmail}`)
+      );
+      await user.click(
+        await screen.findByTestId(`stop-sequence-${trackedLead.leadEmail}`)
+      );
+
+      // AlertDialog de confirmação abre com o motivo pré-selecionado
+      const confirm = await screen.findByTestId("confirm-stop-sequence");
+      await user.click(confirm);
+
+      expect(mockSequenceMutate).toHaveBeenCalledWith(
+        {
+          action: "stop",
+          leadEmail: "lead@test.com",
+          reason: "responded_other_channel",
+        },
+        expect.anything()
+      );
+    });
+
+    it("parar sequência: trocar o motivo no radio do dialog → mutate stop com 'não contactar mais'", async () => {
+      const user = userEvent.setup();
+      setupExportedWithLead();
+      await renderPage();
+
+      await user.click(
+        screen.getByTestId(`sequence-actions-${trackedLead.leadEmail}`)
+      );
+      await user.click(
+        await screen.findByTestId(`stop-sequence-${trackedLead.leadEmail}`)
+      );
+
+      // Menu virou item único (Review 21.9); o motivo é escolhido no radio do dialog.
+      await user.click(await screen.findByLabelText("Não contactar mais"));
+      await user.click(screen.getByTestId("confirm-stop-sequence"));
+
+      expect(mockSequenceMutate).toHaveBeenCalledWith(
+        {
+          action: "stop",
+          leadEmail: "lead@test.com",
+          reason: "do_not_contact",
+        },
+        expect.anything()
+      );
+    });
+
+    it("remover: admin vê o item, confirma no dialog destrutivo → mutate remove", async () => {
+      const user = userEvent.setup();
+      setupExportedWithLead();
+      await renderPage();
+
+      await user.click(
+        screen.getByTestId(`sequence-actions-${trackedLead.leadEmail}`)
+      );
+      await user.click(
+        await screen.findByTestId(`remove-lead-${trackedLead.leadEmail}`)
+      );
+
+      const confirm = await screen.findByTestId("confirm-remove-lead");
+      await user.click(confirm);
+
+      expect(mockSequenceMutate).toHaveBeenCalledWith(
+        { action: "remove", leadEmail: "lead@test.com" },
+        expect.anything()
+      );
+    });
+
+    it("remover: oculto para não-admin (gating por papel)", async () => {
+      const user = userEvent.setup();
+      mockUseUser.mockReturnValue({ isAdmin: false, isProfileLoading: false });
+      setupExportedWithLead();
+      await renderPage();
+
+      await user.click(
+        screen.getByTestId(`sequence-actions-${trackedLead.leadEmail}`)
+      );
+      await screen.findByTestId(`stop-sequence-${trackedLead.leadEmail}`);
+
+      expect(
+        screen.queryByTestId(`remove-lead-${trackedLead.leadEmail}`)
+      ).not.toBeInTheDocument();
+    });
+
+    it("remover: oculto enquanto o perfil ainda carrega (capacidade não confirmada)", async () => {
+      const user = userEvent.setup();
+      mockUseUser.mockReturnValue({ isAdmin: false, isProfileLoading: true });
+      setupExportedWithLead();
+      await renderPage();
+
+      await user.click(
+        screen.getByTestId(`sequence-actions-${trackedLead.leadEmail}`)
+      );
+      await screen.findByTestId(`stop-sequence-${trackedLead.leadEmail}`);
+
+      expect(
+        screen.queryByTestId(`remove-lead-${trackedLead.leadEmail}`)
+      ).not.toBeInTheDocument();
     });
   });
 });

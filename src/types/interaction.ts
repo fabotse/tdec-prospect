@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-// Interaction types matching the database enum
+// Interaction types matching the database enum (00013 + 00062)
 export const interactionTypeValues = [
   "note",
   "status_change",
@@ -8,6 +8,9 @@ export const interactionTypeValues = [
   "campaign_sent",
   "campaign_reply",
   "whatsapp_sent",
+  // Story 21.9 (00062): ações manuais sobre a sequência do Instantly
+  "sequence_stopped",
+  "lead_removed",
 ] as const;
 
 export type InteractionType = (typeof interactionTypeValues)[number];

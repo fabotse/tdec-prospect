@@ -82,7 +82,7 @@ const mockLeads: LeadTracking[] = [
 
 describe("LeadTrackingTable", () => {
   describe("renderizacao basica (AC #1)", () => {
-    it("renderiza 10 colunas de header", () => {
+    it("renderiza 11 colunas de header (com Sequência da 21.9)", () => {
       render(<LeadTrackingTable leads={mockLeads} isLoading={false} />);
 
       expect(screen.getByText("Email")).toBeInTheDocument();
@@ -90,6 +90,7 @@ describe("LeadTrackingTable", () => {
       expect(screen.getByText("Aberturas")).toBeInTheDocument();
       expect(screen.getByText("Cliques")).toBeInTheDocument();
       expect(screen.getByText("Respondeu")).toBeInTheDocument();
+      expect(screen.getByText("Sequência")).toBeInTheDocument();
       expect(screen.getByText("Ultimo Open")).toBeInTheDocument();
       expect(screen.getByText("Step Abertura")).toBeInTheDocument();
       expect(screen.getByText("Provedor")).toBeInTheDocument();
@@ -548,8 +549,8 @@ describe("LeadTrackingTable", () => {
 
       const row = screen.getByTestId("lead-row");
       const cells = row.querySelectorAll("td");
-      // Cell 6 = StepAbertura
-      expect(cells[6]).toHaveTextContent("-");
+      // Cell 7 = StepAbertura (deslocada pela coluna Sequência da 21.9)
+      expect(cells[7]).toHaveTextContent("-");
     });
   });
 
@@ -611,13 +612,158 @@ describe("LeadTrackingTable", () => {
   });
 
   describe("skeleton rows", () => {
-    it("skeleton row tem 10 celulas", () => {
+    it("skeleton row tem 11 celulas (com a coluna Sequência da 21.9)", () => {
       render(<LeadTrackingTable leads={[]} isLoading={true} />);
 
       const skeletonRows = screen.getAllByTestId("skeleton-row");
       const firstRow = skeletonRows[0];
       const cells = firstRow.querySelectorAll("td");
-      expect(cells).toHaveLength(10);
+      expect(cells).toHaveLength(11);
+    });
+
+    it("skeleton row tem 12 celulas quando a coluna de ações está ativa (21.9)", () => {
+      render(
+        <LeadTrackingTable
+          leads={[]}
+          isLoading={true}
+          onStopSequence={vi.fn()}
+        />
+      );
+
+      const skeletonRows = screen.getAllByTestId("skeleton-row");
+      const cells = skeletonRows[0].querySelectorAll("td");
+      expect(cells).toHaveLength(12);
+    });
+  });
+
+  // ==============================================
+  // Story 21.9: coluna Sequência (AC #4)
+  // ==============================================
+
+  describe("coluna Sequência (21.9 AC#4)", () => {
+    it("renderiza o header Sequência", () => {
+      render(<LeadTrackingTable leads={mockLeads} isLoading={false} />);
+
+      expect(screen.getByText("Sequência")).toBeInTheDocument();
+    });
+
+    it("exibe badge com o label PT-BR do status do lead na sequência", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "ativa@x.com", sequenceStatus: 1 }),
+        createMockLeadTracking({ leadEmail: "done@x.com", sequenceStatus: 3 }),
+        createMockLeadTracking({ leadEmail: "unsub@x.com", sequenceStatus: -2 }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const badges = screen.getAllByTestId("sequence-status-badge");
+      const labels = badges.map((b) => b.textContent);
+      expect(labels).toContain("Ativa");
+      expect(labels).toContain("Concluída");
+      expect(labels).toContain("Descadastrado");
+    });
+
+    it("exibe — quando sequenceStatus ausente ou desconhecido", () => {
+      const leads = [
+        createMockLeadTracking({ leadEmail: "sem@x.com", sequenceStatus: undefined }),
+        createMockLeadTracking({ leadEmail: "estranho@x.com", sequenceStatus: 999 }),
+      ];
+      render(<LeadTrackingTable leads={leads} isLoading={false} />);
+
+      const cells = screen.getAllByTestId("sequence-status-cell");
+      expect(cells).toHaveLength(2);
+      for (const cell of cells) {
+        expect(cell.textContent).toBe("—");
+      }
+      expect(screen.queryByTestId("sequence-status-badge")).not.toBeInTheDocument();
+    });
+  });
+
+  // ==============================================
+  // Story 21.9: menu de ações por linha (AC #5)
+  // ==============================================
+
+  describe("menu de ações (21.9 AC#5)", () => {
+    const lead = createMockLeadTracking({
+      leadEmail: "acao@empresa.com",
+      sequenceStatus: 1,
+    });
+
+    it("não renderiza a coluna de ações sem handlers", () => {
+      render(<LeadTrackingTable leads={[lead]} isLoading={false} />);
+
+      expect(
+        screen.queryByTestId(`sequence-actions-${lead.leadEmail}`)
+      ).not.toBeInTheDocument();
+    });
+
+    it("abre o menu e emite onStopSequence (motivo default) ao clicar em 'Parar sequência'", async () => {
+      const user = userEvent.setup();
+      const onStopSequence = vi.fn();
+      render(
+        <LeadTrackingTable
+          leads={[lead]}
+          isLoading={false}
+          onStopSequence={onStopSequence}
+        />
+      );
+
+      await user.click(screen.getByTestId(`sequence-actions-${lead.leadEmail}`));
+      await user.click(
+        await screen.findByTestId(`stop-sequence-${lead.leadEmail}`)
+      );
+
+      // Item único (Review 21.9): emite o motivo default; a troca de motivo passou a
+      // ser feita no radio do StopSequenceDialog, não mais em itens separados do menu.
+      expect(onStopSequence).toHaveBeenCalledWith(lead, "responded_other_channel");
+    });
+
+    it("esconde 'Remover do Instantly' quando onRemoveLead não é passado (não-admin)", async () => {
+      const user = userEvent.setup();
+      render(
+        <LeadTrackingTable
+          leads={[lead]}
+          isLoading={false}
+          onStopSequence={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByTestId(`sequence-actions-${lead.leadEmail}`));
+      await screen.findByText("Parar sequência");
+
+      expect(screen.queryByText("Remover do Instantly")).not.toBeInTheDocument();
+    });
+
+    it("emite onRemoveLead quando admin aciona 'Remover do Instantly'", async () => {
+      const user = userEvent.setup();
+      const onRemoveLead = vi.fn();
+      render(
+        <LeadTrackingTable
+          leads={[lead]}
+          isLoading={false}
+          onStopSequence={vi.fn()}
+          onRemoveLead={onRemoveLead}
+        />
+      );
+
+      await user.click(screen.getByTestId(`sequence-actions-${lead.leadEmail}`));
+      await user.click(await screen.findByText("Remover do Instantly"));
+
+      expect(onRemoveLead).toHaveBeenCalledWith(lead);
+    });
+
+    it("desabilita o trigger da linha com ação pendente", () => {
+      render(
+        <LeadTrackingTable
+          leads={[lead]}
+          isLoading={false}
+          onStopSequence={vi.fn()}
+          pendingLeadEmail={lead.leadEmail}
+        />
+      );
+
+      expect(
+        screen.getByTestId(`sequence-actions-${lead.leadEmail}`)
+      ).toBeDisabled();
     });
   });
 

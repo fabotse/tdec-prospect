@@ -170,6 +170,8 @@ export function mapToLeadTracking(
     lastStepTimestampExecuted: item.last_step_timestamp_executed ?? undefined,
     statusSummary: resolveStatusSummary(item.status_summary),
     ltInterestStatus: item.lt_interest_status ?? undefined,
+    // Story 21.9: status do lead na sequência (antes lido da API e descartado).
+    sequenceStatus: item.status ?? undefined,
   };
 }
 

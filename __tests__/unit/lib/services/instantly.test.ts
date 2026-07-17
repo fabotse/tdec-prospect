@@ -20,6 +20,7 @@ import { InstantlyCampaignStatus } from "@/types/instantly";
 import {
   MAX_LEADS_PER_BATCH,
   INSTANTLY_CAMPAIGN_STATUS_LABELS,
+  INSTANTLY_LEAD_STATUS_LABELS,
   textToEmailHtml,
 } from "@/lib/services/instantly";
 
@@ -809,7 +810,7 @@ describe("InstantlyService", () => {
       // Advance past rate limit delay
       await vi.advanceTimersByTimeAsync(200);
 
-      const result = await promise;
+      await promise;
 
       const leadsCalls = mock.mock.calls.filter(
         (c: [string]) => typeof c[0] === "string" && c[0].includes("/leads/add")
@@ -1475,6 +1476,352 @@ describe("InstantlyService", () => {
 
       await expect(
         service.getCampaignStatus({ apiKey: "bad-key", campaignId: "camp-123" })
+      ).rejects.toThrow(ExternalServiceError);
+    });
+  });
+
+  // ==============================================
+  // INSTANTLY_LEAD_STATUS_LABELS (Story 21.9 — escala de LEAD, ≠ campanha)
+  // ==============================================
+
+  describe("INSTANTLY_LEAD_STATUS_LABELS", () => {
+    it("has PT-BR labels for the lead status scale", () => {
+      expect(INSTANTLY_LEAD_STATUS_LABELS[1]).toBe("Ativa");
+      expect(INSTANTLY_LEAD_STATUS_LABELS[2]).toBe("Pausada");
+      expect(INSTANTLY_LEAD_STATUS_LABELS[3]).toBe("Concluída");
+      expect(INSTANTLY_LEAD_STATUS_LABELS[-1]).toBe("Bounce");
+      expect(INSTANTLY_LEAD_STATUS_LABELS[-2]).toBe("Descadastrado");
+      expect(INSTANTLY_LEAD_STATUS_LABELS[-3]).toBe("Pulado");
+    });
+
+    it("returns undefined for unknown status", () => {
+      expect(INSTANTLY_LEAD_STATUS_LABELS[999]).toBeUndefined();
+    });
+
+    it("is NOT the campaign status scale (lead scale has no 0/Rascunho)", () => {
+      expect(INSTANTLY_LEAD_STATUS_LABELS[0]).toBeUndefined();
+    });
+  });
+
+  // ==============================================
+  // updateLeadInterestStatus (Story 21.9 — parar sequência)
+  // ==============================================
+
+  describe("updateLeadInterestStatus", () => {
+    it("returns accepted on 202 (background job) and sends the correct body", async () => {
+      const { mock, calls } = createMockFetch([
+        {
+          url: /\/api\/v2\/leads\/update-interest-status$/,
+          method: "POST",
+          response: mockJsonResponse(
+            { message: "Interest status update background job submitted" },
+            202
+          ),
+        },
+      ]);
+
+      const result = await service.updateLeadInterestStatus({
+        apiKey: "my-key",
+        campaignId: "ext-camp-1",
+        leadEmail: "lead@example.com",
+        interestValue: 1,
+      });
+
+      expect(result).toEqual({ accepted: true });
+      expect(mock).toHaveBeenCalledTimes(1);
+      expect(calls()[0].url).toBe(
+        "https://api.instantly.ai/api/v2/leads/update-interest-status"
+      );
+      expect(calls()[0].body).toEqual({
+        campaign_id: "ext-camp-1",
+        lead_email: "lead@example.com",
+        interest_value: 1,
+      });
+      expect(calls()[0].headers).toMatchObject({
+        Authorization: "Bearer my-key",
+      });
+    });
+
+    it("sends interest_value -1 for Not Interested", async () => {
+      const { calls } = createMockFetch([
+        {
+          url: /update-interest-status$/,
+          method: "POST",
+          response: mockJsonResponse({ message: "ok" }, 202),
+        },
+      ]);
+
+      await service.updateLeadInterestStatus({
+        apiKey: "my-key",
+        campaignId: "ext-camp-1",
+        leadEmail: "lead@example.com",
+        interestValue: -1,
+      });
+
+      expect(calls()[0].body).toMatchObject({ interest_value: -1 });
+    });
+
+    it("throws ExternalServiceError on 4xx", async () => {
+      createMockFetch([
+        {
+          url: /update-interest-status$/,
+          method: "POST",
+          response: mockErrorResponse(401),
+        },
+      ]);
+
+      await expect(
+        service.updateLeadInterestStatus({
+          apiKey: "bad-key",
+          campaignId: "ext-camp-1",
+          leadEmail: "lead@example.com",
+          interestValue: 1,
+        })
+      ).rejects.toThrow(ExternalServiceError);
+    });
+
+    it("throws ExternalServiceError on 5xx", async () => {
+      createMockFetch([
+        {
+          url: /update-interest-status$/,
+          method: "POST",
+          response: mockErrorResponse(500),
+        },
+      ]);
+
+      await expect(
+        service.updateLeadInterestStatus({
+          apiKey: "my-key",
+          campaignId: "ext-camp-1",
+          leadEmail: "lead@example.com",
+          interestValue: 1,
+        })
+      ).rejects.toThrow(ExternalServiceError);
+    });
+  });
+
+  // ==============================================
+  // findLeadIdByEmail (Story 21.9 — lookup server-side p/ remove)
+  // ==============================================
+
+  describe("findLeadIdByEmail", () => {
+    it("finds the lead via the search fast-path (single call)", async () => {
+      const { mock, calls } = createMockFetch([
+        {
+          url: /\/api\/v2\/leads\/list$/,
+          method: "POST",
+          response: mockJsonResponse({
+            items: [{ id: "lead-abc", email: "lead@example.com" }],
+          }),
+        },
+      ]);
+
+      const result = await service.findLeadIdByEmail({
+        apiKey: "my-key",
+        campaignId: "ext-camp-1",
+        email: "lead@example.com",
+      });
+
+      expect(result).toBe("lead-abc");
+      expect(mock).toHaveBeenCalledTimes(1);
+      expect(calls()[0].body).toMatchObject({
+        campaign: "ext-camp-1",
+        search: "lead@example.com",
+      });
+    });
+
+    it("matches email case-insensitively with trim", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/v2\/leads\/list$/,
+          method: "POST",
+          response: mockJsonResponse({
+            items: [{ id: "lead-abc", email: "  LEAD@Example.COM " }],
+          }),
+        },
+      ]);
+
+      const result = await service.findLeadIdByEmail({
+        apiKey: "my-key",
+        campaignId: "ext-camp-1",
+        email: "lead@example.com",
+      });
+
+      expect(result).toBe("lead-abc");
+    });
+
+    it("falls back to pagination when search returns no match (finds on page 2)", async () => {
+      // Patch P3 (Review 21.9): a paginação agora dá throttle (setTimeout) entre páginas.
+      // Fake timers + runAllTimersAsync pumpam o delay sem custo de tempo real e imunizam
+      // o teste do estado de timers que testes anteriores do arquivo deixam pendente.
+      vi.useFakeTimers();
+      const { mock } = createMockFetch([]);
+      // 1ª chamada: search fast-path vazio (search não é validado p/ e-mail).
+      mock.mockImplementationOnce(() =>
+        Promise.resolve(mockJsonResponse({ items: [] }))
+      );
+      // 2ª chamada: página 1 sem match, com cursor.
+      mock.mockImplementationOnce(() =>
+        Promise.resolve(
+          mockJsonResponse({
+            items: [{ id: "other", email: "other@example.com" }],
+            next_starting_after: "cursor-1",
+          })
+        )
+      );
+      // 3ª chamada: página 2 com o match.
+      mock.mockImplementationOnce(() =>
+        Promise.resolve(
+          mockJsonResponse({
+            items: [{ id: "lead-target", email: "lead@example.com" }],
+          })
+        )
+      );
+
+      const result = await (async () => {
+        const promise = service.findLeadIdByEmail({
+          apiKey: "my-key",
+          campaignId: "ext-camp-1",
+          email: "lead@example.com",
+        });
+        await vi.runAllTimersAsync();
+        return promise;
+      })();
+
+      expect(result).toBe("lead-target");
+      expect(mock).toHaveBeenCalledTimes(3);
+      // A 3ª chamada (página 2) deve carregar o cursor.
+      const thirdBody = JSON.parse(
+        (mock.mock.calls[2][1] as RequestInit).body as string
+      );
+      expect(thirdBody).toMatchObject({ starting_after: "cursor-1" });
+      // O fallback de paginação NÃO envia `search`.
+      expect(thirdBody.search).toBeUndefined();
+
+      vi.useRealTimers();
+    });
+
+    it("returns null when the lead is not found anywhere", async () => {
+      const { mock } = createMockFetch([]);
+      // search vazio + página única sem match e sem cursor.
+      mock.mockImplementationOnce(() =>
+        Promise.resolve(mockJsonResponse({ items: [] }))
+      );
+      mock.mockImplementationOnce(() =>
+        Promise.resolve(
+          mockJsonResponse({ items: [{ id: "x", email: "other@example.com" }] })
+        )
+      );
+
+      const result = await service.findLeadIdByEmail({
+        apiKey: "my-key",
+        campaignId: "ext-camp-1",
+        email: "lead@example.com",
+      });
+
+      expect(result).toBeNull();
+      expect(mock).toHaveBeenCalledTimes(2);
+    });
+
+    it("throws an inconclusive-scan error (not null) when the pagination cap is hit with a remaining cursor", async () => {
+      // Patch P1 (Review 21.9): teto atingido COM cursor remanescente = varredura
+      // inconclusiva → lança erro distinto (NÃO null), para a rota não dizer
+      // "pode já ter sido removido" para um lead que ainda está ativo.
+      // Patch P3: o throttle entre páginas usa setTimeout — fake timers evitam que a
+      // varredura até o teto (50 páginas × 150ms) custe tempo real.
+      vi.useFakeTimers();
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      createMockFetch([
+        {
+          url: /\/api\/v2\/leads\/list$/,
+          method: "POST",
+          response: mockJsonResponse({
+            items: [{ id: "x", email: "other@example.com" }],
+            next_starting_after: "always-more",
+          }),
+        },
+      ]);
+
+      const outcome = await (async () => {
+        const promise = service
+          .findLeadIdByEmail({
+            apiKey: "my-key",
+            campaignId: "ext-camp-1",
+            email: "lead@example.com",
+          })
+          .catch((e: unknown) => e);
+        await vi.runAllTimersAsync();
+        return promise;
+      })();
+
+      expect(outcome).toBeInstanceOf(ExternalServiceError);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("teto"));
+
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    });
+
+    it("throws ExternalServiceError on API error", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/v2\/leads\/list$/,
+          method: "POST",
+          response: mockErrorResponse(500),
+        },
+      ]);
+
+      await expect(
+        service.findLeadIdByEmail({
+          apiKey: "my-key",
+          campaignId: "ext-camp-1",
+          email: "lead@example.com",
+        })
+      ).rejects.toThrow(ExternalServiceError);
+    });
+  });
+
+  // ==============================================
+  // deleteLead (Story 21.9 — remover do Instantly)
+  // ==============================================
+
+  describe("deleteLead", () => {
+    it("returns deleted on 200 and calls DELETE /api/v2/leads/{id}", async () => {
+      const { mock } = createMockFetch([
+        {
+          url: /\/api\/v2\/leads\/lead-abc$/,
+          method: "DELETE",
+          response: mockJsonResponse({ id: "lead-abc", email: "lead@example.com" }),
+        },
+      ]);
+
+      const result = await service.deleteLead({
+        apiKey: "my-key",
+        leadId: "lead-abc",
+      });
+
+      expect(result).toEqual({ deleted: true });
+      expect(mock).toHaveBeenCalledWith(
+        "https://api.instantly.ai/api/v2/leads/lead-abc",
+        expect.objectContaining({
+          method: "DELETE",
+          headers: expect.objectContaining({
+            Authorization: "Bearer my-key",
+          }),
+        })
+      );
+    });
+
+    it("throws ExternalServiceError on 404 (lead already removed)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/v2\/leads\//,
+          method: "DELETE",
+          response: mockErrorResponse(404),
+        },
+      ]);
+
+      await expect(
+        service.deleteLead({ apiKey: "my-key", leadId: "lead-gone" })
       ).rejects.toThrow(ExternalServiceError);
     });
   });

@@ -62,6 +62,18 @@ vi.mock("@/hooks/use-whatsapp-send-from-opportunity", () => ({
   }),
 }));
 
+// Story 21.9: a mutation real é coberta em use-lead-sequence-action.test.ts.
+// O mock também evita o useQueryClient() em testes renderizados sem provider.
+const mockSequenceMutate = vi.fn();
+const mockUseLeadSequenceAction = vi.fn();
+vi.mock("@/hooks/use-lead-sequence-action", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/hooks/use-lead-sequence-action")>();
+  return {
+    ...actual,
+    useLeadSequenceAction: (...args: unknown[]) => mockUseLeadSequenceAction(...args),
+  };
+});
+
 // PhoneLookupDialog real depende de usePhoneLookup (rede) — stub que expõe
 // apenas o contrato usado aqui: onPhoneFound.
 vi.mock("@/components/tracking/PhoneLookupDialog", () => ({
@@ -150,6 +162,10 @@ function mockHookReturn(
 describe("OpportunitiesPageContent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseLeadSequenceAction.mockReturnValue({
+      mutate: mockSequenceMutate,
+      isPending: false,
+    });
   });
 
   it("should render loading skeleton when loading (AC6/UX-DR2)", () => {
@@ -305,6 +321,10 @@ describe("OpportunitiesPageContent — ações (Story 21.5)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGenerate.mockResolvedValue({ suggestion: null });
+    mockUseLeadSequenceAction.mockReturnValue({
+      mutate: mockSequenceMutate,
+      isPending: false,
+    });
   });
 
   it("abrir o composer via WhatsApp pré-preenche com o rascunho (suggestion)", async () => {
@@ -435,5 +455,48 @@ describe("OpportunitiesPageContent — ações (Story 21.5)", () => {
     expect(screen.queryByTestId("phone-lookup-dialog")).not.toBeInTheDocument();
     // Triagem segue disponível (AC4 não depende de lead)
     expect(screen.getByTestId("opportunity-triage")).toBeInTheDocument();
+  });
+
+  // ==============================================
+  // Story 21.9 AC#6 — "Parar sequência" a partir do card
+  // ==============================================
+
+  it("parar sequência: card → dialog com motivos → confirmar → mutate stop (21.9)", async () => {
+    const user = userEvent.setup();
+    mockHookReturn({
+      opportunities: [makeOpportunity({ campaignId: "camp-9" })],
+    });
+
+    renderWithClient(<OpportunitiesPageContent />);
+
+    await user.click(screen.getByTestId("opportunity-action-stop-sequence"));
+
+    // O hook é re-instanciado com o campaignId da oportunidade alvo.
+    expect(mockUseLeadSequenceAction).toHaveBeenLastCalledWith("camp-9");
+
+    const confirm = await screen.findByTestId("confirm-stop-sequence");
+    await user.click(confirm);
+
+    expect(mockSequenceMutate).toHaveBeenCalledWith(
+      {
+        action: "stop",
+        leadEmail: "john@acme.com",
+        reason: "responded_other_channel",
+      },
+      expect.anything()
+    );
+  });
+
+  it("parar sequência: oportunidade com campaignId null não exibe o atalho (21.9)", () => {
+    // Cast: o tipo diz `string` (00055 NOT NULL); o guard do AC6 é defensivo.
+    mockHookReturn({
+      opportunities: [makeOpportunity({ campaignId: null as unknown as string })],
+    });
+
+    renderWithClient(<OpportunitiesPageContent />);
+
+    expect(
+      screen.queryByTestId("opportunity-action-stop-sequence")
+    ).not.toBeInTheDocument();
   });
 });

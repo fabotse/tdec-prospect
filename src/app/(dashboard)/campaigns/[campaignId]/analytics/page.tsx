@@ -23,14 +23,17 @@ import { useCampaignAnalytics, useSyncAnalytics } from "@/hooks/use-campaign-ana
 import { useLeadTracking, useSentLeadEmails } from "@/hooks/use-lead-tracking";
 import { useOpportunityConfig, useSaveOpportunityConfig, useOpportunityLeads } from "@/hooks/use-opportunity-window";
 import { useCampaignSteps } from "@/hooks/use-campaign-steps";
+import { useUser } from "@/hooks/use-user";
+import { useLeadSequenceAction, type SequenceStopReason } from "@/hooks/use-lead-sequence-action";
 import { DEFAULT_MIN_OPENS } from "@/lib/services/opportunity-engine";
 import { AnalyticsDashboard } from "@/components/tracking/AnalyticsDashboard";
 import { LeadTrackingTable } from "@/components/tracking/LeadTrackingTable";
 import { StepPreviewPanel } from "@/components/tracking/StepPreviewPanel";
 import { ThresholdConfig } from "@/components/tracking/ThresholdConfig";
 import { OpportunityPanel } from "@/components/tracking/OpportunityPanel";
+import { StopSequenceDialog, RemoveLeadDialog } from "@/components/tracking/SequenceActionDialogs";
 import { Badge } from "@/components/ui/badge";
-import type { CampaignAnalytics, DailyAnalyticsEntry } from "@/types/tracking";
+import type { CampaignAnalytics, DailyAnalyticsEntry, LeadTracking } from "@/types/tracking";
 
 interface PageProps {
   params: Promise<{ campaignId: string }>;
@@ -85,6 +88,45 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
     setSelectedStep(stepNumber);
     setIsStepPanelOpen(true);
   }, []);
+
+  // Story 21.9: controle manual de sequência (dialogs vivem no container).
+  // Capacidade CONFIRMADA (perfil carregado E hasAdminAccess) — padrão Sidebar;
+  // a rota barra 403 de qualquer forma (defesa em profundidade).
+  const { isAdmin, isProfileLoading } = useUser();
+  const canRemoveLead = !isProfileLoading && isAdmin;
+  const sequenceAction = useLeadSequenceAction(campaignId);
+  const [stopTarget, setStopTarget] = useState<LeadTracking | null>(null);
+  const [stopReason, setStopReason] = useState<SequenceStopReason>("responded_other_channel");
+  const [removeTarget, setRemoveTarget] = useState<LeadTracking | null>(null);
+
+  const handleStopSequence = useCallback((lead: LeadTracking, reason: SequenceStopReason) => {
+    setStopReason(reason);
+    setStopTarget(lead);
+  }, []);
+
+  const handleRemoveLead = useCallback((lead: LeadTracking) => {
+    setRemoveTarget(lead);
+  }, []);
+
+  const confirmStopSequence = useCallback(() => {
+    if (!stopTarget) return;
+    sequenceAction.mutate(
+      { action: "stop", leadEmail: stopTarget.leadEmail, reason: stopReason },
+      { onSettled: () => setStopTarget(null) }
+    );
+  }, [sequenceAction, stopTarget, stopReason]);
+
+  const confirmRemoveLead = useCallback(() => {
+    if (!removeTarget) return;
+    sequenceAction.mutate(
+      { action: "remove", leadEmail: removeTarget.leadEmail },
+      { onSettled: () => setRemoveTarget(null) }
+    );
+  }, [sequenceAction, removeTarget]);
+
+  const pendingLeadEmail = sequenceAction.isPending
+    ? (stopTarget?.leadEmail ?? removeTarget?.leadEmail ?? null)
+    : null;
 
   const scrollToOpportunity = () => {
     opportunityPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -213,6 +255,9 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
             onHighInterestClick={scrollToOpportunity}
             stepsMap={stepsMap}
             onStepClick={handleStepClick}
+            onStopSequence={handleStopSequence}
+            onRemoveLead={canRemoveLead ? handleRemoveLead : undefined}
+            pendingLeadEmail={pendingLeadEmail}
           />
           <StepPreviewPanel
             open={isStepPanelOpen}
@@ -220,6 +265,27 @@ export default function CampaignAnalyticsPage({ params }: PageProps) {
             steps={stepsData ?? []}
             highlightedStep={selectedStep}
             campaignName={campaign?.name ?? ""}
+          />
+          {/* Story 21.9: confirmações das ações de sequência */}
+          <StopSequenceDialog
+            open={!!stopTarget}
+            onOpenChange={(open) => {
+              if (!open) setStopTarget(null);
+            }}
+            leadLabel={stopTarget?.leadEmail ?? ""}
+            reason={stopReason}
+            onReasonChange={setStopReason}
+            onConfirm={confirmStopSequence}
+            isPending={sequenceAction.isPending}
+          />
+          <RemoveLeadDialog
+            open={!!removeTarget}
+            onOpenChange={(open) => {
+              if (!open) setRemoveTarget(null);
+            }}
+            leadLabel={removeTarget?.leadEmail ?? ""}
+            onConfirm={confirmRemoveLead}
+            isPending={sequenceAction.isPending}
           />
         </>
       )}

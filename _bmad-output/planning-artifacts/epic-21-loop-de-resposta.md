@@ -46,6 +46,7 @@ Este documento contém o breakdown de epic e stories para o Loop de Resposta (Ep
 - FR6: Sistema registra a resposta no histórico de interações do lead (`lead_interactions`)
 - FR7: Sistema processa retroativamente respostas já armazenadas em `campaign_events` (backfill)
 - FR17: Sistema ingere respostas periodicamente via polling (`GET /api/v2/emails`) como **caminho primário** de detecção (revisado 2026-07-13 — webhooks indisponíveis no plano do cliente); se webhooks forem habilitados no futuro, o dual-source webhook+polling deduplica pela constraint existente — nenhuma resposta se perde silenciosamente
+- FR18: Usuário pode parar manualmente a sequência de um lead (ex.: respondeu por outro canal — WhatsApp/telefone) ou removê-lo do Instantly, direto do app (adicionado 2026-07-16 — gap real: `stop_on_reply` só cobre resposta por e-mail)
 
 **Central de Oportunidades**
 - FR8: Usuário pode acessar Central de Oportunidades cross-campanha (nova página na sidebar, badge de contagem)
@@ -110,8 +111,9 @@ Este documento contém o breakdown de epic e stories para o Loop de Resposta (Ep
 | FR15 | Epic 21 | Configuração de canais de notificação |
 | FR16 | Epic 21 | Registro de reunião marcada (1 clique) |
 | FR17 | Epic 21 | Reconciliação por polling (rede de segurança do webhook) |
+| FR18 | Epic 21 | Controle manual de sequência por lead (parar/remover no Instantly) — adicionado 2026-07-16 |
 
-Cobertura: 17/17 FRs mapeados, sem órfãos.
+Cobertura: 18/18 FRs mapeados, sem órfãos.
 
 ## Epic List
 
@@ -247,6 +249,22 @@ So that o "pop-up do lead" chegue até mim mesmo quando não estou na plataforma
 6. **Given** múltiplas respostas em rajada **Then** notificações WhatsApp são agrupadas se >3 no intervalo de 5 min ("4 novos leads quentes — abrir Central")
 7. Testes unitários para gatilhos, agrupamento, fallback e configurações
 
+### Story 21.9: Controle Manual de Sequência por Lead
+
+> **ADICIONADA 2026-07-16 (pós-planning, demanda direta do cliente).** Gap real de operação: `stop_on_reply: true` só interrompe a sequência quando o lead responde **o e-mail** — quem responde por outro canal (WhatsApp do cliente, telefone) continua recebendo follow-ups. **Smoke test real executado ANTES da story** (2026-07-16, key real do cliente): `POST /api/v2/leads/update-interest-status` → 202, lead `status` 1→3 (sequência concluída) em segundos; `DELETE /api/v2/leads/{id}` → 200. Ambos funcionam no plano do cliente (sem o bloqueio dos webhooks).
+
+As a usuário,
+I want parar a sequência de um lead ou removê-lo do Instantly direto do app,
+So that leads que já responderam por outro canal — ou que não devem mais ser contactados — parem de receber follow-ups sem eu precisar abrir o painel do Instantly.
+
+**Acceptance Criteria (resumo — ACs completos na story):**
+
+1. **Given** um lead ativo em campanha exportada **When** o usuário aciona "Parar sequência" (motivos: "Respondeu por outro canal" → `interest_value=1` / "Não contactar mais" → `interest_value=-1`) **Then** a sequência é interrompida no Instantly via `update-interest-status` **And** o status local do lead é sincronizado (promote-only) **And** a ação é registrada em `lead_interactions` (FR18)
+2. **Given** um usuário admin **When** aciona "Remover do Instantly" com confirmação destrutiva **Then** o lead é removido via `DELETE /leads/{id}` (lookup do ID por e-mail no server) **And** dados locais (`leads`, `campaign_leads`) são preservados
+3. **Given** a tabela de leads do Analytics **Then** exibe coluna "Sequência" (status do lead no Instantly: Ativa/Pausada/Concluída/…) **And** menu de ações por linha com as duas ações
+4. **Given** um card de oportunidade com `campaign_id` válido **Then** exibe atalho "Parar sequência" (o cenário WhatsApp aparece naturalmente na Central via engajamento)
+5. Ordem remoto→local (nada local persiste se o Instantly falhar), erros em PT-BR, testes unitários completos
+
 ### ~~Story 21.8: Reconciliação por Polling (Rede de Segurança)~~ — ABSORVIDA PELA 21.2 (2026-07-13)
 
 A validação real da 21.1 AC5 concluiu que **webhooks estão bloqueados no plano do cliente** — a prioridade condicional desta story se ativou na forma máxima: o sweep de polling não é rede de segurança, é o **caminho primário de ingestão**, e por isso foi fundido na Story 21.2 (ACs 1, 2 e parte do 9). Não existe mais como story separada. A cadência definida (cron ≤5 min, 1 chamada workspace-wide por ciclo) mantém NFR3 atingível dentro do rate limit (NFR5). Se o cliente habilitar webhooks no futuro, o receiver existente (Epic 10, intocado) passa a coexistir com o sweep — o dedupe pela UNIQUE constraint de `campaign_events` já cobre o dual-source.
@@ -262,5 +280,6 @@ A validação real da 21.1 AC5 concluiu que **webhooks estão bloqueados no plan
 | 21.4 | FR8, FR9 | UX-DR1, UX-DR2 |
 | 21.5 | FR10, FR11, FR16 | — |
 | 21.7 | FR13, FR14, FR15 | — |
+| 21.9 (adicionada 2026-07-16) | FR18 | — |
 
-17/17 FRs e 2/2 UX-DRs cobertos. Sequência de execução: 21.1 → 21.2 → 21.6 → 21.3 → 21.4 → 21.5 → 21.7.
+18/18 FRs e 2/2 UX-DRs cobertos. Sequência de execução: 21.1 → 21.2 → 21.6 → 21.3 → 21.4 → 21.5 → 21.7 → 21.9 (pós-planning).

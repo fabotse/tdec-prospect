@@ -22,6 +22,7 @@
 
 import { useRef, useState } from "react";
 import {
+  Ban,
   Check,
   Copy,
   ExternalLink,
@@ -56,6 +57,14 @@ interface OpportunityCardProps {
   onPhoneLookup?: (opportunity: OpportunityCardData) => void;
   /** Telefone encontrado no lookup desta sessão (otimista, antes do refetch). */
   localPhone?: string;
+  /**
+   * Story 21.9 AC#6 — abre a confirmação de "Parar sequência" (dialog vive no
+   * PageContent). O botão só renderiza com `campaignId` não-null (lição 13.11:
+   * coluna nullable e sem FK) E e-mail do lead disponível.
+   */
+  onStopSequence?: (opportunity: OpportunityCardData) => void;
+  /** Story 21.9 — desabilita o atalho enquanto a mutation pende. */
+  sequenceActionPending?: boolean;
 }
 
 /**
@@ -78,6 +87,8 @@ export function OpportunityCard({
   onWhatsApp,
   onPhoneLookup,
   localPhone,
+  onStopSequence,
+  sequenceActionPending,
 }: OpportunityCardProps) {
   const [expanded, setExpanded] = useState(false);
   // AC5: transição new→viewed UMA vez por interação (não no mount — evita
@@ -491,6 +502,25 @@ export function OpportunityCard({
                 <Mail className="h-3 w-3" />
                 E-mail
               </a>
+            </Button>
+          )}
+
+          {/* Story 21.9 AC#6 — cenário WhatsApp: lead respondeu por outro canal
+              e segue recebendo follow-up. Confirmação (com motivos) no PageContent. */}
+          {onStopSequence && opportunity.campaignId && lead.email && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                onStopSequence(opportunity);
+              }}
+              disabled={sequenceActionPending}
+              data-testid="opportunity-action-stop-sequence"
+            >
+              <Ban className="h-3 w-3" />
+              Parar sequência
             </Button>
           )}
         </div>

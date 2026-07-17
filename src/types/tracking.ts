@@ -175,6 +175,12 @@ export interface LeadTracking {
   ltInterestStatus?: string;
   espCode?: string;
   esgCode?: string;
+  /**
+   * Story 21.9 — status do lead na sequência do Instantly (`item.status` do
+   * leads/list, escala de LEAD: 1 Ativa, 2 Pausada, 3 Concluída, -1 Bounce,
+   * -2 Descadastrado, -3 Pulado). Labels em INSTANTLY_LEAD_STATUS_LABELS.
+   */
+  sequenceStatus?: number;
 }
 
 // ==============================================
