@@ -39,6 +39,13 @@ import type {
   AddAccountsResult,
   AccountCampaignMappingRequest,
   AccountCampaignMappingResponse,
+  UpdateLeadInterestStatusParams,
+  UpdateLeadInterestStatusResult,
+  FindLeadIdByEmailParams,
+  DeleteLeadParams,
+  DeleteLeadResult,
+  InstantlyLeadListItem,
+  InstantlyLeadListLookupResponse,
 } from "@/types/instantly";
 
 // ==============================================
@@ -49,10 +56,15 @@ const INSTANTLY_API_BASE = "https://api.instantly.ai";
 const INSTANTLY_ACCOUNTS_ENDPOINT = "/api/v2/accounts";
 const INSTANTLY_CAMPAIGNS_ENDPOINT = "/api/v2/campaigns";
 const INSTANTLY_LEADS_ADD_ENDPOINT = "/api/v2/leads/add";
+const INSTANTLY_LEADS_ENDPOINT = "/api/v2/leads";
+const INSTANTLY_LEADS_LIST_ENDPOINT = "/api/v2/leads/list";
+const INSTANTLY_INTEREST_STATUS_ENDPOINT = "/api/v2/leads/update-interest-status";
 const INSTANTLY_ACCOUNT_CAMPAIGN_MAPPINGS_ENDPOINT = "/api/v2/account-campaign-mappings";
 const RATE_LIMIT_DELAY_MS = 150;
 const GATEWAY_ERROR_CODES = new Set([502, 503, 504]);
 const GATEWAY_VERIFY_DELAY_MS = 3000;
+const LEAD_LOOKUP_PAGE_SIZE = 100;
+const MAX_LEAD_LOOKUP_PAGES = 50;
 
 export const MAX_LEADS_PER_BATCH = 1000;
 
@@ -65,6 +77,20 @@ export const INSTANTLY_CAMPAIGN_STATUS_LABELS: Record<number, string> = {
   [-99]: "Conta suspensa",
   [-1]: "Contas com problema",
   [-2]: "Proteção de bounce",
+};
+
+/**
+ * Story 21.9 — escala de status do LEAD dentro da campanha (item.status do
+ * POST /api/v2/leads/list). NÃO confundir com INSTANTLY_CAMPAIGN_STATUS_LABELS
+ * acima (escala de CAMPANHA — valores diferentes para os mesmos números).
+ */
+export const INSTANTLY_LEAD_STATUS_LABELS: Record<number, string> = {
+  1: "Ativa",
+  2: "Pausada",
+  3: "Concluída",
+  [-1]: "Bounce",
+  [-2]: "Descadastrado",
+  [-3]: "Pulado",
 };
 
 // ==============================================
@@ -485,6 +511,148 @@ export class InstantlyService extends ExternalService {
       status: response.status,
       statusLabel: INSTANTLY_CAMPAIGN_STATUS_LABELS[response.status] ?? "Desconhecido",
     };
+  }
+
+  /**
+   * Update a lead's interest status in a campaign (Story 21.9 — "Parar sequência").
+   * POST /api/v2/leads/update-interest-status
+   *
+   * O Instantly responde 202 ("background job submitted") — validado em smoke test
+   * real (2026-07-16): em segundos o lead sai de status 1 (ativo) para 3 (concluída)
+   * e a sequência para. `response.ok` cobre 2xx, então 202 é sucesso no base-service.
+   *
+   * @param params - API key, external campaign ID, lead email and interest value
+   *   (1 = Interested, -1 = Not Interested)
+   * @returns accepted=true quando o job foi aceito (efeito é assíncrono)
+   */
+  async updateLeadInterestStatus(
+    params: UpdateLeadInterestStatusParams
+  ): Promise<UpdateLeadInterestStatusResult> {
+    const { apiKey, campaignId, leadEmail, interestValue } = params;
+    const url = `${INSTANTLY_API_BASE}${INSTANTLY_INTEREST_STATUS_ENDPOINT}`;
+
+    await this.request<{ message?: string }>(url, {
+      method: "POST",
+      headers: buildAuthHeaders(apiKey),
+      body: JSON.stringify({
+        campaign_id: campaignId,
+        lead_email: leadEmail,
+        interest_value: interestValue,
+      }),
+    });
+
+    return { accepted: true };
+  }
+
+  /**
+   * Resolve the Instantly-internal lead ID by email within a campaign (Story 21.9).
+   * POST /api/v2/leads/list
+   *
+   * Fast-path: `search` server-side (NÃO validado para e-mail no smoke test —
+   * por isso o match é sempre re-verificado client-side por e-mail normalizado).
+   * Fallback obrigatório: paginação completa (`limit` + `starting_after`)
+   * comparando `item.email` normalizado, com teto de páginas + warning
+   * (padrão do sweep 21.2).
+   *
+   * @returns Instantly lead ID, ou null se o lead não está na campanha
+   */
+  async findLeadIdByEmail(params: FindLeadIdByEmailParams): Promise<string | null> {
+    const { apiKey, campaignId, email } = params;
+    const target = email.trim().toLowerCase();
+    const url = `${INSTANTLY_API_BASE}${INSTANTLY_LEADS_LIST_ENDPOINT}`;
+
+    const matchByEmail = (items: InstantlyLeadListItem[]): string | null => {
+      for (const item of items) {
+        if ((item.email ?? "").trim().toLowerCase() === target) {
+          return item.id;
+        }
+      }
+      return null;
+    };
+
+    // Fast-path: busca server-side.
+    const searchResponse = await this.request<InstantlyLeadListLookupResponse>(url, {
+      method: "POST",
+      headers: buildAuthHeaders(apiKey),
+      body: JSON.stringify({
+        campaign: campaignId,
+        search: email,
+        limit: LEAD_LOOKUP_PAGE_SIZE,
+      }),
+    });
+
+    const fastMatch = matchByEmail(searchResponse.items ?? []);
+    if (fastMatch) return fastMatch;
+
+    // Fallback: paginação completa sem `search`.
+    let cursor: string | undefined = undefined;
+    let pageCount = 0;
+
+    do {
+      // Throttle entre páginas (padrão dos demais métodos paginados — ex.
+      // addAccountsToCampaign): evita que uma rajada de POSTs /leads/list leve 429
+      // no meio da varredura de uma campanha grande (Review 21.9, patch P3).
+      if (pageCount > 0) {
+        await delay(RATE_LIMIT_DELAY_MS);
+      }
+
+      const body: Record<string, unknown> = {
+        campaign: campaignId,
+        limit: LEAD_LOOKUP_PAGE_SIZE,
+      };
+      if (cursor) body.starting_after = cursor;
+
+      const response = await this.request<InstantlyLeadListLookupResponse>(url, {
+        method: "POST",
+        headers: buildAuthHeaders(apiKey),
+        body: JSON.stringify(body),
+      });
+
+      const match = matchByEmail(response.items ?? []);
+      if (match) return match;
+
+      cursor = response.next_starting_after ?? undefined;
+      pageCount++;
+    } while (cursor && pageCount < MAX_LEAD_LOOKUP_PAGES);
+
+    // Teto atingido COM cursor remanescente = varredura INCONCLUSIVA (o lead pode existir
+    // além do teto). Isso NÃO é "não encontrado": devolver null aqui faria a rota dizer
+    // "pode já ter sido removido" para um lead que ainda está ativo e recebendo follow-up.
+    // Lança erro distinto para o caller surfacear uma mensagem honesta (Review 21.9, patch P1).
+    if (cursor) {
+      console.warn(
+        `[InstantlyService] findLeadIdByEmail atingiu o teto de ${MAX_LEAD_LOOKUP_PAGES} páginas com cursor remanescente — varredura inconclusiva.`
+      );
+      throw new ExternalServiceError(
+        this.name,
+        502,
+        "Não foi possível localizar o lead: a campanha excede o limite de varredura automática. Remova o lead pelo painel do Instantly."
+      );
+    }
+
+    return null;
+  }
+
+  /**
+   * Delete a lead from Instantly (Story 21.9 — "Remover do Instantly").
+   * DELETE /api/v2/leads/{id} — responde 200 com o objeto do lead removido;
+   * GET posterior devolve 404 (remoção real, validada em smoke test 2026-07-16).
+   *
+   * Remove o lead e o histórico dele no INSTANTLY — os dados locais
+   * (leads/campaign_leads) são preservados pelo caller (rota da 21.9).
+   *
+   * @param params - API key and Instantly-internal lead ID
+   */
+  async deleteLead(params: DeleteLeadParams): Promise<DeleteLeadResult> {
+    const { apiKey, leadId } = params;
+    const url = `${INSTANTLY_API_BASE}${INSTANTLY_LEADS_ENDPOINT}/${encodeURIComponent(leadId)}`;
+
+    await this.request<Record<string, unknown>>(url, {
+      method: "DELETE",
+      headers: buildAuthHeaders(apiKey),
+    });
+
+    return { deleted: true };
   }
 }
 

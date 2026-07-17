@@ -325,3 +325,67 @@ export interface CampaignStatusResult {
   status: number;
   statusLabel: string;
 }
+
+/**
+ * Parameters for InstantlyService.updateLeadInterestStatus() (Story 21.9)
+ * `campaignId` é o external_campaign_id (ID do Instantly, não o local).
+ */
+export interface UpdateLeadInterestStatusParams {
+  apiKey: string;
+  campaignId: string;
+  leadEmail: string;
+  /** Escala do Instantly: 1 = Interested, -1 = Not Interested, 0 = Out of Office. */
+  interestValue: number;
+}
+
+/**
+ * Result from InstantlyService.updateLeadInterestStatus() (Story 21.9)
+ * O Instantly responde 202 (background job) — `accepted` significa "solicitado",
+ * não "aplicado"; o efeito chega em segundos via job assíncrono.
+ */
+export interface UpdateLeadInterestStatusResult {
+  accepted: boolean;
+}
+
+/**
+ * Parameters for InstantlyService.findLeadIdByEmail() (Story 21.9)
+ */
+export interface FindLeadIdByEmailParams {
+  apiKey: string;
+  campaignId: string;
+  email: string;
+}
+
+/**
+ * Parameters for InstantlyService.deleteLead() (Story 21.9)
+ * `leadId` é o ID interno do lead NO INSTANTLY (resolvido via findLeadIdByEmail).
+ */
+export interface DeleteLeadParams {
+  apiKey: string;
+  leadId: string;
+}
+
+/**
+ * Result from InstantlyService.deleteLead() (Story 21.9)
+ */
+export interface DeleteLeadResult {
+  deleted: boolean;
+}
+
+/**
+ * Item mínimo de POST /api/v2/leads/list usado pelo lookup por e-mail (Story 21.9).
+ * O shape completo vive em types/tracking.ts (InstantlyLeadEntry) — aqui só o
+ * necessário para resolver o ID.
+ */
+export interface InstantlyLeadListItem {
+  id: string;
+  email?: string;
+}
+
+/**
+ * Response de POST /api/v2/leads/list para o lookup por e-mail (Story 21.9).
+ */
+export interface InstantlyLeadListLookupResponse {
+  items: InstantlyLeadListItem[];
+  next_starting_after?: string;
+}

@@ -27,6 +27,7 @@ vi.mock("@/lib/services/zapi", () => ({
 import {
   notifyNewOpportunities,
   buildHotLeadMessage,
+  buildEngagementDetail,
   buildGroupedMessage,
   buildLeadName,
 } from "@/lib/utils/notification-processor";
@@ -76,6 +77,8 @@ function opp(overrides: Record<string, unknown> = {}) {
     campaign_id: "camp-1",
     source: "reply",
     intent: "interessado",
+    open_count: null,
+    click_count: null,
     created_at: new Date().toISOString(),
     leads: { first_name: "João", last_name: "Silva", company_name: "ACME" },
     ...overrides,
@@ -105,37 +108,81 @@ describe("buildLeadName", () => {
 });
 
 describe("buildHotLeadMessage", () => {
-  it("formato AC1 com link", () => {
+  it("reply: verbo 'respondeu' + intent como classificação, com link", () => {
     const msg = buildHotLeadMessage({
+      source: "reply",
       leadName: "João Silva",
       company: "ACME",
       intentLabel: "Interessado",
       campaignName: "Campanha X",
+      openCount: null,
+      clickCount: null,
       link: "https://app/opportunities",
     });
-    expect(msg).toContain("🔥 Lead quente: João Silva (ACME) respondeu Interessado na campanha Campanha X");
+    expect(msg).toContain(
+      "🔥 Lead quente: João Silva (ACME) respondeu na campanha Campanha X — Interessado"
+    );
+    expect(msg).toContain("https://app/opportunities");
+  });
+  it("engagement: 'engajou' + métricas (abriu/clicou) — NUNCA 'respondeu'", () => {
+    const msg = buildHotLeadMessage({
+      source: "engagement",
+      leadName: "João Silva",
+      company: "ACME",
+      intentLabel: "",
+      campaignName: "Campanha X",
+      openCount: 3,
+      clickCount: 1,
+      link: "https://app/opportunities",
+    });
+    expect(msg).toContain(
+      "👀 Lead engajou: João Silva (ACME) abriu o e-mail 3× e clicou em 1 link na campanha Campanha X"
+    );
+    expect(msg).not.toContain("respondeu");
     expect(msg).toContain("https://app/opportunities");
   });
   it("sem link quando vazio (nunca quebra)", () => {
     const msg = buildHotLeadMessage({
+      source: "reply",
       leadName: "João",
       company: "ACME",
       intentLabel: "Interessado",
       campaignName: "X",
+      openCount: null,
+      clickCount: null,
       link: "",
     });
     expect(msg).not.toContain("Abrir Central");
   });
 });
 
+describe("buildEngagementDetail", () => {
+  it("opens + clicks", () => {
+    expect(buildEngagementDetail(3, 1)).toBe("abriu o e-mail 3× e clicou em 1 link");
+  });
+  it("plural de links", () => {
+    expect(buildEngagementDetail(2, 3)).toBe("abriu o e-mail 2× e clicou em 3 links");
+  });
+  it("só opens", () => {
+    expect(buildEngagementDetail(5, 0)).toBe("abriu o e-mail 5×");
+  });
+  it("só clicks", () => {
+    expect(buildEngagementDetail(0, 1)).toBe("clicou em 1 link");
+  });
+  it("fallback quando sem métricas (null/0)", () => {
+    expect(buildEngagementDetail(null, null)).toBe("abriu ou clicou no e-mail");
+    expect(buildEngagementDetail(0, 0)).toBe("abriu ou clicou no e-mail");
+  });
+});
+
 describe("buildGroupedMessage", () => {
-  it("formato AC6", () => {
+  it("formato AC6 — 'novos leads' sem overclaim de 'quentes'", () => {
     expect(buildGroupedMessage(5, "https://app/opportunities")).toBe(
-      "🔥 5 novos leads quentes — abrir Central: https://app/opportunities"
+      "🔥 5 novos leads — abrir Central: https://app/opportunities"
     );
   });
   it("sem link", () => {
-    expect(buildGroupedMessage(5, "")).toBe("🔥 5 novos leads quentes");
+    expect(buildGroupedMessage(5, "")).toBe("🔥 5 novos leads");
   });
 });
 
@@ -158,6 +205,10 @@ describe("notifyNewOpportunities", () => {
     expect(result.whatsappSent).toBe(1);
     expect(mockSendText).toHaveBeenCalledTimes(1);
     expect(chains.app_notifications.insert).toHaveBeenCalledTimes(1);
+    const sent = mockSendText.mock.calls[0][2] as string;
+    expect(sent).toContain(
+      "🔥 Lead quente: João Silva (ACME) respondeu na campanha Campanha X — Interessado"
+    );
   });
 
   it("reply intent frio (objecao) → só in-app, sem WhatsApp", async () => {
@@ -203,9 +254,11 @@ describe("notifyNewOpportunities", () => {
     expect(mockSendText).not.toHaveBeenCalled();
   });
 
-  it("engagement + opt-in ON → WhatsApp", async () => {
+  it("engagement + opt-in ON → WhatsApp com verbo 'engajou' + métricas (nunca 'respondeu')", async () => {
     const { supabase } = makeSupabase({
-      opportunities: { data: [opp({ source: "engagement", intent: null })] },
+      opportunities: {
+        data: [opp({ source: "engagement", intent: null, open_count: 3, click_count: 1 })],
+      },
       notification_settings: {
         data: settingsRow({
           channels: { whatsapp: true, in_app: true, whatsapp_engagement: true },
@@ -219,6 +272,11 @@ describe("notifyNewOpportunities", () => {
 
     expect(result.whatsappSent).toBe(1);
     expect(mockSendText).toHaveBeenCalledTimes(1);
+    const sent = mockSendText.mock.calls[0][2] as string;
+    expect(sent).toContain(
+      "👀 Lead engajou: João Silva (ACME) abriu o e-mail 3× e clicou em 1 link na campanha Campanha X"
+    );
+    expect(sent).not.toContain("respondeu");
   });
 
   it("canal WhatsApp off → só in-app", async () => {
@@ -268,7 +326,8 @@ describe("notifyNewOpportunities", () => {
     expect(result.whatsappGrouped).toBe(1);
     expect(result.whatsappSent).toBe(0);
     expect(mockSendText).toHaveBeenCalledTimes(1);
-    expect(mockSendText.mock.calls[0][2]).toContain("4 novos leads quentes");
+    expect(mockSendText.mock.calls[0][2]).toContain("4 novos leads");
+    expect(mockSendText.mock.calls[0][2]).not.toContain("quentes");
   });
 
   it("agrupamento: ≤3 elegíveis → mensagens individuais", async () => {

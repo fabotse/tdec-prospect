@@ -15,7 +15,12 @@ import type { OpportunityFilters, OpportunityCardData } from "@/hooks/use-opport
 import { OpportunityCard } from "@/components/opportunities/OpportunityCard";
 import { WhatsAppComposerDialog } from "@/components/tracking/WhatsAppComposerDialog";
 import { PhoneLookupDialog } from "@/components/tracking/PhoneLookupDialog";
+import { StopSequenceDialog } from "@/components/tracking/SequenceActionDialogs";
 import { useWhatsAppSendFromOpportunity } from "@/hooks/use-whatsapp-send-from-opportunity";
+import {
+  useLeadSequenceAction,
+  type SequenceStopReason,
+} from "@/hooks/use-lead-sequence-action";
 import {
   OpportunitiesFilterBar,
   DEFAULT_OPPORTUNITIES_FILTERS,
@@ -85,6 +90,29 @@ export function OpportunitiesPageContent() {
     },
     [phoneLookupOpportunity]
   );
+
+  // Story 21.9 AC#6 — "Parar sequência" a partir do card (cenário WhatsApp).
+  // O hook é instanciado com o campaignId da OPORTUNIDADE alvo (cada card pode
+  // vir de uma campanha diferente); o card só emite com campaignId não-null.
+  const [sequenceStopTarget, setSequenceStopTarget] =
+    useState<OpportunityCardData | null>(null);
+  const [sequenceStopReason, setSequenceStopReason] =
+    useState<SequenceStopReason>("responded_other_channel");
+  const sequenceAction = useLeadSequenceAction(sequenceStopTarget?.campaignId ?? "");
+
+  const handleStopSequence = useCallback((opportunity: OpportunityCardData) => {
+    setSequenceStopReason("responded_other_channel");
+    setSequenceStopTarget(opportunity);
+  }, []);
+
+  const confirmStopSequence = useCallback(() => {
+    const leadEmail = sequenceStopTarget?.lead?.email;
+    if (!leadEmail) return;
+    sequenceAction.mutate(
+      { action: "stop", leadEmail, reason: sequenceStopReason },
+      { onSettled: () => setSequenceStopTarget(null) }
+    );
+  }, [sequenceAction, sequenceStopTarget, sequenceStopReason]);
 
   // Busca client-side sobre a página carregada (decisão Task 7.2)
   const visibleOpportunities = useMemo(
@@ -189,6 +217,11 @@ export function OpportunitiesPageContent() {
                   onWhatsApp={setComposerOpportunity}
                   onPhoneLookup={setPhoneLookupOpportunity}
                   localPhone={localPhones.get(opportunity.id)}
+                  onStopSequence={handleStopSequence}
+                  sequenceActionPending={
+                    sequenceAction.isPending &&
+                    sequenceStopTarget?.id === opportunity.id
+                  }
                 />
               ))}
             </div>
@@ -289,6 +322,20 @@ export function OpportunitiesPageContent() {
           onPhoneFound={handlePhoneFound}
         />
       )}
+
+      {/* Story 21.9 AC#6 — confirmação de "Parar sequência" (mesmo dialog da
+          LeadTrackingTable, com radio de motivos) */}
+      <StopSequenceDialog
+        open={!!sequenceStopTarget}
+        onOpenChange={(open) => {
+          if (!open) setSequenceStopTarget(null);
+        }}
+        leadLabel={sequenceStopTarget?.lead?.email ?? ""}
+        reason={sequenceStopReason}
+        onReasonChange={setSequenceStopReason}
+        onConfirm={confirmStopSequence}
+        isPending={sequenceAction.isPending}
+      />
     </div>
   );
 }

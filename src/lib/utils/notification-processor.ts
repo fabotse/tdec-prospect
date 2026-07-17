@@ -101,6 +101,10 @@ interface PendingNotifyOpportunity {
   campaign_id: string;
   source: OpportunitySource;
   intent: OpportunityIntent | null;
+  // Story 21.6: métricas de engajamento (nullable — só source='engagement'). Alimentam a
+  // cópia do WhatsApp de engajamento ("abriu o e-mail 3× e clicou em 1 link").
+  open_count: number | null;
+  click_count: number | null;
   created_at: string;
   leads: {
     first_name: string | null;
@@ -112,10 +116,16 @@ interface PendingNotifyOpportunity {
 /** WhatsApp-elegível coletado no ciclo — enviado (agrupado ou individual) na fase B. */
 interface WhatsAppEligible {
   opportunityId: string;
+  /** Decide a cópia: 'reply' → "respondeu … — {intent}"; 'engagement' → "engajou … {métricas}". */
+  source: OpportunitySource;
   leadName: string;
   company: string;
+  /** Só usado quando source='reply' (label do intent). Vazio para engagement. */
   intentLabel: string;
   campaignName: string;
+  /** Métricas de engajamento (só source='engagement'). */
+  openCount: number | null;
+  clickCount: number | null;
 }
 
 // ==============================================
@@ -136,26 +146,60 @@ export function buildLeadName(
 }
 
 /**
- * Task 4.1 (AC1) — mensagem de lead quente individual. `intentLabel` vem de
- * OPPORTUNITY_INTENT_CONFIG (fonte única). Sem link (NEXT_PUBLIC_SITE_URL vazio) → mensagem
- * vai sem a linha da Central (nunca quebra).
+ * Detalhe factual do engajamento a partir das métricas (opens/clicks). Só conta o que de fato
+ * aconteceu — engajamento qualifica por `opens OU ≥1 clique` (engagement-processor), então pelo
+ * menos um dos ramos é verdadeiro na prática; o fallback cobre métricas ausentes (null) sem
+ * mentir. NUNCA usa "respondeu": o lead abriu/clicou, não respondeu.
+ */
+export function buildEngagementDetail(
+  openCount: number | null | undefined,
+  clickCount: number | null | undefined
+): string {
+  const opens = typeof openCount === "number" && openCount > 0 ? openCount : 0;
+  const clicks = typeof clickCount === "number" && clickCount > 0 ? clickCount : 0;
+  const parts: string[] = [];
+  if (opens > 0) parts.push(`abriu o e-mail ${opens}×`);
+  if (clicks > 0) parts.push(`clicou em ${clicks} ${clicks === 1 ? "link" : "links"}`);
+  return parts.length > 0 ? parts.join(" e ") : "abriu ou clicou no e-mail";
+}
+
+/**
+ * Task 4.1 (AC1) — mensagem de oportunidade individual. Ramifica pela FONTE do sinal para não
+ * mentir sobre o que o lead fez:
+ *  - `reply`: o lead RESPONDEU o e-mail. Verbo "respondeu"; o intent (OPPORTUNITY_INTENT_CONFIG,
+ *    fonte única) entra como CLASSIFICAÇÃO após "—" (não como objeto do verbo), então
+ *    "respondeu na campanha X — Objeção" continua correto mesmo p/ intents não-quentes.
+ *  - `engagement`: o lead só ABRIU/CLICOU (não respondeu). Verbo "engajou" + o que fez de fato
+ *    (buildEngagementDetail). Emoji 👀 (vs 🔥 do reply) diferencia os dois sinais no celular.
+ * Sem link (NEXT_PUBLIC_SITE_URL vazio) → mensagem vai sem a linha da Central (nunca quebra).
  */
 export function buildHotLeadMessage(params: {
+  source: OpportunitySource;
   leadName: string;
   company: string;
   intentLabel: string;
   campaignName: string;
+  openCount?: number | null;
+  clickCount?: number | null;
   link: string;
 }): string {
-  const base = `🔥 Lead quente: ${params.leadName} (${params.company}) respondeu ${params.intentLabel} na campanha ${params.campaignName}`;
+  const who = `${params.leadName} (${params.company})`;
+  const base =
+    params.source === "engagement"
+      ? `👀 Lead engajou: ${who} ${buildEngagementDetail(params.openCount, params.clickCount)} na campanha ${params.campaignName}`
+      : `🔥 Lead quente: ${who} respondeu na campanha ${params.campaignName} — ${params.intentLabel}`;
   return params.link ? `${base}\n\nAbrir Central: ${params.link}` : base;
 }
 
-/** Task 4.2 (AC6) — mensagem agrupada (> NOTIFY_GROUP_THRESHOLD elegíveis no ciclo). */
+/**
+ * Task 4.2 (AC6) — mensagem agrupada (> NOTIFY_GROUP_THRESHOLD elegíveis no ciclo). Um lote pode
+ * misturar respostas e engajamentos, então evita rotular tudo como "quentes" (overclaim): usa o
+ * neutro "novos leads". O detalhe por lead fica na Central.
+ */
 export function buildGroupedMessage(count: number, link: string): string {
   return link
-    ? `🔥 ${count} novos leads quentes — abrir Central: ${link}`
-    : `🔥 ${count} novos leads quentes`;
+    ? `🔥 ${count} novos leads — abrir Central: ${link}`
+    : `🔥 ${count} novos leads`;
 }
 
 /** Link direto para a Central (Task 4.3). Leitura guardada de env (no-non-null-assertion). */
@@ -340,11 +384,22 @@ async function notifyOne(
       fresh = Number.isFinite(ageMs) && ageMs <= MAX_WHATSAPP_NOTIFY_AGE_MS;
     }
     if (fresh) {
+      // intentLabel só faz sentido p/ reply (classificação da resposta). Engagement usa as
+      // métricas (open/click), não um label — a cópia é montada por buildHotLeadMessage/source.
       const intentLabel =
         opp.source === "reply" && opp.intent
           ? OPPORTUNITY_INTENT_CONFIG[opp.intent]?.label ?? "novo sinal"
-          : "engajamento";
-      eligible = { opportunityId: opp.id, leadName, company, intentLabel, campaignName };
+          : "";
+      eligible = {
+        opportunityId: opp.id,
+        source: opp.source,
+        leadName,
+        company,
+        intentLabel,
+        campaignName,
+        openCount: opp.open_count,
+        clickCount: opp.click_count,
+      };
       channelHit = true;
     } else {
       logWarn("whatsapp skipped by freshness-guard (in-app still created)", {
@@ -407,10 +462,13 @@ async function sendWhatsAppBatch(
     } else {
       for (const item of eligible) {
         const message = buildHotLeadMessage({
+          source: item.source,
           leadName: item.leadName,
           company: item.company,
           intentLabel: item.intentLabel,
           campaignName: item.campaignName,
+          openCount: item.openCount,
+          clickCount: item.clickCount,
           link,
         });
         try {
@@ -498,7 +556,7 @@ export async function notifyNewOpportunities(
   let query = supabase
     .from("opportunities")
     .select(
-      "id, tenant_id, lead_id, campaign_id, source, intent, created_at, leads(first_name, last_name, company_name)"
+      "id, tenant_id, lead_id, campaign_id, source, intent, open_count, click_count, created_at, leads(first_name, last_name, company_name)"
     )
     .is("notified_at", null)
     .order("created_at", { ascending: true })

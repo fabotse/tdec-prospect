@@ -829,4 +829,91 @@ describe("OpportunityCard — Story 21.5", () => {
       });
     });
   });
+
+  // ==============================================
+  // Story 21.9 — atalho "Parar sequência" (AC #6)
+  // ==============================================
+
+  describe("Parar sequência (Story 21.9 AC#6)", () => {
+    it("renderiza o botão quando há campaignId, e-mail do lead e handler", () => {
+      const onStopSequence = vi.fn();
+      render(
+        <OpportunityCard
+          opportunity={makeOpportunity()}
+          onStopSequence={onStopSequence}
+        />
+      );
+
+      expect(
+        screen.getByTestId("opportunity-action-stop-sequence")
+      ).toBeInTheDocument();
+    });
+
+    it("NÃO renderiza quando campaignId é null (lição 13.11 — coluna nullable)", () => {
+      // O tipo diz `string` (00055: NOT NULL), mas o guard do AC6 é defensivo
+      // contra dado degradado do runtime — o cast simula exatamente isso.
+      render(
+        <OpportunityCard
+          opportunity={makeOpportunity({ campaignId: null as unknown as string })}
+          onStopSequence={vi.fn()}
+        />
+      );
+
+      expect(
+        screen.queryByTestId("opportunity-action-stop-sequence")
+      ).not.toBeInTheDocument();
+    });
+
+    it("NÃO renderiza quando o e-mail do lead não está disponível", () => {
+      const opportunity = makeOpportunity();
+      opportunity.lead = { ...opportunity.lead!, email: null };
+      render(
+        <OpportunityCard opportunity={opportunity} onStopSequence={vi.fn()} />
+      );
+
+      expect(
+        screen.queryByTestId("opportunity-action-stop-sequence")
+      ).not.toBeInTheDocument();
+    });
+
+    it("NÃO renderiza sem o handler (container não wired)", () => {
+      render(<OpportunityCard opportunity={makeOpportunity()} />);
+
+      expect(
+        screen.queryByTestId("opportunity-action-stop-sequence")
+      ).not.toBeInTheDocument();
+    });
+
+    it("emite onStopSequence com a oportunidade, SEM disparar o new→viewed (stopPropagation)", async () => {
+      const user = userEvent.setup();
+      const onStopSequence = vi.fn();
+      const opportunity = makeOpportunity({ status: "new" });
+      render(
+        <OpportunityCard
+          opportunity={opportunity}
+          onStopSequence={onStopSequence}
+        />
+      );
+
+      await user.click(screen.getByTestId("opportunity-action-stop-sequence"));
+
+      expect(onStopSequence).toHaveBeenCalledWith(opportunity);
+      // stopPropagation: o clique na ação não expande o card nem marca viewed.
+      expect(mockMutate).not.toHaveBeenCalled();
+    });
+
+    it("desabilita o botão enquanto a ação pende", () => {
+      render(
+        <OpportunityCard
+          opportunity={makeOpportunity()}
+          onStopSequence={vi.fn()}
+          sequenceActionPending={true}
+        />
+      );
+
+      expect(
+        screen.getByTestId("opportunity-action-stop-sequence")
+      ).toBeDisabled();
+    });
+  });
 });

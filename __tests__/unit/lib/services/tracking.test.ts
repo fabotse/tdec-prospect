@@ -135,6 +135,30 @@ describe("TrackingService", () => {
       expect(result.hasReplied).toBe(true);
     });
 
+    // Story 21.9: item.status (escala de LEAD) era lido da API e descartado no map
+    it("maps item.status to sequenceStatus (21.9)", () => {
+      const entry = createMockInstantlyLeadEntry({ status: 3 });
+      const result = mapToLeadTracking(entry, "c1");
+
+      expect(result.sequenceStatus).toBe(3);
+    });
+
+    it("maps negative sequence statuses (bounce/unsub/skip) as-is (21.9)", () => {
+      const entry = createMockInstantlyLeadEntry({ status: -2 });
+      const result = mapToLeadTracking(entry, "c1");
+
+      expect(result.sequenceStatus).toBe(-2);
+    });
+
+    it("leaves sequenceStatus undefined when status is missing (21.9)", () => {
+      const result = mapToLeadTracking(
+        { email: "minimal@test.com", timestamp_last_open: null },
+        "c1"
+      );
+
+      expect(result.sequenceStatus).toBeUndefined();
+    });
+
     // Story 14.1/14.5: New lead tracking fields mapping — numeric codes from API
     it("resolves numeric esp_code and esg_code to string labels (14.5)", () => {
       const entry = createMockInstantlyLeadEntry({
