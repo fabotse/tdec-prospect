@@ -160,14 +160,18 @@ export class CreateCampaignStep extends BaseStep {
     const provider = createAIProvider("openai", apiKey);
 
     // 2.7 - Sub-step B: Generate campaign structure
-    // objective/urgency/campaignDescription may not be in ParsedBriefing yet — safe access with defaults
-    const briefingRecord = briefing as unknown as Record<string, unknown>;
-    const objective = (briefingRecord.objective as string) ?? "COLD_OUTREACH";
-    const urgency = (briefingRecord.urgency as string) ?? "MEDIUM";
+    // Story 22.5: campos tipados em ParsedBriefing. Defaults (COLD_OUTREACH/MEDIUM) aplicados
+    // AQUI na leitura (null = usuario nao especificou) — comportamento identico ao cast anterior.
+    const objective = briefing.objective ?? "COLD_OUTREACH";
+    const urgency = briefing.urgency ?? "MEDIUM";
+    // {{additional_description}} era variavel ORFA no template (nunca recebia valor); email_count
+    // (vazio = heuristica por objetivo) sobrepoe a quantidade quando o usuario pediu (Task 6).
+    const additionalDescription = briefing.campaignDescription ?? "";
+    const emailCount = briefing.emailCount ? String(briefing.emailCount) : "";
 
     const structurePrompt = await promptManager.renderPrompt(
       "campaign_structure_generation",
-      { ...aiVars, objective, urgency },
+      { ...aiVars, objective, urgency, additional_description: additionalDescription, email_count: emailCount },
       { tenantId: this.tenantId }
     );
     if (!structurePrompt) {
@@ -207,7 +211,8 @@ export class CreateCampaignStep extends BaseStep {
         delayDays: item.days ?? 1,
       }));
 
-    const campaignDescription = briefingRecord.campaignDescription as string | undefined;
+    // Story 22.5: nome da campanha usa a descricao tipada (antes lida via cast briefingRecord).
+    const campaignDescription = briefing.campaignDescription;
     const campaignName = campaignDescription
       ? `Campanha - ${campaignDescription}`
       : `Campanha ${briefing.technology ?? "Outbound"} - ${new Date().toLocaleDateString("pt-BR")}`;

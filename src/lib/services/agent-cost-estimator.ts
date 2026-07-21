@@ -109,11 +109,15 @@ export class CostEstimatorService {
     const apifyCost = usePremiumIcebreakers && !skipSet.has("create_campaign")
       ? totalLeads * apify
       : 0;
+    // Story 22.5: quando o usuario pediu uma quantidade de e-mails, a sequencia gerada escala
+    // com ela (cada lead recebe a sequencia inteira) — a estimativa acompanha para nao subprecificar
+    // (custo nao pode errar; cliente precifica em cima). Sem emailCount, mantem a heuristica de 3.
+    const emailsPerLead = briefing.emailCount ?? DEFAULT_VOLUMES.ESTIMATED_EMAILS_PER_LEAD;
     const createCampaignAiCost =
-      (totalLeads * DEFAULT_VOLUMES.ESTIMATED_EMAILS_PER_LEAD * openai) +
+      (totalLeads * emailsPerLead * openai) +
       (totalLeads * DEFAULT_VOLUMES.ESTIMATED_ICEBREAKER_RATIO * openai);
     const createCampaignPromptCount =
-      totalLeads * DEFAULT_VOLUMES.ESTIMATED_EMAILS_PER_LEAD + totalLeads * DEFAULT_VOLUMES.ESTIMATED_ICEBREAKER_RATIO;
+      totalLeads * emailsPerLead + totalLeads * DEFAULT_VOLUMES.ESTIMATED_ICEBREAKER_RATIO;
 
     const stepCosts: Record<string, { estimated: number; description: string }> = {
       search_companies: {

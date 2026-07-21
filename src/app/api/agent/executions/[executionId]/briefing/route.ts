@@ -31,6 +31,20 @@ const briefingUpdateSchema = z.object({
     linkedinUrl: z.string().nullable(),
     apolloId: z.string().nullable(),
   })).optional(),
+  // Story 22.5: metadados de campanha. z.object faz STRIP SILENCIOSO de chaves nao
+  // declaradas — sem estes 4 campos, o PATCH descartaria objective/urgency/campaignDescription/
+  // emailCount antes do .update({ briefing }) e o CreateCampaignStep leria sempre os defaults.
+  objective: z.enum(["COLD_OUTREACH", "REENGAGEMENT", "FOLLOW_UP", "NURTURE"]).nullable().optional(),
+  urgency: z.enum(["LOW", "MEDIUM", "HIGH"]).nullable().optional(),
+  // Story 22.5: trim + vazio->null + teto 200 chars (mantem o JSONB limpo qualquer que seja a
+  // origem do PATCH; evita nome "Campanha -   " e string crua/gigante em {{additional_description}}).
+  campaignDescription: z
+    .preprocess(
+      (v) => (typeof v === "string" ? v.trim() || null : v),
+      z.string().max(200).nullable()
+    )
+    .optional(),
+  emailCount: z.number().int().min(1).max(10).nullable().optional(),
 });
 
 // ==============================================

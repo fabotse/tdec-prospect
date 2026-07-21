@@ -19,6 +19,11 @@ export type MessageType = 'text' | 'approval_gate' | 'progress' | 'error' | 'cos
 // NAO decide pipeline (skipSteps/canProceed continuam deterministicos — NFR1).
 export type NextAction = 'ask' | 'confirm' | 'proceed' | 'register_product' | 'import_leads';
 
+// Story 22.5: metadados de CAMPANHA capturados na conversa (nao de busca/pipeline).
+// Valores EXATOS consumidos pelo prompt campaign_structure_generation (defaults.ts).
+export type CampaignObjective = 'COLD_OUTREACH' | 'REENGAGEMENT' | 'FOLLOW_UP' | 'NURTURE';
+export type CampaignUrgency = 'LOW' | 'MEDIUM' | 'HIGH';
+
 // Turno de conversa enviado ao parser (usuario E agente). role reusa MessageRole
 // (o hook so usa 'user'|'agent'; 'system' fica disponivel para o service/back-compat).
 export interface ChatTurn {
@@ -93,6 +98,10 @@ export interface ParsedBriefing {
   skipSteps: string[];
   importedLeads?: SearchLeadResult[]; // Story 17.11: leads fornecidos pelo usuario
   premiumIcebreakers?: boolean; // Story 22.2: toggle opcional de icebreaker premium (LinkedIn via Apify). Ausente/false = comportamento standard atual.
+  objective?: CampaignObjective | null; // Story 22.5: objetivo da campanha (metadado). Null = nao especificado; default COLD_OUTREACH aplicado no CreateCampaignStep.
+  urgency?: CampaignUrgency | null; // Story 22.5: urgencia da campanha (metadado). Null = nao especificado; default MEDIUM aplicado no CreateCampaignStep.
+  campaignDescription?: string | null; // Story 22.5: descricao livre da campanha (ex.: "Black Friday"). Alimenta {{additional_description}} e o nome da campanha.
+  emailCount?: number | null; // Story 22.5: quantidade de e-mails desejada (1-10). Null = heuristica por objetivo no prompt.
 }
 
 export interface CostModel {

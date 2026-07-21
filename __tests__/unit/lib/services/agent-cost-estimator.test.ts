@@ -231,5 +231,25 @@ describe("CostEstimatorService", () => {
 
       expect(result.steps.create_campaign.estimated).toBe(0);
     });
+
+    // Story 22.5: a estimativa acompanha o emailCount pedido (custo nao pode subprecificar)
+    it("escala o custo do create_campaign com emailCount quando informado (22.5)", () => {
+      const costModels = new Map<string, number>();
+      const briefing = createBriefing({ emailCount: 10 });
+
+      const result = CostEstimatorService.estimateCosts(costModels, briefing);
+
+      // create_campaign: (60 * 10 * 0.02) + (60 * 0.5 * 0.02) = 12.00 + 0.60 = 12.60
+      expect(result.steps.create_campaign.estimated).toBeCloseTo(12.60);
+      // prova a divergencia fechada: com o default (3) seria 4.20
+      expect(result.steps.create_campaign.estimated).not.toBeCloseTo(4.20);
+    });
+
+    it("mantem a heuristica de 3 e-mails/lead quando emailCount ausente (regressao 22.5)", () => {
+      const costModels = new Map<string, number>();
+      const result = CostEstimatorService.estimateCosts(costModels, createBriefing());
+
+      expect(result.steps.create_campaign.estimated).toBeCloseTo(4.20);
+    });
   });
 });

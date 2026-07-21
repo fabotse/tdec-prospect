@@ -2782,4 +2782,179 @@ describe("useBriefingFlow", () => {
       );
     });
   });
+
+  describe("Metadados de campanha (Story 22.5)", () => {
+    it("resumo mostra os campos de campanha com rotulos PT quando presentes (AC2)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse({
+            ...COMPLETE_PARSE_RESPONSE,
+            briefing: {
+              ...COMPLETE_PARSE_RESPONSE.briefing,
+              objective: "REENGAGEMENT",
+              urgency: "HIGH",
+              campaignDescription: "Black Friday",
+              emailCount: 3,
+            },
+          }),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      const summary = mockSendAgentMessage.mock.calls.at(-1)?.[1] as string;
+      expect(summary).toContain("Objetivo: Reengajamento");
+      expect(summary).toContain("Urgencia: Alta");
+      expect(summary).toContain("Descricao: Black Friday");
+      expect(summary).toContain("Nº de e-mails: 3");
+    });
+
+    it("resumo inclui pergunta leve opcional de objetivo quando objective ausente (AC3/D2)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE), // sem objective
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      const summary = mockSendAgentMessage.mock.calls.at(-1)?.[1] as string;
+      // convite opcional, nao-bloqueante (nao vira estado awaiting_*)
+      expect(summary).toContain("Se quiser, me diga o objetivo");
+      // objetivo ausente E emailCount ausente -> convida a informar a quantidade tambem
+      expect(summary).toContain("e quantos e-mails");
+      expect(summary).toContain("Confirma esses parametros?");
+    });
+
+    it("pergunta leve NAO pede 'e quantos e-mails' quando o usuario ja informou emailCount (22.5 patch)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse({
+            ...COMPLETE_PARSE_RESPONSE,
+            briefing: { ...COMPLETE_PARSE_RESPONSE.briefing, emailCount: 3 }, // sem objective, com quantidade
+          }),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      const summary = mockSendAgentMessage.mock.calls.at(-1)?.[1] as string;
+      // ainda convida a informar o objetivo, mas NAO repete "e quantos e-mails"
+      // (a linha "- Nº de e-mails: 3" ja esta no resumo — seria contraditorio)
+      expect(summary).toContain("Se quiser, me diga o objetivo");
+      expect(summary).not.toContain("e quantos e-mails");
+      expect(summary).toContain("Nº de e-mails: 3");
+    });
+
+    it("guard hibrido NAO confirma quando a correcao so toca campos de campanha ('sim, mas reengajamento com 3 e-mails') (D5)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
+      });
+      expect(result.current.state.status).toBe("confirming");
+
+      // "sim, mas..." tem keyword de confirmacao, MAS o LLM aplicou correcao nos campos
+      // de campanha (objective/emailCount) -> briefingChanged=true -> reapresenta (AC3/D5).
+      restoreFetch();
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse({
+            ...COMPLETE_PARSE_RESPONSE,
+            briefing: {
+              ...COMPLETE_PARSE_RESPONSE.briefing,
+              objective: "REENGAGEMENT",
+              emailCount: 3,
+            },
+            nextAction: "confirm",
+          }),
+        },
+      ]);
+      mockSendAgentMessage.mockClear();
+
+      let outcome: { handled: boolean; confirmed?: boolean } | undefined;
+      await act(async () => {
+        outcome = await result.current.processMessage(
+          "sim, mas reengajamento com 3 e-mails",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      expect(outcome?.confirmed).toBeUndefined();
+      expect(result.current.state.briefing?.objective).toBe("REENGAGEMENT");
+      expect(result.current.state.briefing?.emailCount).toBe(3);
+      expect(mockSendAgentMessage).toHaveBeenCalledWith(
+        EXEC_ID,
+        expect.stringContaining("Confirma esses parametros?")
+      );
+    });
+
+    it("'sim' puro ainda confirma quando nada mudou (briefingChanged=false, regressao 22.5)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
+      });
+      expect(result.current.state.status).toBe("confirming");
+
+      // briefing identico (nenhum campo de campanha alterado) -> keyword "sim" confirma.
+      restoreFetch();
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse({ ...COMPLETE_PARSE_RESPONSE, nextAction: "confirm" }),
+        },
+      ]);
+
+      let outcome: { handled: boolean; confirmed?: boolean } | undefined;
+      await act(async () => {
+        outcome = await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
+      });
+
+      expect(result.current.state.status).toBe("confirmed");
+      expect(outcome?.confirmed).toBe(true);
+    });
+  });
 });

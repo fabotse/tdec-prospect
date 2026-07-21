@@ -595,8 +595,8 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
         return Promise.resolve({ text: `Content ${callCount}`, model: "gpt-4o", usage: {} });
       });
 
-      const input = createInput();
-      (input.briefing as unknown as Record<string, unknown>).campaignDescription = "SaaS Decision Makers Q1";
+      // Story 22.5: campo agora tipado em ParsedBriefing (antes lido via cast briefingRecord)
+      const input = createInput({ campaignDescription: "SaaS Decision Makers Q1" });
       const result = await step.run(input);
 
       const data = result.data as Record<string, unknown>;
@@ -618,6 +618,57 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
 
       const data = result.data as Record<string, unknown>;
       expect(data.campaignName).toMatch(/^Campanha React - /);
+    });
+  });
+
+  // Story 22.5 - variaveis de campanha propagadas ao prompt campaign_structure_generation
+  describe("campaign_structure_generation variables (22.5)", () => {
+    function getStructureVars(): Record<string, string> {
+      const call = mockRenderPrompt.mock.calls.find(
+        (c: unknown[]) => c[0] === "campaign_structure_generation"
+      );
+      return (call?.[1] ?? {}) as Record<string, string>;
+    }
+
+    it("propaga objective/urgency do briefing ao render (AC4/AC5)", async () => {
+      const input = createInput({ objective: "REENGAGEMENT", urgency: "HIGH" });
+      await step.run(input);
+
+      const vars = getStructureVars();
+      expect(vars.objective).toBe("REENGAGEMENT");
+      expect(vars.urgency).toBe("HIGH");
+    });
+
+    it("aplica defaults COLD_OUTREACH/MEDIUM quando objective/urgency ausentes (AC3/D1)", async () => {
+      const input = createInput(); // sem objective/urgency (undefined)
+      await step.run(input);
+
+      const vars = getStructureVars();
+      expect(vars.objective).toBe("COLD_OUTREACH");
+      expect(vars.urgency).toBe("MEDIUM");
+    });
+
+    it("alimenta additional_description com campaignDescription (variavel antes orfa)", async () => {
+      const input = createInput({ campaignDescription: "Black Friday" });
+      await step.run(input);
+
+      expect(getStructureVars().additional_description).toBe("Black Friday");
+    });
+
+    it("passa email_count como string quando emailCount informado (AC4)", async () => {
+      const input = createInput({ emailCount: 3 });
+      await step.run(input);
+
+      expect(getStructureVars().email_count).toBe("3");
+    });
+
+    it("passa email_count vazio quando emailCount ausente (heuristica por objetivo, AC4)", async () => {
+      const input = createInput();
+      await step.run(input);
+
+      // vazio -> o bloco {{#if email_count}} do template nao ativa (fallback por objetivo)
+      expect(getStructureVars().email_count).toBe("");
+      expect(getStructureVars().additional_description).toBe("");
     });
   });
 

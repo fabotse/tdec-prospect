@@ -167,6 +167,20 @@ function isTechnologyHelpRequest(message: string): boolean {
   return normalized.includes("tecnolog") || normalized.includes(" tech");
 }
 
+// Story 22.5: rotulos PT amigaveis para os enums de campanha (nunca exibe o enum cru).
+const OBJECTIVE_LABELS: Record<string, string> = {
+  COLD_OUTREACH: "Primeiro contato (prospeccao fria)",
+  REENGAGEMENT: "Reengajamento",
+  FOLLOW_UP: "Follow-up",
+  NURTURE: "Nutricao",
+};
+
+const URGENCY_LABELS: Record<string, string> = {
+  LOW: "Baixa (sem pressa)",
+  MEDIUM: "Media",
+  HIGH: "Alta (urgente)",
+};
+
 function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: string[]): string {
   const lines: string[] = ["Entendi! Vou prospectar com os seguintes parametros:"];
 
@@ -175,6 +189,12 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
   if (briefing.location) lines.push(`- Localizacao: ${briefing.location}`);
   if (briefing.companySize) lines.push(`- Tamanho: ${briefing.companySize}`);
   if (briefing.industry) lines.push(`- Industria: ${briefing.industry}`);
+
+  // Story 22.5: metadados de campanha, exibidos so quando presentes (rotulo PT, nao o enum).
+  if (briefing.objective) lines.push(`- Objetivo: ${OBJECTIVE_LABELS[briefing.objective] ?? briefing.objective}`);
+  if (briefing.urgency) lines.push(`- Urgencia: ${URGENCY_LABELS[briefing.urgency] ?? briefing.urgency}`);
+  if (briefing.campaignDescription) lines.push(`- Descricao: ${briefing.campaignDescription}`);
+  if (briefing.emailCount) lines.push(`- Nº de e-mails: ${briefing.emailCount}`);
 
   // Notas sobre campos nao informados (Story 17.8 AC: #3)
   if (missingFields && missingFields.length > 0) {
@@ -208,6 +228,18 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
     lines.push(`Etapa de busca de empresas sera pulada — leads serao buscados diretamente por ${params || "cargos"}.`);
   }
 
+  // Story 22.5 (AC3/D2): pergunta leve NAO-bloqueante sobre objetivo/quantidade. So aparece
+  // quando o usuario ainda nao informou objetivo — e um convite opcional no proprio resumo
+  // (nao cria estado awaiting_*; o usuario pode simplesmente confirmar e seguimos com os defaults).
+  if (!briefing.objective) {
+    // So convida a informar a quantidade se o usuario ainda nao informou emailCount
+    // (evita pedir "e quantos e-mails" logo abaixo de uma linha "- Nº de e-mails: 3").
+    const emailPart = briefing.emailCount ? "" : " e quantos e-mails";
+    lines.push(
+      `\nSe quiser, me diga o objetivo (primeiro contato, reengajamento, follow-up ou nutricao)${emailPart} — senao sigo com uma sequencia padrao de primeiro contato.`
+    );
+  }
+
   lines.push("\nConfirma esses parametros?");
 
   return lines.join("\n");
@@ -232,7 +264,14 @@ function briefingChanged(prev: ParsedBriefing | null, next: ParsedBriefing): boo
     prev.location !== next.location ||
     prev.companySize !== next.companySize ||
     prev.industry !== next.industry ||
-    prev.jobTitles.join("|") !== next.jobTitles.join("|")
+    prev.jobTitles.join("|") !== next.jobTitles.join("|") ||
+    // Story 22.5 (D5): campos de campanha entram no diff — uma correcao que so os toca
+    // ("sim, mas reengajamento com 3 e-mails") deve reapresentar o resumo, nunca ser
+    // engolida como confirmacao pelo guard hibrido do estado confirming.
+    (prev.objective ?? null) !== (next.objective ?? null) ||
+    (prev.urgency ?? null) !== (next.urgency ?? null) ||
+    (prev.campaignDescription ?? null) !== (next.campaignDescription ?? null) ||
+    (prev.emailCount ?? null) !== (next.emailCount ?? null)
   );
 }
 

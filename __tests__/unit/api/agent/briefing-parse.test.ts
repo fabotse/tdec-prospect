@@ -198,6 +198,36 @@ describe("POST /api/agent/briefing/parse", () => {
     expect(json.suggestions).toEqual({});
   });
 
+  it("deve fazer passthrough dos campos de campanha e NAO alterar canProceed (Story 22.5 AC3)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      briefing: {
+        ...FULL_PARSE_RESULT.briefing,
+        objective: "REENGAGEMENT",
+        urgency: "HIGH",
+        campaignDescription: "Black Friday",
+        emailCount: 3,
+      },
+      rawResponse: FULL_PARSE_RESULT.rawResponse,
+      nextAction: "confirm",
+      questionText: null,
+    });
+
+    const response = await POST(createRequest(VALID_BODY));
+    expect(response.status).toBe(200);
+
+    const json = await response.json();
+    // passthrough: os 4 campos chegam intactos na resposta (spread ...briefing)
+    expect(json.briefing.objective).toBe("REENGAGEMENT");
+    expect(json.briefing.urgency).toBe("HIGH");
+    expect(json.briefing.campaignDescription).toBe("Black Friday");
+    expect(json.briefing.emailCount).toBe(3);
+    // AC3 nao-bloqueante: campos de campanha NAO entram em missingFields nem no gate
+    expect(json.missingFields).not.toContain("objective");
+    expect(json.missingFields).not.toContain("emailCount");
+    expect(json.canProceed).toBe(true); // cargo + localizacao continuam decidindo
+  });
+
   it("deve retornar isComplete false quando campos obrigatorios faltam", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
     mockParse.mockResolvedValue({

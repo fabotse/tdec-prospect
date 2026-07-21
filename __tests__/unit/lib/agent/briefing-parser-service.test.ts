@@ -74,6 +74,11 @@ describe("BriefingParserService", () => {
         productSlug: null,
         mode: "guided",
         skipSteps: [],
+        // Story 22.5: campos de campanha default null quando o LLM nao os emite
+        objective: null,
+        urgency: null,
+        campaignDescription: null,
+        emailCount: null,
       });
       expect(result.rawResponse.productMentioned).toBeNull();
     });
@@ -439,6 +444,109 @@ describe("BriefingParserService", () => {
       await expect(
         BriefingParserService.parse("briefing", "sk-test")
       ).rejects.toThrow(AGENT_ERROR_CODES.BRIEFING_PARSE_ERROR);
+    });
+
+    // ==============================================
+    // Story 22.5: metadados de campanha (objetivo/urgencia/descricao/emailCount)
+    // ==============================================
+
+    it("deve extrair os 4 campos de campanha quando o LLM os emite (22.5 AC2)", async () => {
+      mockOpenAIResponse({
+        ...FULL_BRIEFING_RESPONSE,
+        objective: "REENGAGEMENT",
+        urgency: "HIGH",
+        campaignDescription: "Black Friday",
+        emailCount: 3,
+      });
+
+      const result = await BriefingParserService.parse(
+        "reengajar clientes, urgente, campanha Black Friday, 3 e-mails",
+        "sk-test"
+      );
+
+      expect(result.briefing.objective).toBe("REENGAGEMENT");
+      expect(result.briefing.urgency).toBe("HIGH");
+      expect(result.briefing.campaignDescription).toBe("Black Friday");
+      expect(result.briefing.emailCount).toBe(3);
+    });
+
+    it("deve default null nos 4 campos de campanha quando ausentes (22.5 AC3)", async () => {
+      mockOpenAIResponse(FULL_BRIEFING_RESPONSE); // sem os campos de campanha
+
+      const result = await BriefingParserService.parse("briefing simples", "sk-test");
+
+      expect(result.briefing.objective).toBeNull();
+      expect(result.briefing.urgency).toBeNull();
+      expect(result.briefing.campaignDescription).toBeNull();
+      expect(result.briefing.emailCount).toBeNull();
+    });
+
+    it("deve cair para null (fail-open) quando emailCount esta fora do range 1-10 (22.5)", async () => {
+      // 0 e 11 sao invalidos (min 1, max 10) -> .catch(null) evita quebrar o parse inteiro
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, emailCount: 0 });
+      const zero = await BriefingParserService.parse("quero 0 e-mails", "sk-test");
+      expect(zero.briefing.emailCount).toBeNull();
+
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, emailCount: 11 });
+      const eleven = await BriefingParserService.parse("quero 11 e-mails", "sk-test");
+      expect(eleven.briefing.emailCount).toBeNull();
+    });
+
+    it("deve cair para null (fail-open) quando objective/urgency sao valores fora do enum (22.5)", async () => {
+      mockOpenAIResponse({
+        ...FULL_BRIEFING_RESPONSE,
+        objective: "SOMETHING_ELSE",
+        urgency: "SUPER_HIGH",
+      });
+
+      const result = await BriefingParserService.parse("briefing", "sk-test");
+
+      // valor invalido nao quebra o parse — cai para null e o resto do briefing sobrevive
+      expect(result.briefing.objective).toBeNull();
+      expect(result.briefing.urgency).toBeNull();
+      expect(result.briefing.jobTitles).toEqual(["CTO"]);
+    });
+
+    it("deve COAGIR emailCount emitido como string pelo LLM (22.5 - z.coerce)", async () => {
+      // json_object as vezes devolve numeros como string; sem coercao a intencao do
+      // usuario ("3 e-mails") seria descartada silenciosamente pelo .catch(null).
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, emailCount: "3" });
+
+      const result = await BriefingParserService.parse("quero 3 e-mails", "sk-test");
+
+      expect(result.briefing.emailCount).toBe(3);
+    });
+
+    it("deve normalizar campaignDescription: whitespace-only -> null e string gigante -> null (22.5)", async () => {
+      // whitespace-only nao deve virar nome "Campanha -   " nem linha em branco no resumo
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, campaignDescription: "   " });
+      const blank = await BriefingParserService.parse("briefing", "sk-test");
+      expect(blank.briefing.campaignDescription).toBeNull();
+
+      // acima de 200 chars (guarda de custo/injecao) cai para null via fail-open
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, campaignDescription: "x".repeat(250) });
+      const huge = await BriefingParserService.parse("briefing", "sk-test");
+      expect(huge.briefing.campaignDescription).toBeNull();
+
+      // valor normal e trimado
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, campaignDescription: "  Black Friday  " });
+      const ok = await BriefingParserService.parse("briefing", "sk-test");
+      expect(ok.briefing.campaignDescription).toBe("Black Friday");
+    });
+
+    it("deve descrever os campos de campanha como OPCIONAIS no SYSTEM_PROMPT (22.5 NFR1)", async () => {
+      mockOpenAIResponse(FULL_BRIEFING_RESPONSE);
+
+      await BriefingParserService.parse("briefing", "sk-test");
+
+      const request = mockCreate.mock.calls[0][0] as {
+        messages: Array<{ role: string; content: string }>;
+      };
+      const systemPrompt = request.messages.find((m) => m.role === "system")?.content ?? "";
+
+      expect(systemPrompt).toContain("CAMPOS OPCIONAIS DE CAMPANHA");
+      // guardrail NFR1: nao alteram nextAction/skipSteps/busca
+      expect(systemPrompt).toContain("NAO alteram nextAction, skipSteps");
     });
   });
 

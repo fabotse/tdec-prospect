@@ -33,6 +33,18 @@ const locationSchema = z.preprocess(
   z.string().nullable()
 );
 
+// Story 22.5: descricao livre da campanha. Trim + vazio->null (evita nome "Campanha -   "
+// e linha em branco no resumo) + teto de 200 chars (guarda de custo/injecao — string crua
+// entra em {{additional_description}} e no nome da campanha). Fail-open via .catch(null) no uso.
+const campaignDescriptionSchema = z.preprocess(
+  (value) => {
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  },
+  z.string().max(200).nullable()
+);
+
 export const briefingResponseSchema = z.object({
   technology: z.string().nullable(),
   jobTitles: z.array(z.string()).default([]),
@@ -48,6 +60,20 @@ export const briefingResponseSchema = z.object({
     .enum(["ask", "confirm", "proceed", "register_product", "import_leads"])
     .default("ask"),
   questionText: z.string().nullable().default(null),
+  // Story 22.5: metadados OPCIONAIS de campanha (nao de busca). O .default(null)
+  // cobre o campo AUSENTE; o .catch(null) cobre o valor INVALIDO (enum fora da lista,
+  // emailCount fora de 1-10) — ambos caem para null sem quebrar o parse inteiro (fail-open, padrao 22.3).
+  objective: z
+    .enum(["COLD_OUTREACH", "REENGAGEMENT", "FOLLOW_UP", "NURTURE"])
+    .nullable()
+    .default(null)
+    .catch(null),
+  urgency: z.enum(["LOW", "MEDIUM", "HIGH"]).nullable().default(null).catch(null),
+  campaignDescription: campaignDescriptionSchema.default(null).catch(null),
+  // z.coerce: o LLM em json_object as vezes emite a quantidade como string ("3") — sem
+  // coercao, z.number() rejeitaria e o .catch(null) descartaria SILENCIOSAMENTE a intencao
+  // do usuario. Coerce blinda esse caso; valor fora de 1-10/NaN ainda cai para null (fail-open).
+  emailCount: z.coerce.number().int().min(1).max(10).nullable().default(null).catch(null),
 });
 
 export type BriefingResponse = z.infer<typeof briefingResponseSchema>;
@@ -69,6 +95,13 @@ Extraia os seguintes campos do texto do usuario:
 - companySize (string | null): Tamanho da empresa. Exemplos: "50-200", "enterprise", "startup", "PME". Null se nao mencionado.
 - productMentioned (string | null): Nome de produto mencionado pelo usuario que pode estar cadastrado na base. Null se nao mencionado.
 - mode ("guided" | "autopilot"): Modo de operacao. Default "guided" a menos que o usuario peca modo automatico/autopilot.
+
+CAMPOS OPCIONAIS DE CAMPANHA (metadados — NAO sao filtros de busca):
+Extraia SOMENTE quando o usuario mencionar; nunca invente. Ausentes = null.
+- objective ("COLD_OUTREACH" | "REENGAGEMENT" | "FOLLOW_UP" | "NURTURE" | null): objetivo da campanha. Mapeie linguagem natural PT: "primeiro contato"/"prospeccao fria"/"abordagem inicial" -> COLD_OUTREACH; "reengajar"/"reativar"/"retomar contato"/"clientes antigos" -> REENGAGEMENT; "follow-up"/"acompanhamento"/"dar sequencia" -> FOLLOW_UP; "nutrir"/"educar"/"conteudo"/"relacionamento" -> NURTURE. Null se o usuario nao indicar objetivo.
+- urgency ("LOW" | "MEDIUM" | "HIGH" | null): urgencia/ritmo. "urgente"/"rapido"/"o quanto antes"/"pra ontem" -> HIGH; "sem pressa"/"tranquilo"/"pode ser devagar" -> LOW; ritmo normal ou nao mencionado -> null (o sistema usa MEDIUM por padrao).
+- campaignDescription (string | null): descricao livre/nome tematico da campanha quando o usuario der um (ex.: "campanha de Black Friday", "lancamento do produto X"). Null se nao mencionado.
+- emailCount (number | null): quantidade de e-mails desejada na sequencia, inteiro entre 1 e 10, quando o usuario pedir uma quantidade ("quero 3 e-mails", "uma sequencia curta de 2", "manda so 1 e-mail"). Null se o usuario nao especificar quantidade.
 - skipSteps (string[]): Etapas a pular. Default [].
   - Se o usuario NAO selecionar tecnologia, ou recusar/remover um filtro de tecnologia, adicione "search_companies" no skipSteps (a busca sera por cargo + localizacao, sem a etapa de filtro por tecnologia).
   - Se o usuario selecionar afirmativamente uma tecnologia atual, NAO adicione "search_companies" no skipSteps.
@@ -82,6 +115,7 @@ REGRAS:
 4. Interprete abreviacoes e sinonimos em portugues (ex: "SP" = "Sao Paulo", "TI" = "Tecnologia da Informacao").
 5. Para jobTitles, normalize para o formato padrao (ex: "CTOs" -> "CTO", "heads de TI" -> "Head de TI").
 6. Se o usuario mencionar um produto especifico (ex: "nosso produto X", "quem usa o Y"), extraia o nome em productMentioned.
+6.1. objective/urgency/campaignDescription/emailCount sao METADADOS DE CAMPANHA: NAO alteram nextAction, skipSteps nem os parametros de busca. A regra de avancar (cargo + localizacao) segue igual — esses campos nunca sao exigidos para prosseguir e nunca travam a conversa.
 
 CONVERSA (nextAction + questionText):
 Voce recebe a conversa inteira (mensagens do usuario e do agente). Alem dos parametros acima, decida a proxima acao da CONVERSA e escreva a mensagem natural a exibir.
@@ -190,6 +224,12 @@ export class BriefingParserService {
         productSlug: null, // Resolved later via KB (Task 3)
         mode: raw.mode,
         skipSteps: raw.skipSteps,
+        // Story 22.5: metadados de campanha. O objeto e montado campo-a-campo (SEM spread do raw)
+        // — sem estas linhas os campos somem silenciosamente do briefing (armadilha de strip #1).
+        objective: raw.objective,
+        urgency: raw.urgency,
+        campaignDescription: raw.campaignDescription,
+        emailCount: raw.emailCount,
       };
 
       return {
