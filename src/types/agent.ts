@@ -14,6 +14,18 @@ export type StepStatus = 'pending' | 'running' | 'awaiting_approval' | 'approved
 export type MessageRole = 'user' | 'agent' | 'system';
 export type MessageType = 'text' | 'approval_gate' | 'progress' | 'error' | 'cost_estimate' | 'summary' | 'skip';
 
+// Story 22.3: conversa com memoria real + intencao via LLM
+// nextAction e a decisao de CONVERSA do parser (perguntar/confirmar/prosseguir/etc).
+// NAO decide pipeline (skipSteps/canProceed continuam deterministicos — NFR1).
+export type NextAction = 'ask' | 'confirm' | 'proceed' | 'register_product' | 'import_leads';
+
+// Turno de conversa enviado ao parser (usuario E agente). role reusa MessageRole
+// (o hook so usa 'user'|'agent'; 'system' fica disponivel para o service/back-compat).
+export interface ChatTurn {
+  role: MessageRole;
+  content: string;
+}
+
 // === Database Row Types ===
 
 export interface AgentExecution {
@@ -80,6 +92,7 @@ export interface ParsedBriefing {
   mode: ExecutionMode;
   skipSteps: string[];
   importedLeads?: SearchLeadResult[]; // Story 17.11: leads fornecidos pelo usuario
+  premiumIcebreakers?: boolean; // Story 22.2: toggle opcional de icebreaker premium (LinkedIn via Apify). Ausente/false = comportamento standard atual.
 }
 
 export interface CostModel {
@@ -236,7 +249,9 @@ export interface CreateCampaignOutput {
   }>;
   leadsWithIcebreakers: LeadWithIcebreaker[];
   icebreakerStats: {
-    generated: number;
+    generated: number; // Story 22.2: premium + standard (icebreakers com texto gerado)
+    premium: number; // Story 22.2: gerados via posts reais do LinkedIn (Apify + icebreaker_premium_generation)
+    standard: number; // Story 22.2: gerados via caminho standard (icebreaker_generation) ou fallback
     failed: number;
     skipped: number;
   };

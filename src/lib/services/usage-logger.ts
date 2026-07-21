@@ -66,7 +66,7 @@ export async function logApiUsage(params: LogApiUsageParams): Promise<void> {
  */
 export async function logApifySuccess(params: {
   tenantId: string;
-  leadId: string;
+  leadId?: string; // Story 22.2: leads do agente nao sao persistidos — grava lead_id: null
   postsFetched: number;
   durationMs?: number;
   metadata?: Record<string, unknown>;

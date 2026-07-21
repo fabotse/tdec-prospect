@@ -11,7 +11,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { ParsedBriefing, ExtractedProduct } from "@/types/agent";
+import type { ChatTurn, ParsedBriefing, ExtractedProduct } from "@/types/agent";
 import type { CreateProductInput } from "@/types/product";
 import type { BriefingParseResponse } from "@/app/api/agent/briefing/parse/route";
 import { BriefingSuggestionService } from "@/lib/agent/briefing-suggestion-service";
@@ -109,11 +109,19 @@ export function generateSmartQuestion(
     return `${context}, cargos comuns seriam: ${suggestions.join(", ")}. Quer usar algum desses ou tem outra preferencia?`;
   }
 
-  if (field === "technology" && suggestions.length > 0) {
-    const sectorContext = briefing.industry
-      ? `no setor de ${briefing.industry}`
-      : "no setor";
-    return `Algumas tecnologias comuns ${sectorContext} seriam: ${suggestions.join(", ")}. Quer filtrar por alguma ou prefere buscar sem filtro de tecnologia?`;
+  if (field === "location") {
+    return "Em qual localizacao voce quer focar a prospeccao? Ex: Sao Paulo, Brasil, LATAM.";
+  }
+
+  if (field === "technology") {
+    if (suggestions.length > 0) {
+      const sectorContext = briefing.industry
+        ? `no setor de ${briefing.industry}`
+        : "no setor";
+      return `Algumas tecnologias comuns ${sectorContext} seriam: ${suggestions.join(", ")}. Quer filtrar por alguma ou prefere buscar sem filtro de tecnologia?`;
+    }
+
+    return "Tecnologia e um filtro opcional. Posso sugerir opcoes se voce informar um setor; se preferir, seguimos sem filtro de tecnologia.";
   }
 
   // Fallback generico
@@ -127,10 +135,11 @@ export function generateSmartQuestion(
   return `Qual ${fieldLabels[field] ?? field} voce tem em mente? Se nao souber, posso sugerir opcoes.`;
 }
 
-// Fields that the agent actively asks about (technology + jobTitles)
-// Other fields (location, industry, companySize) are optional context — tracked in missingFields
-// for isComplete accuracy but NOT asked about in guided questions
-const QUESTIONABLE_FIELDS = ["technology", "jobTitles"];
+// Story 22.1: Fields that the agent actively asks about (jobTitles + location).
+// location is now obligatory to advance; technology/industry/companySize are optional
+// context — tracked in missingFields for isComplete accuracy but NOT asked about in guided
+// questions (technology only resurfaces via isHelpRequest as a suggestion, never as a demand).
+const QUESTIONABLE_FIELDS = ["jobTitles", "location"];
 
 function generateSmartQuestions(
   missingFields: string[],
@@ -153,6 +162,11 @@ function isHelpRequest(message: string): boolean {
   return HELP_KEYWORDS.some((kw) => normalized.includes(kw));
 }
 
+function isTechnologyHelpRequest(message: string): boolean {
+  const normalized = message.toLowerCase().trim();
+  return normalized.includes("tecnolog") || normalized.includes(" tech");
+}
+
 function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: string[]): string {
   const lines: string[] = ["Entendi! Vou prospectar com os seguintes parametros:"];
 
@@ -165,8 +179,7 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
   // Notas sobre campos nao informados (Story 17.8 AC: #3)
   if (missingFields && missingFields.length > 0) {
     const fieldNotes: Record<string, string> = {
-      technology: "Sem tecnologia especifica — busca mais ampla por industria/localizacao.",
-      industry: "Sem industria especifica — busca em todos os setores.",
+      technology: "Sem tecnologia especifica — busca por cargo + localizacao.",
       location: "Sem localizacao especifica — busca em todas as regioes.",
       companySize: "Sem filtro de tamanho de empresa.",
     };
@@ -207,6 +220,20 @@ function generateProductSummary(product: ExtractedProduct): string {
 function isConfirmation(message: string): boolean {
   const normalized = message.toLowerCase().trim();
   return CONFIRMATION_KEYWORDS.some((kw) => normalized.includes(kw));
+}
+
+// Review 22.3: compara os campos corrigiveis pelo usuario entre o briefing apresentado
+// e o retornado pelo parse. Usado pelo guard hibrido do confirming — se o LLM aplicou
+// qualquer correcao, a mensagem NAO e tratada como confirmacao por keyword.
+function briefingChanged(prev: ParsedBriefing | null, next: ParsedBriefing): boolean {
+  if (!prev) return true;
+  return (
+    prev.technology !== next.technology ||
+    prev.location !== next.location ||
+    prev.companySize !== next.companySize ||
+    prev.industry !== next.industry ||
+    prev.jobTitles.join("|") !== next.jobTitles.join("|")
+  );
 }
 
 function isProductRejection(message: string): boolean {
@@ -278,14 +305,32 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
     pendingProduct: null,
   });
 
-  const messageHistoryRef = useRef<string[]>([]);
+  // Story 22.3: historico ESTRUTURADO da conversa (usuario E agente), substituindo o
+  // antigo messageHistoryRef: string[] + join("\n"). Fornece memoria real ao LLM.
+  const conversationRef = useRef<ChatTurn[]>([]);
+
+  // Story 22.3: envia uma mensagem do agente E a registra no historico (fecha o loop
+  // de memoria — o proximo /parse vera a pergunta/resumo que o agente enviou).
+  const sendAndRecord = useCallback(
+    async (
+      executionId: string,
+      content: string,
+      sendAgentMessage: (executionId: string, content: string) => Promise<void>
+    ): Promise<void> => {
+      conversationRef.current.push({ role: "agent", content });
+      await sendAgentMessage(executionId, content);
+    },
+    []
+  );
 
   const callParseAPI = useCallback(
-    async (message: string, executionId: string): Promise<BriefingParseResponse> => {
+    async (executionId: string): Promise<BriefingParseResponse> => {
+      // Story 22.3: envia o historico estruturado; o array ja termina na mensagem
+      // atual do usuario (empilhada pelo handler antes de chamar).
       const response = await fetch("/api/agent/briefing/parse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ executionId, message }),
+        body: JSON.stringify({ executionId, messages: conversationRef.current }),
       });
 
       if (!response.ok) {
@@ -338,62 +383,55 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       executionId: string,
       sendAgentMessage: (executionId: string, content: string) => Promise<void>
     ): Promise<{ handled: boolean }> => {
-      // Story 17.8: Use canProceed instead of isComplete for flow decisions
-      if (result.canProceed || isImportedLeadsFlow(result.briefing)) {
-        // Story 17.11: Check if this is an imported leads flow
-        if (isImportedLeadsFlow(result.briefing)) {
-          setState((prev) => ({
-            ...prev,
-            status: "awaiting_leads_input",
-            briefing: result.briefing,
-            missingFields: result.missingFields,
-            isComplete: false,
-          }));
-          await sendAgentMessage(
-            executionId,
-            "Entendi! Voce ja tem seus proprios leads. Cole a lista abaixo no formato:\n\n" +
-            "**Formato aceito** (um lead por linha):\n" +
-            "- `email@empresa.com` (minimo)\n" +
-            "- `Nome, email@empresa.com`\n" +
-            "- `Nome, Cargo, email@empresa.com`\n" +
-            "- `Nome, Cargo, Empresa, email@empresa.com`\n\n" +
-            "Tambem aceito CSV com header (nome, cargo, empresa, email).\n\n" +
-            "Cole seus leads:"
-          );
-          return { handled: true };
-        }
-
-        // Check if product was mentioned but not found
-        if (result.productMentioned && result.briefing.productSlug === null) {
-          setState((prev) => ({
-            ...prev,
-            status: "awaiting_product_decision",
-            briefing: result.briefing,
-            missingFields: result.missingFields,
-            isComplete: result.isComplete,
-            productMentioned: result.productMentioned,
-          }));
-          await sendAgentMessage(
-            executionId,
-            `Nao encontrei o produto '${result.productMentioned}' na base de conhecimento. Quer cadastrar agora? Vou precisar de: nome, descricao, features, diferenciais e publico-alvo.`
-          );
-          return { handled: true };
-        }
-
-        // canProceed but may have missing optional fields — show summary with notes
+      // Story 17.11 + 22.4: imported leads flow — disparado pela INTENCAO do LLM
+      // (nextAction="import_leads") OU pelo sinal deterministico skipSteps
+      // (isImportedLeadsFlow, fallback OR — D1). Continua como PRIMEIRO ramo (antes de
+      // !canProceed): leads proprios dispensam cargo/localizacao (D2). Independente de
+      // canProceed.
+      // Review 22.4: quando o gatilho e o nextAction, RECONCILIA skipSteps no cliente
+      // (garante ["search_companies","search_leads"] no briefing). A canonicalizacao no route
+      // (NFR1) segue intacta; mas o usuario ESTA entrando no fluxo de colar leads, entao a
+      // realidade deterministica de "leads importados" passa a valer — e o downstream
+      // (create-campaign-step, orchestrator, cost/plan) decide o fluxo por skipSteps, nao por
+      // importedLeads. Sem isto, um import_leads sem skipSteps (inconsistencia do LLM)
+      // descartaria os leads colados e rodaria busca paga. Idempotente para o fallback
+      // deterministico (que ja traz os 2 skipSteps).
+      if (result.nextAction === "import_leads" || isImportedLeadsFlow(result.briefing)) {
+        const leadsBriefing: ParsedBriefing = {
+          ...result.briefing,
+          skipSteps: Array.from(
+            new Set([
+              ...(result.briefing.skipSteps ?? []),
+              "search_companies",
+              "search_leads",
+            ])
+          ),
+        };
         setState((prev) => ({
           ...prev,
-          status: "confirming",
-          briefing: result.briefing,
+          status: "awaiting_leads_input",
+          briefing: leadsBriefing,
           missingFields: result.missingFields,
-          isComplete: result.isComplete,
+          isComplete: false,
         }));
-        await sendAgentMessage(
+        await sendAndRecord(
           executionId,
-          generateBriefingSummary(result.briefing, result.missingFields)
+          "Entendi! Voce ja tem seus proprios leads. Cole a lista abaixo no formato:\n\n" +
+          "**Formato aceito** (um lead por linha):\n" +
+          "- `email@empresa.com` (minimo)\n" +
+          "- `Nome, email@empresa.com`\n" +
+          "- `Nome, Cargo, email@empresa.com`\n" +
+          "- `Nome, Cargo, Empresa, email@empresa.com`\n\n" +
+          "Tambem aceito CSV com header (nome, cargo, empresa, email).\n\n" +
+          "Cole seus leads:",
+          sendAgentMessage
         );
-      } else {
-        // Cannot proceed — ask smart questions with suggestions
+        return { handled: true };
+      }
+
+      // Story 22.3 / D3: o gating deterministico prevalece. canProceed=false ->
+      // SEMPRE pergunta (o LLM nao pode "prosseguir" sem cargo + localizacao — NFR1).
+      if (!result.canProceed) {
         setState((prev) => ({
           ...prev,
           status: "awaiting_fields",
@@ -401,15 +439,87 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
           missingFields: result.missingFields,
           isComplete: result.isComplete,
         }));
-        await sendAgentMessage(
-          executionId,
-          generateSmartQuestions(result.missingFields, result.suggestions, result.briefing)
-        );
+        // AC2/D1: no ramo "ask", usa o questionText natural do LLM quando presente;
+        // senao, cai no smart-question deterministico (fail-open). Review 22.3: o
+        // questionText so e confiado quando nextAction === "ask" E nao-vazio — um
+        // texto de confirmacao fora de hora (tom errado com gating aberto) ou uma
+        // string vazia (que poluiria o historico e invalidaria o proximo /parse,
+        // content min(1)) caem no deterministico.
+        const llmQuestion =
+          result.nextAction === "ask" ? (result.questionText ?? "").trim() : "";
+        const question =
+          llmQuestion !== ""
+            ? llmQuestion
+            : generateSmartQuestions(result.missingFields, result.suggestions, result.briefing);
+        await sendAndRecord(executionId, question, sendAgentMessage);
+        return { handled: true };
       }
+
+      // canProceed=true — Story 22.4: pedido EXPLICITO de cadastro via nextAction.
+      // Quando o LLM classifica a intencao como "register_product" e o produto NAO existe
+      // na base (productSlug===null), vai DIRETO para awaiting_product_details (pula a
+      // oferta sim/nao). D4 (reconciliacao KB prevalece, NFR1): se productSlug!==null o
+      // produto ja existe — IGNORA register_product para nao cadastrar duplicado, seguindo
+      // o fluxo normal (resumo). D2: so alcancavel com canProceed=true (gate acima).
+      if (result.nextAction === "register_product" && result.briefing.productSlug === null) {
+        setState((prev) => ({
+          ...prev,
+          status: "awaiting_product_details",
+          briefing: result.briefing,
+          missingFields: result.missingFields,
+          isComplete: result.isComplete,
+          // Guarda o nome do produto (usado por callParseProductAPI). Usa o do parse
+          // quando presente; senao preserva o atual (pedido explicito pode nao repetir o nome).
+          productMentioned: result.productMentioned ?? prev.productMentioned,
+        }));
+        await sendAndRecord(
+          executionId,
+          "Otimo! Me descreva o produto em linguagem natural. Pode incluir o que ele faz, funcionalidades, diferenciais e para quem e voltado.",
+          sendAgentMessage
+        );
+        return { handled: true };
+      }
+
+      // canProceed=true — Story 16.6: produto mencionado mas nao encontrado.
+      // Trigger inalterado (productMentioned/productSlug), so acessivel com canProceed.
+      // 22.4/D1: a OFERTA continua entrando pelo sinal productMentioned (fallback deste
+      // ramo); a DECISAO subsequente (awaiting_product_decision) passa a consultar o LLM.
+      if (result.productMentioned && result.briefing.productSlug === null) {
+        setState((prev) => ({
+          ...prev,
+          status: "awaiting_product_decision",
+          briefing: result.briefing,
+          missingFields: result.missingFields,
+          isComplete: result.isComplete,
+          productMentioned: result.productMentioned,
+        }));
+        await sendAndRecord(
+          executionId,
+          `Nao encontrei o produto '${result.productMentioned}' na base de conhecimento. Quer cadastrar agora? Vou precisar de: nome, descricao, features, diferenciais e publico-alvo.`,
+          sendAgentMessage
+        );
+        return { handled: true };
+      }
+
+      // canProceed=true — apresenta/reapresenta o resumo. D1: no ramo "confirm" usamos
+      // SEMPRE o generateBriefingSummary deterministico (transparencia: o usuario ve os
+      // parametros exatos antes de executar), nao o questionText do LLM.
+      setState((prev) => ({
+        ...prev,
+        status: "confirming",
+        briefing: result.briefing,
+        missingFields: result.missingFields,
+        isComplete: result.isComplete,
+      }));
+      await sendAndRecord(
+        executionId,
+        generateBriefingSummary(result.briefing, result.missingFields),
+        sendAgentMessage
+      );
 
       return { handled: true };
     },
-    []
+    [sendAndRecord]
   );
 
   const processMessage = useCallback(
@@ -424,40 +534,89 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       // === PRODUCT FLOW HANDLERS ===
 
       // Handler: awaiting_product_decision (AC: #1, #5)
+      // Story 22.4: a DECISAO "quer cadastrar? sim/nao" passa a ser interpretada pelo LLM
+      // (nextAction) em vez de casar keywords locais — o usuario aceita/recusa em linguagem
+      // livre ("pode cadastrar sim", "nao precisa, segue"). As keywords
+      // (isConfirmation/isProductRejection) permanecem SO como rede de seguranca no catch
+      // (fail-open, AC5). Aposenta PRODUCT_REJECTION_KEYWORDS do caminho principal.
       if (currentStatus === "awaiting_product_decision") {
-        const rejected = isProductRejection(content);
-        const confirmed = isConfirmation(content);
+        conversationRef.current.push({ role: "user", content });
+        setState((prev) => ({ ...prev, status: "parsing" }));
 
-        if (rejected && !confirmed) {
+        try {
+          const result = await callParseAPI(executionId);
+
+          // register_product = usuario afirma o cadastro -> vai para os detalhes.
+          if (result.nextAction === "register_product") {
+            setState((prev) => ({ ...prev, status: "awaiting_product_details" }));
+            await sendAndRecord(
+              executionId,
+              "Otimo! Me descreva o produto em linguagem natural. Pode incluir o que ele faz, funcionalidades, diferenciais e para quem e voltado.",
+              sendAgentMessage
+            );
+            return { handled: true };
+          }
+
+          // Qualquer outro nextAction = seguir SEM produto: limpa productMentioned e
+          // reapresenta o resumo. NAO chamamos handleParseResult aqui: ele re-detectaria
+          // productMentioned e voltaria a oferecer o cadastro (loop). Limpar productMentioned
+          // e o mesmo comportamento que a 16.6 fazia na rejeicao.
+          // Review 22.4: persiste result.briefing/missingFields (nao o state.briefing antigo)
+          // e resume a partir dele — assim uma correcao embutida na recusa ("nao precisa do
+          // produto, mas troca pra CFO") e aplicada em vez de silenciosamente perdida.
           setState((prev) => ({
             ...prev,
             status: "confirming",
             productMentioned: null,
+            briefing: result.briefing,
+            missingFields: result.missingFields,
+            isComplete: result.isComplete,
           }));
-          if (state.briefing) {
-            await sendAgentMessage(
-              executionId,
-              generateBriefingSummary(state.briefing)
-            );
-          }
-          return { handled: true };
-        }
-
-        if (confirmed && !rejected) {
-          setState((prev) => ({ ...prev, status: "awaiting_product_details" }));
-          await sendAgentMessage(
+          await sendAndRecord(
             executionId,
-            "Otimo! Me descreva o produto em linguagem natural. Pode incluir o que ele faz, funcionalidades, diferenciais e para quem e voltado."
+            generateBriefingSummary(result.briefing, result.missingFields),
+            sendAgentMessage
+          );
+          return { handled: true };
+        } catch {
+          // Fail-open (AC5): LLM falhou/timeout -> keyword como rede de seguranca sobre a
+          // mensagem crua (mesmo desempate do fluxo original: ambos ou nenhum = ambiguo).
+          const confirmed = isConfirmation(content);
+          const rejected = isProductRejection(content);
+
+          if (confirmed && !rejected) {
+            setState((prev) => ({ ...prev, status: "awaiting_product_details" }));
+            await sendAndRecord(
+              executionId,
+              "Otimo! Me descreva o produto em linguagem natural. Pode incluir o que ele faz, funcionalidades, diferenciais e para quem e voltado.",
+              sendAgentMessage
+            );
+            return { handled: true };
+          }
+
+          if (rejected && !confirmed) {
+            setState((prev) => ({ ...prev, status: "confirming", productMentioned: null }));
+            if (state.briefing) {
+              // Review 22.4: passa missingFields para as notas de campos opcionais
+              // aparecerem, consistente com os demais resumos reapresentados.
+              await sendAndRecord(
+                executionId,
+                generateBriefingSummary(state.briefing, state.missingFields),
+                sendAgentMessage
+              );
+            }
+            return { handled: true };
+          }
+
+          // Ambiguo (ambos ou nenhum) — reapresenta a oferta.
+          setState((prev) => ({ ...prev, status: "awaiting_product_decision" }));
+          await sendAndRecord(
+            executionId,
+            `Quer cadastrar o produto '${state.productMentioned ?? ""}' agora? Responda 'sim' para cadastrar ou 'nao' para continuar sem produto.`,
+            sendAgentMessage
           );
           return { handled: true };
         }
-
-        // Ambiguous (both or neither matched)
-        await sendAgentMessage(
-          executionId,
-          `Quer cadastrar o produto '${state.productMentioned ?? ""}' agora? Responda 'sim' para cadastrar ou 'nao' para continuar sem produto.`
-        );
-        return { handled: true };
       }
 
       // Handler: awaiting_product_details (AC: #2)
@@ -623,23 +782,46 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
 
       // === ORIGINAL FLOW HANDLERS ===
 
-      // Confirming state — check for confirmation or correction
+      // Confirming state — Story 22.3: a DECISAO de confirmar vs. corrigir move para o
+      // LLM (via nextAction), com keyword como rede de seguranca (fail-open, AC4).
       if (currentStatus === "confirming") {
-        if (isConfirmation(content)) {
-          setState((prev) => ({ ...prev, status: "confirmed" }));
-          return { handled: true, confirmed: true };
-        }
-
-        // User is correcting — re-parse with full context
-        messageHistoryRef.current.push(content);
-        const fullMessage = messageHistoryRef.current.join("\n");
-
+        conversationRef.current.push({ role: "user", content });
         setState((prev) => ({ ...prev, status: "parsing" }));
 
         try {
-          const result = await callParseAPI(fullMessage, executionId);
+          const result = await callParseAPI(executionId);
+
+          // D2: "proceed" (diante de um resumo ja apresentado) = confirmacao final.
+          // canProceed prevalece (NFR1): so confirma se os campos obrigatorios existem.
+          // Guard hibrido (review 22.3): keyword de confirmacao tambem confirma no
+          // caminho de SUCESSO quando o LLM nao aplicou correcao alguma (briefing
+          // identico ao apresentado) — evita que um "sim" classificado como
+          // confirm/ask pelo LLM entre em loop reapresentando o resumo. Se houve
+          // correcao ("sim, mas troca pra CFO"), briefingChanged=true e o fluxo
+          // segue para a reapresentacao (AC3 preservado).
+          const keywordConfirmed =
+            isConfirmation(content) && !briefingChanged(state.briefing, result.briefing);
+          if ((result.nextAction === "proceed" || keywordConfirmed) && result.canProceed) {
+            setState((prev) => ({
+              ...prev,
+              status: "confirmed",
+              briefing: result.briefing,
+              missingFields: result.missingFields,
+              isComplete: result.isComplete,
+            }));
+            return { handled: true, confirmed: true };
+          }
+
+          // "confirm"/"ask" (correcao ou ajuste) = ainda conversando: aplica o briefing
+          // corrigido e reapresenta o resumo (handleParseResult decide o estado).
           return handleParseResult(result, executionId, sendAgentMessage);
         } catch {
+          // Fail-open (AC4): LLM falhou/timeout -> keyword deterministica sobre a
+          // mensagem crua. "sim"/"ok"/"bora" ainda confirmam; senao, mantem confirming.
+          if (isConfirmation(content)) {
+            setState((prev) => ({ ...prev, status: "confirmed" }));
+            return { handled: true, confirmed: true };
+          }
           setState((prev) => ({ ...prev, status: "confirming" }));
           return { handled: false };
         }
@@ -650,21 +832,43 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
         // Story 17.8 AC: #2 — detect help keywords and respond with suggestions
         if (isHelpRequest(content) && state.briefing) {
           const suggestions = BriefingSuggestionService.generateSuggestions(state.briefing);
-          const missingFields = state.missingFields;
-          const helpResponse = generateSmartQuestions(missingFields, suggestions, state.briefing);
+
+          if (
+            isTechnologyHelpRequest(content) &&
+            state.missingFields.includes("technology")
+          ) {
+            const technologyHelp = generateSmartQuestion(
+              "technology",
+              suggestions.technology ?? [],
+              state.briefing
+            );
+            // Review 22.3: o fast-path de ajuda tambem entra na memoria — o proximo
+            // /parse precisa ver a lista sugerida para resolver "a primeira" etc.
+            conversationRef.current.push({ role: "user", content });
+            await sendAndRecord(executionId, technologyHelp, sendAgentMessage);
+            return { handled: true };
+          }
+
+          const helpResponse = generateSmartQuestions(
+            state.missingFields,
+            suggestions,
+            state.briefing
+          );
           if (helpResponse) {
-            await sendAgentMessage(executionId, helpResponse);
+            // Review 22.3: idem — ajuda generica registrada no historico.
+            conversationRef.current.push({ role: "user", content });
+            await sendAndRecord(executionId, helpResponse, sendAgentMessage);
             return { handled: true };
           }
         }
 
-        messageHistoryRef.current.push(content);
-        const fullMessage = messageHistoryRef.current.join("\n");
+        // Story 22.3: re-parse com historico estruturado (nao mais join("\n")).
+        conversationRef.current.push({ role: "user", content });
 
         setState((prev) => ({ ...prev, status: "parsing" }));
 
         try {
-          const result = await callParseAPI(fullMessage, executionId);
+          const result = await callParseAPI(executionId);
           return handleParseResult(result, executionId, sendAgentMessage);
         } catch {
           setState((prev) => ({ ...prev, status: "awaiting_fields" }));
@@ -674,12 +878,13 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
 
       // Idle or first message — initial parse
       if (currentStatus === "idle") {
-        messageHistoryRef.current = [content];
+        // Story 22.3: primeira mensagem inicia o historico estruturado.
+        conversationRef.current = [{ role: "user", content }];
 
         setState((prev) => ({ ...prev, status: "parsing" }));
 
         try {
-          const result = await callParseAPI(content, executionId);
+          const result = await callParseAPI(executionId);
           return handleParseResult(result, executionId, sendAgentMessage);
         } catch {
           setState({
@@ -690,6 +895,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
             productMentioned: null,
             pendingProduct: null,
           });
+          conversationRef.current = [];
           return { handled: false };
         }
       }
@@ -697,7 +903,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       // Confirmed or parsing — don't handle
       return { handled: false };
     },
-    [state.status, state.briefing, state.missingFields, state.productMentioned, state.pendingProduct, callParseAPI, callParseProductAPI, handleParseResult]
+    [state.status, state.briefing, state.missingFields, state.productMentioned, state.pendingProduct, callParseAPI, callParseProductAPI, handleParseResult, sendAndRecord]
   );
 
   const reset = useCallback(() => {
@@ -709,7 +915,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       productMentioned: null,
       pendingProduct: null,
     });
-    messageHistoryRef.current = [];
+    conversationRef.current = [];
   }, []);
 
   return { state, processMessage, reset };

@@ -57,10 +57,14 @@ export const PIPELINE_STEPS: StepMetadata[] = [
     stepType: "create_campaign",
     title: "Criar Campanha",
     descriptionFn: (b) => {
+      // Story 22.2: sinaliza icebreaker premium (LinkedIn) na descricao quando o toggle esta ligado
+      const premiumSuffix = b.premiumIcebreakers === true
+        ? " com icebreakers premium (LinkedIn)"
+        : "";
       if (b.skipSteps?.includes("search_leads") && b.importedLeads?.length) {
-        return `Criar campanha com emails personalizados para ${b.importedLeads.length} leads importados`;
+        return `Criar campanha com emails personalizados para ${b.importedLeads.length} leads importados${premiumSuffix}`;
       }
-      return "Gerar emails personalizados com IA usando Knowledge Base";
+      return `Gerar emails personalizados com IA usando Knowledge Base${premiumSuffix}`;
     },
     costKey: "create_campaign",
   },

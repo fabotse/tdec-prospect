@@ -284,6 +284,70 @@ describe("AgentExecutionPlan", () => {
     expect(screen.getByTestId("plan-step-5")).toHaveTextContent("Gratuito");
   });
 
+  // ==============================================
+  // Story 22.2: toggle de icebreaker premium (LinkedIn)
+  // ==============================================
+
+  it("renderiza o toggle de icebreaker premium desligado por padrao", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(mockPlanData),
+    });
+
+    renderPlan();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("plan-premium-toggle")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Icebreakers premium (LinkedIn)")).toBeInTheDocument();
+    expect(screen.getByTestId("plan-premium-switch")).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("onConfirm recebe false quando o toggle esta desligado (default)", async () => {
+    const user = userEvent.setup();
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(mockPlanData),
+    });
+
+    renderPlan();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("plan-confirm-btn")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("plan-confirm-btn"));
+    expect(mockOnConfirm).toHaveBeenCalledWith(false);
+  });
+
+  it("ligar o toggle sobe o custo exibido e passa true ao onConfirm", async () => {
+    const user = userEvent.setup();
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(mockPlanData),
+    });
+
+    renderPlan();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("plan-premium-switch")).toBeInTheDocument();
+    });
+
+    // custo inicial = 7,30
+    expect(screen.getByTestId("plan-total-cost")).toHaveTextContent("7,30");
+
+    await user.click(screen.getByTestId("plan-premium-switch"));
+
+    // apos ligar: 7,30 + 60 * 0,15 = 16,30
+    await waitFor(() => {
+      expect(screen.getByTestId("plan-total-cost")).toHaveTextContent("16,30");
+    });
+
+    await user.click(screen.getByTestId("plan-confirm-btn"));
+    expect(mockOnConfirm).toHaveBeenCalledWith(true);
+  });
+
   it("faz fetch para URL correta com executionId", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,

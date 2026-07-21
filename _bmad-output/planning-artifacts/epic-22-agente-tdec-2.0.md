@@ -215,6 +215,24 @@ So that o agente me guie com opções relevantes ao meu ICP em vez de listas gen
 3. **Given** a latência da sugestão **Then** não degrada o < 5s do turno (cachear por execução se necessário)
 4. Testes unitários: derivação da KB (mock), fallback, cache
 
+### Story 22.8: Reattach de Execução no Refresh (Persistir & Reidratar)
+
+> Story **pós-planejamento**, levantada pelo Fabossi no code-review da 22.2 (2026-07-20). Não estava no plano original; entra por ser lacuna de robustez que a 22.2 tornou mais cara (execução paga invisível).
+
+As a usuário do Agente TDEC,
+I want que, ao atualizar a página no meio de uma execução, o agente volte para onde eu estava em vez de começar do zero,
+So that eu não perca a conversa e não fique com uma execução rodando e gastando (Apify/OpenAI) fora da minha vista.
+
+**Acceptance Criteria:**
+
+1. **Given** uma execução em andamento **When** o usuário atualiza a página **Then** o `currentExecutionId` é restaurado (persistência client-side — zustand `persist`/localStorage) **And** mensagens e steps reidratam via `useAgentExecution` — sem criar execução nova nem tela em branco
+2. **Given** um id persistido **When** o `AgentChat` monta **Then** valida contra o servidor (`GET /api/agent/executions`, RLS por tenant) e só reataca se a execução existe, é do usuário atual e está ativa (`pending`/`running`/`paused`); terminal (`completed`/`failed`) ou inexistente → descarta o id e inicia limpo
+3. **Given** steps em andamento (pós-confirm) **When** o usuário atualiza **Then** o `AgentStepProgress` reataca e volta a exibir o progresso/custo — fecha o buraco da "execução fantasma"
+4. **Given** execução em briefing (pré-confirm) **When** atualiza **Then** a thread de mensagens reidrata (sem tela em branco) **And** fica aceito que a máquina de estados conversacional NÃO é restaurada (fora de escopo — evolução futura, casa com 22.3)
+5. **Given** o ciclo de vida **Then** o id persistido é atualizado ao criar execução nova e limpo ao atingir estado terminal (sem polling novo)
+6. **Given** first-time / sem id persistido **Then** comportamento idêntico ao de hoje (zero regressão — NFR4) **And** sem migration (persistência client-side; leitura via endpoint existente — NFR5)
+7. Testes unitários: persist/restore; validação-no-mount que descarta id terminal/inexistente/de-outro-usuário; reattach de `running` reidrata steps; fix da tela em branco; regressão first-time
+
 ---
 
 ### Dependências & Sequência
@@ -225,3 +243,4 @@ So that o agente me guie com opções relevantes ao meu ICP em vez de listas gen
 - **22.5** independe de 22.3 no schema, mas a pergunta leve de objetivo fica melhor após 22.3 — quarto/quinto
 - **22.6** independente — qualquer momento após 22.1
 - **22.7** opcional — só se sobrar espaço; não bloqueia o épico
+- **22.8** independente (só toca UI/store do chat, não o pipeline) — pós-planejamento; pode entrar a qualquer momento, prioridade elevada por ser robustez de execução paga (origem: code-review 22.2)

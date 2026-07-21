@@ -273,13 +273,17 @@ describe("POST /api/agent/briefing/parse", () => {
     expect(json.briefing.productSlug).toBe("prod-001");
   });
 
-  it("deve chamar BriefingParserService.parse com mensagem e apiKey", async () => {
+  it("deve chamar BriefingParserService.parse com historico (message legado vira 1 turno) e apiKey", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
     mockParse.mockResolvedValue(FULL_PARSE_RESULT);
 
     await POST(createRequest(VALID_BODY));
 
-    expect(mockParse).toHaveBeenCalledWith(VALID_BODY.message, "decrypted-enc-key-123");
+    // Story 22.3: body legado { message } vira historico [{ role: "user", content }]
+    expect(mockParse).toHaveBeenCalledWith(
+      [{ role: "user", content: VALID_BODY.message }],
+      "decrypted-enc-key-123"
+    );
   });
 
   it("deve retornar 404 quando execucao nao encontrada (M4 fix)", async () => {
@@ -588,6 +592,54 @@ describe("POST /api/agent/briefing/parse", () => {
     expect(json.briefing.skipSteps).not.toContain("search_companies");
   });
 
+  it("deve remover search_companies inconsistente quando technology esta presente (22.1 AC5)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      briefing: {
+        ...FULL_PARSE_RESULT.briefing,
+        skipSteps: ["search_companies"],
+      },
+      rawResponse: {
+        ...FULL_PARSE_RESULT.rawResponse,
+        skipSteps: ["search_companies"],
+      },
+    });
+    mockGenerateSuggestions.mockReturnValue({});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.briefing.technology).toBe("Netskope");
+    expect(json.briefing.skipSteps).not.toContain("search_companies");
+  });
+
+  it("deve preservar ambos os skips para leads importados mesmo com technology presente", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      briefing: {
+        ...FULL_PARSE_RESULT.briefing,
+        jobTitles: [],
+        location: null,
+        skipSteps: ["search_companies", "search_leads"],
+      },
+      rawResponse: {
+        ...FULL_PARSE_RESULT.rawResponse,
+        jobTitles: [],
+        location: null,
+        skipSteps: ["search_companies", "search_leads"],
+      },
+    });
+    mockGenerateSuggestions.mockReturnValue({});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.canProceed).toBe(true);
+    expect(json.briefing.skipSteps).toEqual(["search_companies", "search_leads"]);
+  });
+
   it("deve NAO duplicar search_companies se LLM ja adicionou corretamente", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
     mockParse.mockResolvedValue({
@@ -655,5 +707,246 @@ describe("POST /api/agent/briefing/parse", () => {
     expect(response.status).toBe(200);
     expect(json.canProceed).toBe(true);
     expect(json.briefing.skipSteps).toEqual(["search_companies", "search_leads"]);
+  });
+
+  // ==============================================
+  // Story 22.1: Localizacao obrigatoria, tecnologia opcional
+  // ==============================================
+
+  it("deve retornar canProceed=false quando technology presente mas location ausente (NUCLEO 22.1)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      briefing: {
+        technology: "Netskope",
+        jobTitles: ["CTO"],
+        location: null,
+        companySize: null,
+        industry: null,
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: [],
+      },
+      rawResponse: {
+        technology: "Netskope",
+        jobTitles: ["CTO"],
+        location: null,
+        companySize: null,
+        industry: null,
+        productMentioned: null,
+        mode: "guided" as const,
+        skipSteps: [],
+      },
+    });
+    mockGenerateSuggestions.mockReturnValue({});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    // Regra ANTIGA daria true (tech contava como search param). Regra NOVA (22.1):
+    // canProceed = hasJobTitles && hasLocation -> sem location, nao avanca.
+    expect(json.canProceed).toBe(false);
+    expect(json.missingFields).toContain("location");
+  });
+
+  it("deve normalizar location composta so por espacos e impedir avanco (22.1)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      briefing: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: "   ",
+        companySize: null,
+        industry: null,
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies"],
+      },
+      rawResponse: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: "   ",
+        companySize: null,
+        industry: null,
+        productMentioned: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies"],
+      },
+    });
+    mockGenerateSuggestions.mockReturnValue({});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.briefing.location).toBeNull();
+    expect(json.canProceed).toBe(false);
+    expect(json.missingFields).toContain("location");
+  });
+
+  it("deve retornar canProceed=false quando industry presente mas location ausente (22.1)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      briefing: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: null,
+        companySize: null,
+        industry: "fintech",
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies"],
+      },
+      rawResponse: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: null,
+        companySize: null,
+        industry: "fintech",
+        productMentioned: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies"],
+      },
+    });
+    mockGenerateSuggestions.mockReturnValue({});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    // Setor tambem nao basta mais para avancar — so location destrava.
+    expect(json.canProceed).toBe(false);
+    expect(json.missingFields).toContain("location");
+  });
+
+  it("deve retornar canProceed=true com cargo e localizacao sem tech nem setor (22.1)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      briefing: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: "Sao Paulo",
+        companySize: null,
+        industry: null,
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies"],
+      },
+      rawResponse: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: "Sao Paulo",
+        companySize: null,
+        industry: null,
+        productMentioned: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies"],
+      },
+    });
+    mockGenerateSuggestions.mockReturnValue({});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    // Caso feliz da story: cargo + localizacao bastam, sem TheirStack.
+    expect(json.canProceed).toBe(true);
+    expect(json.briefing.skipSteps).toContain("search_companies");
+  });
+
+  // ==============================================
+  // Story 22.3: historico estruturado + nextAction/questionText
+  // ==============================================
+
+  it("deve aceitar body { messages: [...] } e chamar parse com o array (22.3)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      ...FULL_PARSE_RESULT,
+      nextAction: "confirm",
+      questionText: "Confirma: CTO em Sao Paulo?",
+    });
+
+    const messages = [
+      { role: "user", content: "Quero prospectar CTOs" },
+      { role: "agent", content: "Em qual localizacao?" },
+      { role: "user", content: "Sao Paulo" },
+    ];
+
+    const response = await POST(
+      createRequest({ executionId: VALID_BODY.executionId, messages })
+    );
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockParse).toHaveBeenCalledWith(messages, "decrypted-enc-key-123");
+    // resposta expoe os campos de conversa
+    expect(json.nextAction).toBe("confirm");
+    expect(json.questionText).toBe("Confirma: CTO em Sao Paulo?");
+  });
+
+  it("deve devolver defaults nextAction='ask'/questionText=null quando parser nao os retorna (22.3)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue(FULL_PARSE_RESULT); // sem nextAction/questionText
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.nextAction).toBe("ask");
+    expect(json.questionText).toBeNull();
+  });
+
+  it("deve retornar 400 quando body nao tem messages nem message (22.3)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const response = await POST(
+      createRequest({ executionId: VALID_BODY.executionId })
+    );
+    expect(response.status).toBe(400);
+
+    const json = await response.json();
+    expect(json.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("deve manter skipSteps/canProceed deterministicos independentemente do nextAction do LLM (NFR1, 22.3)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    // LLM sugere "proceed" mas o briefing NAO tem location -> canProceed deve ser false;
+    // e technology null -> search_companies deve ser adicionado deterministicamente.
+    mockParse.mockResolvedValue({
+      briefing: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: null,
+        companySize: null,
+        industry: null,
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: [],
+      },
+      rawResponse: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: null,
+        companySize: null,
+        industry: null,
+        productMentioned: null,
+        mode: "guided" as const,
+        skipSteps: [],
+      },
+      nextAction: "proceed",
+      questionText: null,
+    });
+    mockGenerateSuggestions.mockReturnValue({});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    // nextAction do LLM ecoa na resposta...
+    expect(json.nextAction).toBe("proceed");
+    // ...mas NAO altera o gating deterministico:
+    expect(json.canProceed).toBe(false);
+    expect(json.missingFields).toContain("location");
+    expect(json.briefing.skipSteps).toContain("search_companies");
   });
 });

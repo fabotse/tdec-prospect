@@ -38,15 +38,30 @@ let capturedModeSelectorProps: Record<string, unknown> | null = null;
 let capturedExecutionPlanProps: Record<string, unknown> | null = null;
 let mockStoreState: Record<string, unknown> = {};
 let mockBriefingState: Record<string, unknown> = {};
+// Story 22.8: profile do usuario logado (usado na validacao-no-mount do reattach).
+// Default null -> a validacao aguarda o profile e nao dispara (mantem os testes legados intactos).
+let mockUserState: { profile: { id: string } | null } = { profile: null };
 
 vi.mock("sonner", () => ({
   toast: { error: (...args: unknown[]) => mockToastError(...args) },
 }));
 
+vi.mock("@/hooks/use-user", () => ({
+  useUser: () => mockUserState,
+}));
+
 const mockRefetchMessages = vi.fn();
+// Story 22.8: dados da execucao reidratados pelo hook (mutavel para testar reattach de steps/mensagens)
+let mockExecutionData: { messages: unknown[]; steps: unknown[] } = { messages: [], steps: [] };
 
 vi.mock("@/hooks/use-agent-execution", () => ({
-  useAgentExecution: () => ({ messages: [], steps: [], isLoading: false, isConnected: false, refetchMessages: mockRefetchMessages }),
+  useAgentExecution: () => ({
+    messages: mockExecutionData.messages,
+    steps: mockExecutionData.steps,
+    isLoading: false,
+    isConnected: false,
+    refetchMessages: mockRefetchMessages,
+  }),
   useSendMessage: () => ({ mutate: mockMutate, isPending: false }),
 }));
 
@@ -55,8 +70,11 @@ vi.mock("@/hooks/use-agent-onboarding", () => ({
 }));
 
 vi.mock("@/stores/use-agent-store", () => ({
-  useAgentStore: (selector: (s: Record<string, unknown>) => unknown) =>
-    selector(mockStoreState),
+  // Story 22.8: expoe getState() (usado pela validacao-no-mount para ler o id persistido)
+  useAgentStore: Object.assign(
+    (selector: (s: Record<string, unknown>) => unknown) => selector(mockStoreState),
+    { getState: () => mockStoreState }
+  ),
 }));
 
 vi.mock("@/hooks/use-auto-trigger", () => ({
@@ -98,6 +116,10 @@ vi.mock("@/components/agent/AgentExecutionPlan", () => ({
     capturedExecutionPlanProps = props;
     return <div data-testid="agent-execution-plan">execution plan</div>;
   },
+}));
+
+vi.mock("@/components/agent/AgentStepProgress", () => ({
+  AgentStepProgress: () => <div data-testid="agent-step-progress">step progress</div>,
 }));
 
 // ==============================================
@@ -145,6 +167,9 @@ describe("AgentChat", () => {
     vi.clearAllMocks();
     capturedOnSendMessage = null;
     setupDefaults();
+    // Story 22.8: profile ausente por padrao -> validacao-no-mount nao dispara nos testes legados
+    mockUserState = { profile: null };
+    mockExecutionData = { messages: [], steps: [] };
     // Default fetch mock: successful execution creation
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -332,10 +357,8 @@ describe("AgentChat", () => {
         }
       );
 
-      let fetchCallCount = 0;
+      // First call is sendMessageMutation (not fetch), second is sendAgentMessage
       (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(() => {
-        fetchCallCount++;
-        // First call is sendMessageMutation (not fetch), second is sendAgentMessage
         return Promise.resolve({
           ok: false,
           status: 500,
@@ -842,6 +865,187 @@ describe("AgentChat", () => {
       render(<AgentChat />);
       expect(capturedExecutionPlanProps?.executionId).toBe("exec-123");
       expect(capturedExecutionPlanProps?.isSubmitting).toBe(false);
+    });
+  });
+
+  // --- Story 22.8: Reattach de execucao no refresh ---
+
+  describe("reattach de execucao no refresh (Story 22.8)", () => {
+    const USER_ID = "user-1";
+
+    // Mock URL-aware do GET /api/agent/executions (fonte da validacao-no-mount)
+    function mockExecutionsList(executions: Array<Record<string, unknown>>) {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (typeof url === "string" && url === "/api/agent/executions") {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ data: executions }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+      });
+    }
+
+    it("mantem o id quando a execucao persistida esta RUNNING e e do usuario (AC1/AC2)", async () => {
+      setupDefaults({ executionId: "exec-run" });
+      mockUserState = { profile: { id: USER_ID } };
+      mockExecutionsList([{ id: "exec-run", user_id: USER_ID, status: "running" }]);
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      // Validou contra o servidor (GET, sem body)
+      expect(global.fetch).toHaveBeenCalledWith("/api/agent/executions");
+      // NAO descartou o id
+      expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
+    });
+
+    it("mantem o id quando a execucao esta PAUSED (ativo) (AC2)", async () => {
+      setupDefaults({ executionId: "exec-paused" });
+      mockUserState = { profile: { id: USER_ID } };
+      mockExecutionsList([{ id: "exec-paused", user_id: USER_ID, status: "paused" }]);
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      // Consultou o servidor antes de decidir manter (nao "manteve" so por nunca ter validado)
+      expect(global.fetch).toHaveBeenCalledWith("/api/agent/executions");
+      expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
+    });
+
+    it("mantem o id quando a execucao esta PENDING (ativo, pre-confirm) (AC2/AC4)", async () => {
+      setupDefaults({ executionId: "exec-pending" });
+      mockUserState = { profile: { id: USER_ID } };
+      mockExecutionsList([{ id: "exec-pending", user_id: USER_ID, status: "pending" }]);
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      expect(global.fetch).toHaveBeenCalledWith("/api/agent/executions");
+      expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
+    });
+
+    it("descarta o id quando a execucao esta COMPLETED (terminal) (AC2)", async () => {
+      setupDefaults({ executionId: "exec-done" });
+      mockUserState = { profile: { id: USER_ID } };
+      mockExecutionsList([{ id: "exec-done", user_id: USER_ID, status: "completed" }]);
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      expect(mockSetCurrentExecutionId).toHaveBeenCalledWith(null);
+    });
+
+    it("descarta o id quando a execucao FALHOU (terminal) (AC2)", async () => {
+      setupDefaults({ executionId: "exec-fail" });
+      mockUserState = { profile: { id: USER_ID } };
+      mockExecutionsList([{ id: "exec-fail", user_id: USER_ID, status: "failed" }]);
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      expect(mockSetCurrentExecutionId).toHaveBeenCalledWith(null);
+    });
+
+    it("descarta o id quando nao existe na lista (inexistente) (AC2)", async () => {
+      setupDefaults({ executionId: "exec-ghost" });
+      mockUserState = { profile: { id: USER_ID } };
+      mockExecutionsList([{ id: "outra", user_id: USER_ID, status: "running" }]);
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      expect(mockSetCurrentExecutionId).toHaveBeenCalledWith(null);
+    });
+
+    it("descarta o id de execucao de OUTRO usuario, mesmo ativa (guardrail user_id) (AC2)", async () => {
+      setupDefaults({ executionId: "exec-alheia" });
+      mockUserState = { profile: { id: USER_ID } };
+      mockExecutionsList([{ id: "exec-alheia", user_id: "outro-user", status: "running" }]);
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      expect(mockSetCurrentExecutionId).toHaveBeenCalledWith(null);
+    });
+
+    it("NAO descarta o id se o GET responde 200 com payload nao-array (defensivo, shape inesperado)", async () => {
+      setupDefaults({ executionId: "exec-run" });
+      mockUserState = { profile: { id: USER_ID } };
+      // 200 OK mas data nao e array (contrato mudado / proxy / erro serializado)
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: { error: "unexpected" } }),
+      });
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      // Trata como transitorio: mantem o id (nao descarta uma execucao possivelmente ativa)
+      expect(global.fetch).toHaveBeenCalledWith("/api/agent/executions");
+      expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
+    });
+
+    it("NAO descarta o id em falha de rede, mas TENTA validar (defensivo — nao apaga a toa) (AC2)", async () => {
+      setupDefaults({ executionId: "exec-run" });
+      mockUserState = { profile: { id: USER_ID } };
+      (global.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("Network"));
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      // A validacao foi tentada (o teste falharia se a validacao inteira nao rodasse)...
+      expect(global.fetch).toHaveBeenCalledWith("/api/agent/executions");
+      // ...e mesmo assim o id NAO foi descartado (revalida no proximo mount)
+      expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
+    });
+
+    it("reataca RUNNING autopilot: reidrata steps + mensagens E restaura o mode (AC3/AC4)", async () => {
+      setupDefaults({ executionId: "exec-run" });
+      mockUserState = { profile: { id: USER_ID } };
+      mockExecutionsList([
+        { id: "exec-run", user_id: USER_ID, status: "running", mode: "autopilot" },
+      ]);
+      mockExecutionData = {
+        messages: [{ id: "m1", role: "user", content: "oi" }],
+        steps: [{ id: "s1", step_number: 1, status: "running" }],
+      };
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      // Progresso volta a ficar visivel (a execucao que gasta reaparece)
+      expect(screen.getByTestId("agent-step-progress")).toBeInTheDocument();
+      // Mensagens reidratadas -> sem tela em branco
+      expect(capturedMessageListProps.messages).toHaveLength(1);
+      // O id foi MANTIDO (nao descartado)
+      expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
+      // E o mode foi restaurado -> useAutoTrigger volta a avancar os steps
+      // (sem isto, autopilot reatacharia visualmente mas pararia de progredir)
+      expect(mockSetExecutionMode).toHaveBeenCalledWith("autopilot");
+    });
+
+    it("first-time / sem id persistido: nao valida nem descarta (zero regressao, NFR4)", async () => {
+      setupDefaults({ executionId: null });
+      mockUserState = { profile: { id: USER_ID } };
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      // Sem id persistido -> nao bate no endpoint de validacao
+      expect(global.fetch).not.toHaveBeenCalledWith("/api/agent/executions");
+      expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
     });
   });
 });

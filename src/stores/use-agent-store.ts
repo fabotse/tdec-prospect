@@ -10,9 +10,11 @@
  * AC 16.4: #3, #4 - Estado do seletor de modo
  * AC 16.5: #1-#5 - Estado do plano de execucao
  * Story 17.7: executionMode para auto-trigger
+ * Story 22.8: Persistir currentExecutionId (reattach de execucao no refresh)
  */
 
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type { ExecutionMode } from "@/types/agent";
 
 interface AgentUIState {
@@ -35,20 +37,43 @@ interface AgentUIActions {
   setTotalSteps: (count: number) => void;
 }
 
-export const useAgentStore = create<AgentUIState & AgentUIActions>((set) => ({
-  currentExecutionId: null,
-  isInputDisabled: false,
-  isAgentProcessing: false,
-  showModeSelector: false,
-  showExecutionPlan: false,
-  executionMode: null,
-  totalSteps: 0,
+export const useAgentStore = create<AgentUIState & AgentUIActions>()(
+  persist(
+    (set) => ({
+      currentExecutionId: null,
+      isInputDisabled: false,
+      isAgentProcessing: false,
+      showModeSelector: false,
+      showExecutionPlan: false,
+      executionMode: null,
+      totalSteps: 0,
 
-  setCurrentExecutionId: (id) => set({ currentExecutionId: id }),
-  setInputDisabled: (disabled) => set({ isInputDisabled: disabled }),
-  setAgentProcessing: (processing) => set({ isAgentProcessing: processing }),
-  setShowModeSelector: (show) => set({ showModeSelector: show }),
-  setShowExecutionPlan: (show) => set({ showExecutionPlan: show }),
-  setExecutionMode: (mode) => set({ executionMode: mode }),
-  setTotalSteps: (count) => set({ totalSteps: count }),
-}));
+      setCurrentExecutionId: (id) => set({ currentExecutionId: id }),
+      setInputDisabled: (disabled) => set({ isInputDisabled: disabled }),
+      setAgentProcessing: (processing) => set({ isAgentProcessing: processing }),
+      setShowModeSelector: (show) => set({ showModeSelector: show }),
+      setShowExecutionPlan: (show) => set({ showExecutionPlan: show }),
+      setExecutionMode: (mode) => set({ executionMode: mode }),
+      setTotalSteps: (count) => set({ totalSteps: count }),
+    }),
+    {
+      // Story 22.8: so o currentExecutionId persiste (localStorage). As demais flags
+      // sao efemeras/derivadas — reidratar estado obsoleto delas quebraria a UI.
+      // O id restaurado e VALIDADO contra o servidor no mount do AgentChat (nunca
+      // reatacha execucao terminal ou de outro usuario).
+      name: "tdec-agent-ui",
+      partialize: (state) => ({ currentExecutionId: state.currentExecutionId }),
+    }
+  )
+);
+
+/**
+ * Story 22.8: limpa o id de execucao persistido (memoria + localStorage).
+ * Chamado no logout para que o proximo usuario no mesmo browser NUNCA reidrate
+ * — nem transitoriamente — a execucao do usuario anterior (o filtro por user_id
+ * na validacao-no-mount ja descarta, mas limpar na origem elimina a janela).
+ */
+export function clearPersistedAgentExecution() {
+  useAgentStore.getState().setCurrentExecutionId(null);
+  useAgentStore.persist.clearStorage();
+}

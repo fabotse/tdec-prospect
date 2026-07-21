@@ -135,6 +135,7 @@ export class SearchLeadsStep extends BaseStep {
     const filters = {
       domains,
       titles: jobTitles,
+      ...(briefing.location ? { locations: [briefing.location] } : {}),
       perPage: LEADS_PER_PAGE,
       page: 1,
     };

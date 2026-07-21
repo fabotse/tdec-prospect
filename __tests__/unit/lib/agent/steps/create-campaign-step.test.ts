@@ -62,6 +62,21 @@ vi.mock("@/types/ai-prompt", () => ({
   },
 }));
 
+// Story 22.2: Apify service + usage logger mocks (premium icebreaker path)
+const mockFetchLinkedInPosts = vi.fn();
+vi.mock("@/lib/services/apify", () => ({
+  ApifyService: class {
+    fetchLinkedInPosts = (...args: unknown[]) => mockFetchLinkedInPosts(...args);
+  },
+}));
+
+const mockLogApifySuccess = vi.fn().mockResolvedValue(undefined);
+const mockLogApifyFailure = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/services/usage-logger", () => ({
+  logApifySuccess: (...args: unknown[]) => mockLogApifySuccess(...args),
+  logApifyFailure: (...args: unknown[]) => mockLogApifyFailure(...args),
+}));
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -106,6 +121,35 @@ const MOCK_LEADS: SearchLeadResult[] = [
   { name: "John Doe", title: "CTO", companyName: "Acme Corp", email: "john@acme.com", linkedinUrl: null },
   { name: "Jane Smith", title: "VP Engineering", companyName: "Beta Inc", email: "jane@beta.io", linkedinUrl: "https://linkedin.com/in/jane" },
 ];
+
+// Story 22.2: posts do LinkedIn retornados pelo Apify mock
+const MOCK_POSTS = [
+  {
+    postUrl: "https://linkedin.com/posts/1",
+    text: "Escalando nossa plataforma de dados para 10M de usuarios",
+    publishedAt: "2026-01-10",
+    likesCount: 120,
+    commentsCount: 15,
+  },
+];
+
+/**
+ * Story 22.2: chain api_configs stateful — resolve por service_name.
+ * Permite openai presente + apify ausente no mesmo mock (getOpenAIApiKey ok, getApifyApiKey null).
+ */
+function createStatefulApiConfigs(byService: Record<string, { encrypted_key: string } | null>) {
+  const chain: Record<string, unknown> = {};
+  let service: string | null = null;
+  for (const m of ["select", "eq", "single", "maybeSingle", "order", "limit"]) {
+    chain[m] = vi.fn((...args: unknown[]) => {
+      if (m === "eq" && args[0] === "service_name") service = args[1] as string;
+      return chain;
+    });
+  }
+  (chain as { then: unknown }).then = (resolve: (v: unknown) => unknown) =>
+    Promise.resolve({ data: service ? byService[service] ?? null : null, error: null }).then(resolve);
+  return chain;
+}
 
 function createMockSupabase() {
   const stepsChain = createChainBuilder({ data: { id: "step-1" }, error: null });
@@ -789,6 +833,182 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
       const progressMsg = insertCalls[0][0];
       // 3 active steps (not skipped), completed+running = 2 non-pending active steps
       expect(progressMsg.content).toMatch(/Etapa 2\/3/);
+    });
+  });
+
+  // ==============================================
+  // Story 22.2: PREMIUM ICEBREAKERS (LinkedIn via Apify)
+  // ==============================================
+
+  describe("premium icebreakers (Story 22.2)", () => {
+    // Helper: generateText → structure JSON na 1a chamada, conteudo nas demais
+    function setupStructureThenContent() {
+      let callCount = 0;
+      mockGenerateText.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ text: VALID_STRUCTURE_JSON, model: "gpt-4o", usage: {} });
+        }
+        return Promise.resolve({ text: `Icebreaker/email ${callCount}`, model: "gpt-4o", usage: {} });
+      });
+    }
+
+    // NUCLEO (RED→GREEN): toggle ligado + lead com LinkedIn → caminho premium chamado
+    it("usa Apify + icebreaker_premium_generation para lead com LinkedIn quando toggle ligado", async () => {
+      setupStructureThenContent();
+      mockFetchLinkedInPosts.mockResolvedValue({
+        success: true,
+        posts: MOCK_POSTS,
+        profileUrl: "https://linkedin.com/in/jane",
+        fetchedAt: "2026-01-10T00:00:00Z",
+      });
+
+      const input = createInput({ premiumIcebreakers: true });
+      const result = await step.run(input);
+
+      // Apify chamado UMA vez (so Jane tem linkedinUrl; John nao tem)
+      expect(mockFetchLinkedInPosts).toHaveBeenCalledTimes(1);
+      expect(mockFetchLinkedInPosts).toHaveBeenCalledWith(
+        "decrypted-openai-key",
+        "https://linkedin.com/in/jane",
+        3
+      );
+
+      // prompt premium renderizado
+      const premiumCalls = mockRenderPrompt.mock.calls.filter(
+        (call: unknown[]) => call[0] === "icebreaker_premium_generation"
+      );
+      expect(premiumCalls.length).toBe(1);
+
+      const data = result.data as Record<string, unknown>;
+      const stats = data.icebreakerStats as { generated: number; premium: number; standard: number; failed: number };
+      expect(stats.premium).toBe(1); // Jane via posts reais
+      expect(stats.standard).toBe(1); // John sem LinkedIn → standard
+      expect(stats.generated).toBe(2);
+      expect(stats.failed).toBe(0);
+
+      // custo real conta a chamada Apify
+      expect(result.cost?.apify).toBe(1);
+    });
+
+    // AC5: toggle desligado (default) → ZERO Apify, comportamento standard
+    it("NAO chama Apify quando toggle desligado (default) e conta tudo como standard", async () => {
+      setupStructureThenContent();
+
+      const input = createInput(); // sem premiumIcebreakers
+      const result = await step.run(input);
+
+      expect(mockFetchLinkedInPosts).not.toHaveBeenCalled();
+
+      const data = result.data as Record<string, unknown>;
+      const stats = data.icebreakerStats as { generated: number; premium: number; standard: number };
+      expect(stats.premium).toBe(0);
+      expect(stats.standard).toBe(2);
+      expect(stats.generated).toBe(2);
+
+      // sem premium → sem custo apify
+      expect(result.cost?.apify).toBeUndefined();
+    });
+
+    // AC3 fallback: Apify retorna success:false → standard
+    it("cai no standard quando Apify retorna success:false (nao conta como failed)", async () => {
+      setupStructureThenContent();
+      mockFetchLinkedInPosts.mockResolvedValue({
+        success: false,
+        posts: [],
+        error: "Erro Apify",
+        profileUrl: "https://linkedin.com/in/jane",
+        fetchedAt: "2026-01-10T00:00:00Z",
+      });
+
+      const input = createInput({ premiumIcebreakers: true });
+      const result = await step.run(input);
+
+      expect(mockFetchLinkedInPosts).toHaveBeenCalledTimes(1);
+      const data = result.data as Record<string, unknown>;
+      const stats = data.icebreakerStats as { premium: number; standard: number; failed: number };
+      expect(stats.premium).toBe(0);
+      expect(stats.standard).toBe(2); // Jane cai pro standard, John standard
+      expect(stats.failed).toBe(0);
+      // chamada Apify feita mesmo com fallback → custo contabilizado
+      expect(result.cost?.apify).toBe(1);
+    });
+
+    // AC3 fallback: Apify retorna posts vazios → standard
+    it("cai no standard quando Apify retorna posts vazios", async () => {
+      setupStructureThenContent();
+      mockFetchLinkedInPosts.mockResolvedValue({
+        success: true,
+        posts: [],
+        profileUrl: "https://linkedin.com/in/jane",
+        fetchedAt: "2026-01-10T00:00:00Z",
+      });
+
+      const input = createInput({ premiumIcebreakers: true });
+      const result = await step.run(input);
+
+      const data = result.data as Record<string, unknown>;
+      const stats = data.icebreakerStats as { premium: number; standard: number };
+      expect(stats.premium).toBe(0);
+      expect(stats.standard).toBe(2);
+      // prompt premium NAO deve ter sido renderizado (sem posts)
+      const premiumCalls = mockRenderPrompt.mock.calls.filter(
+        (call: unknown[]) => call[0] === "icebreaker_premium_generation"
+      );
+      expect(premiumCalls.length).toBe(0);
+    });
+
+    // AC3 fallback: lead sem linkedinUrl → standard, sem chamar Apify
+    it("nao chama Apify para leads sem linkedinUrl (fallback standard)", async () => {
+      setupStructureThenContent();
+      const noUrlLeads: SearchLeadResult[] = [
+        { name: "Sem Link", title: "CTO", companyName: "X", email: "x@x.com", linkedinUrl: null },
+      ];
+
+      const input = createInput({ premiumIcebreakers: true }, {
+        leads: noUrlLeads,
+        totalFound: 1,
+        jobTitles: ["CTO"],
+        domainsSearched: [],
+      });
+      const result = await step.run(input);
+
+      expect(mockFetchLinkedInPosts).not.toHaveBeenCalled();
+      const data = result.data as Record<string, unknown>;
+      const stats = data.icebreakerStats as { premium: number; standard: number };
+      expect(stats.premium).toBe(0);
+      expect(stats.standard).toBe(1);
+    });
+
+    // AC3 fallback: toggle ligado mas SEM Apify key → tudo standard, sem chamar Apify
+    it("cai tudo no standard quando toggle ligado mas Apify key ausente", async () => {
+      setupStructureThenContent();
+
+      // api_configs: openai presente, apify ausente
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_steps") return mockSupabase.stepsChain;
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        if (table === "knowledge_base") return mockSupabase.kbChain;
+        if (table === "products") return mockSupabase.productsChain;
+        if (table === "api_configs") {
+          return createStatefulApiConfigs({
+            openai: { encrypted_key: "enc-openai" },
+            apify: null,
+          });
+        }
+        if (table === "icebreaker_examples") return mockSupabase.icebreakerExamplesChain;
+        return createChainBuilder();
+      });
+
+      const input = createInput({ premiumIcebreakers: true });
+      const result = await step.run(input);
+
+      expect(mockFetchLinkedInPosts).not.toHaveBeenCalled();
+      const data = result.data as Record<string, unknown>;
+      const stats = data.icebreakerStats as { premium: number; standard: number };
+      expect(stats.premium).toBe(0);
+      expect(stats.standard).toBe(2);
+      expect(result.cost?.apify).toBeUndefined();
     });
   });
 });

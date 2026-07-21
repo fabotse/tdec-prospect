@@ -39,6 +39,8 @@ interface CampaignPreviewData {
   leadsWithIcebreakers: LeadIcebreaker[];
   icebreakerStats: {
     generated: number;
+    premium?: number; // Story 22.2: gerados via posts reais do LinkedIn
+    standard?: number; // Story 22.2: gerados via caminho standard/fallback
     failed: number;
     skipped: number;
   };
@@ -226,6 +228,11 @@ export function AgentCampaignPreview({
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium">
               Icebreakers ({data.icebreakerStats.generated} gerados)
+              {(data.icebreakerStats.premium ?? 0) > 0 && (
+                <span className="text-muted-foreground font-normal">
+                  {" "}— {data.icebreakerStats.premium} premium (LinkedIn), {data.icebreakerStats.standard ?? 0} standard
+                </span>
+              )}
             </p>
             {data.leadsWithIcebreakers.length > ICEBREAKER_COLLAPSE_THRESHOLD && (
               <Button

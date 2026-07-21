@@ -14,7 +14,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AgentMessageList } from "./AgentMessageList";
 import { AgentModeSelector } from "./AgentModeSelector";
@@ -26,7 +26,8 @@ import { useAgentOnboarding } from "@/hooks/use-agent-onboarding";
 import { useAutoTrigger } from "@/hooks/use-auto-trigger";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { useBriefingFlow } from "@/hooks/use-briefing-flow";
-import type { ExecutionMode } from "@/types/agent";
+import { useUser } from "@/hooks/use-user";
+import type { AgentExecution, ExecutionMode } from "@/types/agent";
 import type { CreateProductInput } from "@/types/product";
 
 export function AgentChat() {
@@ -46,8 +47,91 @@ export function AgentChat() {
   const [isPlanSubmitting, setIsPlanSubmitting] = useState(false);
 
   const { isFirstTime } = useAgentOnboarding();
+  const { profile } = useUser();
 
-  const { messages, steps, refetchMessages } = useAgentExecution(currentExecutionId);
+  // Story 22.8 — Reattach de execucao no refresh.
+  // O currentExecutionId persiste em localStorage (zustand persist). No mount, o id
+  // restaurado NAO e confiado de imediato: so anexamos os hooks de dados a ele depois
+  // de validar contra o servidor (reataca so execucao existente, do usuario atual e
+  // ATIVA — pending/running/paused). Terminal/inexistente/de-outro-usuario -> descarta
+  // e inicia limpo (fecha o buraco da "execucao fantasma").
+  //
+  // O "portao" (attachGateOpen) fecha a janela em que um id ainda nao validado ja
+  // seria pollado/exibido por useAgentExecution (dados de execucao terminal — ou de
+  // outro usuario do mesmo tenant, em browser compartilhado — apareceriam antes do
+  // descarte). Enquanto ha id persistido pendente de validacao, nao anexamos. Quando
+  // NAO ha id persistido no mount, o portao ja nasce aberto — execucoes criadas em
+  // sessao anexam na hora e o first-time fica byte-a-byte igual ao de hoje (NFR4).
+  const [attachGateOpen, setAttachGateOpen] = useState(
+    () => !useAgentStore.getState().currentExecutionId
+  );
+
+  // So anexa os hooks de dados a um id ja validado (ou criado durante a sessao).
+  const attachedExecutionId = attachGateOpen ? currentExecutionId : null;
+  const { messages, steps, refetchMessages } = useAgentExecution(attachedExecutionId);
+
+  // Roda UMA vez, apos o profile carregar (necessario para conferir user_id).
+  const didValidateExecutionRef = useRef(false);
+  useEffect(() => {
+    if (didValidateExecutionRef.current) return;
+    // Aguarda o profile para poder conferir a titularidade (user_id).
+    if (!profile?.id) return;
+
+    didValidateExecutionRef.current = true;
+
+    const persistedId = useAgentStore.getState().currentExecutionId;
+    if (!persistedId) return; // first-time / sem id -> comportamento identico ao de hoje (NFR4)
+
+    const userId = profile.id;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const response = await fetch("/api/agent/executions");
+        if (!response.ok) return; // falha transitoria: nao apaga o id a toa
+        const result = await response.json();
+        // Shape inesperado (200 sem array) e tao suspeito quanto um !ok: trata como
+        // transitorio (mantem o id) em vez de descartar uma execucao possivelmente ativa.
+        if (!Array.isArray(result?.data)) return;
+        const executions: AgentExecution[] = result.data;
+        const match = executions.find((e) => e.id === persistedId);
+        const isActive =
+          !!match &&
+          match.user_id === userId &&
+          (match.status === "pending" ||
+            match.status === "running" ||
+            match.status === "paused");
+
+        if (cancelled) return;
+        if (isActive) {
+          // Restaura o modo: o avanco de step (autopilot/guided) e disparado NO
+          // CLIENTE por useAutoTrigger, que exige o mode. O partialize so persiste o
+          // id, entao sem isto uma execucao autopilot reatachada mostraria o progresso
+          // mas pararia de avancar silenciosamente. A validacao ja tem o mode em maos.
+          if (match.mode) setExecutionMode(match.mode);
+        } else {
+          // terminal / inexistente / de outro usuario -> descarta e comeca limpo
+          setCurrentExecutionId(null);
+        }
+      } catch {
+        // rede indisponivel: mantem o id e revalida no proximo mount (sem loop)
+      } finally {
+        // Abre o portao qualquer que seja o desfecho (mantido, descartado ou falha
+        // transitoria): id valido anexa; descartado ja virou null; falha revalida no
+        // proximo mount sem travar a UI em branco.
+        if (!cancelled) setAttachGateOpen(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      // StrictMode (dev) monta em dobro preservando refs: sem rearmar, a 1a run trava
+      // o ref e e cancelada, a 2a sai cedo e a validacao vira no-op (o descarte da
+      // fantasma nunca roda em dev). Rearmar no cleanup tambem cobre troca de usuario
+      // sem unmount (profile.id muda -> cleanup -> re-valida para o novo dono).
+      didValidateExecutionRef.current = false;
+    };
+  }, [profile?.id, setCurrentExecutionId, setExecutionMode]);
   // Fix #1: useSendMessage sem parametro — executionId passado no mutate
   const sendMessageMutation = useSendMessage();
 
@@ -226,13 +310,18 @@ export function AgentChat() {
     [currentExecutionId, sendAgentMessage, setShowModeSelector, setShowExecutionPlan, setExecutionMode, refetchMessages]
   );
 
-  const handleConfirmPlan = useCallback(async () => {
+  const handleConfirmPlan = useCallback(async (premiumIcebreakers: boolean) => {
     if (!currentExecutionId) return;
     setIsPlanSubmitting(true);
     try {
       const response = await fetch(
         `/api/agent/executions/${currentExecutionId}/confirm`,
-        { method: "POST" }
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          // Story 22.2: repassa o toggle de icebreaker premium (LinkedIn) ao confirm
+          body: JSON.stringify({ premiumIcebreakers }),
+        }
       );
       if (!response.ok) {
         toast.error("Erro ao confirmar execucao. Tente novamente.");

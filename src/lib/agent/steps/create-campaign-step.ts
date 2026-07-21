@@ -16,6 +16,8 @@ import {
   type KnowledgeBaseContext,
 } from "@/lib/services/knowledge-base-context";
 import { ApolloService } from "@/lib/services/apollo";
+import { ApifyService } from "@/lib/services/apify";
+import { logApifySuccess, logApifyFailure } from "@/lib/services/usage-logger";
 import { createAIProvider, promptManager } from "@/lib/ai";
 import { ExternalServiceError } from "@/lib/services/base-service";
 import { decryptApiKey } from "@/lib/crypto/encryption";
@@ -23,6 +25,7 @@ import { transformProductRow, type ProductRow } from "@/types/product";
 import { ICEBREAKER_CATEGORY_INSTRUCTIONS } from "@/types/ai-prompt";
 import type { IcebreakerCategory } from "@/types/ai-prompt";
 import type { IcebreakerExample } from "@/types/knowledge-base";
+import type { LinkedInPost } from "@/types/apify";
 import type {
   StepInput,
   StepOutput,
@@ -181,11 +184,14 @@ export class CreateCampaignStep extends BaseStep {
     // 2.8 - Parse and validate structure JSON
     const structure = this.parseStructureJSON(structureResult.text);
 
-    // 2.9 - Sub-step C: Generate icebreakers standard
+    // 2.9 - Sub-step C: Generate icebreakers
+    // Story 22.2: caminho premium (LinkedIn via Apify) quando o toggle esta ligado no briefing.
+    const usePremium = Boolean(briefing.premiumIcebreakers);
+    const apifyKey = usePremium ? await this.getApifyApiKey() : null;
     const icebreakerExamples = await this.loadIcebreakerExamples();
     const formattedExamples = CreateCampaignStep.formatIcebreakerExamples(icebreakerExamples, "lead");
-    const { leadsWithIcebreakers, icebreakerStats } = await this.generateIcebreakers(
-      leads, aiVars, provider, formattedExamples
+    const { leadsWithIcebreakers, icebreakerStats, apifyCalls } = await this.generateIcebreakers(
+      leads, aiVars, provider, formattedExamples, usePremium, apifyKey
     );
 
     // 2.11 - Sub-step D: Generate email content
@@ -224,12 +230,16 @@ export class CreateCampaignStep extends BaseStep {
     };
 
     // 2.13 - Calculate cost
-    const cost = {
+    // Story 22.2: contabiliza as chamadas Apify efetivamente feitas (0 quando o premium esta desligado).
+    const cost: Record<string, number> = {
       apollo_enrich: enrichCredits,
       openai_structure: 1,
       openai_emails: totalEmails,
       openai_icebreakers: icebreakerStats.generated,
     };
+    if (apifyCalls > 0) {
+      cost.apify = apifyCalls;
+    }
 
     return {
       success: true,
@@ -301,6 +311,31 @@ export class CreateCampaignStep extends BaseStep {
     }
 
     return decryptApiKey(apiConfig.encrypted_key);
+  }
+
+  /**
+   * Story 22.2: Fetch Apify API key DEFENSIVELY (fail-open).
+   * Espelha getOpenAIApiKey, mas retorna null em vez de lancar quando a key nao existe
+   * ou nao decodifica — assim, com o toggle premium ligado mas sem key, todos os leads
+   * caem no fallback standard (AC3) em vez de derrubar o step.
+   */
+  private async getApifyApiKey(): Promise<string | null> {
+    const { data: apiConfig } = await this.supabase
+      .from("api_configs")
+      .select("encrypted_key")
+      .eq("tenant_id", this.tenantId)
+      .eq("service_name", "apify")
+      .single();
+
+    if (!apiConfig) {
+      return null;
+    }
+
+    try {
+      return decryptApiKey(apiConfig.encrypted_key);
+    } catch {
+      return null;
+    }
   }
 
   private parseStructureJSON(text: string): { items: CampaignStructureItem[] } {
@@ -389,26 +424,53 @@ export class CreateCampaignStep extends BaseStep {
     leads: SearchLeadResult[],
     aiVars: AIContextVariables,
     provider: ReturnType<typeof createAIProvider>,
-    formattedExamples: string
+    formattedExamples: string,
+    usePremium: boolean,
+    apifyKey: string | null
   ): Promise<{
     leadsWithIcebreakers: LeadWithIcebreaker[];
-    icebreakerStats: { generated: number; failed: number; skipped: number };
+    icebreakerStats: { generated: number; premium: number; standard: number; failed: number; skipped: number };
+    apifyCalls: number;
   }> {
     const leadsWithIcebreakers: LeadWithIcebreaker[] = [];
-    const icebreakerStats = { generated: 0, failed: 0, skipped: 0 };
+    const icebreakerStats = { generated: 0, premium: 0, standard: 0, failed: 0, skipped: 0 };
+
+    // Story 22.2: premium so entra em cena com toggle ligado E key presente (fail-open — AC3).
+    const premiumEnabled = usePremium && !!apifyKey;
+    const apifyService = premiumEnabled ? new ApifyService() : null;
+    let apifyCalls = 0;
 
     for (let i = 0; i < leads.length; i += ICEBREAKER_BATCH_SIZE) {
       const batch = leads.slice(i, i + ICEBREAKER_BATCH_SIZE);
       const results = await Promise.allSettled(
-        batch.map((lead) => this.generateSingleIcebreaker(lead, aiVars, provider, formattedExamples))
+        batch.map(async (lead): Promise<{ text: string | null; kind: "premium" | "standard" }> => {
+          // Caminho premium: toggle ligado + key + lead com LinkedIn. Fail-open para standard.
+          if (premiumEnabled && apifyService && apifyKey && lead.linkedinUrl) {
+            const premiumText = await this.generateSinglePremiumIcebreaker(
+              lead, aiVars, provider, apifyService, apifyKey, () => { apifyCalls++; }
+            );
+            if (premiumText) {
+              return { text: premiumText, kind: "premium" };
+            }
+            // sem posts / falha Apify / falha AI → cai no standard abaixo (AC3)
+          }
+
+          const standardText = await this.generateSingleIcebreaker(lead, aiVars, provider, formattedExamples);
+          return { text: standardText, kind: "standard" };
+        })
       );
 
       for (let j = 0; j < results.length; j++) {
         const lead = batch[j];
         const result = results[j];
-        if (result.status === "fulfilled" && result.value) {
-          leadsWithIcebreakers.push({ ...lead, icebreaker: result.value });
+        if (result.status === "fulfilled" && result.value.text) {
+          leadsWithIcebreakers.push({ ...lead, icebreaker: result.value.text });
           icebreakerStats.generated++;
+          if (result.value.kind === "premium") {
+            icebreakerStats.premium++;
+          } else {
+            icebreakerStats.standard++;
+          }
         } else {
           leadsWithIcebreakers.push({ ...lead, icebreaker: null });
           icebreakerStats.failed++;
@@ -416,7 +478,118 @@ export class CreateCampaignStep extends BaseStep {
       }
     }
 
-    return { leadsWithIcebreakers, icebreakerStats };
+    return { leadsWithIcebreakers, icebreakerStats, apifyCalls };
+  }
+
+  /**
+   * Story 22.2: Icebreaker PREMIUM — reusa ApifyService.fetchLinkedInPosts + prompt
+   * icebreaker_premium_generation (nao duplica scraping). Fail-open: retorna null em
+   * qualquer degradacao (sem posts, Apify falha, prompt/AI falha) para o chamador cair
+   * no caminho standard. Espelha a politica de processPostCategory da rota enrich-icebreaker.
+   */
+  private async generateSinglePremiumIcebreaker(
+    lead: SearchLeadResult,
+    aiVars: AIContextVariables,
+    provider: ReturnType<typeof createAIProvider>,
+    apifyService: ApifyService,
+    apifyKey: string,
+    onApifyCall: () => void
+  ): Promise<string | null> {
+    if (!lead.linkedinUrl) return null;
+
+    const apifyStart = Date.now();
+    let postsResult: Awaited<ReturnType<ApifyService["fetchLinkedInPosts"]>>;
+    try {
+      onApifyCall();
+      postsResult = await apifyService.fetchLinkedInPosts(apifyKey, lead.linkedinUrl, 3);
+    } catch (error) {
+      // fetchLinkedInPosts nao deveria lancar (retorna success:false), mas protegemos assim mesmo.
+      logApifyFailure({
+        tenantId: this.tenantId,
+        errorMessage: error instanceof Error ? error.message : "Erro Apify",
+        durationMs: Date.now() - apifyStart,
+        metadata: { linkedinProfileUrl: lead.linkedinUrl, postLimit: 3, source: "agent" },
+      }).catch(() => {});
+      return null; // fallback standard
+    }
+
+    const durationMs = Date.now() - apifyStart;
+
+    if (!postsResult.success || postsResult.posts.length === 0) {
+      if (!postsResult.success) {
+        logApifyFailure({
+          tenantId: this.tenantId,
+          errorMessage: postsResult.error || "Erro Apify",
+          durationMs,
+          metadata: { linkedinProfileUrl: lead.linkedinUrl, postLimit: 3, source: "agent" },
+        }).catch(() => {});
+      } else {
+        logApifySuccess({
+          tenantId: this.tenantId,
+          postsFetched: 0,
+          durationMs,
+          metadata: { linkedinProfileUrl: lead.linkedinUrl, postLimit: 3, noPosts: true, source: "agent" },
+        }).catch(() => {});
+      }
+      return null; // fallback standard
+    }
+
+    logApifySuccess({
+      tenantId: this.tenantId,
+      postsFetched: postsResult.posts.length,
+      durationMs,
+      metadata: { linkedinProfileUrl: lead.linkedinUrl, postLimit: 3, source: "agent" },
+    }).catch(() => {});
+
+    const variables: Record<string, string> = {
+      ...aiVars,
+      lead_name: lead.name,
+      lead_title: lead.title ?? "",
+      lead_company: lead.companyName ?? "",
+      lead_industry: aiVars.target_industries || "Tecnologia",
+      linkedin_posts: CreateCampaignStep.formatLinkedInPostsForPrompt(postsResult.posts),
+    };
+
+    try {
+      const rendered = await promptManager.renderPrompt(
+        "icebreaker_premium_generation",
+        variables,
+        { tenantId: this.tenantId }
+      );
+
+      if (!rendered) return null; // fallback standard
+
+      const result = await provider.generateText(rendered.content, {
+        temperature: rendered.metadata.temperature ?? 0.7,
+        maxTokens: rendered.metadata.maxTokens ?? 300,
+        model: (rendered.modelPreference ?? "gpt-4o") as AIModel,
+        timeoutMs: 15000,
+      });
+
+      return result.text.trim() || null; // vazio → fallback standard
+    } catch {
+      // Prompt/AI falha no premium → fallback standard (AC3), nunca deixa o lead sem icebreaker
+      return null;
+    }
+  }
+
+  /**
+   * Story 22.2: formata posts do LinkedIn para o prompt premium.
+   * Espelha formatLinkedInPostsForPrompt da rota enrich-icebreaker.
+   */
+  static formatLinkedInPostsForPrompt(posts: LinkedInPost[]): string {
+    if (posts.length === 0) {
+      return "Nenhum post disponivel";
+    }
+
+    return posts
+      .map((post, idx) => {
+        const date = post.publishedAt
+          ? new Date(post.publishedAt).toLocaleDateString("pt-BR")
+          : "Data desconhecida";
+        return `Post ${idx + 1} (${date}):\n${post.text}\nEngajamento: ${post.likesCount} curtidas, ${post.commentsCount} comentarios`;
+      })
+      .join("\n\n");
   }
 
   private async generateSingleIcebreaker(

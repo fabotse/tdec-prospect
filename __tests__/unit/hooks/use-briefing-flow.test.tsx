@@ -49,7 +49,8 @@ const INCOMPLETE_PARSE_RESPONSE = {
     mode: "guided",
     skipSteps: [],
   },
-  missingFields: ["technology", "jobTitles"],
+  // Story 22.1: location e agora campo obrigatorio -> entra em missingFields quando null
+  missingFields: ["technology", "jobTitles", "location"],
   isComplete: false,
   canProceed: false,
   suggestions: {
@@ -94,6 +95,40 @@ const COMPLETE_WITH_PRODUCT_FOUND = {
   suggestions: {},
   productMentioned: "TDEC Analytics",
 };
+
+// Story 22.4: a DECISAO em awaiting_product_decision agora consulta o LLM (/parse) em vez
+// de casar keywords locais. Estas respostas simulam a classificacao da intencao no 2o /parse:
+// register_product = usuario aceitou cadastrar; confirm = seguiu sem produto.
+const PRODUCT_DECISION_REGISTER = {
+  ...COMPLETE_WITH_PRODUCT_NOT_FOUND,
+  nextAction: "register_product",
+};
+
+// Story 22.4: troca o mock de /parse para a proxima chamada devolver register_product
+// (usuario aceitou o cadastro em awaiting_product_decision).
+function swapParseToRegisterProduct() {
+  restoreFetch();
+  createMockFetch([
+    {
+      url: /\/api\/agent\/briefing\/parse$/,
+      method: "POST",
+      response: mockJsonResponse(PRODUCT_DECISION_REGISTER),
+    },
+  ]);
+}
+
+// Story 22.4: forca o proximo /parse a FALHAR (fail-open, AC5) — o handler cai no
+// desempate por keyword no catch.
+function swapParseToFailure() {
+  restoreFetch();
+  createMockFetch([
+    {
+      url: /\/api\/agent\/briefing\/parse$/,
+      method: "POST",
+      response: mockErrorResponse(500, "parse indisponivel"),
+    },
+  ]);
+}
 
 const EXTRACTED_PRODUCT = {
   name: "TDEC Analytics",
@@ -175,12 +210,14 @@ describe("useBriefingFlow", () => {
     });
 
     expect(result.current.state.status).toBe("awaiting_fields");
-    expect(result.current.state.missingFields).toContain("technology");
-    // Story 17.8: smart questions with suggestions
+    expect(result.current.state.missingFields).toContain("location");
+    // Story 22.1: agente pergunta cargo + localizacao, NUNCA tecnologia como exigencia
     expect(mockSendAgentMessage).toHaveBeenCalledWith(
       EXEC_ID,
-      expect.stringContaining("tecnologias comuns no setor")
+      expect.stringContaining("localizacao")
     );
+    const askMsg = mockSendAgentMessage.mock.calls[0][1] as string;
+    expect(askMsg).not.toContain("tecnologias comuns");
   });
 
   it("deve gerar perguntas inteligentes com sugestoes para campos faltantes (AC: #3, 17.8)", async () => {
@@ -203,9 +240,10 @@ describe("useBriefingFlow", () => {
     });
 
     const agentMsg = mockSendAgentMessage.mock.calls[0][1] as string;
-    // Story 17.8: smart questions include suggestions inline
-    expect(agentMsg).toContain("tecnologias comuns no setor");
+    // Story 22.1: perguntas cobrem cargo + localizacao (com sugestoes de cargo inline)
     expect(agentMsg).toContain("cargos comuns");
+    expect(agentMsg).toContain("localizacao");
+    expect(agentMsg).not.toContain("tecnologias comuns no setor");
   });
 
   it("deve re-parsear com contexto acumulado quando usuario responde (AC: #3)", async () => {
@@ -252,11 +290,12 @@ describe("useBriefingFlow", () => {
   });
 
   it("deve confirmar briefing quando usuario diz 'sim' (AC: #4)", async () => {
+    // Story 22.3: confirmacao passa pelo LLM -> nextAction "proceed" confirma.
     createMockFetch([
       {
         url: /\/api\/agent\/briefing\/parse$/,
         method: "POST",
-        response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        response: mockJsonResponse({ ...COMPLETE_PARSE_RESPONSE, nextAction: "proceed" }),
       },
     ]);
 
@@ -287,11 +326,12 @@ describe("useBriefingFlow", () => {
     const confirmations = ["ok", "pode ir", "confirmo", "perfeito", "bora"];
 
     for (const keyword of confirmations) {
+      // Story 22.3: o LLM devolve "proceed" diante do resumo -> confirma.
       createMockFetch([
         {
           url: /\/api\/agent\/briefing\/parse$/,
           method: "POST",
-          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+          response: mockJsonResponse({ ...COMPLETE_PARSE_RESPONSE, nextAction: "proceed" }),
         },
       ]);
 
@@ -407,7 +447,7 @@ describe("useBriefingFlow", () => {
       {
         url: /\/api\/agent\/briefing\/parse$/,
         method: "POST",
-        response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        response: mockJsonResponse({ ...COMPLETE_PARSE_RESPONSE, nextAction: "proceed" }),
       },
     ]);
 
@@ -508,6 +548,8 @@ describe("useBriefingFlow", () => {
         );
       });
 
+      // Story 22.4: a decisao "sim" agora e classificada pelo LLM (nextAction).
+      swapParseToRegisterProduct();
       mockSendAgentMessage.mockClear();
 
       await act(async () => {
@@ -573,6 +615,9 @@ describe("useBriefingFlow", () => {
         );
       });
 
+      // Story 22.4: com o /parse indisponivel (fail-open, AC5), "talvez" nao casa keyword
+      // de confirmacao nem de rejeicao -> ambiguo -> reapresenta a oferta.
+      swapParseToFailure();
       mockSendAgentMessage.mockClear();
 
       await act(async () => {
@@ -583,6 +628,7 @@ describe("useBriefingFlow", () => {
         );
       });
 
+      expect(result.current.state.status).toBe("awaiting_product_decision");
       expect(mockSendAgentMessage).toHaveBeenCalledWith(
         EXEC_ID,
         expect.stringContaining("Responda 'sim' para cadastrar ou 'nao'")
@@ -609,7 +655,8 @@ describe("useBriefingFlow", () => {
         );
       });
 
-      // Step 2: Accept registration
+      // Step 2: Accept registration (Story 22.4: decisao via LLM/nextAction)
+      swapParseToRegisterProduct();
       await act(async () => {
         await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
       });
@@ -661,6 +708,8 @@ describe("useBriefingFlow", () => {
         );
       });
 
+      // Story 22.4: "sim" em awaiting_product_decision agora e classificado pelo LLM.
+      swapParseToRegisterProduct();
       await act(async () => {
         await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
       });
@@ -712,7 +761,8 @@ describe("useBriefingFlow", () => {
         );
       });
 
-      // Step 2: Accept registration
+      // Step 2: Accept registration (Story 22.4: decisao via LLM/nextAction)
+      swapParseToRegisterProduct();
       await act(async () => {
         await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
       });
@@ -777,6 +827,8 @@ describe("useBriefingFlow", () => {
         );
       });
 
+      // Story 22.4: "sim" em awaiting_product_decision agora e classificado pelo LLM.
+      swapParseToRegisterProduct();
       await act(async () => {
         await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
       });
@@ -835,6 +887,8 @@ describe("useBriefingFlow", () => {
         );
       });
 
+      // Story 22.4: "sim" em awaiting_product_decision agora e classificado pelo LLM.
+      swapParseToRegisterProduct();
       await act(async () => {
         await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
       });
@@ -912,11 +966,11 @@ describe("useBriefingFlow", () => {
 
       // Should ask for missing fields first, NOT jump to product decision
       expect(result.current.state.status).toBe("awaiting_fields");
-      expect(result.current.state.missingFields).toContain("technology");
-      // Story 17.8: smart questions with suggestions
+      expect(result.current.state.missingFields).toContain("jobTitles");
+      // Story 22.1: location ja presente -> agente pergunta cargo (nao tecnologia)
       expect(mockSendAgentMessage).toHaveBeenCalledWith(
         EXEC_ID,
-        expect.stringContaining("tecnologias comuns no setor")
+        expect.stringContaining("cargos comuns")
       );
 
       // Now provide missing fields — briefing completes with product not found
@@ -966,6 +1020,9 @@ describe("useBriefingFlow", () => {
         );
       });
 
+      // Story 22.4: com /parse indisponivel (fail-open, AC5), o desempate por keyword roda
+      // no catch — "nao pode" tem "nao" (rejeicao) e "pode" (confirmacao) -> ambiguo.
+      swapParseToFailure();
       mockSendAgentMessage.mockClear();
 
       // "nao pode" contains both "nao" (rejection) and "pode" (confirmation) — should be ambiguous
@@ -999,6 +1056,8 @@ describe("useBriefingFlow", () => {
         );
       });
 
+      // Story 22.4: "sim" em awaiting_product_decision agora e classificado pelo LLM.
+      swapParseToRegisterProduct();
       await act(async () => {
         await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
       });
@@ -1088,7 +1147,8 @@ describe("useBriefingFlow", () => {
       });
       expect(result.current.state.status).toBe("awaiting_product_decision");
 
-      // 2. Accept product registration
+      // 2. Accept product registration (Story 22.4: decisao via LLM/nextAction)
+      swapParseToRegisterProduct();
       await act(async () => {
         await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
       });
@@ -1253,6 +1313,43 @@ describe("useBriefingFlow", () => {
       expect(helpMsg).toContain("cargos comuns");
     });
 
+    it("deve sugerir tecnologia somente quando o usuario pedir ajuda explicitamente (22.1)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(INCOMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "Quero prospectar empresas de tecnologia",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("awaiting_fields");
+      mockSendAgentMessage.mockClear();
+
+      await act(async () => {
+        const outcome = await result.current.processMessage(
+          "quais tecnologias voce recomenda?",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+        expect(outcome.handled).toBe(true);
+      });
+
+      const helpMsg = mockSendAgentMessage.mock.calls[0][1] as string;
+      expect(helpMsg).toContain("tecnologias comuns");
+      expect(helpMsg).toContain("AWS");
+      expect(helpMsg).toContain("sem filtro de tecnologia");
+    });
+
     // 6.15: usuario aceita sugestao → re-parse com contexto acumulado extrai os cargos
     it("deve re-parsear quando usuario aceita sugestao (6.15)", async () => {
       createMockFetch([
@@ -1335,8 +1432,52 @@ describe("useBriefingFlow", () => {
 
       expect(result.current.state.status).toBe("confirming");
       const summaryMsg = mockSendAgentMessage.mock.calls[0][1] as string;
+      // Story 22.1: nota de tech reflete a nova regra (cargo + localizacao)
       expect(summaryMsg).toContain("Sem tecnologia especifica");
-      expect(summaryMsg).toContain("busca mais ampla");
+      expect(summaryMsg).toContain("busca por cargo + localizacao");
+    });
+
+    it("deve omitir nota de industria quando setor nao foi informado (22.1 AC6)", async () => {
+      const responseWithoutIndustry = {
+        briefing: {
+          technology: null,
+          jobTitles: ["CTO"],
+          location: "Sao Paulo",
+          companySize: null,
+          industry: null,
+          productSlug: null,
+          mode: "guided" as const,
+          skipSteps: ["search_companies"],
+        },
+        missingFields: ["technology", "industry", "companySize"],
+        isComplete: false,
+        canProceed: true,
+        suggestions: {},
+        productMentioned: null,
+      };
+
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(responseWithoutIndustry),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "Quero prospectar CTOs em Sao Paulo",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      const summaryMsg = mockSendAgentMessage.mock.calls[0][1] as string;
+      expect(summaryMsg).toContain("Sem tecnologia especifica");
+      expect(summaryMsg).not.toContain("Sem industria especifica");
+      expect(summaryMsg).not.toContain("busca em todos os setores");
     });
 
     // Story 17.10: briefing summary com skipSteps search_companies
@@ -1465,10 +1606,150 @@ describe("useBriefingFlow", () => {
 
       const question = generateSmartQuestion("technology", [], briefing);
 
-      expect(question).toContain("tecnologia ou ferramenta");
-      expect(question).toContain("posso sugerir opcoes");
+      expect(question).toContain("filtro opcional");
+      expect(question).toContain("informar um setor");
+      expect(question).toContain("sem filtro de tecnologia");
       // Should NOT contain empty list artifacts
       expect(question).not.toContain("[]");
+    });
+  });
+
+  // ==============================================
+  // Story 22.1: Localizacao obrigatoria, tecnologia opcional
+  // ==============================================
+
+  describe("Localizacao obrigatoria (Story 22.1)", () => {
+    it("deve gerar pergunta natural e proativa para location", () => {
+      const briefing = {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: null,
+        companySize: null,
+        industry: null,
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies"],
+      };
+
+      const question = generateSmartQuestion("location", [], briefing);
+
+      expect(question).toContain("localizacao");
+      // Pergunta direta e proativa, sem artefatos de lista vazia
+      expect(question).not.toContain("[]");
+      expect(question).not.toContain("undefined");
+    });
+
+    it("deve perguntar localizacao (nao tecnologia) quando cargo presente e location ausente", async () => {
+      const noLocationResponse = {
+        briefing: {
+          technology: null,
+          jobTitles: ["CTO"],
+          location: null,
+          companySize: null,
+          industry: null,
+          productSlug: null,
+          mode: "guided" as const,
+          skipSteps: ["search_companies"],
+        },
+        missingFields: ["technology", "location", "industry", "companySize"],
+        isComplete: false,
+        canProceed: false,
+        suggestions: {},
+        productMentioned: null,
+      };
+
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(noLocationResponse),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "quero prospectar CTOs",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("awaiting_fields");
+      const askMsg = mockSendAgentMessage.mock.calls[0][1] as string;
+      expect(askMsg).toContain("localizacao");
+      // tecnologia nunca e apresentada como exigencia no caminho principal
+      expect(askMsg).not.toContain("tecnologia");
+    });
+
+    it("NAO deve re-perguntar tecnologia quando usuario a recusa — pivota para location (AC4 loop morto)", async () => {
+      const noLocationResponse = {
+        briefing: {
+          technology: null,
+          jobTitles: ["CTO"],
+          location: null,
+          companySize: null,
+          industry: null,
+          productSlug: null,
+          mode: "guided" as const,
+          skipSteps: ["search_companies"],
+        },
+        missingFields: ["technology", "location", "industry", "companySize"],
+        isComplete: false,
+        canProceed: false,
+        suggestions: {},
+        productMentioned: null,
+      };
+
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(noLocationResponse),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      // Turno 1: agente pergunta localizacao (cargo ja presente)
+      await act(async () => {
+        await result.current.processMessage(
+          "quero prospectar CTOs",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("awaiting_fields");
+      const firstAsk = mockSendAgentMessage.mock.calls[0][1] as string;
+      expect(firstAsk).toContain("localizacao");
+      expect(firstAsk).not.toContain("tecnologia");
+
+      // Turno 2: usuario RECUSA tecnologia — o agente NAO pode entrar em loop
+      // re-perguntando tecnologia; deve continuar pedindo localizacao.
+      restoreFetch();
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(noLocationResponse),
+        },
+      ]);
+      mockSendAgentMessage.mockClear();
+
+      await act(async () => {
+        await result.current.processMessage(
+          "nao tenho tecnologia",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("awaiting_fields");
+      const secondAsk = mockSendAgentMessage.mock.calls[0][1] as string;
+      expect(secondAsk).toContain("localizacao");
+      expect(secondAsk).not.toContain("tecnologia");
     });
   });
 
@@ -1655,6 +1936,849 @@ describe("useBriefingFlow", () => {
       expect(mockSendAgentMessage).toHaveBeenLastCalledWith(
         EXEC_ID,
         expect.stringContaining("cole a lista de leads novamente")
+      );
+    });
+  });
+
+  // ==============================================
+  // Story 22.3: Conversa com Memoria Real & Intencao via LLM
+  // ==============================================
+
+  describe("Memoria real + intencao via LLM (Story 22.3)", () => {
+    it("NUCLEO: 2o /parse envia historico estruturado com turno role:agent (memoria)", async () => {
+      const fetchMock = createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(INCOMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      // Turno 1: usuario -> agente pergunta (registrada no historico)
+      await act(async () => {
+        await result.current.processMessage(
+          "Quero prospectar CTOs",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      // Turno 2: usuario responde -> 2o /parse deve carregar a pergunta do agente
+      await act(async () => {
+        await result.current.processMessage(
+          "em Sao Paulo",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      const parseCalls = fetchMock
+        .calls()
+        .filter((c) => /\/api\/agent\/briefing\/parse$/.test(c.url));
+      expect(parseCalls).toHaveLength(2);
+
+      const secondBody = parseCalls[1].body as {
+        messages?: Array<{ role: string; content: string }>;
+        message?: string;
+      };
+
+      // Memoria estruturada: NAO mais string concatenada com \n
+      expect(secondBody.message).toBeUndefined();
+      expect(secondBody.messages).toBeDefined();
+      // Deve haver ao menos um turno do AGENTE (a pergunta) entre os do usuario
+      expect(secondBody.messages?.some((m) => m.role === "agent")).toBe(true);
+      // E a ultima mensagem e a do usuario atual
+      const last = secondBody.messages?.[secondBody.messages.length - 1];
+      expect(last).toEqual({ role: "user", content: "em Sao Paulo" });
+    });
+
+    it("nextAction:proceed confirma no confirming sem depender de keyword (AC3)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
+      });
+      expect(result.current.state.status).toBe("confirming");
+
+      // "segue o baile" NAO bate com nenhuma CONFIRMATION_KEYWORD — so o LLM confirma
+      restoreFetch();
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse({ ...COMPLETE_PARSE_RESPONSE, nextAction: "proceed" }),
+        },
+      ]);
+
+      let outcome: { handled: boolean; confirmed?: boolean } | undefined;
+      await act(async () => {
+        outcome = await result.current.processMessage(
+          "segue o baile",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirmed");
+      expect(outcome?.confirmed).toBe(true);
+    });
+
+    it("correcao parcial em confirming aplica briefing e reapresenta resumo (AC3)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
+      });
+      expect(result.current.state.status).toBe("confirming");
+
+      restoreFetch();
+      const corrected = {
+        ...COMPLETE_PARSE_RESPONSE,
+        briefing: { ...COMPLETE_PARSE_RESPONSE.briefing, jobTitles: ["CFO"] },
+        nextAction: "confirm",
+      };
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(corrected),
+        },
+      ]);
+      mockSendAgentMessage.mockClear();
+
+      await act(async () => {
+        await result.current.processMessage(
+          "na verdade troca o cargo pra CFO",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      expect(result.current.state.briefing?.jobTitles).toEqual(["CFO"]);
+      // resumo deterministico reapresentado (D1: transparencia dos parametros)
+      expect(mockSendAgentMessage).toHaveBeenCalledWith(
+        EXEC_ID,
+        expect.stringContaining("Confirma esses parametros?")
+      );
+    });
+
+    it("nextAction:ask + canProceed:false usa questionText do LLM (AC6)", async () => {
+      const askResponse = {
+        ...INCOMPLETE_PARSE_RESPONSE,
+        questionText: "Qual a localizacao-alvo da prospeccao?",
+        nextAction: "ask",
+      };
+
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(askResponse),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "quero prospectar",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("awaiting_fields");
+      // questionText do LLM usado verbatim quando presente
+      expect(mockSendAgentMessage).toHaveBeenCalledWith(
+        EXEC_ID,
+        "Qual a localizacao-alvo da prospeccao?"
+      );
+    });
+
+    it("fail-open: parse falha no confirming + 'sim' confirma via keyword (AC4)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
+      });
+      expect(result.current.state.status).toBe("confirming");
+
+      // LLM cai (500) -> keyword deterministica salva
+      restoreFetch();
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockErrorResponse(500, "Server Error"),
+        },
+      ]);
+
+      let outcome: { handled: boolean; confirmed?: boolean } | undefined;
+      await act(async () => {
+        outcome = await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
+      });
+
+      expect(result.current.state.status).toBe("confirmed");
+      expect(outcome?.confirmed).toBe(true);
+    });
+
+    it("fail-open: parse falha no confirming + msg nao-confirmadora mantem confirming (AC4)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
+      });
+      expect(result.current.state.status).toBe("confirming");
+
+      restoreFetch();
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockErrorResponse(500, "Server Error"),
+        },
+      ]);
+
+      let outcome: { handled: boolean; confirmed?: boolean } | undefined;
+      await act(async () => {
+        outcome = await result.current.processMessage(
+          "ainda estou pensando",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      expect(outcome?.handled).toBe(false);
+    });
+
+    // ==============================================
+    // REVIEW PATCHES (code review 22.3, 2026-07-20)
+    // ==============================================
+
+    it("guard hibrido: 'sim' confirma no caminho de sucesso mesmo com LLM devolvendo confirm (review 22.3)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
+      });
+      expect(result.current.state.status).toBe("confirming");
+
+      // Parse SUCEDE (200) mas o LLM classifica "sim" como "confirm" (nao "proceed")
+      // e NAO aplica correcao (briefing identico) -> keyword de seguranca confirma.
+      restoreFetch();
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse({ ...COMPLETE_PARSE_RESPONSE, nextAction: "confirm" }),
+        },
+      ]);
+
+      let outcome: { handled: boolean; confirmed?: boolean } | undefined;
+      await act(async () => {
+        outcome = await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
+      });
+
+      expect(result.current.state.status).toBe("confirmed");
+      expect(outcome?.confirmed).toBe(true);
+    });
+
+    it("guard hibrido NAO confirma quando o LLM aplicou correcao ('sim, mas...') (review 22.3)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
+      });
+      expect(result.current.state.status).toBe("confirming");
+
+      // "sim, mas..." contem keyword de confirmacao, MAS o LLM aplicou a correcao
+      // (jobTitles mudou) -> briefingChanged -> reapresenta o resumo (AC3).
+      restoreFetch();
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse({
+            ...COMPLETE_PARSE_RESPONSE,
+            briefing: { ...COMPLETE_PARSE_RESPONSE.briefing, jobTitles: ["CFO"] },
+            nextAction: "confirm",
+          }),
+        },
+      ]);
+      mockSendAgentMessage.mockClear();
+
+      let outcome: { handled: boolean; confirmed?: boolean } | undefined;
+      await act(async () => {
+        outcome = await result.current.processMessage(
+          "sim, mas troca o cargo pra CFO",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      expect(outcome?.confirmed).toBeUndefined();
+      expect(result.current.state.briefing?.jobTitles).toEqual(["CFO"]);
+      expect(mockSendAgentMessage).toHaveBeenCalledWith(
+        EXEC_ID,
+        expect.stringContaining("Confirma esses parametros?")
+      );
+    });
+
+    it("memoria: fast-path de ajuda registra pergunta e sugestoes no historico (review 22.3)", async () => {
+      const fetchMock = createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(INCOMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage("Quero prospectar", EXEC_ID, mockSendAgentMessage);
+      });
+      expect(result.current.state.status).toBe("awaiting_fields");
+
+      // Fast-path de ajuda (deterministico, sem /parse) — deve entrar na memoria
+      await act(async () => {
+        await result.current.processMessage(
+          "quais tecnologias voce recomenda?",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+      expect(result.current.state.status).toBe("awaiting_fields");
+
+      // Resposta posicional -> re-parse; o body deve carregar o turno de ajuda
+      // do usuario E a lista sugerida pelo agente (senao "a primeira" nao resolve).
+      await act(async () => {
+        await result.current.processMessage("a primeira", EXEC_ID, mockSendAgentMessage);
+      });
+
+      const parseCalls = fetchMock
+        .calls()
+        .filter((c) => /\/api\/agent\/briefing\/parse$/.test(c.url));
+      expect(parseCalls).toHaveLength(2);
+
+      const secondBody = parseCalls[1].body as {
+        messages?: Array<{ role: string; content: string }>;
+      };
+      const contents = secondBody.messages?.map((m) => `${m.role}:${m.content}`) ?? [];
+      expect(contents).toContain("user:quais tecnologias voce recomenda?");
+      expect(
+        secondBody.messages?.some(
+          (m) => m.role === "agent" && m.content.includes("AWS")
+        )
+      ).toBe(true);
+      const last = secondBody.messages?.[secondBody.messages.length - 1];
+      expect(last).toEqual({ role: "user", content: "a primeira" });
+    });
+
+    it("questionText vazio cai no smart-question deterministico (review 22.3)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse({
+            ...INCOMPLETE_PARSE_RESPONSE,
+            nextAction: "ask",
+            questionText: "   ",
+          }),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage("quero prospectar", EXEC_ID, mockSendAgentMessage);
+      });
+
+      expect(result.current.state.status).toBe("awaiting_fields");
+      // String vazia/whitespace NUNCA e enviada (poluiria o historico e o proximo
+      // /parse levaria 400 por content min(1)) — cai na pergunta deterministica.
+      expect(mockSendAgentMessage).toHaveBeenCalledWith(
+        EXEC_ID,
+        expect.stringContaining("Para montar a prospeccao")
+      );
+    });
+
+    it("questionText fora do ramo ask e ignorado (tom de confirmacao com gating fechado) (review 22.3)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse({
+            ...INCOMPLETE_PARSE_RESPONSE,
+            nextAction: "confirm",
+            questionText: "Perfeito, vou iniciar a prospeccao!",
+          }),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage("quero prospectar", EXEC_ID, mockSendAgentMessage);
+      });
+
+      // canProceed=false prevalece (NFR1) e o texto de confirmacao fora de hora
+      // NAO e mostrado — pergunta deterministica no lugar.
+      expect(result.current.state.status).toBe("awaiting_fields");
+      expect(mockSendAgentMessage).not.toHaveBeenCalledWith(
+        EXEC_ID,
+        "Perfeito, vou iniciar a prospeccao!"
+      );
+      expect(mockSendAgentMessage).toHaveBeenCalledWith(
+        EXEC_ID,
+        expect.stringContaining("Para montar a prospeccao")
+      );
+    });
+  });
+
+  // ==============================================
+  // SUB-FLUXOS POR DECISAO DO LLM (Story 22.4)
+  // ==============================================
+
+  describe("Sub-fluxos por decisao do LLM (Story 22.4)", () => {
+    // import_leads disparado pela INTENCAO do LLM, SEM os skipSteps de leads no briefing —
+    // prova que o gatilho e o nextAction, nao o sinal deterministico.
+    const IMPORT_LEADS_INTENT_NO_SKIP = {
+      briefing: {
+        technology: null,
+        jobTitles: [],
+        location: null,
+        companySize: null,
+        industry: null,
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: [] as string[], // <- sem skipSteps de leads
+      },
+      missingFields: ["technology", "jobTitles", "location"],
+      isComplete: false,
+      canProceed: false,
+      suggestions: {},
+      productMentioned: null,
+      nextAction: "import_leads" as const,
+      questionText: null,
+    };
+
+    // Fallback deterministico: SEM nextAction de leads (default "ask") mas COM skipSteps.
+    const IMPORT_LEADS_DETERMINISTIC = {
+      briefing: {
+        technology: null,
+        jobTitles: [],
+        location: null,
+        companySize: null,
+        industry: null,
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies", "search_leads"],
+      },
+      missingFields: ["technology", "jobTitles"],
+      isComplete: false,
+      canProceed: false,
+      suggestions: {},
+      productMentioned: null,
+      nextAction: "ask" as const, // <- NAO e import_leads: so o skipSteps dispara
+      questionText: null,
+    };
+
+    // D4: register_product mas o produto JA existe na base (productSlug != null).
+    const REGISTER_PRODUCT_ALREADY_EXISTS = {
+      ...COMPLETE_WITH_PRODUCT_FOUND,
+      nextAction: "register_product" as const,
+    };
+
+    it("dispara awaiting_leads_input via nextAction=import_leads SEM skipSteps (AC: #2)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(IMPORT_LEADS_INTENT_NO_SKIP),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "na verdade eu ja tenho minha lista de contatos",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("awaiting_leads_input");
+      expect(mockSendAgentMessage).toHaveBeenCalledWith(
+        EXEC_ID,
+        expect.stringContaining("Cole a lista")
+      );
+
+      // Review 22.4: mesmo o gatilho sendo o nextAction (o mock trouxe skipSteps []), o
+      // hook RECONCILIA skipSteps no briefing -> senao o downstream (create-campaign-step,
+      // que decide por skipSteps) descartaria os leads colados e rodaria busca paga.
+      expect(result.current.state.briefing?.skipSteps).toEqual(
+        expect.arrayContaining(["search_companies", "search_leads"])
+      );
+
+      // Depois cola leads -> reusa parseLeadInput -> confirming_leads
+      await act(async () => {
+        await result.current.processMessage(
+          "joao@empresa.com\nmaria@acme.com",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming_leads");
+      expect(result.current.state.briefing?.importedLeads).toHaveLength(2);
+      // skipSteps preservado apos o paste (o spread de importedLeads nao apaga)
+      expect(result.current.state.briefing?.skipSteps).toEqual(
+        expect.arrayContaining(["search_companies", "search_leads"])
+      );
+    });
+
+    it("fallback deterministico: skipSteps de leads dispara mesmo sem nextAction (AC: #2)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(IMPORT_LEADS_DETERMINISTIC),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "ja tenho meus leads",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("awaiting_leads_input");
+    });
+
+    it("register_product explicito vai DIRETO para awaiting_product_details (AC: #1)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(PRODUCT_DECISION_REGISTER),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "quero cadastrar meu produto antes de continuar",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      // Pula a oferta sim/nao (awaiting_product_decision) — vai direto aos detalhes.
+      expect(result.current.state.status).toBe("awaiting_product_details");
+      expect(result.current.state.productMentioned).toBe("TDEC Analytics");
+      expect(mockSendAgentMessage).toHaveBeenCalledWith(
+        EXEC_ID,
+        expect.stringContaining("Me descreva o produto em linguagem natural")
+      );
+    });
+
+    it("D4: register_product e IGNORADO quando o produto ja existe na base (productSlug != null)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(REGISTER_PRODUCT_ALREADY_EXISTS),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "quero cadastrar o TDEC Analytics",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      // KB prevalece: NAO entra no fluxo de produto, segue para o resumo.
+      expect(result.current.state.status).toBe("confirming");
+      expect(result.current.state.briefing?.productSlug).toBe("prod-123");
+    });
+
+    it("awaiting_product_decision -> cadastrar via nextAction em linguagem livre (AC: #1)", async () => {
+      // 1o /parse: produto mencionado, nao encontrado -> oferta (decision)
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_WITH_PRODUCT_NOT_FOUND),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "Quero prospectar pro TDEC Analytics",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+      expect(result.current.state.status).toBe("awaiting_product_decision");
+
+      // 2o /parse: resposta LIVRE (sem "sim" literal) classificada como register_product
+      swapParseToRegisterProduct();
+      mockSendAgentMessage.mockClear();
+
+      await act(async () => {
+        await result.current.processMessage(
+          "pode cadastrar sim, vamos nessa",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("awaiting_product_details");
+      expect(mockSendAgentMessage).toHaveBeenCalledWith(
+        EXEC_ID,
+        expect.stringContaining("Me descreva o produto em linguagem natural")
+      );
+    });
+
+    it("awaiting_product_decision -> recusa via nextAction limpa productMentioned e reapresenta resumo (AC: #1)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_WITH_PRODUCT_NOT_FOUND),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "Quero prospectar pro TDEC Analytics",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+      expect(result.current.state.status).toBe("awaiting_product_decision");
+
+      // 2o /parse: usuario recusa em linguagem livre -> nextAction "confirm" (segue sem produto)
+      restoreFetch();
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse({
+            ...COMPLETE_WITH_PRODUCT_NOT_FOUND,
+            nextAction: "confirm",
+          }),
+        },
+      ]);
+      mockSendAgentMessage.mockClear();
+
+      await act(async () => {
+        await result.current.processMessage(
+          "nao precisa, pode seguir sem produto",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      expect(result.current.state.productMentioned).toBeNull();
+      expect(mockSendAgentMessage).toHaveBeenCalledWith(
+        EXEC_ID,
+        expect.stringContaining("Confirma esses parametros?")
+      );
+    });
+
+    it("recusa COM correcao embutida: aplica result.briefing (nao o state antigo) (Review 22.4)", async () => {
+      // 1o /parse: produto mencionado, nao encontrado -> oferta (decision) com cargo CTO
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_WITH_PRODUCT_NOT_FOUND),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "Quero prospectar pro TDEC Analytics",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+      expect(result.current.state.status).toBe("awaiting_product_decision");
+      expect(result.current.state.briefing?.jobTitles).toEqual(["CTO"]);
+
+      // 2o /parse: usuario RECUSA o produto E corrige o cargo no mesmo turno ->
+      // nextAction "confirm" com o briefing corrigido (CFO).
+      restoreFetch();
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse({
+            ...COMPLETE_WITH_PRODUCT_NOT_FOUND,
+            briefing: {
+              ...COMPLETE_WITH_PRODUCT_NOT_FOUND.briefing,
+              jobTitles: ["CFO"],
+            },
+            nextAction: "confirm",
+          }),
+        },
+      ]);
+      mockSendAgentMessage.mockClear();
+
+      await act(async () => {
+        await result.current.processMessage(
+          "nao precisa do produto, mas troca o cargo pra CFO",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      expect(result.current.state.productMentioned).toBeNull();
+      // Review 22.4: a correcao embutida na recusa e APLICADA (era perdida antes do patch,
+      // que reapresentava o state.briefing antigo com CTO).
+      expect(result.current.state.briefing?.jobTitles).toEqual(["CFO"]);
+      expect(mockSendAgentMessage).toHaveBeenCalledWith(
+        EXEC_ID,
+        expect.stringContaining("CFO")
+      );
+    });
+
+    it("fail-open (AC5): /parse falha em awaiting_product_decision -> 'sim' cadastra por keyword", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_WITH_PRODUCT_NOT_FOUND),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "Quero prospectar pro TDEC Analytics",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+      expect(result.current.state.status).toBe("awaiting_product_decision");
+
+      swapParseToFailure();
+
+      await act(async () => {
+        await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
+      });
+
+      expect(result.current.state.status).toBe("awaiting_product_details");
+    });
+
+    it("fail-open (AC5): /parse falha em awaiting_product_decision -> 'nao' segue sem produto por keyword", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_WITH_PRODUCT_NOT_FOUND),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "Quero prospectar pro TDEC Analytics",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+      expect(result.current.state.status).toBe("awaiting_product_decision");
+
+      swapParseToFailure();
+      mockSendAgentMessage.mockClear();
+
+      await act(async () => {
+        await result.current.processMessage("nao", EXEC_ID, mockSendAgentMessage);
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      expect(result.current.state.productMentioned).toBeNull();
+      // Review 22.4: o resumo reapresentado no fail-open passa missingFields ->
+      // a nota de campo opcional (companySize) aparece.
+      expect(mockSendAgentMessage).toHaveBeenCalledWith(
+        EXEC_ID,
+        expect.stringContaining("tamanho")
       );
     });
   });

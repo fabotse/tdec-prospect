@@ -187,6 +187,7 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
       expect(mockSearchPeople).toHaveBeenCalledWith({
         domains: ["acme.com", "beta.io"],
         titles: ["CTO", "VP Engineering"],
+        locations: ["Brasil"],
         perPage: 25,
         page: 1,
       });
@@ -429,6 +430,20 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
       expect(mockSearchPeople).toHaveBeenCalledWith(
         expect.objectContaining({
           domains: ["acme.com", "beta.io"],
+          locations: ["Brasil"],
+        })
+      );
+    });
+
+    it("preserva cidade/regiao na busca normal depois do filtro de empresas (Story 22.1)", async () => {
+      const input = createInput({ location: "Sao Paulo" });
+
+      await step.run(input);
+
+      expect(mockSearchPeople).toHaveBeenCalledWith(
+        expect.objectContaining({
+          domains: ["acme.com", "beta.io"],
+          locations: ["Sao Paulo"],
         })
       );
     });
@@ -468,6 +483,7 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
       expect(result.data.searchFilters).toMatchObject({
         domains: ["acme.com", "beta.io"],
         titles: ["CTO", "VP Engineering"],
+        locations: ["Brasil"],
         perPage: 25,
         page: 1,
       });

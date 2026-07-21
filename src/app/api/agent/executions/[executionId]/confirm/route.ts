@@ -13,7 +13,7 @@ import { PlanGeneratorService } from "@/lib/services/agent-plan-generator";
 import type { ParsedBriefing } from "@/types/agent";
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ executionId: string }> }
 ) {
   const profile = await getCurrentUserProfile();
@@ -63,10 +63,24 @@ export async function POST(
     );
   }
 
+  // Story 22.2: ler o toggle de icebreaker premium (LinkedIn) do corpo.
+  // Parse defensivo — o cliente pode nao enviar corpo (fluxos/testes antigos); nesse caso trata como false, nunca 400.
+  let premiumIcebreakers = false;
+  try {
+    const body = (await request.json()) as { premiumIcebreakers?: unknown } | null;
+    premiumIcebreakers = body?.premiumIcebreakers === true;
+  } catch {
+    premiumIcebreakers = false;
+  }
+
+  // Story 22.2: mesclar o toggle no briefing (JSONB — NFR5) ANTES de estimar custo/gerar plano,
+  // para que o cost_estimate salvo reflita o Apify e o CreateCampaignStep enxergue a escolha.
+  const nextBriefing = { ...briefing, premiumIcebreakers };
+
   // Re-gerar plano (consistencia)
   const costModels = await CostEstimatorService.ensureCostModels(supabase, profile.tenant_id);
-  const costEstimate = CostEstimatorService.estimateCosts(costModels, briefing);
-  const steps = PlanGeneratorService.generatePlan(briefing, costEstimate);
+  const costEstimate = CostEstimatorService.estimateCosts(costModels, nextBriefing);
+  const steps = PlanGeneratorService.generatePlan(nextBriefing, costEstimate);
 
   // Story 17.10: Criar agent_steps para TODOS os steps (skipped ficam como "pending"
   // e o orchestrator marca como "skipped" na execucao via shouldSkip)
@@ -93,6 +107,7 @@ export async function POST(
   const { data: updated, error: updateError } = await supabase
     .from("agent_executions")
     .update({
+      briefing: nextBriefing, // Story 22.2: persiste premiumIcebreakers no JSONB
       cost_estimate: costEstimate,
       total_steps: steps.length,
     })

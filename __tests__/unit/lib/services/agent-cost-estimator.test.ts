@@ -7,7 +7,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   CostEstimatorService,
   DEFAULT_COSTS,
-  DEFAULT_VOLUMES,
 } from "@/lib/services/agent-cost-estimator";
 import type { ParsedBriefing } from "@/types/agent";
 import { createChainBuilder } from "../../../helpers/mock-supabase";
@@ -191,6 +190,46 @@ describe("CostEstimatorService", () => {
       expect(result.steps.search_leads.description).toBeTruthy();
       expect(result.steps.create_campaign.description).toBeTruthy();
       expect(result.steps.activate.description).toBe("Gratuito");
+    });
+
+    // Story 22.2: icebreaker premium soma Apify ao create_campaign
+    it("soma custo Apify ao create_campaign quando premiumIcebreakers=true", () => {
+      const costModels = new Map<string, number>();
+      const briefing = createBriefing({ premiumIcebreakers: true });
+
+      const result = CostEstimatorService.estimateCosts(costModels, briefing);
+
+      // create_campaign: AI (4.20) + Apify (60 * 0.15 = 9.00) = 13.20
+      expect(result.steps.create_campaign.estimated).toBeCloseTo(13.20);
+      // total: 0.10 + 3.00 + 13.20 + 0 + 0 = 16.30
+      expect(result.total).toBeCloseTo(16.30);
+      // descricao menciona os perfis LinkedIn
+      expect(result.steps.create_campaign.description).toMatch(/LinkedIn/);
+    });
+
+    it("mantem custo IDENTICO ao atual quando premiumIcebreakers=false/ausente (regressao AC5)", () => {
+      const costModels = new Map<string, number>();
+      const withFalse = CostEstimatorService.estimateCosts(
+        costModels,
+        createBriefing({ premiumIcebreakers: false })
+      );
+      const withUndefined = CostEstimatorService.estimateCosts(costModels, createBriefing());
+
+      // ambos = comportamento historico (4.20 create_campaign, total 7.30, sem Apify na descricao)
+      expect(withFalse.steps.create_campaign.estimated).toBeCloseTo(4.20);
+      expect(withFalse.total).toBeCloseTo(7.30);
+      expect(withFalse.steps.create_campaign.description).not.toMatch(/LinkedIn/);
+      expect(withUndefined.steps.create_campaign.estimated).toBeCloseTo(4.20);
+      expect(withUndefined.total).toBeCloseTo(7.30);
+    });
+
+    it("nao soma Apify quando create_campaign esta em skipSteps mesmo com premium ligado", () => {
+      const costModels = new Map<string, number>();
+      const briefing = createBriefing({ premiumIcebreakers: true, skipSteps: ["create_campaign"] });
+
+      const result = CostEstimatorService.estimateCosts(costModels, briefing);
+
+      expect(result.steps.create_campaign.estimated).toBe(0);
     });
   });
 });
