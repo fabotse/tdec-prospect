@@ -162,3 +162,80 @@ export class BriefingSuggestionService {
     return suggestions;
   }
 }
+
+// ==============================================
+// Story 22.7: DERIVACAO A PARTIR DO ICP (heuristica pura)
+// ==============================================
+
+/**
+ * Material do ICP do tenant relevante para sugestoes. Camel-case (a leitura
+ * server-side converte de `job_titles`/`industries` da `knowledge_base`).
+ */
+export interface ICPSuggestionInput {
+  jobTitles: string[];
+  industries: string[];
+}
+
+/** Trim + descarta vazios + dedup (exato, preservando a 1a ocorrencia). */
+function dedupeNonEmpty(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of values) {
+    const value = raw?.trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
+}
+
+/**
+ * Story 22.7 (FR13) — deriva sugestoes de cargo/setor do ICP do tenant.
+ *
+ * Funcao PURA e SINCRONA (testavel, client-safe): a leitura do Supabase vive no
+ * helper server-only `contextual-suggestions.ts` (Trap #3 — nao tornar o service
+ * async, que quebraria o import client-side de `generateSuggestions`).
+ *
+ * So preenche um campo quando o ICP tem material real; campos sem material NAO
+ * entram no retorno. O caller mescla este resultado por cima do estatico
+ * (`generateSuggestions`), que assim vira o fallback fail-open (AC2).
+ *
+ * Espelha as regras do caminho estatico:
+ * - `jobTitles`: apenas quando o briefing ainda nao tem cargos (D4), dedup + cap 6.
+ * - `technology`: apenas quando o briefing nao tem technology; deriva de
+ *   `icp.industries` reusando `INDUSTRY_TO_TECH` quando o setor casa, senao o setor cru.
+ */
+export function deriveSuggestionsFromICP(
+  icp: ICPSuggestionInput,
+  briefing: ParsedBriefing
+): Record<string, string[]> {
+  const suggestions: Record<string, string[]> = {};
+
+  // Cargos: so quando o usuario ainda nao informou (D4 — nao sobrescrever)
+  if (!briefing.jobTitles || briefing.jobTitles.length === 0) {
+    const jobTitles = dedupeNonEmpty(icp.jobTitles).slice(0, 6);
+    if (jobTitles.length > 0) {
+      suggestions.jobTitles = jobTitles;
+    }
+  }
+
+  // Tecnologia/setor: so quando o briefing nao tem technology
+  if (!briefing.technology) {
+    const techs: string[] = [];
+    for (const industry of icp.industries) {
+      if (!industry || !industry.trim()) continue;
+      const mapped = INDUSTRY_TO_TECH[resolveIndustryKey(industry)];
+      if (mapped) {
+        techs.push(...mapped);
+      } else {
+        techs.push(industry.trim());
+      }
+    }
+    const technology = dedupeNonEmpty(techs).slice(0, 6);
+    if (technology.length > 0) {
+      suggestions.technology = technology;
+    }
+  }
+
+  return suggestions;
+}

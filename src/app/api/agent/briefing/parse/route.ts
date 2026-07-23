@@ -13,7 +13,7 @@ import { decryptApiKey } from "@/lib/crypto/encryption";
 import { BriefingParserService } from "@/lib/agent/briefing-parser-service";
 import type { ChatTurn, NextAction, ParsedBriefing } from "@/types/agent";
 import { AGENT_ERROR_CODES } from "@/types/agent";
-import { BriefingSuggestionService } from "@/lib/agent/briefing-suggestion-service";
+import { resolveContextualSuggestions } from "@/lib/agent/contextual-suggestions";
 
 // ==============================================
 // REQUEST VALIDATION
@@ -271,8 +271,13 @@ export async function POST(request: Request) {
       skipSteps,
     };
 
-    // Analyze briefing completeness with contextual suggestions
-    const suggestions = BriefingSuggestionService.generateSuggestions(resolvedBriefing);
+    // Story 22.7: sugestoes KB-first — derivam do ICP do tenant quando disponivel,
+    // com fallback fail-open pros mapas estaticos. NAO altera canProceed/missingFields/
+    // skipSteps (NFR1) — sugestao e conteudo de conversa, nao gate.
+    const suggestions = await resolveContextualSuggestions(
+      resolvedBriefing,
+      profile.tenant_id
+    );
     const { missingFields, canProceed } = analyzeBriefingCompleteness(resolvedBriefing);
     const isComplete = missingFields.length === 0;
 
