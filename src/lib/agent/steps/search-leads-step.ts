@@ -8,6 +8,7 @@
 
 import { BaseStep } from "./base-step";
 import { ApolloService } from "@/lib/services/apollo";
+import { resolveDirectSearchCompanySizes } from "@/lib/agent/search-defaults";
 import type {
   StepInput,
   StepOutput,
@@ -97,14 +98,18 @@ export class SearchLeadsStep extends BaseStep {
     let domains: string[] = [];
 
     if (isDirectEntry) {
-      // Story 17.10: Direct entry — search open market by briefing filters
+      // Story 17.10: Direct entry — search open market by briefing filters.
+      // Story 22.6 (FR12): aplica o piso de qualidade de tamanho de empresa quando o
+      // usuario nao informou tamanho (companySizes SEMPRE presente na busca direta);
+      // se informou, o valor dele sobrescreve totalmente (AC2). Fonte unica: search-defaults.
+      const { companySizes } = resolveDirectSearchCompanySizes(briefing);
       const filters = {
         titles: jobTitles,
         perPage: LEADS_PER_PAGE,
         page: 1,
+        companySizes,
         ...(briefing.location ? { locations: [briefing.location] } : {}),
         ...(briefing.industry ? { industries: [briefing.industry] } : {}),
-        ...(briefing.companySize ? { companySizes: [briefing.companySize] } : {}),
       };
 
       const result = await service.searchPeople(filters);

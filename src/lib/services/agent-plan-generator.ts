@@ -6,6 +6,10 @@
  */
 
 import type { CostEstimate, ParsedBriefing, PlannedStep, StepType } from "@/types/agent";
+import {
+  QUALITY_MIN_COMPANY_SIZE_LABEL,
+  resolveDirectSearchCompanySizes,
+} from "@/lib/agent/search-defaults";
 
 // ==============================================
 // STEP METADATA
@@ -40,10 +44,18 @@ export const PIPELINE_STEPS: StepMetadata[] = [
         return "Etapa pulada — leads fornecidos pelo usuario";
       }
       if (b.skipSteps?.includes("search_companies")) {
+        // Story 22.6 (AC3): exibe o tamanho EFETIVO da busca direta antes da confirmacao —
+        // incluindo o piso de qualidade aplicado por padrao (sem surpresa de escopo).
+        // Mesma fonte (resolveDirectSearchCompanySizes) que o step usa -> zero drift.
+        const { defaultsApplied } = resolveDirectSearchCompanySizes(b);
+        const sizeLabel = defaultsApplied
+          ? `tamanho ${QUALITY_MIN_COMPANY_SIZE_LABEL} (padrao de qualidade)`
+          : `tamanho ${b.companySize}`;
         const filters = [
           b.jobTitles.length > 0 ? b.jobTitles.join(", ") : null,
           b.industry,
           b.location,
+          sizeLabel,
         ].filter(Boolean).join(" + ");
         return `Buscar leads diretamente por ${filters || "cargos"} (sem filtro de empresa)`;
       }

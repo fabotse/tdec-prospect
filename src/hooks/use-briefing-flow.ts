@@ -16,6 +16,10 @@ import type { CreateProductInput } from "@/types/product";
 import type { BriefingParseResponse } from "@/app/api/agent/briefing/parse/route";
 import { BriefingSuggestionService } from "@/lib/agent/briefing-suggestion-service";
 import { parseLeadInput, type LeadImportResult } from "@/lib/agent/lead-import-parser";
+import {
+  QUALITY_MIN_COMPANY_SIZE_LABEL,
+  resolveDirectSearchCompanySizes,
+} from "@/lib/agent/search-defaults";
 
 // ==============================================
 // TYPES
@@ -196,6 +200,11 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
   if (briefing.campaignDescription) lines.push(`- Descricao: ${briefing.campaignDescription}`);
   if (briefing.emailCount) lines.push(`- Nº de e-mails: ${briefing.emailCount}`);
 
+  // Story 22.6: busca direta = search_companies pulado SEM leads importados (search_leads roda).
+  const isDirectSearch =
+    Boolean(briefing.skipSteps?.includes("search_companies")) &&
+    !briefing.skipSteps?.includes("search_leads");
+
   // Notas sobre campos nao informados (Story 17.8 AC: #3)
   if (missingFields && missingFields.length > 0) {
     const fieldNotes: Record<string, string> = {
@@ -204,6 +213,10 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
       companySize: "Sem filtro de tamanho de empresa.",
     };
     const notes = missingFields
+      // Story 22.6: na busca direta, o tamanho recebe uma nota DEDICADA (piso de qualidade)
+      // no ramo abaixo — suprime a nota generica "Sem filtro de tamanho de empresa.", que
+      // seria contraditoria (na busca direta SEMPRE ha um filtro de tamanho aplicado).
+      .filter((f) => !(f === "companySize" && isDirectSearch))
       .map((f) => fieldNotes[f])
       .filter(Boolean);
     if (notes.length > 0) {
@@ -226,6 +239,12 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
       briefing.location,
     ].filter(Boolean).join(" + ");
     lines.push(`Etapa de busca de empresas sera pulada — leads serao buscados diretamente por ${params || "cargos"}.`);
+    // Story 22.6 (AC4): quando o usuario nao informou tamanho, aplica-se um piso de qualidade
+    // (exclui micro-empresas). Convite NAO-bloqueante — o usuario pode so confirmar; canProceed intocado.
+    // Gate derivado do SSOT (mesma fonte do step e do plano) para nunca divergir do que o Apollo recebe.
+    if (resolveDirectSearchCompanySizes(briefing).defaultsApplied) {
+      lines.push(`- Tamanho de empresa: ${QUALITY_MIN_COMPANY_SIZE_LABEL} — padrao de qualidade, me diga se quiser mudar.`);
+    }
   }
 
   // Story 22.5 (AC3/D2): pergunta leve NAO-bloqueante sobre objetivo/quantidade. So aparece
@@ -869,6 +888,11 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       // Awaiting fields — check for help request or re-parse with accumulated context
       if (currentStatus === "awaiting_fields") {
         // Story 17.8 AC: #2 — detect help keywords and respond with suggestions
+        // Story 22.7 (D5): este fast-path de ajuda e CLIENT-SIDE sincrono e NAO tem
+        // acesso a Supabase/tenant, entao permanece ESTATICO de proposito. A melhoria
+        // KB-first (sugestoes derivadas do ICP) vale para o caminho principal server
+        // (parse/route.ts -> resolveContextualSuggestions); tornar o service async
+        // aqui quebraria o import client e o generateSmartQuestion(s) sincrono (Trap #3).
         if (isHelpRequest(content) && state.briefing) {
           const suggestions = BriefingSuggestionService.generateSuggestions(state.briefing);
 

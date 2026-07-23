@@ -1570,6 +1570,147 @@ describe("useBriefingFlow", () => {
       expect(summaryMsg).toContain("leads serao buscados diretamente por cargos");
     });
 
+    // ==============================================
+    // Story 22.6 (FR12): nota do piso de qualidade no resumo da busca direta
+    // ==============================================
+
+    it("deve incluir a nota '11+ padrao de qualidade' na busca direta sem companySize (Story 22.6 AC4)", async () => {
+      const directNoSizeResponse = {
+        briefing: {
+          technology: null,
+          jobTitles: ["Diretor de Marketing"],
+          location: "Sao Paulo",
+          companySize: null,
+          industry: null,
+          productSlug: null,
+          mode: "guided",
+          skipSteps: ["search_companies"],
+        },
+        // Realista: o route empurra companySize para missingFields quando null (route.ts:87-89)
+        missingFields: ["technology", "industry", "companySize"],
+        isComplete: false,
+        canProceed: true,
+        suggestions: {},
+        productMentioned: null,
+      };
+
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(directNoSizeResponse),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "Diretores de Marketing em Sao Paulo",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      const summaryMsg = mockSendAgentMessage.mock.calls[0][1] as string;
+      // Nota dedicada e amigavel do piso de qualidade
+      expect(summaryMsg).toContain("Tamanho de empresa: 11+");
+      expect(summaryMsg).toContain("padrao de qualidade");
+      // E NAO pode aparecer a nota generica contraditoria "Sem filtro de tamanho de empresa."
+      expect(summaryMsg).not.toContain("Sem filtro de tamanho de empresa");
+    });
+
+    it("deve mostrar o tamanho do usuario (sem nota de default) quando companySize informado na busca direta (Story 22.6 AC2)", async () => {
+      const directWithSizeResponse = {
+        briefing: {
+          technology: null,
+          jobTitles: ["Diretor de Marketing"],
+          location: "Sao Paulo",
+          companySize: "11-50",
+          industry: null,
+          productSlug: null,
+          mode: "guided",
+          skipSteps: ["search_companies"],
+        },
+        missingFields: ["technology", "industry"],
+        isComplete: false,
+        canProceed: true,
+        suggestions: {},
+        productMentioned: null,
+      };
+
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(directWithSizeResponse),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "Diretores de Marketing em Sao Paulo, empresas de 11 a 50 pessoas",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      const summaryMsg = mockSendAgentMessage.mock.calls[0][1] as string;
+      // Linha padrao "- Tamanho: <valor>" cobre a exibicao (AC2)
+      expect(summaryMsg).toContain("- Tamanho: 11-50");
+      // Sem a nota de default (o usuario informou)
+      expect(summaryMsg).not.toContain("padrao de qualidade");
+    });
+
+    it("NAO deve mostrar nota de piso de qualidade no fluxo normal com tecnologia (Story 22.6 D4/NFR4)", async () => {
+      const normalResponse = {
+        briefing: {
+          technology: "Salesforce",
+          jobTitles: ["CTO"],
+          location: "Sao Paulo",
+          companySize: null,
+          industry: null,
+          productSlug: null,
+          mode: "guided",
+          skipSteps: [],
+        },
+        missingFields: ["industry", "companySize"],
+        isComplete: false,
+        canProceed: true,
+        suggestions: {},
+        productMentioned: null,
+      };
+
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(normalResponse),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "CTOs que usam Salesforce em Sao Paulo",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      const summaryMsg = mockSendAgentMessage.mock.calls[0][1] as string;
+      // Fluxo normal (tech->TheirStack) NAO ganha piso de qualidade de tamanho (D4).
+      expect(summaryMsg).not.toContain("padrao de qualidade");
+      // A nota generica pre-existente de tamanho ausente permanece intacta.
+      expect(summaryMsg).toContain("Sem filtro de tamanho de empresa");
+    });
+
     // 6.17: generateSmartQuestion com sugestoes → pergunta inclui opcoes inline
     it("deve gerar pergunta com opcoes inline quando sugestoes disponiveis (6.17)", () => {
       const briefing = {
@@ -1898,6 +2039,9 @@ describe("useBriefingFlow", () => {
         EXEC_ID,
         expect.stringContaining("leads importados serao usados diretamente")
       );
+      // Story 22.6 (AC5): o piso de qualidade NAO se aplica ao fluxo de leads importados.
+      const importedSummary = mockSendAgentMessage.mock.lastCall?.[1] as string;
+      expect(importedSummary).not.toContain("padrao de qualidade");
     });
 
     it("deve voltar para awaiting_leads_input ao rejeitar leads", async () => {

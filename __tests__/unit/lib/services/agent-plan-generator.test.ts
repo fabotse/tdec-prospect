@@ -182,8 +182,10 @@ describe("PlanGeneratorService", () => {
         createCostEstimate()
       );
 
+      // Story 22.6 (AC3): sem companySize informado, o tamanho efetivo (piso de qualidade)
+      // aparece na descricao do plano.
       expect(steps[1].description).toBe(
-        "Buscar leads diretamente por CTO, Head de TI + fintech + Sao Paulo (sem filtro de empresa)"
+        "Buscar leads diretamente por CTO, Head de TI + fintech + Sao Paulo + tamanho 11+ (padrao de qualidade) (sem filtro de empresa)"
       );
     });
 
@@ -201,17 +203,19 @@ describe("PlanGeneratorService", () => {
         createCostEstimate()
       );
 
+      // Story 22.6 (AC3): piso de qualidade exibido mesmo sem industry/location.
       expect(steps[1].description).toBe(
-        "Buscar leads diretamente por CISO (sem filtro de empresa)"
+        "Buscar leads diretamente por CISO + tamanho 11+ (padrao de qualidade) (sem filtro de empresa)"
       );
     });
 
-    it("usa descricao fallback 'cargos' quando skip sem jobTitles (AC: 17.10#2)", () => {
+    it("mostra tamanho efetivo mesmo sem jobTitles/industry/location (Story 22.6 AC3)", () => {
       const briefing = createBriefing({
         technology: null,
         jobTitles: [],
         location: null,
         industry: null,
+        companySize: null,
         skipSteps: ["search_companies"],
       });
 
@@ -221,8 +225,30 @@ describe("PlanGeneratorService", () => {
       );
 
       expect(steps[1].description).toBe(
-        "Buscar leads diretamente por cargos (sem filtro de empresa)"
+        "Buscar leads diretamente por tamanho 11+ (padrao de qualidade) (sem filtro de empresa)"
       );
+    });
+
+    // Story 22.6 (AC3): quando o usuario informa companySize, o plano mostra o valor dele,
+    // sem o rotulo de default (AC2 sagrado — sem surpresa de escopo).
+    it("mostra o tamanho do usuario (sem rotulo de default) quando companySize informado (Story 22.6 AC3)", () => {
+      const briefing = createBriefing({
+        technology: null,
+        jobTitles: ["CTO"],
+        industry: null,
+        location: "Sao Paulo",
+        companySize: "11-50",
+        skipSteps: ["search_companies"],
+      });
+
+      const steps = PlanGeneratorService.generatePlan(
+        briefing,
+        createCostEstimate()
+      );
+
+      expect(steps[1].description).toContain("tamanho 11-50");
+      expect(steps[1].description).not.toContain("padrao de qualidade");
+      expect(steps[1].description).not.toContain("11+");
     });
 
     it("usa descricao normal para search_leads quando NAO tem skip (regressao)", () => {
@@ -269,6 +295,8 @@ describe("PlanGeneratorService", () => {
       );
 
       expect(steps[1].description).toBe("Etapa pulada — leads fornecidos pelo usuario");
+      // Story 22.6 (AC5): sem rotulo de piso de qualidade no fluxo de leads importados.
+      expect(steps[1].description).not.toContain("padrao de qualidade");
     });
 
     it("usa descricao com quantidade de leads importados para create_campaign (AC: 17.11#4)", () => {
