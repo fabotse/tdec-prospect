@@ -27,16 +27,43 @@ vi.mock("@/lib/supabase/server", () => ({
   })),
 }));
 
+const mockDecryptApiKey = vi.fn();
+
 vi.mock("@/lib/crypto/encryption", () => ({
-  decryptApiKey: vi.fn((key: string) => `decrypted-${key}`),
+  decryptApiKey: (...args: unknown[]) => mockDecryptApiKey(...args),
 }));
 
+// Story 22.9: a chave OpenAI passa a ser lida via SERVICE-ROLE (helper
+// `service-keys` -> `createAdminClient`), nunca pelo client de sessao. O
+// `defaultMockFrom` abaixo simula a RLS admin-only de `api_configs` para um papel
+// `sdr`: a leitura de SESSAO devolve SEMPRE zero linhas. Se a rota regredir para o
+// client de sessao, todo caso feliz deste arquivo volta a dar 422 (RED).
+const mockCreateAdminClient = vi.fn();
+
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => mockCreateAdminClient(),
+}));
+
+/** Client admin encadeavel: from().select().eq().eq().single() -> mockAdminSingle. */
+const mockAdminSingle = vi.fn();
+
+function buildAdminClient() {
+  const chain = {
+    select: vi.fn(() => chain),
+    eq: vi.fn(() => chain),
+    single: mockAdminSingle,
+  };
+  return { from: vi.fn(() => chain) };
+}
+
+// Story 22.7: a rota resolve as sugestoes via helper server-only KB-first
+// (resolveContextualSuggestions), que internamente deriva do ICP com fallback
+// fail-open pro estatico. Mockamos o helper e mantemos `mockGenerateSuggestions`
+// como fonte do retorno — as assercoes de `suggestions` seguem inalteradas.
 const mockGenerateSuggestions = vi.fn();
 
-vi.mock("@/lib/agent/briefing-suggestion-service", () => ({
-  BriefingSuggestionService: {
-    generateSuggestions: (...args: unknown[]) => mockGenerateSuggestions(...args),
-  },
+vi.mock("@/lib/agent/contextual-suggestions", () => ({
+  resolveContextualSuggestions: (...args: unknown[]) => mockGenerateSuggestions(...args),
 }));
 
 const mockParse = vi.fn();
@@ -114,10 +141,9 @@ describe("POST /api/agent/briefing/parse", () => {
       });
     }
     if (table === "api_configs") {
-      return createChainBuilder({
-        data: { encrypted_key: "enc-key-123" },
-        error: null,
-      });
+      // Story 22.9: RLS admin-only de api_configs vista por um `sdr` — zero linhas,
+      // sem erro (o filtro e silencioso). A chave real vem do client admin.
+      return createChainBuilder({ data: null, error: null });
     }
     if (table === "products") {
       return createChainBuilder({ data: [], error: null });
@@ -129,6 +155,12 @@ describe("POST /api/agent/briefing/parse", () => {
     vi.clearAllMocks();
     mockFrom.mockImplementation(defaultMockFrom);
     mockGenerateSuggestions.mockReturnValue({});
+    mockDecryptApiKey.mockImplementation((key: string) => `decrypted-${key}`);
+    mockCreateAdminClient.mockImplementation(() => buildAdminClient());
+    mockAdminSingle.mockResolvedValue({
+      data: { encrypted_key: "enc-key-123" },
+      error: null,
+    });
   });
 
   it("deve retornar 401 quando nao autenticado (AC: #2)", async () => {
@@ -163,21 +195,78 @@ describe("POST /api/agent/briefing/parse", () => {
 
   it("deve retornar 422 quando API key OpenAI nao configurada", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-    mockFrom.mockImplementation((table: string) => {
-      if (table === "agent_executions") {
-        return createChainBuilder({ data: { id: VALID_BODY.executionId }, error: null });
-      }
-      if (table === "api_configs") {
-        return createChainBuilder({ data: null, error: null });
-      }
-      return createChainBuilder();
-    });
+    // Story 22.9: "nao configurada" = ausencia REAL da linha, vista pelo client admin.
+    mockAdminSingle.mockResolvedValue({ data: null, error: null });
 
     const response = await POST(createRequest(VALID_BODY));
     expect(response.status).toBe(422);
 
     const json = await response.json();
     expect(json.error.code).toBe("API_KEY_MISSING");
+  });
+
+  // ==============================================
+  // Story 22.9 - Chave via service-role (AC1, AC4)
+  // ==============================================
+
+  it("NUCLEO AC1: SDR (client de sessao mockado com zero linhas, simulando a RLS) recebe 200 — a chave vem do service-role", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue({ ...mockProfile, role: "sdr" });
+    mockParse.mockResolvedValue(FULL_PARSE_RESULT);
+
+    // Sessao: zero linhas em api_configs (RLS admin-only, papel sdr) — ver defaultMockFrom.
+    // Admin: a linha existe e e decriptada normalmente.
+    const response = await POST(createRequest(VALID_BODY));
+
+    expect(response.status).toBe(200);
+    expect(mockParse).toHaveBeenCalledWith(
+      [{ role: "user", content: VALID_BODY.message }],
+      "decrypted-enc-key-123"
+    );
+  });
+
+  it("AC4: leitura da chave filtra por tenant_id e service_name (unica barreira de isolamento)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue({ ...mockProfile, role: "sdr" });
+    mockParse.mockResolvedValue(FULL_PARSE_RESULT);
+
+    const adminClient = buildAdminClient();
+    mockCreateAdminClient.mockReturnValue(adminClient);
+
+    await POST(createRequest(VALID_BODY));
+
+    expect(adminClient.from).toHaveBeenCalledWith("api_configs");
+    const chain = adminClient.from.mock.results[0]?.value;
+    expect(chain.eq).toHaveBeenCalledWith("tenant_id", mockProfile.tenant_id);
+    expect(chain.eq).toHaveBeenCalledWith("service_name", "openai");
+  });
+
+  it("AC4: service-role key ausente no ambiente vira 422 'nao configurada' (nunca 500 novo)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue({ ...mockProfile, role: "sdr" });
+    mockCreateAdminClient.mockImplementation(() => {
+      throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set.");
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(422);
+    expect(json.error.code).toBe("API_KEY_MISSING");
+    vi.mocked(console.error).mockRestore();
+  });
+
+  it("AC4: falha de decriptacao mantem o contrato 500/API_KEY_ERROR", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockDecryptApiKey.mockImplementation(() => {
+      throw new Error("Formato de chave criptografada invalido");
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(json.error.code).toBe("API_KEY_ERROR");
+    vi.mocked(console.error).mockRestore();
   });
 
   it("deve parsear briefing completo com sucesso (AC: #2)", async () => {
@@ -282,9 +371,6 @@ describe("POST /api/agent/briefing/parse", () => {
       if (table === "agent_executions") {
         return createChainBuilder({ data: { id: VALID_BODY.executionId }, error: null });
       }
-      if (table === "api_configs") {
-        return createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null });
-      }
       if (table === "products") {
         return createChainBuilder({
           data: [
@@ -343,9 +429,6 @@ describe("POST /api/agent/briefing/parse", () => {
       if (table === "agent_executions") {
         return createChainBuilder({ data: { id: VALID_BODY.executionId }, error: null });
       }
-      if (table === "api_configs") {
-        return createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null });
-      }
       if (table === "products") {
         return createChainBuilder({
           data: [
@@ -374,9 +457,6 @@ describe("POST /api/agent/briefing/parse", () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === "agent_executions") {
         return createChainBuilder({ data: { id: VALID_BODY.executionId }, error: null });
-      }
-      if (table === "api_configs") {
-        return createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null });
       }
       if (table === "products") {
         return createChainBuilder({ data: [], error: null });
@@ -411,9 +491,6 @@ describe("POST /api/agent/briefing/parse", () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === "agent_executions") {
         return createChainBuilder({ data: { id: VALID_BODY.executionId }, error: null });
-      }
-      if (table === "api_configs") {
-        return createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null });
       }
       if (table === "products") {
         return createChainBuilder({

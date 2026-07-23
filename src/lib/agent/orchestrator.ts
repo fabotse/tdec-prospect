@@ -226,7 +226,7 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
         // Without this, campaign stays in Instantly with zero sending accounts.
         const selectedAccounts = previousStepOutput.selectedAccounts as string[] | undefined;
         if (selectedAccounts && selectedAccounts.length > 0 && previousStepOutput.externalCampaignId) {
-          const apiKey = await getServiceApiKey(this.supabase, tenantId, "instantly");
+          const apiKey = await getServiceApiKey(tenantId, "instantly");
           const service = new InstantlyService();
           await service.addAccountsToCampaign({
             apiKey,

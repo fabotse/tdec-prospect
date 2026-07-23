@@ -11,6 +11,7 @@ import { SearchLeadsStep } from "@/lib/agent/steps/search-leads-step";
 import { createChainBuilder } from "../../../../helpers/mock-supabase";
 import type { StepInput } from "@/types/agent";
 import { ExternalServiceError } from "@/lib/services/base-service";
+import { QUALITY_MIN_COMPANY_SIZES } from "@/lib/agent/search-defaults";
 
 // ==============================================
 // MOCKS
@@ -20,15 +21,37 @@ const mockSearchPeople = vi.fn();
 
 const mockEnrichPerson = vi.fn();
 
+/**
+ * Story 22.9: os argumentos do construtor sao CAPTURADOS de proposito. O mock
+ * anterior era `constructor() {}` e descartava os dois — ou seja, a injecao da
+ * chave do Apollo (a correcao que desbloqueia o `sdr`) nao tinha cobertura nenhuma.
+ */
+const apolloConstructorArgs: Array<[string | undefined, string | undefined]> = [];
+
 vi.mock("@/lib/services/apollo", () => {
   return {
     ApolloService: class MockApolloService {
       searchPeople = mockSearchPeople;
       enrichPerson = mockEnrichPerson;
-      constructor() {}
+      constructor(tenantId?: string, apiKey?: string) {
+        apolloConstructorArgs.push([tenantId, apiKey]);
+      }
     },
   };
 });
+
+/**
+ * Story 22.9: sem este mock o helper REAL rodava durante os testes — batia em
+ * `createAdminClient()`, falhava por falta de `SUPABASE_SERVICE_ROLE_KEY` no
+ * ambiente de teste e passava por acidente (devolvendo `undefined`), poluindo a
+ * saida com `console.error`.
+ */
+const mockGetInjectableServiceApiKey = vi.fn();
+
+vi.mock("@/lib/agent/service-keys", () => ({
+  getInjectableServiceApiKey: (...args: unknown[]) =>
+    mockGetInjectableServiceApiKey(...args),
+}));
 
 // ==============================================
 // HELPERS
@@ -160,6 +183,8 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    apolloConstructorArgs.length = 0;
+    mockGetInjectableServiceApiKey.mockResolvedValue("apollo-key-service-role");
     mockSupabase = createMockSupabase();
     step = new SearchLeadsStep(2, mockSupabase as never, TENANT_ID);
 
@@ -168,6 +193,45 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
     mockEnrichPerson.mockResolvedValue({
       person: { email: "enriched@example.com" },
       organization: null,
+    });
+  });
+
+  // Story 22.9 - AC #1, #2: a chave do Apollo vem do helper server-only e e
+  // INJETADA no service. Sem isso, a leitura interna do ApolloService usa o client
+  // de sessao e a RLS admin-only de `api_configs` devolve zero linhas para um `sdr`.
+  describe("Story 22.9 - chave do Apollo lida via service-role e injetada", () => {
+    it("le a chave pelo helper com o tenant do step e injeta no construtor", async () => {
+      await step.run(createInput());
+
+      expect(mockGetInjectableServiceApiKey).toHaveBeenCalledWith(
+        TENANT_ID,
+        "apollo",
+        "Apollo"
+      );
+      expect(apolloConstructorArgs).toContainEqual([
+        TENANT_ID,
+        "apollo-key-service-role",
+      ]);
+    });
+
+    it("chave ausente no tenant: injeta undefined e deixa o service produzir o erro de hoje", async () => {
+      mockGetInjectableServiceApiKey.mockResolvedValue(undefined);
+
+      await step.run(createInput());
+
+      expect(apolloConstructorArgs).toContainEqual([TENANT_ID, undefined]);
+    });
+
+    it("chave nao decriptavel: o erro do helper propaga (nao vira 'nao configurada')", async () => {
+      mockGetInjectableServiceApiKey.mockRejectedValue(
+        new Error("Erro ao decriptar a API key do Apollo")
+      );
+
+      await expect(step.run(createInput())).rejects.toThrow(
+        "Erro ao decriptar a API key do Apollo"
+      );
+      // Nao chegou a instanciar o service: falha antes de qualquer chamada paga.
+      expect(apolloConstructorArgs).toHaveLength(0);
     });
   });
 
@@ -405,7 +469,7 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
       );
     });
 
-    it("omits undefined optional filters in direct entry", async () => {
+    it("omits undefined optional filters in direct entry (mas aplica piso de qualidade de tamanho — Story 22.6)", async () => {
       const input = createInput(
         { location: null, industry: null, companySize: null },
         undefined
@@ -417,6 +481,52 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
       const callArg = mockSearchPeople.mock.calls[0][0];
       expect(callArg.locations).toBeUndefined();
       expect(callArg.industries).toBeUndefined();
+      // Story 22.6: companySizes NÃO é mais omitido na busca direta — recebe o piso de qualidade.
+      expect(callArg.companySizes).toEqual([...QUALITY_MIN_COMPANY_SIZES]);
+    });
+
+    // ==============================================
+    // Story 22.6 (FR12): piso de qualidade de tamanho de empresa na busca aberta
+    // ==============================================
+
+    it("aplica o piso de qualidade quando busca direta SEM companySize (AC1, RED→GREEN)", async () => {
+      const input = createInput({ companySize: null }, undefined);
+      input.previousStepOutput = undefined;
+
+      await step.run(input);
+
+      expect(mockSearchPeople).toHaveBeenCalledWith(
+        expect.objectContaining({
+          companySizes: [...QUALITY_MIN_COMPANY_SIZES],
+        })
+      );
+      // AC1: "1-10" nunca vai pro Apollo por padrão.
+      const callArg = mockSearchPeople.mock.calls[0][0];
+      expect(callArg.companySizes).not.toContain("1-10");
+    });
+
+    it("override total pelo usuario na busca direta COM companySize (AC2 sagrado)", async () => {
+      const input = createInput({ companySize: "11-50" }, undefined);
+      input.previousStepOutput = undefined;
+
+      await step.run(input);
+
+      expect(mockSearchPeople).toHaveBeenCalledWith(
+        expect.objectContaining({
+          companySizes: ["11-50"],
+        })
+      );
+    });
+
+    it("NÃO aplica piso de qualidade no fluxo normal, mesmo sem companySize (AC5/D4/NFR4)", async () => {
+      // Fluxo normal (com empresas do step anterior) e sem companySize informado:
+      // o default é exclusivo da busca direta — não pode vazar pro fluxo por domínio.
+      const input = createInput({ companySize: null });
+
+      await step.run(input);
+
+      const callArg = mockSearchPeople.mock.calls[0][0];
+      expect(callArg.domains).toEqual(["acme.com", "beta.io"]);
       expect(callArg.companySizes).toBeUndefined();
     });
 

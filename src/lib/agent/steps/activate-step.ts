@@ -63,7 +63,7 @@ export class ActivateStep extends BaseStep {
     });
 
     // 3.5 - Sub-step A: Buscar API key do Instantly
-    const apiKey = await getServiceApiKey(this.supabase, this.tenantId, "instantly");
+    const apiKey = await getServiceApiKey(this.tenantId, "instantly");
 
     const service = new InstantlyService();
 

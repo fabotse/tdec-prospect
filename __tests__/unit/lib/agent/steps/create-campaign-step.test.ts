@@ -45,6 +45,19 @@ vi.mock("@/lib/crypto/encryption", () => ({
   decryptApiKey: (...args: unknown[]) => mockDecryptApiKey(...args),
 }));
 
+/**
+ * Story 22.9: as chaves de servico (openai/apify/apollo) passam a ser lidas via
+ * SERVICE-ROLE pelo helper `service-keys`. O client de SESSAO do step continua
+ * valendo para o resto (agent_steps/agent_messages/knowledge_base/products), mas
+ * `api_configs` pela sessao devolve ZERO linhas neste arquivo — e a RLS admin-only
+ * vista por um `sdr`. Regressao para a leitura de sessao = "chave nao configurada".
+ */
+let adminApiConfigsChain: unknown = null;
+
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => ({ from: () => adminApiConfigsChain }),
+}));
+
 vi.mock("@/lib/services/knowledge-base-context", () => ({
   buildAIVariables: (...args: unknown[]) => mockBuildAIVariables(...args),
 }));
@@ -156,10 +169,9 @@ function createMockSupabase() {
   const messagesChain = createChainBuilder({ data: { id: "msg-1" }, error: null });
   const kbChain = createChainBuilder({ data: null, error: null });
   const productsChain = createChainBuilder({ data: null, error: null });
-  const apiConfigsChain = createChainBuilder({
-    data: { encrypted_key: "encrypted-key-123" },
-    error: null,
-  });
+  // Story 22.9: a leitura de api_configs pela SESSAO devolve zero linhas (RLS
+  // admin-only vista por um `sdr`). A chave real chega pelo client admin.
+  const apiConfigsChain = createChainBuilder({ data: null, error: null });
   const icebreakerExamplesChain = createChainBuilder({ data: [], error: null });
 
   const mockFrom = vi.fn().mockImplementation((table: string) => {
@@ -204,6 +216,12 @@ function createInput(
 function setupDefaultMocks() {
   mockBuildAIVariables.mockReturnValue(DEFAULT_AI_VARS);
   mockDecryptApiKey.mockReturnValue("decrypted-openai-key");
+  // Story 22.9: por padrao TODAS as chaves existem no tenant (equivalente ao mock
+  // anterior, que devolvia a mesma linha para qualquer service_name).
+  adminApiConfigsChain = createChainBuilder({
+    data: { encrypted_key: "encrypted-key-123" },
+    error: null,
+  });
   mockCreateAIProvider.mockReturnValue({ generateText: mockGenerateText });
 
   // Structure generation
@@ -728,15 +746,8 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
   // API key not configured
   describe("API key not configured", () => {
     it("throws when OpenAI API key is not found", async () => {
-      mockSupabase.apiConfigsChain = createChainBuilder({ data: null, error: null });
-      mockSupabase.from.mockImplementation((table: string) => {
-        if (table === "agent_steps") return mockSupabase.stepsChain;
-        if (table === "agent_messages") return mockSupabase.messagesChain;
-        if (table === "knowledge_base") return mockSupabase.kbChain;
-        if (table === "products") return mockSupabase.productsChain;
-        if (table === "api_configs") return mockSupabase.apiConfigsChain;
-        return createChainBuilder();
-      });
+      // Story 22.9: ausencia REAL da linha, vista pelo client admin (service-role).
+      adminApiConfigsChain = createChainBuilder({ data: null, error: null });
 
       const input = createInput();
       await expect(step.run(input)).rejects.toMatchObject({
@@ -1035,20 +1046,11 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
     it("cai tudo no standard quando toggle ligado mas Apify key ausente", async () => {
       setupStructureThenContent();
 
-      // api_configs: openai presente, apify ausente
-      mockSupabase.from.mockImplementation((table: string) => {
-        if (table === "agent_steps") return mockSupabase.stepsChain;
-        if (table === "agent_messages") return mockSupabase.messagesChain;
-        if (table === "knowledge_base") return mockSupabase.kbChain;
-        if (table === "products") return mockSupabase.productsChain;
-        if (table === "api_configs") {
-          return createStatefulApiConfigs({
-            openai: { encrypted_key: "enc-openai" },
-            apify: null,
-          });
-        }
-        if (table === "icebreaker_examples") return mockSupabase.icebreakerExamplesChain;
-        return createChainBuilder();
+      // api_configs (via service-role, Story 22.9): openai presente, apify ausente
+      adminApiConfigsChain = createStatefulApiConfigs({
+        openai: { encrypted_key: "enc-openai" },
+        apollo: { encrypted_key: "enc-apollo" },
+        apify: null,
       });
 
       const input = createInput({ premiumIcebreakers: true });

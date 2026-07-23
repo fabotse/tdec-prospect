@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
-import { decryptApiKey } from "@/lib/crypto/encryption";
+import { readServiceApiKey } from "@/lib/agent/service-keys";
 import {
   DeterministicOrchestrator,
   isPipelineError,
@@ -78,14 +78,12 @@ export async function POST(
   }
 
   // 5.4 - Fetch API key
-  const { data: config } = await supabase
-    .from("api_configs")
-    .select("encrypted_key")
-    .eq("tenant_id", profile.tenant_id)
-    .eq("service_name", "theirstack")
-    .single();
+  // Story 22.9: leitura via SERVICE-ROLE (helper central). A RLS admin-only de
+  // api_configs devolvia ZERO linhas para um `sdr` e derrubava o pipeline inteiro
+  // aqui, antes do primeiro step rodar.
+  const keyLookup = await readServiceApiKey(profile.tenant_id, "theirstack");
 
-  if (!config) {
+  if (keyLookup.status === "missing") {
     return NextResponse.json(
       {
         error: {
@@ -97,9 +95,24 @@ export async function POST(
     );
   }
 
-  const apiKey = decryptApiKey(config.encrypted_key);
+  if (keyLookup.status === "decrypt_error") {
+    return NextResponse.json(
+      {
+        error: {
+          code: "API_KEY_ERROR",
+          message: "Erro ao decriptar a API key do TheirStack",
+        },
+      },
+      { status: 500 }
+    );
+  }
+
+  const apiKey = keyLookup.apiKey;
 
   // 5.5 - Execute step
+  // Trap #1: o orchestrator segue com o client de SESSAO — so a leitura da chave
+  // migrou para service-role. As demais queries do pipeline (agent_executions,
+  // agent_steps, leads...) devem continuar sob RLS por tenant.
   try {
     const orchestrator = new DeterministicOrchestrator(supabase, apiKey);
     const result = await orchestrator.executeStep(executionId, stepNumber);

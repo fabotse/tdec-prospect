@@ -8,6 +8,7 @@
 
 import { BaseStep } from "./base-step";
 import { ApolloService } from "@/lib/services/apollo";
+import { getInjectableServiceApiKey } from "@/lib/agent/service-keys";
 import { resolveDirectSearchCompanySizes } from "@/lib/agent/search-defaults";
 import type {
   StepInput,
@@ -94,7 +95,13 @@ export class SearchLeadsStep extends BaseStep {
       });
     }
 
-    const service = new ApolloService(this.tenantId);
+    // Story 22.9: a chave do Apollo e lida via SERVICE-ROLE e injetada no service.
+    // A leitura interna do ApolloService usa o client de sessao (RLS admin-only) —
+    // sem isso, o step morre com "API key nao configurada" para um `sdr`. Chave
+    // ausente -> `undefined` -> o service cai na leitura de hoje (mesmo erro de hoje);
+    // chave presente mas nao decriptavel -> LANCA (nao vira "nao configurada").
+    const apolloApiKey = await getInjectableServiceApiKey(this.tenantId, "apollo", "Apollo");
+    const service = new ApolloService(this.tenantId, apolloApiKey);
     let domains: string[] = [];
 
     if (isDirectEntry) {

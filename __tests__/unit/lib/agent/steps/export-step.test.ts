@@ -175,11 +175,9 @@ describe("ExportStep (Story 17.4 AC #1, #2)", () => {
 
       await step.run(input);
 
-      expect(mockGetServiceApiKey).toHaveBeenCalledWith(
-        expect.anything(),
-        TENANT_ID,
-        "instantly"
-      );
+      // Story 22.9: assinatura sem client — a leitura e sempre service-role,
+      // nunca com o client de sessao passado pelo caller.
+      expect(mockGetServiceApiKey).toHaveBeenCalledWith(TENANT_ID, "instantly");
       // Accounts fetched first, then passed to createCampaign via sendingAccounts
       expect(mockListAccounts).toHaveBeenCalledWith(
         expect.objectContaining({ apiKey: "decrypted-instantly-key" })

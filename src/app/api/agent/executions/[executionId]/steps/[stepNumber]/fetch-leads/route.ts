@@ -11,6 +11,7 @@ import { z } from "zod";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
 import { ApolloService } from "@/lib/services/apollo";
+import { readServiceApiKey } from "@/lib/agent/service-keys";
 import { mapLeadRowToSearchLeadResult } from "@/lib/agent/steps/search-leads-step";
 import type { ApolloSearchFilters } from "@/types/apollo";
 import type { SearchLeadResult } from "@/types/agent";
@@ -126,7 +127,29 @@ export async function POST(
   // Paginate Apollo
   const perPage = (searchFilters.perPage as number) ?? 25;
   const totalPages = Math.ceil(desiredCount / perPage);
-  const service = new ApolloService(profile.tenant_id);
+  // Story 22.9: chave do Apollo lida via SERVICE-ROLE e injetada no service — a
+  // leitura interna dele usa o client de sessao (RLS admin-only de api_configs) e
+  // devolveria "API key nao configurada" para um `sdr`.
+  const apolloKeyLookup = await readServiceApiKey(profile.tenant_id, "apollo");
+
+  // Chave presente mas nao decriptavel nao pode virar "nao configurada": mesmo split
+  // 422/500 das demais rotas do agente. `missing` segue injetando `undefined`, e o
+  // service produz a mensagem de "nao configurada" de hoje.
+  if (apolloKeyLookup.status === "decrypt_error") {
+    return NextResponse.json(
+      {
+        error: {
+          code: "API_KEY_ERROR",
+          message: "Erro ao decriptar a API key do Apollo",
+        },
+      },
+      { status: 500 }
+    );
+  }
+
+  const apolloApiKey =
+    apolloKeyLookup.status === "ok" ? apolloKeyLookup.apiKey : undefined;
+  const service = new ApolloService(profile.tenant_id, apolloApiKey);
   const allLeads: SearchLeadResult[] = [];
 
   try {

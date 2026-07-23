@@ -128,7 +128,7 @@ export class ExportStep extends BaseStep {
     });
 
     // 2.5 - Sub-step A: Buscar API key do Instantly
-    const apiKey = await getServiceApiKey(this.supabase, this.tenantId, "instantly");
+    const apiKey = await getServiceApiKey(this.tenantId, "instantly");
 
     // 2.6 - Sub-step B: Converter emailBlocks + delayBlocks para sequences
     const sequences = convertToInstantlySequences(emailBlocks, delayBlocks ?? []);

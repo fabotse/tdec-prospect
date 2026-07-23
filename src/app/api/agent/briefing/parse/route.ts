@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
-import { decryptApiKey } from "@/lib/crypto/encryption";
+import { readServiceApiKey } from "@/lib/agent/service-keys";
 import { BriefingParserService } from "@/lib/agent/briefing-parser-service";
 import type { ChatTurn, NextAction, ParsedBriefing } from "@/types/agent";
 import { AGENT_ERROR_CODES } from "@/types/agent";
@@ -202,14 +202,14 @@ export async function POST(request: Request) {
       { status: 404 }
     );
   }
-  const { data: apiConfig } = await supabase
-    .from("api_configs")
-    .select("encrypted_key")
-    .eq("tenant_id", profile.tenant_id)
-    .eq("service_name", "openai")
-    .single();
+  // Story 22.9: a chave e lida via SERVICE-ROLE (helper central), nunca pelo client
+  // de sessao. A RLS admin-only de api_configs (00005:14-20) devolve ZERO linhas em
+  // silencio para um papel `sdr` — o usuario primario do agente — e a rota respondia
+  // 422 mesmo com a chave configurada pelo gestor. O contrato de erro nao muda: so a
+  // FONTE da leitura. O `supabase` de sessao segue para o resto (RLS por tenant).
+  const keyLookup = await readServiceApiKey(profile.tenant_id, "openai");
 
-  if (!apiConfig?.encrypted_key) {
+  if (keyLookup.status === "missing") {
     return NextResponse.json(
       {
         error: {
@@ -221,10 +221,7 @@ export async function POST(request: Request) {
     );
   }
 
-  let apiKey: string;
-  try {
-    apiKey = decryptApiKey(apiConfig.encrypted_key);
-  } catch {
+  if (keyLookup.status === "decrypt_error") {
     return NextResponse.json(
       {
         error: {
@@ -235,6 +232,8 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+
+  const apiKey = keyLookup.apiKey;
 
   // Parse briefing
   try {

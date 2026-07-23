@@ -30,11 +30,25 @@ vi.mock("@/lib/supabase/server", () => ({
 
 const mockSearchPeople = vi.fn();
 
+// Story 22.9: os argumentos do construtor sao capturados — a injecao da chave do
+// Apollo lida por service-role e o que desbloqueia o `sdr` neste endpoint.
+const apolloConstructorArgs: Array<[string | undefined, string | undefined]> = [];
+
 vi.mock("@/lib/services/apollo", () => ({
   ApolloService: class MockApolloService {
     searchPeople = mockSearchPeople;
-    constructor() {}
+    constructor(tenantId?: string, apiKey?: string) {
+      apolloConstructorArgs.push([tenantId, apiKey]);
+    }
   },
+}));
+
+// Story 22.9: sem este mock o helper REAL rodaria aqui (batendo em
+// `createAdminClient()` e falhando por falta de service-role key no ambiente de teste).
+const mockReadServiceApiKey = vi.fn();
+
+vi.mock("@/lib/agent/service-keys", () => ({
+  readServiceApiKey: (...args: unknown[]) => mockReadServiceApiKey(...args),
 }));
 
 vi.mock("@/lib/agent/steps/search-leads-step", () => ({
@@ -160,7 +174,47 @@ function setupDefaultMocks() {
 describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/fetch-leads", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    apolloConstructorArgs.length = 0;
+    mockReadServiceApiKey.mockResolvedValue({
+      status: "ok",
+      apiKey: "apollo-key-service-role",
+    });
     setupDefaultMocks();
+  });
+
+  // --- Story 22.9: chave do Apollo via service-role ---
+  it("Story 22.9 — le a chave do Apollo por service-role e injeta no service (AC2)", async () => {
+    mockSearchPeople.mockResolvedValue(makePageResponse([makeLead(1)], 1, 1, 1));
+
+    await POST(createRequest({ desiredCount: 25 }), createParams());
+
+    expect(mockReadServiceApiKey).toHaveBeenCalledWith(mockProfile.tenant_id, "apollo");
+    expect(apolloConstructorArgs).toContainEqual([
+      mockProfile.tenant_id,
+      "apollo-key-service-role",
+    ]);
+  });
+
+  it("Story 22.9 — chave ausente injeta undefined (service produz o erro de hoje, AC4)", async () => {
+    mockReadServiceApiKey.mockResolvedValue({ status: "missing" });
+    mockSearchPeople.mockResolvedValue(makePageResponse([makeLead(1)], 1, 1, 1));
+
+    await POST(createRequest({ desiredCount: 25 }), createParams());
+
+    expect(apolloConstructorArgs).toContainEqual([mockProfile.tenant_id, undefined]);
+  });
+
+  it("Story 22.9 — chave nao decriptavel vira 500 API_KEY_ERROR, nao 'nao configurada'", async () => {
+    mockReadServiceApiKey.mockResolvedValue({ status: "decrypt_error" });
+
+    const response = await POST(createRequest({ desiredCount: 25 }), createParams());
+    const json = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(json.error.code).toBe("API_KEY_ERROR");
+    // Falha antes de instanciar o service: nenhuma chamada paga ao Apollo.
+    expect(apolloConstructorArgs).toHaveLength(0);
+    expect(mockSearchPeople).not.toHaveBeenCalled();
   });
 
   // --- 200: pagination with 4 pages ---

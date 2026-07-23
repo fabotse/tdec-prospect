@@ -34,6 +34,26 @@ vi.mock("@/lib/crypto/encryption", () => ({
   decryptApiKey: (...args: unknown[]) => mockDecryptApiKey(...args),
 }));
 
+// Story 22.9: a chave do TheirStack vem do SERVICE-ROLE (helper `service-keys`).
+// O client de SESSAO simula a RLS admin-only de api_configs vista por um `sdr`
+// (zero linhas); o orchestrator continua recebendo o client de sessao (Trap #1).
+const mockCreateAdminClient = vi.fn();
+
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => mockCreateAdminClient(),
+}));
+
+const mockAdminSingle = vi.fn();
+
+function buildAdminClient() {
+  const chain = {
+    select: vi.fn(() => chain),
+    eq: vi.fn(() => chain),
+    single: mockAdminSingle,
+  };
+  return { from: vi.fn(() => chain) };
+}
+
 const mockExecuteStep = vi.fn();
 
 vi.mock("@/lib/agent/orchestrator", () => ({
@@ -80,15 +100,20 @@ function setupDefaultMocks() {
     error: null,
   });
 
-  const apiConfigChain = createChainBuilder({
-    data: { encrypted_key: "encrypted-key-value" },
-    error: null,
-  });
+  // Story 22.9: a leitura de SESSAO devolve zero linhas (RLS admin-only vista por
+  // um `sdr`). A chave real chega pelo client admin (mockAdminSingle).
+  const apiConfigChain = createChainBuilder({ data: null, error: null });
 
   mockFrom.mockImplementation((table: string) => {
     if (table === "agent_executions") return executionChain;
     if (table === "api_configs") return apiConfigChain;
     return createChainBuilder();
+  });
+
+  mockCreateAdminClient.mockImplementation(() => buildAdminClient());
+  mockAdminSingle.mockResolvedValue({
+    data: { encrypted_key: "encrypted-key-value" },
+    error: null,
   });
 
   mockDecryptApiKey.mockReturnValue("decrypted-api-key");
@@ -187,21 +212,73 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/execute", 
 
   it("deve retornar 422 quando API key nao configurada (5.4)", async () => {
     setupDefaultMocks();
-    const executionChain = createChainBuilder({
-      data: { id: EXEC_ID, tenant_id: "tenant-456", status: "pending" },
-      error: null,
-    });
-    mockFrom.mockImplementation((table: string) => {
-      if (table === "agent_executions") return executionChain;
-      if (table === "api_configs") return createChainBuilder({ data: null, error: null });
-      return createChainBuilder();
-    });
+    // Story 22.9: ausencia REAL da linha, vista pelo client admin.
+    mockAdminSingle.mockResolvedValue({ data: null, error: null });
 
     const response = await POST(createRequest(), createParams());
     const json = await response.json();
 
     expect(response.status).toBe(422);
     expect(json.error.code).toBe("API_KEY_NOT_FOUND");
+  });
+
+  it("Story 22.9: SDR (client de sessao mockado com zero linhas, simulando a RLS) executa o step normalmente (AC2)", async () => {
+    setupDefaultMocks();
+    mockGetCurrentUserProfile.mockResolvedValue({ ...mockProfile, role: "sdr" });
+
+    const response = await POST(createRequest(), createParams());
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.data.success).toBe(true);
+    expect(mockExecuteStep).toHaveBeenCalledWith(EXEC_ID, 1);
+  });
+
+  it("Story 22.9: service-role ausente no ambiente vira 422 'nao configurada' (AC4)", async () => {
+    setupDefaultMocks();
+    mockCreateAdminClient.mockImplementation(() => {
+      throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set.");
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await POST(createRequest(), createParams());
+    const json = await response.json();
+
+    expect(response.status).toBe(422);
+    expect(json.error.code).toBe("API_KEY_NOT_FOUND");
+    vi.mocked(console.error).mockRestore();
+  });
+
+  it("Story 22.9: chave presente mas nao decriptavel vira 500 API_KEY_ERROR (nao 422)", async () => {
+    setupDefaultMocks();
+    // A linha EXISTE (o admin le), mas o decrypt falha — nao pode virar
+    // "nao configurada", senao o gestor reconfigura uma chave que ja esta la.
+    mockDecryptApiKey.mockImplementation(() => {
+      throw new Error("bad ciphertext");
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await POST(createRequest(), createParams());
+    const json = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(json.error.code).toBe("API_KEY_ERROR");
+    // Nunca executa o step com chave invalida.
+    expect(mockExecuteStep).not.toHaveBeenCalled();
+    vi.mocked(console.error).mockRestore();
+  });
+
+  it("Story 22.9: leitura da chave filtra tenant_id + service_name theirstack (AC4)", async () => {
+    setupDefaultMocks();
+    const adminClient = buildAdminClient();
+    mockCreateAdminClient.mockReturnValue(adminClient);
+
+    await POST(createRequest(), createParams());
+
+    expect(adminClient.from).toHaveBeenCalledWith("api_configs");
+    const chain = adminClient.from.mock.results[0]?.value;
+    expect(chain.eq).toHaveBeenCalledWith("tenant_id", mockProfile.tenant_id);
+    expect(chain.eq).toHaveBeenCalledWith("service_name", "theirstack");
   });
 
   it("deve retornar sucesso com StepOutput (5.5, 5.6)", async () => {

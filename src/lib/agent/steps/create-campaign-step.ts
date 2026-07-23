@@ -20,7 +20,11 @@ import { ApifyService } from "@/lib/services/apify";
 import { logApifySuccess, logApifyFailure } from "@/lib/services/usage-logger";
 import { createAIProvider, promptManager } from "@/lib/ai";
 import { ExternalServiceError } from "@/lib/services/base-service";
-import { decryptApiKey } from "@/lib/crypto/encryption";
+import {
+  getInjectableServiceApiKey,
+  getServiceApiKeyOrNull,
+  requireServiceApiKey,
+} from "@/lib/agent/service-keys";
 import { transformProductRow, type ProductRow } from "@/types/product";
 import { ICEBREAKER_CATEGORY_INSTRUCTIONS } from "@/types/ai-prompt";
 import type { IcebreakerCategory } from "@/types/ai-prompt";
@@ -99,7 +103,10 @@ export class CreateCampaignStep extends BaseStep {
     }
 
     // 2.3b - Enrich approved leads (email + full name) before campaign creation
-    const apolloService = new ApolloService(this.tenantId);
+    // Story 22.9: chave do Apollo injetada via service-role (ver search-leads-step).
+    // Ausente -> `undefined` (service cai no caminho de hoje); nao decriptavel -> lanca.
+    const apolloApiKey = await getInjectableServiceApiKey(this.tenantId, "apollo", "Apollo");
+    const apolloService = new ApolloService(this.tenantId, apolloApiKey);
     let enrichCredits = 0;
     for (const lead of leads) {
       const typedLead = lead as SearchLeadResult & { apolloId?: string | null };
@@ -303,19 +310,14 @@ export class CreateCampaignStep extends BaseStep {
     return transformProductRow(data as ProductRow);
   }
 
+  /**
+   * Story 22.9: chave lida via SERVICE-ROLE (helper `service-keys`), nunca com
+   * `this.supabase` (client de sessao) — a RLS admin-only de `api_configs` devolvia
+   * zero linhas para um `sdr` e derrubava a geracao de conteudo com
+   * "API key do OpenAI nao configurada". Mensagem de erro preservada.
+   */
   private async getOpenAIApiKey(): Promise<string> {
-    const { data: apiConfig } = await this.supabase
-      .from("api_configs")
-      .select("encrypted_key")
-      .eq("tenant_id", this.tenantId)
-      .eq("service_name", "openai")
-      .single();
-
-    if (!apiConfig) {
-      throw new Error("API key do OpenAI nao configurada");
-    }
-
-    return decryptApiKey(apiConfig.encrypted_key);
+    return requireServiceApiKey(this.tenantId, "openai", "OpenAI");
   }
 
   /**
@@ -323,24 +325,11 @@ export class CreateCampaignStep extends BaseStep {
    * Espelha getOpenAIApiKey, mas retorna null em vez de lancar quando a key nao existe
    * ou nao decodifica — assim, com o toggle premium ligado mas sem key, todos os leads
    * caem no fallback standard (AC3) em vez de derrubar o step.
+   *
+   * Story 22.9: idem — leitura via service-role, fail-open preservado.
    */
   private async getApifyApiKey(): Promise<string | null> {
-    const { data: apiConfig } = await this.supabase
-      .from("api_configs")
-      .select("encrypted_key")
-      .eq("tenant_id", this.tenantId)
-      .eq("service_name", "apify")
-      .single();
-
-    if (!apiConfig) {
-      return null;
-    }
-
-    try {
-      return decryptApiKey(apiConfig.encrypted_key);
-    } catch {
-      return null;
-    }
+    return getServiceApiKeyOrNull(this.tenantId, "apify");
   }
 
   private parseStructureJSON(text: string): { items: CampaignStructureItem[] } {
