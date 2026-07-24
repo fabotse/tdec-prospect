@@ -81,11 +81,15 @@ vi.mock("@/hooks/use-auto-trigger", () => ({
   useAutoTrigger: () => {},
 }));
 
+// Story 22.10: `reset` e spy compartilhado — o botao "Nova conversa" precisa chama-lo
+// (sem isso o briefing sobrevive em memoria e o agente retoma a conversa morta).
+const mockResetBriefing = vi.fn();
+
 vi.mock("@/hooks/use-briefing-flow", () => ({
   useBriefingFlow: () => ({
     state: mockBriefingState,
     processMessage: mockProcessMessage,
-    reset: vi.fn(),
+    reset: mockResetBriefing,
   }),
 }));
 
@@ -915,7 +919,13 @@ describe("AgentChat", () => {
       expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
     });
 
-    it("mantem o id quando a execucao esta PENDING (ativo, pre-confirm) (AC2/AC4)", async () => {
+    // Story 22.10 (AC2): INVERSAO deliberada do caso PENDING da 22.8.
+    // Toda conversa abandonada no meio do briefing fica 'pending' PARA SEMPRE (nada a
+    // encerra), entao o criterio da 22.8 fazia historico morto reaparecer em todo login/
+    // refresh — e reaparecer QUEBRADO (mensagens reidratam, mas o useBriefingFlow volta a
+    // 'idle' e o agente repergunta tudo dentro do mesmo historico). Com o confirm gravando
+    // 'running' (AC1), 'pending' passa a significar exatamente "briefing nao confirmado".
+    it("DESCARTA o id quando a execucao esta PENDING (briefing abandonado) (AC2)", async () => {
       setupDefaults({ executionId: "exec-pending" });
       mockUserState = { profile: { id: USER_ID } };
       mockExecutionsList([{ id: "exec-pending", user_id: USER_ID, status: "pending" }]);
@@ -925,7 +935,19 @@ describe("AgentChat", () => {
       });
 
       expect(global.fetch).toHaveBeenCalledWith("/api/agent/executions");
-      expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
+      expect(mockSetCurrentExecutionId).toHaveBeenCalledWith(null);
+    });
+
+    it("descarta o id quando a execucao foi CANCELADA (terminal, Story 22.10) (AC2)", async () => {
+      setupDefaults({ executionId: "exec-cancel" });
+      mockUserState = { profile: { id: USER_ID } };
+      mockExecutionsList([{ id: "exec-cancel", user_id: USER_ID, status: "cancelled" }]);
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      expect(mockSetCurrentExecutionId).toHaveBeenCalledWith(null);
     });
 
     it("descarta o id quando a execucao esta COMPLETED (terminal) (AC2)", async () => {
@@ -1046,6 +1068,217 @@ describe("AgentChat", () => {
       // Sem id persistido -> nao bate no endpoint de validacao
       expect(global.fetch).not.toHaveBeenCalledWith("/api/agent/executions");
       expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
+    });
+  });
+
+  // --- Story 22.10: botao "Nova conversa" ---
+
+  describe('botao "Nova conversa" (Story 22.10)', () => {
+    const USER_ID = "user-1";
+
+    // Mock URL-aware: PATCH de cancelamento + GET de validacao.
+    function mockCancel(ok: boolean) {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        (url: string, options?: RequestInit) => {
+          if (typeof url === "string" && url === "/api/agent/executions") {
+            return Promise.resolve({
+              ok: true,
+              json: () => Promise.resolve({ data: [] }),
+            });
+          }
+          if (options?.method === "PATCH") {
+            return Promise.resolve({
+              ok,
+              status: ok ? 200 : 500,
+              json: () => Promise.resolve({ data: { status: "cancelled" } }),
+            });
+          }
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+        }
+      );
+    }
+
+    function clickNewConversation() {
+      return act(async () => {
+        screen.getByTestId("agent-new-conversation").click();
+      });
+    }
+
+    it("NAO renderiza o botao sem execucao (first-time byte-a-byte, NFR4/AC5)", () => {
+      setupDefaults({ executionId: null });
+      render(<AgentChat />);
+      expect(screen.queryByTestId("agent-new-conversation")).not.toBeInTheDocument();
+    });
+
+    it("renderiza o botao quando ha execucao em andamento (AC5)", () => {
+      setupDefaults({ executionId: "exec-123" });
+      render(<AgentChat />);
+      expect(screen.getByTestId("agent-new-conversation")).toBeInTheDocument();
+    });
+
+    it("execucao de BRIEFING (pending, sem steps): cancela DIRETO, sem dialog (AC5)", async () => {
+      setupDefaults({ executionId: "exec-123" });
+      mockCancel(true);
+
+      render(<AgentChat />);
+      await clickNewConversation();
+
+      // PATCH { status: "cancelled" } — sem passar por confirmacao
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/agent/executions/exec-123",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ status: "cancelled" }),
+        })
+      );
+      expect(
+        screen.queryByTestId("agent-confirm-new-conversation")
+      ).not.toBeInTheDocument();
+    });
+
+    it("cancelamento bem-sucedido limpa TUDO: store + briefing reset() (AC6)", async () => {
+      setupDefaults({ executionId: "exec-123" });
+      mockCancel(true);
+
+      render(<AgentChat />);
+      await clickNewConversation();
+
+      expect(mockSetCurrentExecutionId).toHaveBeenCalledWith(null);
+      expect(mockSetShowModeSelector).toHaveBeenCalledWith(false);
+      expect(mockSetShowExecutionPlan).toHaveBeenCalledWith(false);
+      expect(mockSetExecutionMode).toHaveBeenCalledWith(null);
+      expect(mockSetAgentProcessing).toHaveBeenCalledWith(false);
+      expect(mockSetTotalSteps).toHaveBeenCalledWith(0);
+      // o reset do briefing e o que impede o agente de retomar a conversa morta
+      expect(mockResetBriefing).toHaveBeenCalled();
+    });
+
+    it("PATCH falhou: toast de erro e NADA e limpo (tudo-ou-nada, AC5)", async () => {
+      setupDefaults({ executionId: "exec-123" });
+      mockCancel(false);
+
+      render(<AgentChat />);
+      await clickNewConversation();
+
+      expect(mockToastError).toHaveBeenCalledWith(
+        "Erro ao encerrar a conversa. Tente novamente."
+      );
+      // execucao segue viva no servidor -> a UI NAO pode fingir que acabou
+      expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
+      expect(mockResetBriefing).not.toHaveBeenCalled();
+    });
+
+    it("falha de REDE no PATCH: toast e nada limpo (AC5)", async () => {
+      setupDefaults({ executionId: "exec-123" });
+      (global.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("Network"));
+
+      render(<AgentChat />);
+      await clickNewConversation();
+
+      expect(mockToastError).toHaveBeenCalledWith(
+        "Erro ao encerrar a conversa. Tente novamente."
+      );
+      expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
+      expect(mockResetBriefing).not.toHaveBeenCalled();
+    });
+
+    it("PATCH 409 (execucao ja terminal no servidor): reseta o cliente e NAO trava (code review)", async () => {
+      setupDefaults({ executionId: "exec-123" });
+      // Ex.: autopilot completou dentro da sessao; o id ainda esta setado, o botao aparece,
+      // mas o PATCH cancel bate numa linha terminal -> 409. Antes do fix o cliente so dava
+      // toast e nao limpava nada -> usuario preso ao botao (todo retry 409) ate dar F5.
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        (url: string, options?: RequestInit) => {
+          if (typeof url === "string" && url === "/api/agent/executions") {
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
+          }
+          if (options?.method === "PATCH") {
+            return Promise.resolve({
+              ok: false,
+              status: 409,
+              json: () => Promise.resolve({ error: { code: "INVALID_TRANSITION" } }),
+            });
+          }
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+        }
+      );
+
+      render(<AgentChat />);
+      await clickNewConversation();
+
+      // 409 = ja encerrou no servidor -> seguro (e necessario) resetar o cliente
+      expect(mockSetCurrentExecutionId).toHaveBeenCalledWith(null);
+      expect(mockResetBriefing).toHaveBeenCalled();
+      // e SEM toast de erro: nao e falha real, a execucao ja estava encerrada
+      expect(mockToastError).not.toHaveBeenCalled();
+    });
+
+    it("execucao POS-CONFIRM (com steps): exige confirmacao no dialog antes de cancelar (AC5)", async () => {
+      setupDefaults({ executionId: "exec-123" });
+      // steps so existem apos o POST /confirm -> ja gastou
+      mockExecutionData = {
+        messages: [],
+        steps: [{ id: "s1", step_number: 1, status: "completed" }],
+      };
+      mockCancel(true);
+
+      render(<AgentChat />);
+      await clickNewConversation();
+
+      // NAO cancelou ainda — abriu o dialog
+      expect(global.fetch).not.toHaveBeenCalledWith(
+        "/api/agent/executions/exec-123",
+        expect.objectContaining({ method: "PATCH" })
+      );
+      const confirmButton = screen.getByTestId("agent-confirm-new-conversation");
+      expect(confirmButton).toBeInTheDocument();
+
+      // aviso explicito sobre o que se perde
+      expect(screen.getByText(/creditos ja consumidos nao sao revertidos/i)).toBeInTheDocument();
+
+      await act(async () => {
+        confirmButton.click();
+      });
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/agent/executions/exec-123",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ status: "cancelled" }),
+        })
+      );
+      expect(mockResetBriefing).toHaveBeenCalled();
+    });
+
+    it("execucao RUNNING reatachada: exige o dialog mesmo antes dos steps carregarem (AC5)", async () => {
+      setupDefaults({ executionId: "exec-run" });
+      mockUserState = { profile: { id: USER_ID } };
+      // validacao-no-mount devolve running; steps ainda vazios (fetch em voo)
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (typeof url === "string" && url === "/api/agent/executions") {
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                data: [{ id: "exec-run", user_id: USER_ID, status: "running" }],
+              }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+      });
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      await clickNewConversation();
+
+      // dialog aberto, nenhum PATCH disparado
+      expect(screen.getByTestId("agent-confirm-new-conversation")).toBeInTheDocument();
+      expect(global.fetch).not.toHaveBeenCalledWith(
+        "/api/agent/executions/exec-run",
+        expect.objectContaining({ method: "PATCH" })
+      );
     });
   });
 });

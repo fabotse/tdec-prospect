@@ -16,6 +16,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { RotateCcw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { AgentMessageList } from "./AgentMessageList";
 import { AgentModeSelector } from "./AgentModeSelector";
 import { AgentExecutionPlan } from "./AgentExecutionPlan";
@@ -45,6 +57,16 @@ export function AgentChat() {
 
   const [isModeSubmitting, setIsModeSubmitting] = useState(false);
   const [isPlanSubmitting, setIsPlanSubmitting] = useState(false);
+  // Story 22.10: "Nova conversa"
+  const [showAbandonDialog, setShowAbandonDialog] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  // Status confirmado pela validacao-no-mount (null quando a execucao nasceu nesta sessao).
+  const [reattachedStatus, setReattachedStatus] = useState<string | null>(null);
+  // Story 22.10 (code review): sinal de "confirmado nesta sessao". Cobre a janela entre o
+  // POST /confirm retornar (dinheiro ja gasto, step 1 disparando) e o cliente hidratar os
+  // steps / reattachedStatus — sem ele, "Nova conversa" nessa janela cancelaria uma execucao
+  // paga SEM o dialog de aviso de creditos.
+  const [confirmedThisSession, setConfirmedThisSession] = useState(false);
 
   const { isFirstTime } = useAgentOnboarding();
   const { profile } = useUser();
@@ -53,8 +75,18 @@ export function AgentChat() {
   // O currentExecutionId persiste em localStorage (zustand persist). No mount, o id
   // restaurado NAO e confiado de imediato: so anexamos os hooks de dados a ele depois
   // de validar contra o servidor (reataca so execucao existente, do usuario atual e
-  // ATIVA — pending/running/paused). Terminal/inexistente/de-outro-usuario -> descarta
-  // e inicia limpo (fecha o buraco da "execucao fantasma").
+  // CONFIRMADA E EM ANDAMENTO). Terminal/inexistente/de-outro-usuario -> descarta e
+  // inicia limpo (fecha o buraco da "execucao fantasma").
+  //
+  // Story 22.10 — o criterio estreitou de {pending, running, paused} para
+  // {running, paused}: conversa abandonada no meio do briefing fica 'pending' PARA
+  // SEMPRE (nada a encerra) e voltava em todo login/refresh — e voltava quebrada (o
+  // historico reidratava, mas o useBriefingFlow renascia em 'idle' e o agente
+  // reperguntava tudo dentro do mesmo historico). Desde a 22.10 o POST /confirm grava
+  // 'running', entao 'pending' significa exatamente "briefing nao confirmado" e
+  // 'running'/'paused' significam "confirmada, ja gastou/esta gastando" — o unico caso
+  // que realmente precisa voltar. Para sair de uma execucao confirmada existe o botao
+  // "Nova conversa" (cancela no servidor).
   //
   // O "portao" (attachGateOpen) fecha a janela em que um id ainda nao validado ja
   // seria pollado/exibido por useAgentExecution (dados de execucao terminal — ou de
@@ -95,15 +127,19 @@ export function AgentChat() {
         if (!Array.isArray(result?.data)) return;
         const executions: AgentExecution[] = result.data;
         const match = executions.find((e) => e.id === persistedId);
+        // Story 22.10: so execucao CONFIRMADA reatacha (running/paused). Ver o bloco
+        // de comentario acima para o porque de 'pending' ter deixado de contar.
         const isActive =
           !!match &&
           match.user_id === userId &&
-          (match.status === "pending" ||
-            match.status === "running" ||
-            match.status === "paused");
+          (match.status === "running" || match.status === "paused");
 
         if (cancelled) return;
         if (isActive) {
+          // Story 22.10: guarda o status validado — e o que diz ao botao "Nova conversa"
+          // se esta execucao ja passou pelo confirm (logo, ja gastou) e portanto exige
+          // confirmacao explicita antes de ser abandonada.
+          setReattachedStatus(match.status);
           // Restaura o modo: o avanco de step (autopilot/guided) e disparado NO
           // CLIENTE por useAutoTrigger, que exige o mode. O partialize so persiste o
           // id, entao sem isto uma execucao autopilot reatachada mostraria o progresso
@@ -135,7 +171,13 @@ export function AgentChat() {
   // Fix #1: useSendMessage sem parametro — executionId passado no mutate
   const sendMessageMutation = useSendMessage();
 
-  const { state: briefingState, processMessage: processBriefing } = useBriefingFlow();
+  // Story 22.10: `reset` existe no hook desde a 16.3 mas nunca foi consumido — e o que
+  // impede o agente de repreguntar tudo com o estado da conversa morta apos "Nova conversa".
+  const {
+    state: briefingState,
+    processMessage: processBriefing,
+    reset: resetBriefing,
+  } = useBriefingFlow();
 
   // Story 17.7: Sync totalSteps to store for approval gates
   useEffect(() => {
@@ -327,6 +369,9 @@ export function AgentChat() {
         toast.error("Erro ao confirmar execucao. Tente novamente.");
         return;
       }
+      // Story 22.10 (code review): marca confirmacao nesta sessao -> "Nova conversa" passa a
+      // exigir o dialog mesmo antes de steps/reattachedStatus estarem disponiveis.
+      setConfirmedThisSession(true);
       // Fechar plan imediatamente apos confirm bem-sucedido
       // para evitar UI travada se sendAgentMessage falhar
       setShowExecutionPlan(false);
@@ -363,8 +408,130 @@ export function AgentChat() {
     }
   }, [currentExecutionId, sendAgentMessage, setShowExecutionPlan, refetchMessages]);
 
+  // ============================================================
+  // Story 22.10 — "Nova conversa"
+  // ============================================================
+
+  // A execucao ja passou pelo confirm? Dois sinais, ambos confiaveis:
+  // - steps existem: SO o POST /confirm cria agent_steps;
+  // - status validado no mount e running/paused: idem (running so e escrito pelo confirm),
+  //   e cobre a janela em que a execucao reatachada ainda nao carregou os steps.
+  // `executionMode` NAO serve: e escolhido ANTES do confirm (mode selector), quando nada
+  // foi gasto ainda e o cancelamento deve ser sem fricção.
+  const isPostConfirmExecution =
+    steps.length > 0 ||
+    reattachedStatus === "running" ||
+    reattachedStatus === "paused" ||
+    confirmedThisSession;
+
+  // Cancela no servidor e — SO em caso de sucesso — zera o cliente inteiro.
+  // Tudo-ou-nada de proposito: limpar a UI com a execucao viva no servidor recriaria a
+  // "execucao fantasma" que a 22.8 fechou (steps rodando e gastando, invisiveis).
+  const cancelCurrentExecution = useCallback(async () => {
+    if (!currentExecutionId) return;
+    setIsCancelling(true);
+    try {
+      const response = await fetch(`/api/agent/executions/${currentExecutionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "cancelled" }),
+      });
+      if (!response.ok) {
+        // Story 22.10 (code review): 409 = execucao JA terminal no servidor (nada vivo
+        // rodando/gastando). Nesse caso e seguro — e necessario — resetar o cliente: senao o
+        // usuario fica preso ao botao "Nova conversa" (todo retry 409 de novo) ate dar F5.
+        // Falha transitoria (500/rede) preserva o id para nao criar fantasma.
+        if (response.status !== 409) {
+          toast.error("Erro ao encerrar a conversa. Tente novamente.");
+          return;
+        }
+      }
+
+      // Reset integral (AC6). O persist/partialize do zustand propaga o null ao
+      // localStorage sozinho — nao ha o que limpar a mao.
+      setCurrentExecutionId(null);
+      setShowModeSelector(false);
+      setShowExecutionPlan(false);
+      setExecutionMode(null);
+      setAgentProcessing(false);
+      setTotalSteps(0);
+      setReattachedStatus(null);
+      setConfirmedThisSession(false);
+      // Sem isto o historico some da tela mas o briefing sobrevive em memoria: o agente
+      // retomaria a conversa antiga (pedindo confirmacao de um resumo que ninguem ve).
+      resetBriefing();
+      setShowAbandonDialog(false);
+    } catch {
+      toast.error("Erro ao encerrar a conversa. Tente novamente.");
+    } finally {
+      setIsCancelling(false);
+    }
+  }, [
+    currentExecutionId,
+    setCurrentExecutionId,
+    setShowModeSelector,
+    setShowExecutionPlan,
+    setExecutionMode,
+    setAgentProcessing,
+    setTotalSteps,
+    resetBriefing,
+  ]);
+
+  const handleNewConversation = useCallback(() => {
+    // Briefing (pending): nada foi gasto -> encerra direto, sem fricção (a dor comum).
+    // Pos-confirm: creditos/progresso ja consumidos -> exige confirmacao explicita.
+    if (isPostConfirmExecution) {
+      setShowAbandonDialog(true);
+      return;
+    }
+    void cancelCurrentExecution();
+  }, [isPostConfirmExecution, cancelCurrentExecution]);
+
   return (
     <div className="flex flex-col flex-1 min-h-0" data-testid="agent-chat">
+      {/* Story 22.10: so aparece com conversa em andamento — sem execucao, o chat ja
+          esta limpo e o botao nao teria o que encerrar (first-time byte-a-byte, NFR4). */}
+      {currentExecutionId && (
+        <div className="flex items-center justify-end gap-2 px-4 py-2 border-b">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleNewConversation}
+            disabled={isCancelling}
+            data-testid="agent-new-conversation"
+          >
+            <RotateCcw className="size-4" />
+            Nova conversa
+          </Button>
+        </div>
+      )}
+      <AlertDialog open={showAbandonDialog} onOpenChange={setShowAbandonDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Comecar uma nova conversa?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta execucao ja foi confirmada e esta em andamento. Ao comecar uma nova
+              conversa ela sera encerrada e nao podera ser retomada. O progresso e os
+              creditos ja consumidos nao sao revertidos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isCancelling}>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                // Impede o Radix de fechar o dialog antes da resposta do servidor:
+                // se o PATCH falhar, o usuario continua no dialog e nada foi limpo.
+                event.preventDefault();
+                void cancelCurrentExecution();
+              }}
+              disabled={isCancelling}
+              data-testid="agent-confirm-new-conversation"
+            >
+              Encerrar e comecar nova
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AgentMessageList
         messages={messages}
         isAgentProcessing={isAgentProcessing}

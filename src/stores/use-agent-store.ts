@@ -61,6 +61,9 @@ export const useAgentStore = create<AgentUIState & AgentUIActions>()(
       // sao efemeras/derivadas — reidratar estado obsoleto delas quebraria a UI.
       // O id restaurado e VALIDADO contra o servidor no mount do AgentChat (nunca
       // reatacha execucao terminal ou de outro usuario).
+      // Story 22.10: a validacao so reatacha execucao CONFIRMADA em andamento
+      // (running/paused); 'pending' (briefing abandonado) e descartado — o chat abre
+      // limpo em vez de ressuscitar conversa morta.
       name: "tdec-agent-ui",
       partialize: (state) => ({ currentExecutionId: state.currentExecutionId }),
     }

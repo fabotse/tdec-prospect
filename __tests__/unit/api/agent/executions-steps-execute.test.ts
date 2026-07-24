@@ -191,6 +191,72 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/execute", 
     expect(json.error.code).toBe("NOT_FOUND");
   });
 
+  // ==============================================
+  // Story 22.10 — guarda anti-race de execucao terminal (AC4)
+  // ==============================================
+
+  it.each(["cancelled", "completed", "failed"])(
+    "deve retornar 409 EXECUTION_NOT_ACTIVE quando a execucao esta '%s' (AC4)",
+    async (terminalStatus) => {
+      setupDefaultMocks();
+      mockFrom.mockImplementation((table: string) => {
+        if (table === "agent_executions") {
+          return createChainBuilder({
+            data: { id: EXEC_ID, tenant_id: "tenant-456", status: terminalStatus },
+            error: null,
+          });
+        }
+        return createChainBuilder();
+      });
+
+      const response = await POST(createRequest(), createParams());
+      const json = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(json.error.code).toBe("EXECUTION_NOT_ACTIVE");
+      // NENHUM step novo rodou -> nada foi gasto em execucao encerrada
+      expect(mockExecuteStep).not.toHaveBeenCalled();
+    }
+  );
+
+  it("deve executar normalmente quando a execucao esta PAUSED (retry legitimo de erro)", async () => {
+    setupDefaultMocks();
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "agent_executions") {
+        return createChainBuilder({
+          data: { id: EXEC_ID, tenant_id: "tenant-456", status: "paused" },
+          error: null,
+        });
+      }
+      if (table === "api_configs") return createChainBuilder({ data: null, error: null });
+      return createChainBuilder();
+    });
+
+    const response = await POST(createRequest(), createParams());
+
+    expect(response.status).toBe(200);
+    expect(mockExecuteStep).toHaveBeenCalled();
+  });
+
+  it("deve executar normalmente quando a execucao esta RUNNING (confirmada)", async () => {
+    setupDefaultMocks();
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "agent_executions") {
+        return createChainBuilder({
+          data: { id: EXEC_ID, tenant_id: "tenant-456", status: "running" },
+          error: null,
+        });
+      }
+      if (table === "api_configs") return createChainBuilder({ data: null, error: null });
+      return createChainBuilder();
+    });
+
+    const response = await POST(createRequest(), createParams());
+
+    expect(response.status).toBe(200);
+    expect(mockExecuteStep).toHaveBeenCalled();
+  });
+
   it("deve retornar 404 quando execucao pertence a outro tenant (5.3)", async () => {
     setupDefaultMocks();
     mockFrom.mockImplementation((table: string) => {

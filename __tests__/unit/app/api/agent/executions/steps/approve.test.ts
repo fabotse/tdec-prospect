@@ -175,6 +175,52 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/approve", 
     expect(json.error.code).toBe("NOT_FOUND");
   });
 
+  // ==============================================
+  // Story 22.10 — guarda anti-race de execucao terminal (AC4)
+  // ==============================================
+
+  // Repontar o select da execucao respeitando a assinatura do chain builder
+  // (o padrao mais frouxo usado no resto do arquivo nao type-checa).
+  function stubExecution(execution: Record<string, unknown>) {
+    executionsChain.then = (resolve: (value: { data: unknown; error: unknown }) => unknown) =>
+      Promise.resolve({ data: execution, error: null }).then(resolve);
+  }
+
+  it.each(["cancelled", "completed", "failed"])(
+    "returns 409 EXECUTION_NOT_ACTIVE quando a execucao esta '%s' (Story 22.10 AC4)",
+    async (terminalStatus) => {
+      stubExecution({
+        id: VALID_UUID,
+        tenant_id: "tenant-1",
+        status: terminalStatus,
+        total_steps: 1,
+      });
+
+      const res = await POST(createRequest(), createParams());
+      const json = await res.json();
+
+      expect(res.status).toBe(409);
+      expect(json.error.code).toBe("EXECUTION_NOT_ACTIVE");
+      // o step NUNCA foi aprovado -> o bloco de "ultimo step" nao roda e o
+      // status 'cancelled' nao e sobrescrito por 'completed'
+      expect(stepsChain.update).not.toHaveBeenCalled();
+    }
+  );
+
+  it("aprova normalmente quando a execucao esta RUNNING (guarda nao afeta o caminho feliz)", async () => {
+    stubExecution({ id: VALID_UUID, tenant_id: "tenant-1", status: "running", total_steps: 5 });
+
+    const res = await POST(createRequest(), createParams());
+    expect(res.status).toBe(200);
+  });
+
+  it("aprova normalmente quando a execucao esta PAUSED (retry de erro segue valido)", async () => {
+    stubExecution({ id: VALID_UUID, tenant_id: "tenant-1", status: "paused", total_steps: 5 });
+
+    const res = await POST(createRequest(), createParams());
+    expect(res.status).toBe(200);
+  });
+
   // 9.5 - Step not awaiting_approval -> 409
   it("returns 409 when step is not awaiting_approval (9.5)", async () => {
     stepsChain.then = (resolve: (v: unknown) => unknown) =>

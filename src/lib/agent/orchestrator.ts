@@ -255,6 +255,7 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
         }
 
         // Complete execution with deferred note
+        // Story 22.10 (code review): CAS — nao ressuscitar um cancel concorrente.
         const { error: completionError } = await this.supabase
           .from("agent_executions")
           .update({
@@ -262,7 +263,8 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
             completed_at: new Date().toISOString(),
             result_summary: { activationDeferred: true },
           })
-          .eq("id", executionId);
+          .eq("id", executionId)
+          .neq("status", "cancelled");
 
         if (completionError) {
           throw this.createPipelineError(
@@ -311,13 +313,16 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
       // Execution completion in guided mode happens after the user approves the last step.
       const totalSteps = executionData.total_steps;
       if (stepNumber === totalSteps && executionData.mode !== "guided") {
+        // Story 22.10 (code review): CAS — nao sobrescrever um cancel concorrente ("Nova
+        // conversa") com 'completed'. `.neq("status","cancelled")` deixa o cancel prevalecer.
         await this.supabase
           .from("agent_executions")
           .update({
             status: "completed",
             completed_at: new Date().toISOString(),
           })
-          .eq("id", executionId);
+          .eq("id", executionId)
+          .neq("status", "cancelled");
 
         // Story 17.7 - AC #2: Summary message in autopilot mode
         await this.sendSummaryMessage(executionId, totalSteps);
@@ -390,10 +395,15 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
     executionId: string,
     status: string
   ): Promise<void> {
+    // Story 22.10 (code review): CAS. Este metodo escreve 'paused' nos caminhos de erro;
+    // sem a guarda, um step que falha DEPOIS de um cancel concorrente escreveria 'paused'
+    // por cima de 'cancelled' — e 'paused' reataca ({running,paused}), recriando a fantasma
+    // que a story combate. `.neq("status","cancelled")` mantem o cancel terminal.
     await this.supabase
       .from("agent_executions")
       .update({ status })
-      .eq("id", executionId);
+      .eq("id", executionId)
+      .neq("status", "cancelled");
   }
 
   /**

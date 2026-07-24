@@ -166,4 +166,63 @@ describe("useAutoTrigger (Story 17.7 - AC #1)", () => {
       { method: "POST" }
     );
   });
+
+  // ==============================================
+  // Story 22.10 (AC6) — re-arme na troca de execucao
+  // ==============================================
+
+  it("re-arma o guard ao TROCAR de executionId na mesma montagem (Story 22.10 AC6)", () => {
+    // Execucao A avanca ate o step 4 -> lastTriggeredRef = 4.
+    const stepsA = [
+      makeStep({ step_number: 1, status: "completed" }),
+      makeStep({ step_number: 2, status: "completed" }),
+      makeStep({ step_number: 3, status: "completed" }),
+      makeStep({ step_number: 4, status: "pending" }),
+    ];
+
+    const { rerender } = renderHook(
+      ({ executionId, steps }) => useAutoTrigger({ executionId, steps, mode: "autopilot" }),
+      { initialProps: { executionId: "exec-A", steps: stepsA } }
+    );
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/agent/executions/exec-A/steps/4/execute",
+      { method: "POST" }
+    );
+    fetchSpy.mockClear();
+
+    // "Nova conversa": a execucao A e cancelada e uma execucao B nova nasce NA MESMA
+    // MONTAGEM do AgentChat (o componente nao desmonta). Sem o re-arme, o ref antigo
+    // (=4) bloquearia o step 2 da execucao B (`nextStepNumber <= lastTriggered`) e o
+    // autopilot da conversa nova travaria em silencio.
+    const stepsB = [
+      makeStep({ step_number: 1, status: "completed" }),
+      makeStep({ step_number: 2, status: "pending" }),
+    ];
+
+    rerender({ executionId: "exec-B", steps: stepsB });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/agent/executions/exec-B/steps/2/execute",
+      { method: "POST" }
+    );
+  });
+
+  it("mantem o guard dentro da MESMA execucao apos o re-arme (nao redispara)", () => {
+    const steps = [
+      makeStep({ step_number: 1, status: "completed" }),
+      makeStep({ step_number: 2, status: "pending" }),
+    ];
+
+    const { rerender } = renderHook(
+      ({ executionId }) => useAutoTrigger({ executionId, steps, mode: "autopilot" }),
+      { initialProps: { executionId: "exec-001" } }
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    // mesmo id -> o ref NAO e zerado -> nada de dispatch duplicado (regressao da 17.7)
+    rerender({ executionId: "exec-001" });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
 });

@@ -104,12 +104,21 @@ export async function POST(
   }
 
   // Atualizar execucao com cost_estimate e total_steps
+  //
+  // Story 22.10: o confirm passa a marcar a execucao como "running" (+started_at).
+  // Antes desta story `running` NUNCA era escrito: uma execucao confirmada, com steps
+  // rodando e gastando, continuava "pending" — indistinguivel de um briefing abandonado
+  // no meio da conversa. Sem esse discriminador o reattach-no-mount (AgentChat) nao teria
+  // como reatacar SO execucao confirmada. A guarda `status !== "pending"` (linha 44)
+  // continua correta: uma execucao ja confirmada agora e "running" e cai em ALREADY_CONFIRMED.
   const { data: updated, error: updateError } = await supabase
     .from("agent_executions")
     .update({
       briefing: nextBriefing, // Story 22.2: persiste premiumIcebreakers no JSONB
       cost_estimate: costEstimate,
       total_steps: steps.length,
+      status: "running",
+      started_at: new Date().toISOString(),
     })
     .eq("id", executionId)
     .select()

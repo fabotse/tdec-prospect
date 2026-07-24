@@ -233,6 +233,46 @@ So that eu não perca a conversa e não fique com uma execução rodando e gasta
 6. **Given** first-time / sem id persistido **Then** comportamento idêntico ao de hoje (zero regressão — NFR4) **And** sem migration (persistência client-side; leitura via endpoint existente — NFR5)
 7. Testes unitários: persist/restore; validação-no-mount que descarta id terminal/inexistente/de-outro-usuário; reattach de `running` reidrata steps; fix da tela em branco; regressão first-time
 
+### Story 22.10: Conversa Limpa — Reattach só de Execução Confirmada + "Nova Conversa"
+
+> Story **pós-planejamento**, levantada pelo Fabossi em teste real (2026-07-23): conversa abandonada no briefing reaparece em todo login/refresh (critério da 22.8 inclui `pending`). Descoberta de análise: `running` nunca era escrito — execução confirmada ficava `pending`; esta story dá semântica real ao status antes de estreitar o reattach.
+
+As a usuário do Agente TDEC,
+I want que o agente abra limpo (sem conversa morta de sessão anterior) e ter um botão "Nova conversa",
+So that o chat seja previsível e eu recomece do zero quando quiser, mantendo visível só execução confirmada que ainda roda/gasta.
+
+**Acceptance Criteria (resumo — detalhe no story file):**
+
+1. `POST /confirm` grava `status: "running"` + `started_at` (semântica real; leitores de `pending` varridos)
+2. Reattach no mount exige `status ∈ {running, paused}` — `pending` (briefing abandonado) descarta e abre limpo; mecanismo da 22.8 intacto
+3. `ExecutionStatus` ganha `'cancelled'`; `PATCH /executions/[id]` aceita `{ status: "cancelled" }` com guardas (só o dono — 403; só de não-terminal — 409)
+4. Guardas anti-race: execute e approve recusam execução terminal (`cancelled`/`completed`/`failed`) com 409 — nenhum step roda/gasta em execução cancelada
+5. Botão "Nova conversa" no AgentChat: `pending` cancela direto; `running`/`paused` com AlertDialog; falha do PATCH não limpa nada (tudo-ou-nada)
+6. Reset integral do cliente: store + `reset()` do `useBriefingFlow` + re-arme do `useAutoTrigger` por troca de `executionId` (bug latente)
+7. Backfill 00063: execuções confirmadas antigas (`pending` com `cost_estimate`) → `running` (dado, não schema — NFR5)
+8. Zero regressão (suíte baseline + first-time byte-a-byte — NFR4); smoke real como definição-de-pronto
+
+---
+
+### Story 22.11: Guardrail Determinístico de Sub-fluxo (import_leads) + Atualização do Modelo do Parser
+
+> Story **pós-planejamento**, levantada pelo Fabossi em teste real (2026-07-24): ao pedir só um ajuste de filtro ("aumentar o tamanho da empresa"), o agente respondeu "Você já tem seus próprios leads. Cole a lista…" e entrou no fluxo de importação. Diagnóstico em código: o `gpt-4o-mini` alucinou `nextAction: "import_leads"` e o gatilho em `use-briefing-flow.ts:457` confia no `nextAction` do LLM **sem nenhuma âncora determinística**. Reforça a decisão D1 da 22.4 (nextAction como gatilho) com uma trava determinística nos sub-fluxos caros.
+
+As a usuário do Agente TDEC,
+I want que o agente nunca me jogue no fluxo de "cole seus leads" quando eu só ajusto um filtro, e que a intenção seja lida por um modelo mais atual,
+So that a conversa siga previsível e o agente não abandone a busca por uma classificação errada do modelo.
+
+**Acceptance Criteria (resumo — detalhe no story file):**
+
+_Frente A — Guard determinístico:_
+1. O ramo `import_leads` só entra se a **mensagem crua** tiver sinal real de leads (regex de e-mail OU keyword de leads próprios, espelhando o SYSTEM_PROMPT); sem isso, o `nextAction`/`skipSteps` do LLM é ignorado e segue a conversa
+2. `handleParseResult` passa a receber a mensagem crua do turno; helper puro `messageSignalsOwnLeads` (SSOT); trade-off fail-safe (na dúvida, não sequestra)
+3. Zero regressão no import legítimo (17.11) — testes adaptados para a âncora estar na mensagem real
+
+_Frente B — Modelo do parser:_
+4. Trocar `gpt-4o-mini` por modelo atual (recomendado `gpt-5.4-mini`; alternativa `gpt-5.4-nano`) com compat de API verificada (família gpt-5 pode rejeitar `temperature` custom); alinhar o parser de produto; custo oficial documentado (prompt caching)
+5. Validação: corrige o caso reportado + zero regressão + **smoke real** (suíte mocka a OpenAI — não prova a interpretação real)
+
 ---
 
 ### Dependências & Sequência
@@ -244,3 +284,5 @@ So that eu não perca a conversa e não fique com uma execução rodando e gasta
 - **22.6** independente — qualquer momento após 22.1
 - **22.7** opcional — só se sobrar espaço; não bloqueia o épico
 - **22.8** independente (só toca UI/store do chat, não o pipeline) — pós-planejamento; pode entrar a qualquer momento, prioridade elevada por ser robustez de execução paga (origem: code-review 22.2)
+- **22.10 depende da 22.8** (ajusta o critério de reattach que ela criou) — pós-planejamento (origem: teste real do Fabossi 2026-07-23); toca rotas de execução mas NÃO o orchestrator
+- **22.11 independente** (toca a conversa: `use-briefing-flow` + `briefing-parser-service`) — pós-planejamento (origem: teste real do Fabossi 2026-07-24); reforça a D1 da 22.4 com âncora determinística nos sub-fluxos caros + atualiza o modelo do parser. Frente A (guard) autocontida e sem risco; Frente B (modelo) mexe em todo o parsing de briefing → smoke real obrigatório. Depende do commit da 22.10

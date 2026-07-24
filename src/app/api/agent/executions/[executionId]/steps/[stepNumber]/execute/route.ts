@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
 import { readServiceApiKey } from "@/lib/agent/service-keys";
+import { isTerminalExecutionStatus } from "@/types/agent";
 import {
   DeterministicOrchestrator,
   isPipelineError,
@@ -74,6 +75,24 @@ export async function POST(
         },
       },
       { status: 404 }
+    );
+  }
+
+  // Story 22.10: guarda anti-race. Esta rota e chamada por caminhos fire-and-forget
+  // (o POST /confirm dispara o step 1; o useAutoTrigger dispara os seguintes, possivelmente
+  // de outra aba) — sem esta checagem, um step novo rodaria E GASTARIA em execucao ja
+  // cancelada/encerrada. O select acima ja traz o status: zero query extra.
+  // `paused` (parada por ERRO — o unico caminho que escreve paused) NAO entra aqui: o
+  // retry legitimo continua funcionando.
+  if (isTerminalExecutionStatus(execution.status)) {
+    return NextResponse.json(
+      {
+        error: {
+          code: "EXECUTION_NOT_ACTIVE",
+          message: `Execucao encerrada (status: ${execution.status}). Nenhum step novo pode rodar.`,
+        },
+      },
+      { status: 409 }
     );
   }
 

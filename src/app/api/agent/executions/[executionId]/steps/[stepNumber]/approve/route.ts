@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
-import { STEP_LABELS } from "@/types/agent";
+import { STEP_LABELS, isTerminalExecutionStatus } from "@/types/agent";
 import type { StepType } from "@/types/agent";
 
 export async function POST(
@@ -71,6 +71,22 @@ export async function POST(
         },
       },
       { status: 404 }
+    );
+  }
+
+  // Story 22.10: guarda anti-race, ANTES de aprovar o step. Sem ela, aprovar o ULTIMO
+  // step de uma execucao cancelada escreveria status='completed' por cima do 'cancelled'
+  // (bloco "Complete execution when approving last step", abaixo) — ou seja, a execucao
+  // ressuscitaria como concluida. O select acima ja traz o status: zero query extra.
+  if (isTerminalExecutionStatus(execution.status)) {
+    return NextResponse.json(
+      {
+        error: {
+          code: "EXECUTION_NOT_ACTIVE",
+          message: `Execucao encerrada (status: ${execution.status}). Nenhum step pode ser aprovado.`,
+        },
+      },
+      { status: 409 }
     );
   }
 
@@ -176,6 +192,9 @@ export async function POST(
       resultSummary.activationDeferred = true;
     }
 
+    // Story 22.10 (code review): CAS — nao ressuscitar uma execucao cancelada como
+    // 'completed'. O guard terminal no topo e check-then-act; um cancel concorrente pode
+    // ter escrito 'cancelled' entre o SELECT e este write. `.neq` deixa o cancel prevalecer.
     const { error: completionError } = await supabase
       .from("agent_executions")
       .update({
@@ -183,7 +202,8 @@ export async function POST(
         completed_at: new Date().toISOString(),
         result_summary: resultSummary,
       })
-      .eq("id", executionId);
+      .eq("id", executionId)
+      .neq("status", "cancelled");
 
     if (completionError) {
       return NextResponse.json(

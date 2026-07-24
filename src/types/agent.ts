@@ -7,7 +7,12 @@
 
 // === Enums / Unions ===
 
-export type ExecutionStatus = 'pending' | 'running' | 'paused' | 'completed' | 'failed';
+// Story 22.10: 'cancelled' e TERMINAL — o usuario abandonou a execucao pelo botao
+// "Nova conversa". Nenhum caminho escreve por cima dele (execute/approve recusam
+// status terminal), entao "descancelar" e impossivel.
+// Ciclo real: pending (briefing) -> running (POST /confirm) -> completed | paused (erro)
+//             qualquer nao-terminal -> cancelled (PATCH { status: "cancelled" })
+export type ExecutionStatus = 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
 export type ExecutionMode = 'guided' | 'autopilot';
 export type StepType = 'search_companies' | 'search_leads' | 'create_campaign' | 'export' | 'activate';
 export type StepStatus = 'pending' | 'running' | 'awaiting_approval' | 'approved' | 'completed' | 'failed' | 'skipped';
@@ -288,6 +293,28 @@ export interface ActivateStepOutput {
   campaignName: string;
   activated: boolean;
   activatedAt: string;
+}
+
+// === Execution lifecycle (Story 22.10) ===
+
+/**
+ * Status dos quais uma execucao NAO sai. Fonte unica das guardas de:
+ * - PATCH /executions/[id]           -> 409 INVALID_TRANSITION (nao ha como descancelar)
+ * - POST  .../steps/[n]/execute      -> 409 EXECUTION_NOT_ACTIVE (nada roda/gasta apos o fim)
+ * - POST  .../steps/[n]/approve      -> 409 EXECUTION_NOT_ACTIVE (o ultimo approve
+ *                                       sobrescreveria 'cancelled' com 'completed')
+ *
+ * `paused` NAO e terminal de proposito: e escrito SO em erro do pipeline e o retry
+ * legitimo depende dele.
+ */
+export const TERMINAL_EXECUTION_STATUSES: readonly ExecutionStatus[] = [
+  'completed',
+  'failed',
+  'cancelled',
+];
+
+export function isTerminalExecutionStatus(status: string): boolean {
+  return (TERMINAL_EXECUTION_STATUSES as readonly string[]).includes(status);
 }
 
 // === Step Labels (Story 17.1 AC #5) ===
