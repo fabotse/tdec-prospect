@@ -103,10 +103,13 @@ test-results/
 # quebram o Turbopack se não estiverem ignorados — o Tailwind v4 auto-detecta conteúdo
 # respeitando o .gitignore, segue o symlink e entra em panic ("leaves the filesystem root").
 .agents/
-.claude/skills/vercel-react-best-practices/
-.claude/skills/skill-builder/
-.claude/skills/epic-recap/
-.claude/skills/verify/
+# Sem barra final: no Windows sao diretorios, mas vistos do WSL (/mnt/c) os symlinks
+# aparecem como nao-diretorio e o padrao com "/" nao casava -> untracked (quebrava o
+# preflight do bmad-loop rodando no WSL). Sem a barra, casa symlink/arquivo/dir em ambos.
+.claude/skills/vercel-react-best-practices
+.claude/skills/skill-builder
+.claude/skills/epic-recap
+.claude/skills/verify
 
 # Roteiro de demo/teste local da Story 21.7 (contém IDs de tenant/lead + passos operacionais — não versionar)
 docs/roteiro-demo-notificacoes-21-7.md
