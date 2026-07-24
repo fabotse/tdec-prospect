@@ -224,22 +224,48 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
       try {
         // Story 17.9: Add selected accounts to campaign even when deferring activation.
         // Without this, campaign stays in Instantly with zero sending accounts.
+        //
+        // Story 22.12 (AC3): o attach e ACESSORIO — adiar a ativacao e a intencao
+        // PRIMARIA do usuario. Isolamos o attach num try/catch proprio: se ele falhar
+        // por QUALQUER motivo, a etapa NAO falha (nada de 'paused' sem saida). O skip
+        // conclui, a execucao completa com activationDeferred, e sinalizamos
+        // accountsAttachFailed para o resumo avisar que as contas nao foram anexadas.
+        let accountsAttachFailed = false;
         const selectedAccounts = previousStepOutput.selectedAccounts as string[] | undefined;
         if (selectedAccounts && selectedAccounts.length > 0 && previousStepOutput.externalCampaignId) {
-          const apiKey = await getServiceApiKey(tenantId, "instantly");
-          const service = new InstantlyService();
-          await service.addAccountsToCampaign({
-            apiKey,
-            campaignId: previousStepOutput.externalCampaignId as string,
-            accountEmails: selectedAccounts,
-          });
+          try {
+            const apiKey = await getServiceApiKey(tenantId, "instantly");
+            const service = new InstantlyService();
+            await service.addAccountsToCampaign({
+              apiKey,
+              campaignId: previousStepOutput.externalCampaignId as string,
+              accountEmails: selectedAccounts,
+            });
+          } catch (attachError) {
+            accountsAttachFailed = true;
+            console.error(
+              `[Orchestrator] Falha ao anexar contas de envio no defer (execution=${executionId}, campaign=${previousStepOutput.externalCampaignId}):`,
+              attachError instanceof Error ? attachError.message : attachError
+            );
+          }
+        } else if (selectedAccounts && selectedAccounts.length > 0) {
+          // Story 22.12 (review): contas selecionadas mas SEM externalCampaignId — nao
+          // ha como anexar. Trata como falha de attach para o resumo avisar (mesma
+          // intencao da AC3: "por QUALQUER motivo"), em vez de reportar sucesso silencioso.
+          accountsAttachFailed = true;
+          console.error(
+            `[Orchestrator] Contas selecionadas no defer mas sem externalCampaignId (execution=${executionId}); attach ignorado.`
+          );
         }
+
+        // Flag so incluida quando true — preserva o caminho de sucesso byte-a-byte.
+        const attachFlag = accountsAttachFailed ? { accountsAttachFailed: true } : {};
 
         const { error: skipError } = await this.supabase
           .from("agent_steps")
           .update({
             status: "skipped",
-            output: { skipped: true, reason: "activation_deferred" },
+            output: { skipped: true, reason: "activation_deferred", ...attachFlag },
             completed_at: new Date().toISOString(),
           })
           .eq("execution_id", executionId)
@@ -261,7 +287,7 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
           .update({
             status: "completed",
             completed_at: new Date().toISOString(),
-            result_summary: { activationDeferred: true },
+            result_summary: { activationDeferred: true, ...attachFlag },
           })
           .eq("id", executionId)
           .neq("status", "cancelled");
@@ -276,17 +302,20 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
         }
 
         const campaignName = (previousStepOutput.campaignName as string) ?? "campanha";
+        const summaryContent = accountsAttachFailed
+          ? `Campanha "${campaignName}" exportada no Instantly, mas nao consegui anexar as contas de envio — anexe-as manualmente no Instantly antes de ativar. Ativacao adiada.`
+          : `Campanha "${campaignName}" exportada no Instantly. Ativacao adiada — ative manualmente quando desejar.`;
         await this.supabase.from("agent_messages").insert({
           execution_id: executionId,
           role: "agent",
-          content: `Campanha "${campaignName}" exportada no Instantly. Ativacao adiada — ative manualmente quando desejar.`,
+          content: summaryContent,
           metadata: {
             stepNumber,
             messageType: "summary",
           },
         });
 
-        return { success: true, data: { skipped: true, reason: "activation_deferred" } };
+        return { success: true, data: { skipped: true, reason: "activation_deferred", ...attachFlag } };
       } catch (error) {
         const pipelineError = isPipelineError(error)
           ? error
@@ -422,7 +451,20 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
       ? " Voce pode tentar novamente."
       : " Entre em contato com o suporte.";
 
-    const content = `Erro na etapa "${stepLabel}"${servicePart}: ${error.message}.${retryPart}`;
+    // Story 22.12 (AC5): coerencia mensagem <-> flag. Um erro NAO-retryable nao pode
+    // exibir "Tente novamente" embutido (ex.: o INTERNAL_ERROR generico do base-service
+    // carrega esse texto) — contradiz o retryPart "Entre em contato com o suporte.".
+    // Sanitizamos so no caso nao-retryable; retryable mantem a mensagem original.
+    // Removemos tambem a pontuacao terminal residual para o template nao gerar ".."
+    // e caimos num fallback se a sanitizacao esvaziar a mensagem.
+    const displayMessage = error.isRetryable
+      ? error.message.replace(/[.!?]+$/, "")
+      : error.message
+          .replace(/\s*tente novamente\.?/gi, "")
+          .replace(/[.!?]+$/, "")
+          .trim() || "Erro ao processar a etapa";
+
+    const content = `Erro na etapa "${stepLabel}"${servicePart}: ${displayMessage}.${retryPart}`;
 
     await this.supabase.from("agent_messages").insert({
       execution_id: executionId,

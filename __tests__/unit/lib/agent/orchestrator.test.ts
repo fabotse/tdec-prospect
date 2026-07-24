@@ -322,6 +322,52 @@ describe("DeterministicOrchestrator (AC #5)", () => {
         })
       );
     });
+
+    it("does NOT show 'Tente novamente' when the error is non-retryable (Story 22.12 AC5)", async () => {
+      // Erro nao-retryable cuja mensagem embute "Tente novamente" (ex.: INTERNAL_ERROR
+      // generico do base-service). O texto embutido contradiz o "Entre em contato com
+      // o suporte." do retryPart — deve ser sanitizado.
+      const pipelineError: PipelineError = {
+        code: "STEP_EXECUTION_ERROR",
+        message: "Erro interno. Tente novamente.",
+        stepNumber: 5,
+        stepType: "activate",
+        isRetryable: false,
+      };
+      mockActivateRun.mockRejectedValue(pipelineError);
+
+      const prevStepChain = createChainBuilder({
+        data: { output: { externalCampaignId: "camp-123", campaignName: "C" } },
+        error: null,
+      });
+      const stepsChain = createChainBuilder({
+        data: { id: "step-5", execution_id: "exec-001", step_number: 5, step_type: "activate", status: "pending" },
+        error: null,
+      });
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      await expect(orchestrator.executeStep("exec-001", 5)).rejects.toBeDefined();
+
+      const errorInsert = mockSupabase.messagesChain.insert.mock.calls
+        .map((c: unknown[]) => c[0] as Record<string, unknown>)
+        .find((m) => (m.metadata as Record<string, unknown>)?.messageType === "error");
+      expect(errorInsert).toBeDefined();
+      const content = errorInsert!.content as string;
+      // coerencia: nao-retryable -> sem "tente novamente", com "Entre em contato com o suporte."
+      expect(content.toLowerCase()).not.toContain("tente novamente");
+      expect(content).toContain("Entre em contato com o suporte.");
+    });
   });
 
   describe("status paused rule (4.7)", () => {
@@ -1105,6 +1151,94 @@ describe("DeterministicOrchestrator (AC #5)", () => {
 
       // ActivateStep.run() should NOT have been called (still skipped)
       expect(mockActivateRun).not.toHaveBeenCalled();
+    });
+
+    it("degrades gracefully when addAccountsToCampaign fails in defer path (Story 22.12 AC3)", async () => {
+      // Attach falha (ex.: o 404 real) — a etapa NAO deve falhar; o defer conclui.
+      mockAddAccountsToCampaign.mockRejectedValue(new Error("attach boom"));
+
+      const prevStepChain = createChainBuilder({
+        data: {
+          output: {
+            externalCampaignId: "camp-123",
+            campaignName: "Test Campaign",
+            activationDeferred: true,
+            selectedAccounts: ["sender1@company.com"],
+          },
+          status: "approved",
+        },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-5",
+          execution_id: "exec-001",
+          step_number: 5,
+          step_type: "activate",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      const stepsUpdateChain = createChainBuilder({ data: null, error: null });
+      const stepsUpdateFn = vi.fn().mockReturnValue(stepsUpdateChain);
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return { update: stepsUpdateFn };
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      const result = await orchestrator.executeStep("exec-001", 5);
+
+      // Etapa NAO falha: skip conclui, execucao completa (nao paused)
+      expect(result.success).toBe(true);
+      expect(result.data).toMatchObject({
+        skipped: true,
+        reason: "activation_deferred",
+        accountsAttachFailed: true,
+      });
+
+      // step skipped carrega a flag
+      expect(stepsUpdateFn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "skipped",
+          output: expect.objectContaining({ accountsAttachFailed: true }),
+        })
+      );
+
+      // execucao completada com a flag no result_summary
+      expect(mockSupabase.executionsChain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "completed",
+          result_summary: expect.objectContaining({
+            activationDeferred: true,
+            accountsAttachFailed: true,
+          }),
+        })
+      );
+
+      // mensagem-resumo avisa que as contas NAO foram anexadas
+      const insertCalls = mockSupabase.messagesChain.insert.mock.calls;
+      const warned = insertCalls.some((c: unknown[]) => {
+        const content = (c[0] as Record<string, unknown>).content;
+        return typeof content === "string" && content.toLowerCase().includes("anexar");
+      });
+      expect(warned).toBe(true);
+
+      // NUNCA marca paused nesse caminho
+      const statusUpdates = mockSupabase.executionsChain.update.mock.calls.map(
+        (call: unknown[]) => (call[0] as Record<string, unknown>).status
+      );
+      expect(statusUpdates).not.toContain("paused");
     });
 
     it("does NOT call addAccountsToCampaign when no selectedAccounts in deferred output", async () => {

@@ -37,8 +37,8 @@ import type {
   ListCampaignsResponse,
   AddAccountsParams,
   AddAccountsResult,
-  AccountCampaignMappingRequest,
-  AccountCampaignMappingResponse,
+  UpdateCampaignRequest,
+  UpdateCampaignResponse,
   UpdateLeadInterestStatusParams,
   UpdateLeadInterestStatusResult,
   FindLeadIdByEmailParams,
@@ -59,7 +59,6 @@ const INSTANTLY_LEADS_ADD_ENDPOINT = "/api/v2/leads/add";
 const INSTANTLY_LEADS_ENDPOINT = "/api/v2/leads";
 const INSTANTLY_LEADS_LIST_ENDPOINT = "/api/v2/leads/list";
 const INSTANTLY_INTEREST_STATUS_ENDPOINT = "/api/v2/leads/update-interest-status";
-const INSTANTLY_ACCOUNT_CAMPAIGN_MAPPINGS_ENDPOINT = "/api/v2/account-campaign-mappings";
 const RATE_LIMIT_DELAY_MS = 150;
 const GATEWAY_ERROR_CODES = new Set([502, 503, 504]);
 const GATEWAY_VERIFY_DELAY_MS = 3000;
@@ -301,10 +300,19 @@ export class InstantlyService extends ExternalService {
 
   /**
    * Add sending accounts to an Instantly campaign
-   * Story 7.5: AC #1
+   * Story 7.5: AC #1 — reescrito na Story 22.12
    *
-   * Uses POST /api/v2/account-campaign-mappings to associate
-   * each sending account with the campaign.
+   * O antigo POST /api/v2/account-campaign-mappings NAO EXISTE na v2 (404 real
+   * "Route POST:/api/v2/account-campaign-mappings not found"). O mecanismo
+   * canonico e PATCH /api/v2/campaigns/{id} com `email_list` (doc oficial:
+   * "List of accounts to use for sending emails").
+   *
+   * Caminho defensivo (replace-safe): a doc NAO especifica se o PATCH substitui
+   * ou mescla `email_list`. Lemos a campanha (GET), mesclamos o `email_list`
+   * existente com as contas novas (uniao deduplicada) e enviamos o PATCH. Isso e
+   * seguro sob AMBAS as semanticas: um PATCH-replace recebe o conjunto completo
+   * (nao derruba contas ja anexadas, ex.: as do createCampaign autopilot); um
+   * PATCH-merge e idempotente. 1 GET + 1 PATCH no lugar do loop de N POSTs.
    *
    * @param params - API key, campaign ID, and account emails
    * @returns Success status and count of accounts added
@@ -316,29 +324,30 @@ export class InstantlyService extends ExternalService {
       return { success: true, accountsAdded: 0 };
     }
 
-    const url = `${INSTANTLY_API_BASE}${INSTANTLY_ACCOUNT_CAMPAIGN_MAPPINGS_ENDPOINT}`;
-    let accountsAdded = 0;
+    const campaignUrl = `${INSTANTLY_API_BASE}${INSTANTLY_CAMPAIGNS_ENDPOINT}/${campaignId}`;
 
-    for (let i = 0; i < accountEmails.length; i++) {
-      if (i > 0) {
-        await delay(RATE_LIMIT_DELAY_MS);
-      }
+    // 1) Ler o email_list atual para nao sobrescrever contas ja anexadas.
+    const current = await this.request<GetCampaignResponse>(campaignUrl, {
+      method: "GET",
+      headers: buildAuthHeaders(apiKey),
+    });
 
-      const requestBody: AccountCampaignMappingRequest = {
-        campaign_id: campaignId,
-        email_account: accountEmails[i],
-      };
+    // 2) Mesclar (uniao deduplicada, preservando ordem: existentes primeiro).
+    //    `current?` blinda contra um corpo GET nulo (ex.: 200 com JSON `null`).
+    const mergedEmailList = Array.from(
+      new Set([...(current?.email_list ?? []), ...accountEmails])
+    );
 
-      await this.request<AccountCampaignMappingResponse>(url, {
-        method: "POST",
-        headers: buildAuthHeaders(apiKey),
-        body: JSON.stringify(requestBody),
-      });
+    // 3) PATCH com o conjunto completo.
+    const requestBody: UpdateCampaignRequest = { email_list: mergedEmailList };
 
-      accountsAdded++;
-    }
+    await this.request<UpdateCampaignResponse>(campaignUrl, {
+      method: "PATCH",
+      headers: buildAuthHeaders(apiKey),
+      body: JSON.stringify(requestBody),
+    });
 
-    return { success: true, accountsAdded };
+    return { success: true, accountsAdded: accountEmails.length };
   }
 
   /**

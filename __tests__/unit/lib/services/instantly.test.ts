@@ -1094,19 +1094,38 @@ describe("InstantlyService", () => {
   // addAccountsToCampaign (Story 7.5 AC: #1)
   // ==============================================
 
+  // Story 22.12: reescrito para o mecanismo canonico da v2 —
+  // GET /api/v2/campaigns/{id} (le email_list atual) -> merge -> PATCH email_list.
+  // O antigo POST /api/v2/account-campaign-mappings NAO EXISTE na v2 (404 real).
   describe("addAccountsToCampaign", () => {
-    it("adds accounts to campaign successfully", async () => {
-      const { calls } = createMockFetch([
+    // Rotas do novo contrato: GET campanha + PATCH campanha.
+    function campaignRoutes(existingEmailList: string[] = []) {
+      return [
         {
-          url: /\/api\/v2\/account-campaign-mappings/,
-          method: "POST",
+          url: /\/api\/v2\/campaigns\/camp-123$/,
+          method: "GET",
           response: mockJsonResponse({
-            campaign_id: "camp-123",
-            email_account: "sender@example.com",
-            status: "active",
+            id: "camp-123",
+            name: "Camp",
+            status: 0,
+            email_list: existingEmailList,
           }),
         },
-      ]);
+        {
+          url: /\/api\/v2\/campaigns\/camp-123$/,
+          method: "PATCH",
+          response: mockJsonResponse({
+            id: "camp-123",
+            name: "Camp",
+            status: 0,
+            email_list: existingEmailList,
+          }),
+        },
+      ];
+    }
+
+    it("PATCHes campaign email_list with the selected accounts", async () => {
+      const { calls } = createMockFetch(campaignRoutes());
 
       const result = await service.addAccountsToCampaign({
         apiKey: "test-key",
@@ -1117,12 +1136,68 @@ describe("InstantlyService", () => {
       expect(result.success).toBe(true);
       expect(result.accountsAdded).toBe(1);
 
-      const body = calls()[0].body as Record<string, unknown>;
-      expect(body.campaign_id).toBe("camp-123");
-      expect(body.email_account).toBe("sender@example.com");
+      const patchCall = calls().find((c) => c.method === "PATCH");
+      expect(patchCall).toBeDefined();
+      expect(patchCall!.url).toContain("/api/v2/campaigns/camp-123");
+      const body = patchCall!.body as Record<string, unknown>;
+      expect(body.email_list).toEqual(["sender@example.com"]);
     });
 
-    it("returns success with 0 accounts when empty array", async () => {
+    // RED contra o codigo antigo: nenhuma chamada pode tocar o endpoint morto.
+    it("does NOT call the dead account-campaign-mappings endpoint", async () => {
+      const { calls } = createMockFetch(campaignRoutes());
+
+      await service.addAccountsToCampaign({
+        apiKey: "test-key",
+        campaignId: "camp-123",
+        accountEmails: ["sender@example.com"],
+      });
+
+      const deadCalls = calls().filter((c) =>
+        c.url.includes("/account-campaign-mappings")
+      );
+      expect(deadCalls).toHaveLength(0);
+    });
+
+    // Defensivo: PATCH replace-safe — le a campanha e mescla o email_list existente
+    // (nao derruba contas que ja estavam anexadas, ex.: as do createCampaign autopilot).
+    it("merges new accounts with the campaign's existing email_list (dedup, replace-safe)", async () => {
+      const { calls } = createMockFetch(
+        campaignRoutes(["kept@existing.com"])
+      );
+
+      await service.addAccountsToCampaign({
+        apiKey: "test-key",
+        campaignId: "camp-123",
+        accountEmails: ["kept@existing.com", "new@sender.com"],
+      });
+
+      const patchCall = calls().find((c) => c.method === "PATCH");
+      const body = patchCall!.body as { email_list: string[] };
+      expect(body.email_list).toContain("kept@existing.com");
+      expect(body.email_list).toContain("new@sender.com");
+      // dedup: "kept@existing.com" aparece uma unica vez
+      expect(body.email_list.filter((e) => e === "kept@existing.com")).toHaveLength(1);
+    });
+
+    it("reads existing email_list via GET before the PATCH", async () => {
+      const { calls } = createMockFetch(campaignRoutes());
+
+      await service.addAccountsToCampaign({
+        apiKey: "test-key",
+        campaignId: "camp-123",
+        accountEmails: ["sender@example.com"],
+      });
+
+      const getIndex = calls().findIndex((c) => c.method === "GET");
+      const patchIndex = calls().findIndex((c) => c.method === "PATCH");
+      expect(getIndex).toBeGreaterThanOrEqual(0);
+      expect(patchIndex).toBeGreaterThan(getIndex);
+    });
+
+    it("returns success with 0 accounts when empty array (no HTTP call)", async () => {
+      const { calls } = createMockFetch(campaignRoutes());
+
       const result = await service.addAccountsToCampaign({
         apiKey: "test-key",
         campaignId: "camp-123",
@@ -1131,48 +1206,14 @@ describe("InstantlyService", () => {
 
       expect(result.success).toBe(true);
       expect(result.accountsAdded).toBe(0);
-    });
-
-    it("adds multiple accounts with rate limiting", async () => {
-      vi.useFakeTimers();
-
-      const { mock } = createMockFetch([
-        {
-          url: /\/api\/v2\/account-campaign-mappings/,
-          method: "POST",
-          response: mockJsonResponse({
-            campaign_id: "camp-123",
-            email_account: "sender@example.com",
-            status: "active",
-          }),
-        },
-      ]);
-
-      const promise = service.addAccountsToCampaign({
-        apiKey: "test-key",
-        campaignId: "camp-123",
-        accountEmails: ["s1@test.com", "s2@test.com", "s3@test.com"],
-      });
-
-      await vi.advanceTimersByTimeAsync(500);
-      const result = await promise;
-
-      expect(result.success).toBe(true);
-      expect(result.accountsAdded).toBe(3);
-
-      const mappingCalls = mock.mock.calls.filter(
-        (c: [string]) => typeof c[0] === "string" && c[0].includes("/account-campaign-mappings")
-      );
-      expect(mappingCalls).toHaveLength(3);
-
-      vi.useRealTimers();
+      expect(calls()).toHaveLength(0);
     });
 
     it("throws ExternalServiceError on API failure", async () => {
       createMockFetch([
         {
-          url: /\/api\/v2\/account-campaign-mappings/,
-          method: "POST",
+          url: /\/api\/v2\/campaigns\/camp-123$/,
+          method: "GET",
           response: mockErrorResponse(401),
         },
       ]);
@@ -1186,18 +1227,8 @@ describe("InstantlyService", () => {
       ).rejects.toThrow(ExternalServiceError);
     });
 
-    it("sends Bearer token in requests", async () => {
-      const { calls } = createMockFetch([
-        {
-          url: /\/api\/v2\/account-campaign-mappings/,
-          method: "POST",
-          response: mockJsonResponse({
-            campaign_id: "camp-123",
-            email_account: "sender@test.com",
-            status: "active",
-          }),
-        },
-      ]);
+    it("sends Bearer token in the PATCH request", async () => {
+      const { calls } = createMockFetch(campaignRoutes());
 
       await service.addAccountsToCampaign({
         apiKey: "my-secret",
@@ -1205,7 +1236,8 @@ describe("InstantlyService", () => {
         accountEmails: ["sender@test.com"],
       });
 
-      expect(calls()[0].headers?.Authorization).toBe("Bearer my-secret");
+      const patchCall = calls().find((c) => c.method === "PATCH");
+      expect(patchCall!.headers?.Authorization).toBe("Bearer my-secret");
     });
   });
 

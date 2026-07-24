@@ -11,6 +11,7 @@
 
 import { BaseStep } from "./base-step";
 import { InstantlyService } from "@/lib/services/instantly";
+import { ExternalServiceError } from "@/lib/services/base-service";
 import { getServiceApiKey } from "./step-utils";
 import type {
   StepInput,
@@ -71,11 +72,28 @@ export class ActivateStep extends BaseStep {
     // In autopilot mode accounts were already included during createCampaign.
     const selectedAccounts = previousStepOutput.selectedAccounts as string[] | undefined;
     if (selectedAccounts && selectedAccounts.length > 0) {
-      await service.addAccountsToCampaign({
-        apiKey,
-        campaignId: externalCampaignId,
-        accountEmails: selectedAccounts,
-      });
+      // Story 22.12 (AC4): na ativacao REAL a falha de attach CONTINUA bloqueando —
+      // ativar sem conta de envio dispararia uma campanha inerte. Mas trocamos a
+      // mensagem generica ("Erro interno. Tente novamente.") por uma especifica,
+      // preservando a retryabilidade do erro externo original (statusCode).
+      try {
+        await service.addAccountsToCampaign({
+          apiKey,
+          campaignId: externalCampaignId,
+          accountEmails: selectedAccounts,
+        });
+      } catch (attachError) {
+        const specificMessage = "Não consegui anexar as contas de envio no Instantly";
+        if (attachError instanceof ExternalServiceError) {
+          throw new ExternalServiceError(
+            attachError.serviceName,
+            attachError.statusCode,
+            specificMessage,
+            attachError.details
+          );
+        }
+        throw new Error(specificMessage);
+      }
     }
 
     // 3.6 - Sub-step B: Ativar campanha

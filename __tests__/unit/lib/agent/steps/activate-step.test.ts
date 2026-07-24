@@ -307,4 +307,72 @@ describe("ActivateStep (Story 17.4 AC #3, #4)", () => {
       expect(mockAddAccountsToCampaign).not.toHaveBeenCalled();
     });
   });
+
+  // ==============================================
+  // Story 22.12: attach de contas na ativacao real FALHA-RAPIDO com msg especifica
+  // ==============================================
+
+  describe("Story 22.12 - attach failure on real activation (AC #4, #5)", () => {
+    it("blocks activation with a SPECIFIC message when attach fails (not 'Erro interno')", async () => {
+      mockAddAccountsToCampaign.mockRejectedValue(
+        new ExternalServiceError("instantly", 404, "Erro interno. Tente novamente.")
+      );
+
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const prevOutput = {
+        ...createPreviousStepOutput(),
+        selectedAccounts: ["sender1@company.com"],
+      };
+      const input = createDefaultInput(prevOutput as unknown as Record<string, unknown>);
+
+      await expect(step.run(input)).rejects.toMatchObject({
+        message: expect.stringContaining("anexar as contas de envio"),
+      });
+
+      // fail-fast: ativar sem conta = campanha inerte -> NAO ativa
+      expect(mockActivateCampaign).not.toHaveBeenCalled();
+    });
+
+    it("does not leak the generic 'Erro interno. Tente novamente.' message on attach failure", async () => {
+      mockAddAccountsToCampaign.mockRejectedValue(
+        new ExternalServiceError("instantly", 404, "Erro interno. Tente novamente.")
+      );
+
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const prevOutput = {
+        ...createPreviousStepOutput(),
+        selectedAccounts: ["sender1@company.com"],
+      };
+      const input = createDefaultInput(prevOutput as unknown as Record<string, unknown>);
+
+      let caught: unknown;
+      try {
+        await step.run(input);
+      } catch (e) {
+        caught = e;
+      }
+      const message = (caught as { message: string }).message;
+      expect(message).not.toContain("Erro interno");
+    });
+
+    it("preserves retryability of the underlying attach error (502 -> retryable)", async () => {
+      mockAddAccountsToCampaign.mockRejectedValue(
+        new ExternalServiceError("instantly", 502, "Bad gateway")
+      );
+
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const prevOutput = {
+        ...createPreviousStepOutput(),
+        selectedAccounts: ["sender1@company.com"],
+      };
+      const input = createDefaultInput(prevOutput as unknown as Record<string, unknown>);
+
+      await expect(step.run(input)).rejects.toMatchObject({
+        code: "STEP_ACTIVATE_ERROR",
+        isRetryable: true,
+        externalService: "instantly",
+        message: expect.stringContaining("anexar as contas de envio"),
+      });
+    });
+  });
 });

@@ -150,6 +150,27 @@ export interface GetCampaignResponse {
   sequences?: Array<{
     steps: InstantlySequenceStep[];
   }>;
+  /** Sending accounts currently associated with the campaign (Story 22.12) */
+  email_list?: string[];
+}
+
+/**
+ * Request body for PATCH /api/v2/campaigns/{id} (Story 22.12)
+ * Canonical v2 mechanism to associate sending accounts with a campaign.
+ * `email_list` = "List of accounts to use for sending emails" (doc oficial).
+ */
+export interface UpdateCampaignRequest {
+  email_list?: string[];
+}
+
+/**
+ * Response from PATCH /api/v2/campaigns/{id} (Story 22.12)
+ */
+export interface UpdateCampaignResponse {
+  id: string;
+  name?: string;
+  status?: number;
+  email_list?: string[];
 }
 
 /**
@@ -199,26 +220,13 @@ export interface ListAccountsResult {
 }
 
 // ==============================================
-// ACCOUNT CAMPAIGN MAPPING TYPES (Story 7.5: AC #1)
+// ADD ACCOUNTS TYPES (Story 7.5: AC #1; rewritten Story 22.12)
 // ==============================================
-
-/**
- * Request body for POST /api/v2/account-campaign-mappings
- * Story 7.5: Associates a sending account with a campaign
- */
-export interface AccountCampaignMappingRequest {
-  campaign_id: string;
-  email_account: string;
-}
-
-/**
- * Response from POST /api/v2/account-campaign-mappings
- */
-export interface AccountCampaignMappingResponse {
-  campaign_id: string;
-  email_account: string;
-  status: string;
-}
+//
+// Story 22.12: o antigo POST /api/v2/account-campaign-mappings NAO EXISTE na v2
+// (404 real). O mecanismo canonico e PATCH /api/v2/campaigns/{id} com `email_list`
+// (ver UpdateCampaignRequest acima). Os tipos AccountCampaignMappingRequest/Response
+// foram removidos junto com o endpoint morto.
 
 /**
  * Parameters for InstantlyService.addAccountsToCampaign()
