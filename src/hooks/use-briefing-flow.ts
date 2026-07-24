@@ -290,7 +290,13 @@ function briefingChanged(prev: ParsedBriefing | null, next: ParsedBriefing): boo
     (prev.objective ?? null) !== (next.objective ?? null) ||
     (prev.urgency ?? null) !== (next.urgency ?? null) ||
     (prev.campaignDescription ?? null) !== (next.campaignDescription ?? null) ||
-    (prev.emailCount ?? null) !== (next.emailCount ?? null)
+    (prev.emailCount ?? null) !== (next.emailCount ?? null) ||
+    // Story 22.11 (patch review): skipSteps entra no diff. Sem isto, um turno que injeta o
+    // shape de import (search_companies+search_leads) SEM mudar outro campo passa como
+    // "briefing inalterado" e um "sim" o confirma direto (keywordConfirmed), pulando o guard
+    // deterministico do ramo de leads. Comparado como conjunto ordenado (semantica de set).
+    [...(prev.skipSteps ?? [])].sort().join("|") !==
+      [...(next.skipSteps ?? [])].sort().join("|")
   );
 }
 
@@ -359,6 +365,24 @@ export function messageSignalsOwnLeads(content: string): boolean {
   if (EMAIL_SIGNAL_REGEX.test(content)) return true;
   const normalized = normalizeForSignal(content);
   return OWN_LEADS_KEYWORDS.some((kw) => normalized.includes(kw));
+}
+
+// Story 22.11 (Frente A, AC1 — patch review): quando o guard barra um import_leads SEM ancora
+// deterministica e SEM leads reais, o import ALUCINADO do LLM precisa ser realmente IGNORADO
+// (nao so o ramo). Este helper reconcilia o briefing para um fluxo NAO-import: remove o
+// marcador de import (search_leads) e re-deriva search_companies pela MESMA regra
+// deterministica do route (parse/route.ts): sem tecnologia => busca direta (search_companies
+// pulado); com tecnologia => search_companies roda. Sem isto, o skipSteps envenenado
+// sobreviveria no briefing re-apresentado ("0 leads importados serao usados diretamente") e o
+// "sim" seguinte confirmaria uma execucao que quebra (create-campaign-step: leads vazios).
+function reconcileNonImportBriefing(briefing: ParsedBriefing): ParsedBriefing {
+  const withoutImportSteps = (briefing.skipSteps ?? []).filter(
+    (step) => step !== "search_leads" && step !== "search_companies"
+  );
+  const skipSteps = briefing.technology
+    ? withoutImportSteps
+    : [...withoutImportSteps, "search_companies"];
+  return { ...briefing, skipSteps };
 }
 
 function formatLeadPreview(result: LeadImportResult): string {
@@ -496,7 +520,11 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       // Story 22.11 (AC2): mensagem CRUA do turno atual. Necessaria para o guard
       // deterministico do ramo de leads (messageSignalsOwnLeads). Todos os call sites
       // passam o `content` do turno.
-      userMessage: string
+      userMessage: string,
+      // Story 22.11 (D1 — patch review): briefing ATUAL do estado. Usado para preservar
+      // `importedLeads` (client-only, o parser nunca os devolve) numa correcao dentro de um
+      // import ja em andamento. Todos os call sites passam `state.briefing`.
+      currentBriefing: ParsedBriefing | null
     ): Promise<{ handled: boolean }> => {
       // Story 17.11 + 22.4: imported leads flow — disparado pela INTENCAO do LLM
       // (nextAction="import_leads") OU pelo sinal deterministico skipSteps
@@ -553,6 +581,56 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
           sendAgentMessage
         );
         return { handled: true };
+      }
+
+      // Story 22.11 (Frente A, AC1/D1 — patch review): o LLM sinalizou import_leads (ou o
+      // briefing chegou com o skipSteps de import), mas a MENSAGEM CRUA nao tem ancora
+      // deterministica -> o ramo de colar leads foi barrado acima. Dois desfechos:
+      if (result.nextAction === "import_leads" || isImportedLeadsFlow(result.briefing)) {
+        // D1 (decisao Fabossi 2026-07-24 na review): ja ha leads colados num turno anterior
+        // (importedLeads no briefing atual) -> isto e uma CORRECAO dentro de um import em
+        // andamento, nao uma entrada nova. Preserva os leads + o fluxo de import (o parser
+        // nunca devolve importedLeads — e estado client-only) e aplica a correcao de campo.
+        if (currentBriefing?.importedLeads && currentBriefing.importedLeads.length > 0) {
+          const preservedBriefing: ParsedBriefing = {
+            ...result.briefing,
+            importedLeads: currentBriefing.importedLeads,
+            skipSteps: Array.from(
+              new Set([
+                ...(result.briefing.skipSteps ?? []),
+                "search_companies",
+                "search_leads",
+              ])
+            ),
+          };
+          setState((prev) => ({
+            ...prev,
+            status: "confirming",
+            briefing: preservedBriefing,
+            missingFields: result.missingFields,
+            isComplete: result.isComplete,
+          }));
+          await sendAndRecord(
+            executionId,
+            generateBriefingSummary(preservedBriefing, result.missingFields),
+            sendAgentMessage
+          );
+          return { handled: true };
+        }
+
+        // AC1: sem leads reais, o import_leads/skipSteps ALUCINADO e realmente IGNORADO.
+        // Reconcilia o briefing para nao-import e RECOMPUTA o gate (o import ja nao vale como
+        // criterio de canProceed). Sem isto, o skipSteps envenenado sobreviveria no resumo
+        // ("0 leads importados...") e o "sim" seguinte quebraria a execucao. Segue para os
+        // ramos normais abaixo com o briefing ja saneado.
+        const reconciledBriefing = reconcileNonImportBriefing(result.briefing);
+        result = {
+          ...result,
+          briefing: reconciledBriefing,
+          canProceed: Boolean(
+            reconciledBriefing.jobTitles?.length && reconciledBriefing.location
+          ),
+        };
       }
 
       // Story 22.3 / D3: o gating deterministico prevalece. canProceed=false ->
@@ -940,7 +1018,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
 
           // "confirm"/"ask" (correcao ou ajuste) = ainda conversando: aplica o briefing
           // corrigido e reapresenta o resumo (handleParseResult decide o estado).
-          return handleParseResult(result, executionId, sendAgentMessage, content);
+          return handleParseResult(result, executionId, sendAgentMessage, content, state.briefing);
         } catch {
           // Fail-open (AC4): LLM falhou/timeout -> keyword deterministica sobre a
           // mensagem crua. "sim"/"ok"/"bora" ainda confirmam; senao, mantem confirming.
@@ -1000,7 +1078,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
 
         try {
           const result = await callParseAPI(executionId);
-          return handleParseResult(result, executionId, sendAgentMessage, content);
+          return handleParseResult(result, executionId, sendAgentMessage, content, state.briefing);
         } catch {
           setState((prev) => ({ ...prev, status: "awaiting_fields" }));
           return { handled: false };
@@ -1016,7 +1094,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
 
         try {
           const result = await callParseAPI(executionId);
-          return handleParseResult(result, executionId, sendAgentMessage, content);
+          return handleParseResult(result, executionId, sendAgentMessage, content, state.briefing);
         } catch {
           setState({
             status: "idle",

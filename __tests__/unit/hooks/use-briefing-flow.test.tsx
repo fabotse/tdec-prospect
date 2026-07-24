@@ -2159,7 +2159,10 @@ describe("useBriefingFlow", () => {
           industry: null,
           productSlug: null,
           mode: "guided" as const,
-          skipSteps: [] as string[],
+          // Patch review 22.11: shape REALISTA da alucinacao — o SYSTEM_PROMPT MANDA acoplar
+          // import_leads a ["search_companies","search_leads"] (briefing-parser-service.ts:124).
+          // O mock antigo usava [] e mascarava o veneno (resumo diria "0 leads importados").
+          skipSteps: ["search_companies", "search_leads"] as string[],
         },
         missingFields: [] as string[],
         isComplete: true,
@@ -2192,6 +2195,11 @@ describe("useBriefingFlow", () => {
       // O agente NAO enviou o convite de "cole seus leads".
       const allMessages = mockSendAgentMessage.mock.calls.map((c) => c[1] as string);
       expect(allMessages.some((m) => m.includes("Cole a lista"))).toBe(false);
+      // Patch review 22.11 (AC1): o skipSteps ALUCINADO nao pode sobreviver no briefing
+      // re-apresentado. Sem a reconciliacao, o resumo diria "0 leads importados serao usados
+      // diretamente" e um "sim" quebraria a execucao (create-campaign-step: leads vazios).
+      expect(allMessages.some((m) => m.includes("leads importados serao usados"))).toBe(false);
+      expect(result.current.state.briefing?.skipSteps).not.toContain("search_leads");
     });
 
     // Caso POSITIVO no mesmo estado confirming: quando a mensagem crua TRAZ a ancora, o
@@ -2300,6 +2308,210 @@ describe("useBriefingFlow", () => {
       });
 
       expect(result.current.state.status).toBe("awaiting_leads_input");
+    });
+
+    // Patch review 22.11 (AC1): com o shape REALISTA de alucinacao (skipSteps de import),
+    // o guard nao pode so barrar o ramo — o skipSteps envenenado tem que ser IGNORADO, senao
+    // o resumo re-apresentado diz "0 leads importados serao usados diretamente" e o "sim"
+    // seguinte quebraria a execucao. RED (sem reconcileNonImportBriefing): o resumo poluido volta.
+    it("SANITIZA o skipSteps de import alucinado ao barrar o ramo (AC1, sem veneno no resumo)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "prospectar CTOs de Atibaia",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+      expect(result.current.state.status).toBe("confirming");
+
+      // Ajuste de filtro; o parser alucina import_leads JUNTO do skipSteps de import (shape real).
+      restoreFetch();
+      const MISCLASSIFIED_WITH_SKIPSTEPS = {
+        briefing: {
+          technology: null,
+          jobTitles: ["CTO"],
+          location: "Atibaia",
+          companySize: "50+",
+          industry: null,
+          productSlug: null,
+          mode: "guided" as const,
+          skipSteps: ["search_companies", "search_leads"] as string[],
+        },
+        missingFields: [] as string[],
+        isComplete: true,
+        canProceed: true,
+        suggestions: {},
+        productMentioned: null,
+        nextAction: "import_leads" as const,
+        questionText: null,
+      };
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(MISCLASSIFIED_WITH_SKIPSTEPS),
+        },
+      ]);
+
+      await act(async () => {
+        await result.current.processMessage(
+          "O tamanho da empresa pode aumentar para mais de 50.",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      // search_leads removido -> nao e mais um "import flow"; o resumo nao mente "0 leads".
+      expect(result.current.state.briefing?.skipSteps).not.toContain("search_leads");
+      const msgs = mockSendAgentMessage.mock.calls.map((c) => c[1] as string);
+      expect(msgs.some((m) => m.includes("leads importados serao usados"))).toBe(false);
+    });
+
+    // D1 (decisao Fabossi 2026-07-24 na review): uma correcao SEM ancora DEPOIS de ja ter
+    // colado leads NAO pode descartar os importedLeads (estado client-only). O guard barra o
+    // ramo, mas o import em andamento e preservado + a correcao de campo aplicada.
+    // RED (sem o bloco D1): a reconciliacao P1 rodaria e os leads sumiriam do briefing.
+    it("PRESERVA importedLeads quando o usuario corrige o briefing apos ter colado leads (D1)", async () => {
+      const IMPORT_MOCK = {
+        briefing: {
+          technology: null,
+          jobTitles: ["CTO"],
+          location: "Atibaia",
+          companySize: null,
+          industry: null,
+          productSlug: null,
+          mode: "guided" as const,
+          skipSteps: ["search_companies", "search_leads"] as string[],
+        },
+        missingFields: [] as string[],
+        isComplete: false,
+        canProceed: true,
+        suggestions: {},
+        productMentioned: null,
+        nextAction: "import_leads" as const,
+        questionText: null,
+      };
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(IMPORT_MOCK),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      // 1) "Ja tenho meus leads" (ancora) -> awaiting_leads_input
+      await act(async () => {
+        await result.current.processMessage("Ja tenho meus leads", EXEC_ID, mockSendAgentMessage);
+      });
+      expect(result.current.state.status).toBe("awaiting_leads_input");
+
+      // 2) Cola leads -> confirming_leads (importedLeads populado)
+      await act(async () => {
+        await result.current.processMessage("joao@empresa.com", EXEC_ID, mockSendAgentMessage);
+      });
+      expect(result.current.state.status).toBe("confirming_leads");
+      expect(result.current.state.briefing?.importedLeads).toHaveLength(1);
+
+      // 3) Confirma os leads -> confirming (resumo)
+      await act(async () => {
+        await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
+      });
+      expect(result.current.state.status).toBe("confirming");
+
+      // 4) Correcao SEM ancora ("troca o cargo pra CFO") — o parser mantem o shape de import
+      // (o historico tem os leads), mas a mensagem crua nao tem ancora -> guard barra o ramo.
+      restoreFetch();
+      const CFO_IMPORT_MOCK = {
+        ...IMPORT_MOCK,
+        briefing: { ...IMPORT_MOCK.briefing, jobTitles: ["CFO"] },
+      };
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(CFO_IMPORT_MOCK),
+        },
+      ]);
+
+      await act(async () => {
+        await result.current.processMessage("troca o cargo pra CFO", EXEC_ID, mockSendAgentMessage);
+      });
+
+      // GREEN: leads PRESERVADOS, correcao aplicada, ainda em confirming (nao pediu leads de novo).
+      expect(result.current.state.status).toBe("confirming");
+      expect(result.current.state.briefing?.importedLeads).toHaveLength(1);
+      expect(result.current.state.briefing?.jobTitles).toEqual(["CFO"]);
+      const lastMsg = mockSendAgentMessage.mock.lastCall?.[1] as string;
+      expect(lastMsg).toContain("leads importados serao usados");
+    });
+
+    // Patch review 22.11: briefingChanged passa a comparar skipSteps. Um "sim" cujo unico delta
+    // do parser e injetar o shape de import (search_companies+search_leads) NAO pode ser engolido
+    // como confirmacao por keyword (keywordConfirmed) — isso pularia o guard e confirmaria o
+    // estado envenenado. RED (sem skipSteps em briefingChanged): vira "confirmed".
+    it("um 'sim' NAO confirma quando o unico delta e um skipSteps de import injetado (patch briefingChanged)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "prospectar CTOs em Sao Paulo",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+      expect(result.current.state.status).toBe("confirming");
+
+      restoreFetch();
+      const INJECTED_IMPORT_SHAPE = {
+        ...COMPLETE_PARSE_RESPONSE,
+        briefing: {
+          ...COMPLETE_PARSE_RESPONSE.briefing,
+          skipSteps: ["search_companies", "search_leads"] as string[],
+        },
+        nextAction: "import_leads" as const,
+        questionText: null,
+      };
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(INJECTED_IMPORT_SHAPE),
+        },
+      ]);
+
+      let outcome: { handled: boolean; confirmed?: boolean } = { handled: false };
+      await act(async () => {
+        outcome = await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
+      });
+
+      // GREEN: nao confirma (o delta de skipSteps quebra o keywordConfirmed) e o guard
+      // reconcilia o import sem ancora -> segue em confirming, sem veneno.
+      expect(outcome.confirmed).not.toBe(true);
+      expect(result.current.state.status).toBe("confirming");
+      const msgs = mockSendAgentMessage.mock.calls.map((c) => c[1] as string);
+      expect(msgs.some((m) => m.includes("leads importados serao usados"))).toBe(false);
+      expect(result.current.state.briefing?.skipSteps).not.toContain("search_leads");
     });
   });
 
