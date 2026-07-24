@@ -308,6 +308,59 @@ function isImportedLeadsFlow(briefing: ParsedBriefing): boolean {
          briefing.skipSteps?.includes("search_leads") === true;
 }
 
+// Story 22.11 (Frente A): normaliza texto para casar keywords case/acento-insensitive.
+// Espelha o padrao dos helpers de keyword do hook (toLowerCase) e vai alem: remove
+// diacriticos (NFD) e hifens ("e-mails" -> "emails"), tornando o match robusto a como
+// o usuario digita.
+function normalizeForSignal(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "") // remove diacriticos combinantes (acentos)
+    .replace(/-/g, ""); // "e-mails" -> "emails"
+}
+
+// Story 22.11 (Frente A): ancoras de "leads proprios" na MENSAGEM CRUA do usuario.
+// Espelham os exemplos do SYSTEM_PROMPT do parser (briefing-parser-service.ts) que
+// mandam emitir import_leads. Ja NORMALIZADAS (sem acento, sem hifen) para casar com
+// normalizeForSignal. includes() de substring: uma ancora curta ("minha lista") cobre
+// variantes ("tenho minha lista", "minha lista de e-mails").
+const OWN_LEADS_KEYWORDS: readonly string[] = [
+  "minha lista",
+  "minha planilha",
+  "planilha de leads",
+  "planilha de contatos",
+  "importar meus leads",
+  "importar meus contatos",
+  "meus proprios leads",
+  "leads proprios",
+  "meus leads",
+  "meus contatos",
+  "minha base de emails",
+  "minha base de leads",
+  "minha base de contatos",
+  "ja tenho os contatos",
+  "ja tenho os leads",
+  "ja tenho meus contatos",
+  "ja tenho meus leads",
+  "csv com contatos",
+  "csv com leads",
+];
+
+// Story 22.11 (Frente A, AC1/AC3): SSOT do sinal deterministico de "o usuario tem leads
+// proprios". O sub-fluxo caro de import_leads (abandona a busca) so entra quando a
+// MENSAGEM CRUA do usuario traz (a) conteudo de e-mail OU (b) uma keyword-ancora — nunca
+// so na palavra (alucinavel) do LLM. Fail-safe (AC5): na duvida retorna false (segue a
+// conversa em vez de sequestra-la). Helper PURO e exportado para teste.
+const EMAIL_SIGNAL_REGEX = /\S+@\S+\.\S+/;
+
+export function messageSignalsOwnLeads(content: string): boolean {
+  if (!content) return false;
+  if (EMAIL_SIGNAL_REGEX.test(content)) return true;
+  const normalized = normalizeForSignal(content);
+  return OWN_LEADS_KEYWORDS.some((kw) => normalized.includes(kw));
+}
+
 function formatLeadPreview(result: LeadImportResult): string {
   const lines: string[] = [];
   lines.push(`**${result.accepted.length} leads aceitos**${result.rejected.length > 0 ? ` | ${result.rejected.length} rejeitados` : ""}:\n`);
@@ -439,7 +492,11 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
     async (
       result: BriefingParseResponse,
       executionId: string,
-      sendAgentMessage: (executionId: string, content: string) => Promise<void>
+      sendAgentMessage: (executionId: string, content: string) => Promise<void>,
+      // Story 22.11 (AC2): mensagem CRUA do turno atual. Necessaria para o guard
+      // deterministico do ramo de leads (messageSignalsOwnLeads). Todos os call sites
+      // passam o `content` do turno.
+      userMessage: string
     ): Promise<{ handled: boolean }> => {
       // Story 17.11 + 22.4: imported leads flow — disparado pela INTENCAO do LLM
       // (nextAction="import_leads") OU pelo sinal deterministico skipSteps
@@ -454,7 +511,18 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       // importedLeads. Sem isto, um import_leads sem skipSteps (inconsistencia do LLM)
       // descartaria os leads colados e rodaria busca paga. Idempotente para o fallback
       // deterministico (que ja traz os 2 skipSteps).
-      if (result.nextAction === "import_leads" || isImportedLeadsFlow(result.briefing)) {
+      //
+      // Story 22.11 (Frente A, AC1/AC5): o gatilho do LLM (nextAction/skipSteps) vira sinal
+      // CONTRIBUINTE, nao suficiente sozinho. O ramo caro so entra se a MENSAGEM CRUA tiver
+      // um sinal deterministico de leads proprios (e-mail ou keyword-ancora). Sem esse sinal,
+      // ignoramos o import_leads (alucinavel) e seguimos para os ramos seguintes — a conversa
+      // normal (re-apresenta o resumo / pergunta o que falta). Fail-safe: na duvida NAO
+      // sequestra a conversa. Um ajuste de filtro ("aumentar o tamanho da empresa") nunca tem
+      // e-mail nem keyword -> nunca dispara import_leads, independente do que o modelo emita.
+      if (
+        (result.nextAction === "import_leads" || isImportedLeadsFlow(result.briefing)) &&
+        messageSignalsOwnLeads(userMessage)
+      ) {
         const leadsBriefing: ParsedBriefing = {
           ...result.briefing,
           skipSteps: Array.from(
@@ -872,7 +940,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
 
           // "confirm"/"ask" (correcao ou ajuste) = ainda conversando: aplica o briefing
           // corrigido e reapresenta o resumo (handleParseResult decide o estado).
-          return handleParseResult(result, executionId, sendAgentMessage);
+          return handleParseResult(result, executionId, sendAgentMessage, content);
         } catch {
           // Fail-open (AC4): LLM falhou/timeout -> keyword deterministica sobre a
           // mensagem crua. "sim"/"ok"/"bora" ainda confirmam; senao, mantem confirming.
@@ -932,7 +1000,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
 
         try {
           const result = await callParseAPI(executionId);
-          return handleParseResult(result, executionId, sendAgentMessage);
+          return handleParseResult(result, executionId, sendAgentMessage, content);
         } catch {
           setState((prev) => ({ ...prev, status: "awaiting_fields" }));
           return { handled: false };
@@ -948,7 +1016,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
 
         try {
           const result = await callParseAPI(executionId);
-          return handleParseResult(result, executionId, sendAgentMessage);
+          return handleParseResult(result, executionId, sendAgentMessage, content);
         } catch {
           setState({
             status: "idle",

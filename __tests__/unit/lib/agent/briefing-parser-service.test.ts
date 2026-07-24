@@ -83,21 +83,25 @@ describe("BriefingParserService", () => {
       expect(result.rawResponse.productMentioned).toBeNull();
     });
 
-    it("deve usar gpt-4o-mini com response_format json_object (AC: #2)", async () => {
+    // Story 22.11 (Frente B, AC6/AC7): modelo gpt-5.4-mini via parser-config SSOT e request
+    // compat-safe — a familia gpt-5 rejeita temperature custom, entao NAO enviamos temperature.
+    it("deve usar gpt-5.4-mini com response_format json_object e SEM temperature (AC: #2 / 22.11 AC6)", async () => {
       mockOpenAIResponse(FULL_BRIEFING_RESPONSE);
 
       await BriefingParserService.parse("qualquer briefing", "sk-test");
 
       expect(mockCreate).toHaveBeenCalledWith(
         expect.objectContaining({
-          model: "gpt-4o-mini",
+          model: "gpt-5.4-mini",
           response_format: { type: "json_object" },
-          temperature: 0.1,
         }),
         expect.objectContaining({
           signal: expect.any(AbortSignal),
         })
       );
+      // Compat gpt-5: temperature custom NAO deve ser enviada (so o default do modelo).
+      const requestArg = mockCreate.mock.calls[0][0] as Record<string, unknown>;
+      expect(requestArg).not.toHaveProperty("temperature");
     });
 
     it("deve instruir o parser a respeitar recusas e a correcao mais recente (Story 22.1 AC4)", async () => {

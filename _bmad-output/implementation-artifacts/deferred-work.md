@@ -2,6 +2,13 @@
 
 Itens reais identificados em reviews mas adiados (pré-existentes ou fora do escopo da story revisada).
 
+## Deferred from: dev-story 22.11 (2026-07-24)
+
+> A Story 22.11 (Frente A) blindou o sub-fluxo caro `import_leads` com uma âncora determinística na mensagem crua (`messageSignalsOwnLeads`). O mesmo padrão "confia no `nextAction` do LLM sem âncora" existe em outro sub-fluxo — não tocado de propósito (blast radius menor e fora do escopo declarado).
+
+- **`register_product` dispara em `awaiting_product_decision` só pela palavra do LLM, sem âncora determinística.** [use-briefing-flow.ts](../../src/hooks/use-briefing-flow.ts) — no handler de `awaiting_product_decision`, `if (result.nextAction === "register_product")` leva direto para `awaiting_product_details` sem corroborar com a mensagem crua do usuário. Mesma classe do bug da 22.11 (o modelo pode alucinar a intenção), porém **blast radius menor**: `register_product` só pede detalhes do produto — não abandona a busca montada nem sequestra a conversa (o usuário pode recusar e seguir). Candidato ao MESMO guardrail (uma âncora tipo `messageSignalsProductIntent` espelhando as frases do SYSTEM_PROMPT) **se reproduzir na prática**. Não corrigido aqui para não inflar a story. Severidade: LOW. Fonte: Task 6, dev-story 22.11.
+- **`PARSER_TIMEOUT_MS` (8000ms) do `gpt-5.4-mini` é uma estimativa, não medição.** [parser-config.ts](../../src/lib/agent/parser-config.ts) — a Frente B ampliou o timeout de 5000→8000ms defensivamente (o `gpt-5.4-mini` pode ser mais lento que o `gpt-4o-mini`), mas o valor real de latência p95 só é conhecido no smoke ao vivo / produção. Se o smoke mostrar folga, pode voltar a 5000; se mostrar timeouts, subir. Reavaliar com telemetria real. Severidade: LOW. Fonte: dev-story 22.11.
+
 ## Deferred from: code review of story-22.10 (2026-07-23)
 
 > Review adversarial 3 camadas, modo full. AC1-AC8 + NFR1/4/5 verificados em código; nenhuma violação dura. 1 decision-needed (CAS nas escritas de transição — corrida cancel × conclusão/pausa) + 5 patches tratados na story. Os 2 defers abaixo são pré-existentes / fora do escopo desta story.

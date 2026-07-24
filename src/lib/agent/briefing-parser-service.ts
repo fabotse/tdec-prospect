@@ -3,7 +3,8 @@
  * Story: 16.3 - Briefing Parser & Linguagem Natural
  *
  * AC: #1 - Extrai parametros de briefing em linguagem natural
- * AC: #2 - Usa OpenAI gpt-4o-mini com structured output JSON
+ * AC: #2 - Usa OpenAI com structured output JSON (modelo via parser-config SSOT)
+ * Story 22.11 - modelo gpt-5.4-mini (era gpt-4o-mini); request compat-safe (parser-config)
  */
 
 import OpenAI from "openai";
@@ -11,14 +12,9 @@ import { z } from "zod";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import type { ChatTurn, NextAction, ParsedBriefing } from "@/types/agent";
 import { AGENT_ERROR_CODES } from "@/types/agent";
-
-// ==============================================
-// CONSTANTS
-// ==============================================
-
-const PARSER_MODEL = "gpt-4o-mini";
-const PARSER_TEMPERATURE = 0.1;
-const PARSER_TIMEOUT_MS = 5000;
+// Story 22.11 (Frente B, AC6/AC7): modelo e montagem de request centralizados no SSOT
+// (parser-config) — compat-safe para a familia gpt-5 e sem drift com o parser de produto.
+import { PARSER_TIMEOUT_MS, buildParserRequest } from "./parser-config";
 
 // ==============================================
 // ZOD SCHEMA — Validates OpenAI response
@@ -166,7 +162,7 @@ export class BriefingParserService {
   /**
    * Parse briefing text into structured parameters.
    * AC: #1 - Extracts technology, jobTitles, location, etc.
-   * AC: #2 - Uses gpt-4o-mini with response_format json_object
+   * AC: #2 - Uses response_format json_object (model via parser-config SSOT)
    * Story 22.3: aceita historico estruturado (ChatTurn[]) OU string (back-compat).
    */
   static async parse(
@@ -184,12 +180,7 @@ export class BriefingParserService {
 
     try {
       const completion = await client.chat.completions.create(
-        {
-          model: PARSER_MODEL,
-          messages: buildOpenAIMessages(history),
-          response_format: { type: "json_object" },
-          temperature: PARSER_TEMPERATURE,
-        },
+        buildParserRequest(buildOpenAIMessages(history)),
         { signal: controller.signal }
       );
 

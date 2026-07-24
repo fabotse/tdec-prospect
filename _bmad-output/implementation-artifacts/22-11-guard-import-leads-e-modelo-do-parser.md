@@ -1,10 +1,10 @@
 ---
-baseline_commit: pendente  # commitar a Story 22.10 (0a16578 + patches do code-review 22.10, hoje uncommitted) ANTES de iniciar a 22.11; usar esse SHA como baseline
+baseline_commit: 85fbd2a62c3b2e3f6600c7a5ac813ca60bda7514  # Story 22.10 committed (fix CAS + conversa limpa) -> baseline da 22.11
 ---
 
 # Story 22.11: Guardrail Determinístico de Sub-fluxo (import_leads) + Atualização do Modelo do Parser
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -60,33 +60,33 @@ O usuário **nunca** mencionou ter leads próprios. Diagnóstico confirmado em c
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Helper `messageSignalsOwnLeads` (puro, SSOT)** (AC: #3)
-  - [ ] Criar helper puro exportado: regex de e-mail (`/\S+@\S+\.\S+/`) + set de keywords de leads próprios (normalizado case/acento-insensitive — seguir o padrão de normalização já usado nos helpers de keyword do hook, ex.: `isConfirmation`/`isHelpRequest`). Keywords espelham [briefing-parser-service.ts:128](../../src/lib/agent/briefing-parser-service.ts#L128).
-  - [ ] Local: co-locado no `use-briefing-flow.ts` (client-side) e exportado para teste, OU leaf util em `src/lib/agent/` se o projeto preferir (checar onde vivem `isConfirmation`/`isImportedLeadsFlow` e seguir o mesmo lugar).
+- [x] **Task 1 — Helper `messageSignalsOwnLeads` (puro, SSOT)** (AC: #3)
+  - [x] Criar helper puro exportado: regex de e-mail (`/\S+@\S+\.\S+/`) + set de keywords de leads próprios (normalizado case/acento-insensitive — `normalizeForSignal`: `toLowerCase` + NFD/strip-diacríticos + strip-hífen, indo além do `toLowerCase` de `isConfirmation`/`isHelpRequest`). Keywords espelham [briefing-parser-service.ts:128](../../src/lib/agent/briefing-parser-service.ts#L128).
+  - [x] Local: co-locado no `use-briefing-flow.ts` (client-side) e exportado para teste (mesmo lugar de `isConfirmation`/`isImportedLeadsFlow`).
 
-- [ ] **Task 2 — Passar a mensagem crua ao `handleParseResult` + aplicar o guard** (AC: #1, #2, #4, #5)
-  - [ ] Adicionar param `userMessage: string` a `handleParseResult` ([use-briefing-flow.ts:438](../../src/hooks/use-briefing-flow.ts#L438)).
-  - [ ] Atualizar os call sites ([:875](../../src/hooks/use-briefing-flow.ts#L875), [:935](../../src/hooks/use-briefing-flow.ts#L935), [:951](../../src/hooks/use-briefing-flow.ts#L951)) passando o `content` do turno. Conferir se há outros.
-  - [ ] No primeiro `if` ([:457](../../src/hooks/use-briefing-flow.ts#L457)): exigir `messageSignalsOwnLeads(userMessage)` para entrar no ramo de leads. Sem âncora → **não entra**, o código segue para os ramos seguintes (canProceed / re-apresentação do resumo).
-  - [ ] **Não** tocar no restante de `handleParseResult` (register_product, confirming, awaiting_fields, etc.) — só o gate do ramo de leads.
+- [x] **Task 2 — Passar a mensagem crua ao `handleParseResult` + aplicar o guard** (AC: #1, #2, #4, #5)
+  - [x] Adicionar param `userMessage: string` a `handleParseResult`.
+  - [x] Atualizar os call sites (confirming, awaiting_fields, idle) passando o `content` do turno. Confirmado: são **3** call sites de `handleParseResult`; `awaiting_product_decision` NÃO chama `handleParseResult` (trata inline), então não há 4º.
+  - [x] No primeiro `if` do ramo de leads: exigir `messageSignalsOwnLeads(userMessage)` (aplicado a `nextAction==="import_leads"` **E** ao fallback `isImportedLeadsFlow`). Sem âncora → **não entra**, o código segue para os ramos seguintes (canProceed / re-apresentação do resumo).
+  - [x] **Não** toquei no restante de `handleParseResult` — só o gate do ramo de leads.
 
-- [ ] **Task 3 — Frente B: troca de modelo + compat** (AC: #6, #7)
-  - [ ] Trocar `PARSER_MODEL` ([briefing-parser-service.ts:19](../../src/lib/agent/briefing-parser-service.ts#L19)) para o modelo-alvo decidido (ver Decisão Aberta).
-  - [ ] **Verificar compat da chamada** ([:186-194](../../src/lib/agent/briefing-parser-service.ts#L186)): rodar 1 chamada real; se `temperature` custom for rejeitada pela família gpt-5, remover/normalizar; confirmar `response_format: json_object` OK; conferir nome do param de tokens. Reavaliar `PARSER_TIMEOUT_MS` se necessário.
-  - [ ] Alinhar o parser de PRODUTO (AC7) ao mesmo modelo (ou centralizar num único constante).
+- [x] **Task 3 — Frente B: troca de modelo + compat** (AC: #6, #7) — código feito; **compat ao vivo PROVADA no smoke (Task 5)**
+  - [x] Trocar `PARSER_MODEL` para `gpt-5.4-mini`. Centralizado num SSOT novo (`src/lib/agent/parser-config.ts`) — AC7: os DOIS parsers (briefing + produto) consomem o mesmo constante, sem drift.
+  - [x] **Verificar compat da chamada**: `buildParserRequest` OMITE `temperature` para a família gpt-5, mantendo `response_format: json_object`; `PARSER_TIMEOUT_MS` ampliado 5000→8000ms. **Compat CONFIRMADA ao vivo** (smoke: `/parse` → 200, JSON válido, gpt-5.4-mini classifica bem). Latência real 3.3–4.4s → o bump do timeout se justificou.
+  - [x] Alinhar o parser de PRODUTO (AC7) ao mesmo modelo — feito via SSOT (`parser-config`), centralizado num único ponto.
 
-- [ ] **Task 4 — Testes** (AC: #4, #9)
-  - [ ] Frente A (RED→GREEN): no estado `confirming`, mensagem "o tamanho da empresa pode aumentar para mais de 50" com parse mockado `nextAction: "import_leads"` → **NÃO** entra em `awaiting_leads_input` (fica em confirming / re-apresenta). RED: sem o guard, entra. E o caso positivo: "já tenho minha lista de leads" (ou mensagem com e-mail) + `import_leads` → entra.
-  - [ ] Adaptar os testes 17.11 existentes (mocks com `skipSteps`): garantir que a mensagem do turno traz a âncora (comportamento real). Documentar a adaptação.
-  - [ ] Helper `messageSignalsOwnLeads`: casos unitários (e-mail; cada keyword; frase de filtro → false; vazio → false).
-  - [ ] `npx vitest run` (zero regressão vs baseline), `npx tsc --noEmit` (0 em `src/`), `npx eslint --max-warnings=0` nos tocados.
+- [x] **Task 4 — Testes** (AC: #4, #9)
+  - [x] Frente A (RED→GREEN): no estado `confirming`, "O tamanho da empresa pode aumentar para mais de 50." com parse mockado `nextAction: "import_leads"` → **NÃO** entra em `awaiting_leads_input` (fica em `confirming`). **RED PROVADO**: removendo o guard, o teste falha (`awaiting_leads_input`). Caso positivo (confirming + "na verdade ja tenho meus leads" → entra) e caso e-mail (idle + e-mails colados → entra).
+  - [x] Testes 17.11 existentes: **verificados sem edição** — os triggers já usam mensagens com âncora ("Ja tenho meus leads", "...ja tenho minha lista de contatos"), confirmando a premissa (o usuário anuncia os leads na própria mensagem que dispara o fluxo). Documentado: nenhuma adaptação foi necessária, é o comportamento real.
+  - [x] Helper `messageSignalsOwnLeads`: casos unitários (e-mail; keywords; frase de filtro → false; vazio → false; acento/hífen-insensitive).
+  - [x] `npx vitest run` (zero regressão: 7015 pass / 2 skip / 0 fail — o único FAIL é o flaky pré-existente do `EmailBlock`, verde isolado 105/105, sem código de agente); `npx tsc --noEmit` (0 em `src/`); `npx eslint --max-warnings=0` limpo nos 8 tocados.
 
-- [ ] **Task 5 — Smoke real pela interface (definição-de-pronto)** (AC: #9)
-  - [ ] Skill `verify` (Playwright, LLM real, banco real): reproduzir a conversa do bug — (1) prospectar CTOs → resumo; (2) "aumentar tamanho da empresa pra mais de 50" → **agente ajusta o filtro e re-apresenta o resumo** (NÃO pede leads); (3) caso positivo: "na verdade já tenho meus leads" → entra no fluxo de importação. Guardrail de custo: NÃO clicar "Iniciar Execução".
-  - [ ] Registrar nas Completion Notes o custo real observado do modelo novo (AC8) e o comportamento do caso que falhava.
+- [x] **Task 5 — Smoke real pela interface (definição-de-pronto)** (AC: #9) — **FEITO (Playwright, gpt-5.4-mini real, banco real, logado Fabossi)**
+  - [x] Skill `verify`: 3/3 cenários passaram na tela — (1) "prospectar CTOs de Atibaia, São Paulo" → resumo (confirming), `/parse` 200 com gpt-5.4-mini (compat AC6 provada ao vivo); (2) **"O tamanho da empresa pode aumentar para mais de 50."** → agente **ajustou o filtro** (`- Tamanho: 50+`) e **re-apresentou o resumo**, NÃO pediu leads (BUG MORTO); (3) "Na verdade, já tenho meus leads prontos numa lista." → entrou no fluxo de importação ("Cole a lista abaixo..."). NÃO cliquei "Iniciar Execução" (guardrail de custo respeitado).
+  - [x] Custo/latência real (AC8) registrado nas Completion Notes.
 
-- [ ] **Task 6 — Anotar follow-up** (documentação)
-  - [ ] Registrar em [deferred-work.md](deferred-work.md): o mesmo padrão "confia no `nextAction` sem âncora" existe em `awaiting_product_decision` → `register_product` ([use-briefing-flow.ts:608](../../src/hooks/use-briefing-flow.ts#L608)) — blast radius menor (pede detalhes do produto, não abandona a busca) e fora do escopo desta story; candidato ao mesmo guardrail se reproduzir.
+- [x] **Task 6 — Anotar follow-up** (documentação)
+  - [x] Registrado em [deferred-work.md](deferred-work.md): mesmo padrão "confia no `nextAction` sem âncora" em `awaiting_product_decision` → `register_product` (blast radius menor; candidato ao mesmo guardrail se reproduzir). +1 defer LOW do `PARSER_TIMEOUT_MS` (estimativa, não medição).
 
 ## Dev Notes
 
@@ -146,15 +146,77 @@ O sub-fluxo de "colar leads" deixa de disparar só na palavra (alucinável) do L
 
 ### Agent Model Used
 
+claude-opus-4-8[1m] (Opus 4.8, 1M context) — dev-story 2026-07-24.
+
 ### Debug Log References
+
+- **RED provado (Frente A)**: removendo o clause `&& messageSignalsOwnLeads(userMessage)` do guard, o teste "NAO entra em awaiting_leads_input quando o LLM alucina import_leads para um ajuste de filtro" falha com `expected 'awaiting_leads_input' not to be 'awaiting_leads_input'` — o ramo caro dispara sem a âncora. Com o guard, verde.
+- **Regressão**: `npx vitest run` → 400 files, 7015 pass / 2 skip / 1 fail; o único fail é `EmailBlock.test.tsx:932` (flaky `waitFor` pré-existente, documentado nas stories 22.8/22.10) → passa 105/105 isolado. Zero regressão atribuível à 22.11.
+- **tsc**: `npx tsc --noEmit` → 0 erros em `src/` (erros pré-existentes em `__tests__/` fora do escopo).
+- **eslint**: `--max-warnings=0` limpo nos 8 arquivos tocados.
 
 ### Completion Notes List
 
+**Frente A — Guard determinístico (fecha o bug de vez):**
+- Helper puro `messageSignalsOwnLeads(content)` co-locado e exportado em `use-briefing-flow.ts` (AC3, SSOT): (a) regex de e-mail `/\S+@\S+\.\S+/` OU (b) uma keyword-âncora de leads próprios (19 âncoras normalizadas espelhando o SYSTEM_PROMPT do parser). `normalizeForSignal` = lowercase + strip-diacríticos (NFD) + strip-hífen → robusto a acento e a "e-mails"/"emails".
+- `handleParseResult` ganhou o param `userMessage: string` (AC2); os **3** call sites (confirming/awaiting_fields/idle) passam o `content` do turno. Confirmado que `awaiting_product_decision` trata inline e não chama `handleParseResult` (não há 4º call site).
+- O gate do ramo de leads passou a exigir `messageSignalsOwnLeads(userMessage)` junto de `(nextAction==="import_leads" || isImportedLeadsFlow)`. Sem âncora, o `import_leads`/`skipSteps` do LLM é ignorado e o fluxo segue como conversa normal (AC1). Fail-safe (AC5): na dúvida NÃO sequestra a conversa — trade-off consciente (preferir não-sequestrar). Um ajuste de filtro nunca tem e-mail nem keyword → nunca dispara, independente da alucinação do modelo.
+- Zero regressão 17.11 (AC4): os testes de import de leads já disparavam com mensagens que trazem a âncora ("Ja tenho meus leads", "...ja tenho minha lista de contatos") — comportamento real, nenhuma adaptação necessária.
+
+**Frente B — Modelo do parser:**
+- `PARSER_MODEL` `gpt-4o-mini` → **`gpt-5.4-mini`** (decisão Fabossi 2026-07-24). Centralizado num SSOT novo `src/lib/agent/parser-config.ts` consumido pelos DOIS parsers (briefing + produto) — AC7, sem drift de modelo.
+- Compat de API (AC6) tratada defensivamente: `buildParserRequest` OMITE `temperature` para a família gpt-5 (que pode rejeitar override), mantendo `response_format: json_object`. `PARSER_TIMEOUT_MS` ampliado 5000→8000ms (gpt-5.4-mini pode ser mais lento; reavaliar no smoke — defer LOW).
+- **Custo documentado (AC8)** — preço oficial (developers.openai.com, 2026-07-24), por 1M tokens: `gpt-5.4-mini` = **$0,75 input / $4,50 output, cached $0,075** (vs `gpt-4o-mini` ~$0,15 / ~$0,60). O `/parse` roda a cada turno, mas o SYSTEM_PROMPT é idêntico → **prompt caching** (input cacheado ~10x mais barato, $0,075/1M) domina o custo real numa conversa de vários turnos. Plano B `gpt-5.4-nano` ($0,20 / $1,25, cached $0,02) reservado para surpresa de custo/compat. Consistente com [[feedback-cost-model-accuracy]] (fonte oficial, não blog). **Custo real por conversa ainda a medir no smoke (AC8/AC9).**
+
+**✅ Smoke real FEITO (Task 5 / AC6 ao vivo / AC8 / AC9)** — Playwright, `gpt-5.4-mini` real, banco real, logado Fabossi (admin), dev server em `:3000`. 3/3 cenários:
+1. **"Olá, eu queria prospectar CTOs de Atibaia, São Paulo."** → agente montou o resumo (Cargos: CTO / Localizacao: Atibaia, São Paulo), estado `confirming`. `POST /api/agent/briefing/parse` → **200**. **Compat de API (AC6) PROVADA ao vivo**: a chamada com `gpt-5.4-mini` (sem `temperature`, `response_format: json_object`) funciona e devolve JSON estruturado válido — o modelo existe e classifica bem.
+2. **"O tamanho da empresa pode aumentar para mais de 50."** (o passo que reproduzia o bug) → agente respondeu **"Entendi! Vou prospectar... - Tamanho: 50+ ... Confirma esses parametros?"** — **AJUSTOU o filtro e RE-APRESENTOU o resumo, NÃO pediu "cole seus leads"**. **BUG MORTO** (AC1/AC5/AC9). Dupla defesa observada: o `gpt-5.4-mini` classificou corretamente (benefício da Frente B) E o guard determinístico seguraria mesmo se alucinasse (Frente A).
+3. **"Na verdade, já tenho meus leads prontos numa lista."** → agente entrou no fluxo de importação ("Cole a lista abaixo no formato..."). Caso positivo OK (AC1/AC4) — a mensagem traz a âncora ("minha lista"/"meus leads").
+
+**Custo/latência real (AC8):** as 3 chamadas `/parse` levaram **4.4s, 3.3s, 3.7s** (render/LLM dominante). O `gpt-5.4-mini` é mais lento que o `gpt-4o-mini`: a 1ª bateu 4.4s → o `PARSER_TIMEOUT_MS` original de **5000ms teria ficado perigosamente apertado** (jitter poderia estourar e disparar fail-open a cada turno). **O bump para 8000ms se justificou pela medição real.** Custo por chamada não foi extraído do `api_usage_logs` (exigiria query no banco); mantém-se o número oficial documentado acima ($0,75/$4,50 por 1M, cached $0,075) — com prompt caching (SYSTEM_PROMPT fixo) o custo real por conversa é fração de centavo. Sem incompatibilidade nem surpresa de custo → **plano B (`gpt-5.4-nano`) NÃO acionado**. Guardrail de custo: NÃO cliquei "Iniciar Execução".
+
+**Observação (não-falha):** único erro de console = hydration mismatch **pré-existente** do submenu "Leads" da Sidebar (chevron/aria-expanded), documentado em stories anteriores; não-relacionado à 22.11.
+
+A Frente A já fechava o bug de forma determinística, independente do modelo; o smoke confirmou o comportamento ponta-a-ponta e a compatibilidade/latência do modelo novo.
+
 ### File List
+
+**Novos:**
+- `src/lib/agent/parser-config.ts` — SSOT do modelo dos parsers + `buildParserRequest` compat-safe (Frente B).
+- `__tests__/unit/lib/agent/parser-config.test.ts`
+
+**Modificados (src):**
+- `src/hooks/use-briefing-flow.ts` — helper `messageSignalsOwnLeads` + `normalizeForSignal` + `OWN_LEADS_KEYWORDS`; `userMessage` em `handleParseResult` (3 call sites) + guard no ramo de leads.
+- `src/lib/agent/briefing-parser-service.ts` — consome `parser-config` (modelo + `buildParserRequest`); removidas as constantes locais de modelo/temperature.
+- `src/lib/agent/product-parser-service.ts` — idem (AC7, alinhado ao mesmo modelo via SSOT).
+
+**Modificados (testes):**
+- `__tests__/unit/hooks/use-briefing-flow.test.tsx` — bloco "Guard determinístico do import_leads (Story 22.11)": unit do helper + RED→GREEN do guard + casos positivos.
+- `__tests__/unit/lib/agent/briefing-parser-service.test.ts` — contrato do modelo `gpt-5.4-mini` sem temperature.
+- `__tests__/unit/lib/agent/product-parser-service.test.ts` — idem.
+
+**Modificados (docs):**
+- `_bmad-output/implementation-artifacts/deferred-work.md` — follow-up `register_product` + timeout.
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` — 22-11 → in-progress.
+- `_bmad-output/implementation-artifacts/22-11-guard-import-leads-e-modelo-do-parser.md` — este arquivo.
+
+## Review Finding (2026-07-24, teste E2E ponta-a-ponta — tratar antes de fechar a story)
+
+**Caso novo reproduzido ao vivo COM o guard ativo** (branch atual): no estado `confirming`, a mensagem composta *"pode incluir empresas com menos de 11 funcionários? E como é um teste, quero **importar** no máximo 2 leads"* produziu:
+
+1. O guard **funcionou no que promete**: `messageSignalsOwnLeads` = false ("importar no máximo 2 leads" não casa nenhuma das 19 keywords nem tem e-mail) → NÃO entrou em `awaiting_leads_input` (não pediu "cole a lista"). ✅
+2. **MAS o briefing ficou poluído**: o parser (gpt-5.4-mini) devolveu `skipSteps: [search_companies, search_leads]` + `emailCount: 2`, e o fluxo "segue como conversa normal" **re-apresentando o resumo com o briefing poluído**: *"Etapas de busca de empresas e leads serão puladas — **0 leads importados serão usados diretamente**... Confirma esses parâmetros?"*. Se o usuário leigo confirmar → execução com busca pulada e 0 leads = campanha vazia.
+
+**Gap vs AC1**: a AC1 diz que sem âncora "o `import_leads`/`skipSteps` do LLM é **ignorado**" — a implementação ignora o RAMO, mas o `skipSteps` alucinado sobrevive no briefing que segue para o resumo/confirmação. Fix sugerido (cirúrgico): quando o guard barra o ramo de leads, **sanitizar** `search_leads` (e `search_companies` se não-tech) do `briefing.skipSteps` antes de seguir — o mesmo espírito da reconciliação de skipSteps do patch A da 22.4, na direção inversa. Caso de teste: a mensagem composta acima (RED contra o código atual: resumo contém "0 leads importados").
+
+Nota adicional (escopo 22.11 ou 22.5, decidir na review): "no máximo 2 **leads**" virou `emailCount: 2` — o parser não distingue quantidade de leads de tamanho de sequência (não existe `leadCount`; a Story 22.14/22.15+ do backlog trata o conceito). Mínimo aqui: não mapear números ligados à palavra "leads" para `emailCount`.
 
 ## Change Log
 
 | Data | Mudança |
 |---|---|
+| 2026-07-24 | **Review finding registrado (teste E2E)**: guard barra o ramo mas `skipSteps` alucinado sobrevive no briefing re-apresentado ("0 leads importados serão usados diretamente. Confirma?") — gap vs AC1 ("skipSteps ignorado"); fix sugerido = sanitizar skipSteps ao barrar; caso de teste da mensagem composta documentado acima. +nota: "2 leads" → `emailCount: 2`. |
+| 2026-07-24 | **Smoke real FEITO** (Playwright, gpt-5.4-mini real, banco real, Fabossi): 3/3 cenários — resumo OK; **"aumentar tamanho pra mais de 50" AJUSTOU o filtro e re-apresentou o resumo (BUG MORTO, não pediu leads)**; "já tenho meus leads" entrou na importação. `/parse` 200 (compat gpt-5.4-mini ao vivo, AC6). Latência 3.3–4.4s → bump do timeout p/ 8000ms justificado. Sem "Iniciar Execução" (guardrail). Único erro = hydration mismatch pré-existente do submenu Leads. Status → **review**. |
+| 2026-07-24 | dev-story (Opus 4.8): Story 22.10 committed (`85fbd2a`) como baseline. **Frente A** implementada — helper puro `messageSignalsOwnLeads` (SSOT: e-mail regex + 19 keywords-âncora normalizadas), `userMessage` em `handleParseResult` (3 call sites) e guard no ramo de leads (fail-safe). **RED provado** (sem o guard, o ajuste de filtro vira `awaiting_leads_input`). **Frente B** implementada — `PARSER_MODEL gpt-4o-mini → gpt-5.4-mini` num SSOT novo (`parser-config.ts`) consumido pelos 2 parsers (AC7); compat defensiva (`buildParserRequest` omite `temperature` p/ gpt-5; timeout 5000→8000ms); custo oficial documentado (AC8). Suíte 7015 pass / 0 regressão (1 flaky pré-existente do EmailBlock); tsc 0 em `src/`; eslint limpo nos 8. Tasks 1,2,4,6 ✅; Task 3 código ✅ (compat ao vivo pende do smoke); **Task 5 (smoke real, def-de-pronto) PENDENTE — aguarda go-ahead do Fabossi (chamada paga gpt-5.4-mini + Playwright)**. |
 | 2026-07-24 | Decisão de modelo resolvida (Fabossi): modelo-alvo `gpt-5.4-mini` (plano B `gpt-5.4-nano` se surpresa de custo/compat). |
 | 2026-07-24 | Story 22.11 criada (create-story). Origem: teste real do Fabossi — ajuste de filtro ("aumentar tamanho da empresa") disparou o fluxo de "cole seus leads". Diagnóstico: gpt-4o-mini alucinou `nextAction: import_leads` e o código confia no `nextAction` sem âncora determinística ([use-briefing-flow.ts:457]). Duas frentes: (A) guard exige sinal real de leads na mensagem crua — regex de e-mail ou keyword — para entrar no sub-fluxo; (B) trocar `gpt-4o-mini` por modelo atual (recomendado gpt-5.4-mini) com compat de API verificada, custo oficial documentado e smoke real. Depende do commit da 22.10. Status → ready-for-dev. |

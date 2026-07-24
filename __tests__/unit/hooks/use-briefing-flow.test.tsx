@@ -8,7 +8,11 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useBriefingFlow, generateSmartQuestion } from "@/hooks/use-briefing-flow";
+import {
+  useBriefingFlow,
+  generateSmartQuestion,
+  messageSignalsOwnLeads,
+} from "@/hooks/use-briefing-flow";
 import {
   createMockFetch,
   mockJsonResponse,
@@ -2081,6 +2085,221 @@ describe("useBriefingFlow", () => {
         EXEC_ID,
         expect.stringContaining("cole a lista de leads novamente")
       );
+    });
+  });
+
+  // ==============================================
+  // GUARD DETERMINISTICO DO import_leads (Story 22.11 — Frente A)
+  // ==============================================
+
+  describe("Guard deterministico do import_leads (Story 22.11)", () => {
+    // Helper puro exportado (AC3): SSOT do sinal de "leads proprios" na mensagem crua.
+    describe("messageSignalsOwnLeads (helper puro, AC3)", () => {
+      it("retorna true quando ha conteudo de e-mail na mensagem", () => {
+        expect(messageSignalsOwnLeads("segue: joao@empresa.com")).toBe(true);
+        expect(
+          messageSignalsOwnLeads("Nome, joao.silva@acme.com.br, CTO")
+        ).toBe(true);
+      });
+
+      it("retorna true para keywords-ancora de leads proprios (case/acento/hifen-insensitive)", () => {
+        expect(messageSignalsOwnLeads("ja tenho minha lista de leads")).toBe(true);
+        expect(messageSignalsOwnLeads("na verdade JA TENHO MEUS LEADS")).toBe(true);
+        expect(messageSignalsOwnLeads("minha planilha de contatos")).toBe(true);
+        expect(messageSignalsOwnLeads("minha base de e-mails ja esta pronta")).toBe(true);
+        expect(messageSignalsOwnLeads("tenho leads próprios coletados")).toBe(true);
+        expect(messageSignalsOwnLeads("CSV com contatos aqui")).toBe(true);
+      });
+
+      it("retorna false para um ajuste de filtro (o bug reportado)", () => {
+        expect(
+          messageSignalsOwnLeads("O tamanho da empresa pode aumentar para mais de 50.")
+        ).toBe(false);
+      });
+
+      it("retorna false para mensagens sem e-mail nem keyword (fail-safe, AC5)", () => {
+        expect(messageSignalsOwnLeads("quero prospectar CTOs em Atibaia")).toBe(false);
+        expect(messageSignalsOwnLeads("pode ser reengajamento com 3 e-mails")).toBe(false);
+        expect(messageSignalsOwnLeads("")).toBe(false);
+      });
+    });
+
+    // NUCLEO RED->GREEN (AC1/AC5): no estado confirming, um AJUSTE DE FILTRO que o modelo
+    // MISCLASSIFICA como import_leads NAO pode sequestrar a conversa para "cole seus leads".
+    // Sem o guard (`&& messageSignalsOwnLeads`), o ramo de leads dispararia -> RED.
+    it("NAO entra em awaiting_leads_input quando o LLM alucina import_leads para um ajuste de filtro (AC1/AC5)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      // 1) Monta o briefing -> confirming (o resumo foi apresentado).
+      await act(async () => {
+        await result.current.processMessage(
+          "prospectar CTOs de Atibaia",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+      expect(result.current.state.status).toBe("confirming");
+
+      // 2) Ajuste de filtro que o modelo classifica ERRADO como import_leads.
+      restoreFetch();
+      const MISCLASSIFIED_AS_IMPORT_LEADS = {
+        briefing: {
+          technology: null,
+          jobTitles: ["CTO"],
+          location: "Atibaia",
+          companySize: "50+",
+          industry: null,
+          productSlug: null,
+          mode: "guided" as const,
+          skipSteps: [] as string[],
+        },
+        missingFields: [] as string[],
+        isComplete: true,
+        canProceed: true,
+        suggestions: {},
+        productMentioned: null,
+        nextAction: "import_leads" as const, // <- alucinacao do modelo
+        questionText: null,
+      };
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(MISCLASSIFIED_AS_IMPORT_LEADS),
+        },
+      ]);
+
+      await act(async () => {
+        await result.current.processMessage(
+          "O tamanho da empresa pode aumentar para mais de 50.",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      // GREEN: a mensagem crua nao tem e-mail nem keyword -> guard bloqueia o import_leads.
+      // Segue a conversa normal: re-apresenta o resumo (confirming), NUNCA pede leads.
+      expect(result.current.state.status).not.toBe("awaiting_leads_input");
+      expect(result.current.state.status).toBe("confirming");
+      // O agente NAO enviou o convite de "cole seus leads".
+      const allMessages = mockSendAgentMessage.mock.calls.map((c) => c[1] as string);
+      expect(allMessages.some((m) => m.includes("Cole a lista"))).toBe(false);
+    });
+
+    // Caso POSITIVO no mesmo estado confirming: quando a mensagem crua TRAZ a ancora, o
+    // fluxo legitimo de leads entra normalmente (AC1 alinea b / AC4).
+    it("ENTRA em awaiting_leads_input quando a mensagem crua traz a ancora de leads proprios (AC1/AC4)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "prospectar CTOs de Atibaia",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+      expect(result.current.state.status).toBe("confirming");
+
+      restoreFetch();
+      const IMPORT_LEADS_WITH_ANCHOR = {
+        briefing: {
+          technology: null,
+          jobTitles: ["CTO"],
+          location: "Atibaia",
+          companySize: null,
+          industry: null,
+          productSlug: null,
+          mode: "guided" as const,
+          skipSteps: [] as string[],
+        },
+        missingFields: [] as string[],
+        isComplete: false,
+        canProceed: false,
+        suggestions: {},
+        productMentioned: null,
+        nextAction: "import_leads" as const,
+        questionText: null,
+      };
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(IMPORT_LEADS_WITH_ANCHOR),
+        },
+      ]);
+
+      await act(async () => {
+        await result.current.processMessage(
+          "na verdade ja tenho meus leads",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("awaiting_leads_input");
+      // Reconciliacao de skipSteps preservada (Review 22.4).
+      expect(result.current.state.briefing?.skipSteps).toEqual(
+        expect.arrayContaining(["search_companies", "search_leads"])
+      );
+    });
+
+    // AC4 (zero regressao 17.11): colar e-mails na propria mensagem tambem e ancora
+    // deterministica -> o fluxo de leads entra direto desde o idle.
+    it("ENTRA em awaiting_leads_input quando a mensagem crua contem e-mails (AC4)", async () => {
+      const IMPORT_LEADS_INTENT = {
+        briefing: {
+          technology: null,
+          jobTitles: [],
+          location: null,
+          companySize: null,
+          industry: null,
+          productSlug: null,
+          mode: "guided" as const,
+          skipSteps: [] as string[],
+        },
+        missingFields: ["jobTitles", "location"],
+        isComplete: false,
+        canProceed: false,
+        suggestions: {},
+        productMentioned: null,
+        nextAction: "import_leads" as const,
+        questionText: null,
+      };
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(IMPORT_LEADS_INTENT),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "joao@empresa.com, maria@acme.com",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("awaiting_leads_input");
     });
   });
 
