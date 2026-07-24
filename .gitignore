@@ -113,3 +113,5 @@ docs/roteiro-demo-notificacoes-21-7.md
 
 # Recap do Epic 22 (documento vivo, épico ainda em andamento — versionar só ao fechar, como o do Epic 21)
 _bmad-output/epic-22-agente-tdec-2.0.html
+.bmad-loop/runs/
+.bmad-loop/cache/
