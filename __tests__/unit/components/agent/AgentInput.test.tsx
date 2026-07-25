@@ -22,8 +22,27 @@ describe("AgentInput", () => {
       useAgentStore.setState({
         isInputDisabled: false,
         isAgentProcessing: false,
+        adjustingStep: null,
       });
     });
+  });
+
+  // Story 22.13 (AC1): em ajuste pos-rejeicao o input orienta o que escrever.
+  it("mostra placeholder de ajuste quando ha step em ajuste (22.13 AC1)", () => {
+    act(() => {
+      useAgentStore.setState({
+        adjustingStep: {
+          executionId: "exec-001",
+          stepNumber: 2,
+          stepType: "search_leads",
+          phase: "describe",
+        },
+      });
+    });
+
+    render(<AgentInput onSendMessage={mockOnSendMessage} isSending={false} />);
+
+    expect(screen.getByPlaceholderText(/descreva o ajuste/i)).toBeInTheDocument();
   });
 
   it("renders the input form", () => {

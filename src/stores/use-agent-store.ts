@@ -15,7 +15,31 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { ExecutionMode } from "@/types/agent";
+import type { ExecutionMode, StepType } from "@/types/agent";
+
+/**
+ * Story 22.13: estado de AJUSTE POS-REJEICAO.
+ *
+ * Ligado quando o usuario rejeita um gate de aprovacao; identifica QUAL step esta
+ * sendo ajustado (generico: busca de empresas, busca de leads e campanha) e em que
+ * fase a conversa esta:
+ * - "describe": a proxima mensagem descreve o ajuste -> parse + PATCH do briefing;
+ * - "confirm":  a proxima mensagem confirma (deterministicamente) a re-execucao.
+ *
+ * EFEMERO de proposito — ver o partialize abaixo.
+ */
+export interface AdjustingStepState {
+  /**
+   * Story 22.13 (review): o ajuste e AMARRADO a execucao que o originou. Sem isto o
+   * estado (global e efemero) sobrevivia ao descarte de uma execucao fantasma ou a
+   * troca de usuario sem unmount, e sequestrava a PRIMEIRA mensagem da conversa
+   * seguinte — parseando, PATCHando e ate re-executando um step de OUTRA execucao.
+   */
+  executionId: string;
+  stepNumber: number;
+  stepType: StepType;
+  phase: "describe" | "confirm";
+}
 
 interface AgentUIState {
   currentExecutionId: string | null;
@@ -25,6 +49,7 @@ interface AgentUIState {
   showExecutionPlan: boolean;
   executionMode: ExecutionMode | null;
   totalSteps: number;
+  adjustingStep: AdjustingStepState | null;
 }
 
 interface AgentUIActions {
@@ -35,6 +60,8 @@ interface AgentUIActions {
   setShowExecutionPlan: (show: boolean) => void;
   setExecutionMode: (mode: ExecutionMode | null) => void;
   setTotalSteps: (count: number) => void;
+  setAdjustingStep: (adjusting: AdjustingStepState) => void;
+  clearAdjustingStep: () => void;
 }
 
 export const useAgentStore = create<AgentUIState & AgentUIActions>()(
@@ -47,6 +74,7 @@ export const useAgentStore = create<AgentUIState & AgentUIActions>()(
       showExecutionPlan: false,
       executionMode: null,
       totalSteps: 0,
+      adjustingStep: null,
 
       setCurrentExecutionId: (id) => set({ currentExecutionId: id }),
       setInputDisabled: (disabled) => set({ isInputDisabled: disabled }),
@@ -55,6 +83,8 @@ export const useAgentStore = create<AgentUIState & AgentUIActions>()(
       setShowExecutionPlan: (show) => set({ showExecutionPlan: show }),
       setExecutionMode: (mode) => set({ executionMode: mode }),
       setTotalSteps: (count) => set({ totalSteps: count }),
+      setAdjustingStep: (adjusting) => set({ adjustingStep: adjusting }),
+      clearAdjustingStep: () => set({ adjustingStep: null }),
     }),
     {
       // Story 22.8: so o currentExecutionId persiste (localStorage). As demais flags
@@ -64,6 +94,11 @@ export const useAgentStore = create<AgentUIState & AgentUIActions>()(
       // Story 22.10: a validacao so reatacha execucao CONFIRMADA em andamento
       // (running/paused); 'pending' (briefing abandonado) e descartado — o chat abre
       // limpo em vez de ressuscitar conversa morta.
+      // Story 22.13: adjustingStep TAMBEM fica fora do partialize, e nao por economia:
+      // se ele sobrevivesse ao refresh, a mensagem seguinte seria parseada com a memoria
+      // conversacional (conversationRef, 22.3) VAZIA — o parser derivaria um briefing do
+      // zero a partir de uma frase e o merge destruiria os filtros. Pos-refresh o usuario
+      // cai no comportamento atual (rejeitar de novo reabre o ajuste).
       name: "tdec-agent-ui",
       partialize: (state) => ({ currentExecutionId: state.currentExecutionId }),
     }

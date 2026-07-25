@@ -26,8 +26,20 @@ export function AgentInput({ onSendMessage, isSending, disabled: externalDisable
   const [message, setMessage] = useState("");
   const isInputDisabled = useAgentStore((s) => s.isInputDisabled);
   const isAgentProcessing = useAgentStore((s) => s.isAgentProcessing);
+  // Story 22.13 (AC1): em ajuste pos-rejeicao o input ORIENTA o que escrever. O input
+  // ja ficava habilitado pos-briefing — o que faltava era dizer ao usuario que a resposta
+  // agora tem um consumidor.
+  const adjustingStep = useAgentStore((s) => s.adjustingStep);
 
   const disabled = isInputDisabled || isSending || isAgentProcessing || externalDisabled;
+
+  const placeholder = externalDisabled
+    ? "Selecione o modo acima..."
+    : adjustingStep
+      ? adjustingStep.phase === "confirm"
+        ? 'Confirme para eu executar de novo (ex.: "sim") — ou descreva outro ajuste...'
+        : "Descreva o ajuste — ex.: 'remove o filtro de tamanho'"
+      : "Descreva sua campanha de prospeccao...";
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,7 +58,7 @@ export function AgentInput({ onSendMessage, isSending, disabled: externalDisable
         type="text"
         value={message}
         onChange={(e) => setMessage(e.target.value)}
-        placeholder={externalDisabled ? "Selecione o modo acima..." : "Descreva sua campanha de prospeccao..."}
+        placeholder={placeholder}
         disabled={disabled}
         className="flex-1 border-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 bg-transparent text-foreground text-body"
         aria-label="Mensagem para o agente"

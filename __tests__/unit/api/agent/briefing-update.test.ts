@@ -217,6 +217,108 @@ describe("PATCH /api/agent/executions/[executionId]/briefing", () => {
     expect(json.error.code).toBe("VALIDATION_ERROR");
   });
 
+  // ==============================================
+  // Story 22.13: o PATCH deixa de ser REPLACE TOTAL — chaves ausentes no payload
+  // sao PRESERVADAS do briefing persistido. Sem isto, um ajuste pos-rejeicao
+  // rebaixaria icebreaker premium PAGO para standard, em silencio.
+  // ==============================================
+
+  it("deve PRESERVAR premiumIcebreakers persistido quando o payload nao o traz (22.13 AC4)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const persisted = {
+      ...VALID_BRIEFING,
+      premiumIcebreakers: true,
+      importedLeads: [
+        {
+          name: "Joao",
+          title: null,
+          companyName: null,
+          email: "joao@x.com",
+          linkedinUrl: null,
+          apolloId: null,
+        },
+      ],
+    };
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing: persisted, status: "running" },
+      error: null,
+    });
+    mockFrom.mockImplementation(() => chain);
+
+    // Payload de ajuste: so filtros (o cliente nunca reenvia premiumIcebreakers,
+    // escrito pelo servidor no confirm)
+    const response = await PATCH(
+      createRequest({ ...VALID_BRIEFING, companySize: null, industry: null }),
+      createParams()
+    );
+    expect(response.status).toBe(200);
+
+    const updateArg = chain.update.mock.calls[0][0] as { briefing: Record<string, unknown> };
+    // preservados do persistido
+    expect(updateArg.briefing.premiumIcebreakers).toBe(true);
+    expect(updateArg.briefing.importedLeads).toHaveLength(1);
+    // aplicados do payload
+    expect(updateArg.briefing.companySize).toBeNull();
+    expect(updateArg.briefing.industry).toBeNull();
+  });
+
+  it("deve ACEITAR premiumIcebreakers vindo no payload (schema deixou de stripar - 22.13)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing: { ...VALID_BRIEFING, premiumIcebreakers: false }, status: "running" },
+      error: null,
+    });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(
+      createRequest({ ...VALID_BRIEFING, premiumIcebreakers: true }),
+      createParams()
+    );
+    expect(response.status).toBe(200);
+
+    const updateArg = chain.update.mock.calls[0][0] as { briefing: Record<string, unknown> };
+    expect(updateArg.briefing.premiumIcebreakers).toBe(true);
+  });
+
+  it("payload vence o persistido nas chaves presentes (merge, nao append - 22.13)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const chain = createChainBuilder({
+      data: {
+        id: EXEC_ID,
+        briefing: { ...VALID_BRIEFING, jobTitles: ["CTO"], location: "Rio de Janeiro" },
+        status: "running",
+      },
+      error: null,
+    });
+    mockFrom.mockImplementation(() => chain);
+
+    await PATCH(
+      createRequest({ ...VALID_BRIEFING, jobTitles: ["CFO"], location: "Sao Paulo" }),
+      createParams()
+    );
+
+    const updateArg = chain.update.mock.calls[0][0] as { briefing: Record<string, unknown> };
+    expect(updateArg.briefing.jobTitles).toEqual(["CFO"]);
+    expect(updateArg.briefing.location).toBe("Sao Paulo");
+  });
+
+  // Code review 2026-07-24 (P5): ignorar o erro da leitura fazia o merge degradar em
+  // SILENCIO para replace-total — apagando premiumIcebreakers com resposta 200.
+  it("falha alto quando a leitura do briefing atual falha — NAO faz update (review P5)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const chain = createChainBuilder({ data: null, error: { message: "read failed" } });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(createRequest(VALID_BRIEFING), createParams());
+    expect(response.status).toBe(500);
+    // o ponto do teste: nada foi gravado por cima do briefing persistido
+    expect(chain.update).not.toHaveBeenCalled();
+  });
+
   it("deve retornar 500 quando update falha", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
 

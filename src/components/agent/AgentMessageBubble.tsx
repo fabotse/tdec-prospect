@@ -63,6 +63,9 @@ export function AgentMessageBubble({ message }: AgentMessageBubbleProps) {
             executionId={message.execution_id}
             stepNumber={message.metadata.stepNumber ?? 1}
             totalSteps={totalSteps}
+            // Story 22.13 (AC5): rejeicao durável — o card carimbado volta marcado
+            // e desabilitado apos refetch/refresh.
+            rejected={message.metadata.rejected}
           />
         ) : (
         <div
@@ -116,11 +119,13 @@ function ApprovalGateRenderer({
   executionId,
   stepNumber,
   totalSteps,
+  rejected,
 }: {
   approvalData: { stepType: StepType; previewData: unknown };
   executionId: string;
   stepNumber: number;
   totalSteps: number;
+  rejected?: boolean;
 }) {
   switch (approvalData.stepType) {
     case "search_companies":
@@ -130,6 +135,7 @@ function ApprovalGateRenderer({
           executionId={executionId}
           stepNumber={stepNumber}
           totalSteps={totalSteps}
+          rejected={rejected}
         />
       );
     case "search_leads":
@@ -139,6 +145,7 @@ function ApprovalGateRenderer({
           executionId={executionId}
           stepNumber={stepNumber}
           totalSteps={totalSteps}
+          rejected={rejected}
         />
       );
     case "create_campaign":
@@ -148,6 +155,7 @@ function ApprovalGateRenderer({
           executionId={executionId}
           stepNumber={stepNumber}
           totalSteps={totalSteps}
+          rejected={rejected}
         />
       );
     case "export":

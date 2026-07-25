@@ -147,6 +147,42 @@ export async function POST(
     );
   }
 
+  // Story 22.13 (AC5): auditoria DURAVEL da rejeicao. Ate aqui a marcacao "Rejeitado"
+  // era estado LOCAL do componente de gate — sumia no remount/refresh e o card voltava
+  // com os botoes ativos (meia-verdade). Carimbamos `rejected: true` no metadata (JSONB,
+  // sem migration) da mensagem de gate MAIS RECENTE deste step: apos uma re-execucao
+  // existem varios `approval_gate` do mesmo step, e so o ultimo rejeitado deve ficar
+  // marcado.
+  //
+  // Fail-open de proposito: a rejeicao em si (mensagem + step em awaiting_approval) ja
+  // esta persistida; um erro aqui e de AUDITORIA e nao pode transformar um reject
+  // bem-sucedido em 500 para o usuario.
+  try {
+    const { data: gateRows } = await supabase
+      .from("agent_messages")
+      .select("id, metadata")
+      .eq("execution_id", executionId)
+      .eq("metadata->>messageType", "approval_gate")
+      .eq("metadata->>stepNumber", String(stepNumber))
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    const gate = Array.isArray(gateRows) ? gateRows[0] : null;
+    if (gate?.id) {
+      // JSONB nao tem update parcial pelo client JS: le, espalha e regrava.
+      const currentMetadata =
+        gate.metadata && typeof gate.metadata === "object"
+          ? (gate.metadata as Record<string, unknown>)
+          : {};
+      await supabase
+        .from("agent_messages")
+        .update({ metadata: { ...currentMetadata, rejected: true } })
+        .eq("id", gate.id);
+    }
+  } catch {
+    // auditoria e best-effort — ver comentario acima
+  }
+
   return NextResponse.json({
     data: {
       stepNumber,

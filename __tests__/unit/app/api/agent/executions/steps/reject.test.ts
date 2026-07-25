@@ -97,6 +97,11 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/reject", (
         error: null,
       }).then(resolve);
 
+    // Story 22.13: `then` e mutado por alguns testes (carimbo do gate) — rearmar o
+    // default aqui evita acoplamento de ordem entre casos.
+    messagesChain.then = (resolve: (value: { data: unknown; error: unknown }) => unknown) =>
+      Promise.resolve({ data: { id: "msg-1" }, error: null }).then(resolve);
+
     mockFrom.mockImplementation((table: string) => {
       if (table === "agent_executions") return executionsChain;
       if (table === "agent_steps") return stepsChain;
@@ -177,6 +182,65 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/reject", (
   it("returns 400 for invalid stepNumber", async () => {
     const res = await POST(createRequest(), createParams(VALID_UUID, "-1"));
     expect(res.status).toBe(400);
+  });
+
+  // ==============================================
+  // Story 22.13 (AC5): auditoria DURAVEL do card rejeitado.
+  // A marcacao "❌ Rejeitado" era estado LOCAL do componente — sumia no remount/refresh
+  // e o card voltava com os botoes ativos. Agora o reject carimba a mensagem.
+  // ==============================================
+
+  it("carimba metadata.rejected na mensagem approval_gate mais recente do step (22.13 AC5)", async () => {
+    messagesChain.then = (resolve: (value: { data: unknown; error: unknown }) => unknown) =>
+      Promise.resolve({
+        data: [
+          {
+            id: "gate-9",
+            metadata: {
+              messageType: "approval_gate",
+              stepNumber: 1,
+              approvalData: { stepType: "search_companies", previewData: {} },
+            },
+          },
+        ],
+        error: null,
+      }).then(resolve);
+
+    const res = await POST(createRequest(), createParams());
+    expect(res.status).toBe(200);
+
+    // read-modify-write do JSONB: preserva o metadata existente e adiciona rejected
+    expect(messagesChain.update).toHaveBeenCalledWith({
+      metadata: expect.objectContaining({
+        messageType: "approval_gate",
+        stepNumber: 1,
+        rejected: true,
+      }),
+    });
+    expect(messagesChain.eq).toHaveBeenCalledWith("id", "gate-9");
+
+    // Story 22.13 (review P9) — Trap #7: apos uma re-execucao existem VARIOS
+    // approval_gate do mesmo step. Sem estes filtros o carimbo cairia no gate errado
+    // (o novo, ainda ativo) e o teste continuaria verde.
+    expect(messagesChain.eq).toHaveBeenCalledWith("execution_id", VALID_UUID);
+    expect(messagesChain.eq).toHaveBeenCalledWith("metadata->>messageType", "approval_gate");
+    expect(messagesChain.eq).toHaveBeenCalledWith("metadata->>stepNumber", "1");
+    expect(messagesChain.order).toHaveBeenCalledWith("created_at", { ascending: false });
+    expect(messagesChain.limit).toHaveBeenCalledWith(1);
+
+    // INVARIANTE: o step continua awaiting_approval (o pipeline nao avanca e a
+    // re-execucao do ajuste depende disso)
+    const json = await res.json();
+    expect(json.data.status).toBe("awaiting_approval");
+  });
+
+  it("nao falha o reject quando nao ha gate para carimbar (22.13 AC5 fail-open)", async () => {
+    messagesChain.then = (resolve: (value: { data: unknown; error: unknown }) => unknown) =>
+      Promise.resolve({ data: [], error: null }).then(resolve);
+
+    const res = await POST(createRequest(), createParams());
+    expect(res.status).toBe(200);
+    expect(messagesChain.update).not.toHaveBeenCalled();
   });
 
   // Step not found

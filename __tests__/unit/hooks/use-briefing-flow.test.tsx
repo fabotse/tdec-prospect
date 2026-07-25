@@ -12,6 +12,7 @@ import {
   useBriefingFlow,
   generateSmartQuestion,
   messageSignalsOwnLeads,
+  isConfirmation,
 } from "@/hooks/use-briefing-flow";
 import {
   createMockFetch,
@@ -3530,6 +3531,175 @@ describe("useBriefingFlow", () => {
 
       expect(result.current.state.status).toBe("confirmed");
       expect(outcome?.confirmed).toBe(true);
+    });
+  });
+
+  // ==============================================
+  // Story 22.13: seams do ajuste pos-rejeicao
+  // ==============================================
+
+  describe("seams do ajuste pos-rejeicao (Story 22.13)", () => {
+    it("isConfirmation e exportado como SSOT deterministico da confirmacao", () => {
+      expect(isConfirmation("sim, pode buscar de novo")).toBe(true);
+      expect(isConfirmation("OK")).toBe(true);
+      expect(isConfirmation("na verdade troca o cargo pra CFO")).toBe(false);
+      expect(isConfirmation("remove o filtro de tamanho")).toBe(false);
+    });
+
+    it("parseAdjustment reusa a MESMA memoria conversacional da 22.3 (nao abre historico novo)", async () => {
+      const fetchMock = createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      // Turno normal de briefing: constroi a memoria (usuario + resumo do agente)
+      await act(async () => {
+        await result.current.processMessage(
+          "Quero prospectar CTOs em SP",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      // Ajuste pos-rejeicao (o briefing ja esta confirmado no fluxo real)
+      await act(async () => {
+        await result.current.parseAdjustment("remove o filtro de tamanho", EXEC_ID);
+      });
+
+      const parseCalls = fetchMock
+        .calls()
+        .filter((c) => c.url.includes("/api/agent/briefing/parse"));
+      const lastBody = parseCalls[parseCalls.length - 1].body as {
+        messages: { role: string; content: string }[];
+      };
+
+      // O historico chega COMPLETO: turno inicial + resumo do agente + o ajuste.
+      // Sem isto o parser derivaria um briefing do zero a partir de uma frase.
+      expect(lastBody.messages.length).toBeGreaterThanOrEqual(3);
+      expect(lastBody.messages[0]).toEqual({
+        role: "user",
+        content: "Quero prospectar CTOs em SP",
+      });
+      expect(lastBody.messages[lastBody.messages.length - 1]).toEqual({
+        role: "user",
+        content: "remove o filtro de tamanho",
+      });
+      expect(lastBody.messages.some((m) => m.role === "agent")).toBe(true);
+    });
+
+    it("recordAgentTurn fecha o loop de memoria (o resumo do ajuste volta ao parser)", async () => {
+      const fetchMock = createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.parseAdjustment("tira o filtro de tamanho", EXEC_ID);
+      });
+      act(() => {
+        result.current.recordAgentTurn("Ajustei os parametros. Confirma?");
+      });
+      await act(async () => {
+        await result.current.parseAdjustment("na verdade troca o cargo pra CFO", EXEC_ID);
+      });
+
+      const parseCalls = fetchMock
+        .calls()
+        .filter((c) => c.url.includes("/api/agent/briefing/parse"));
+      const lastBody = parseCalls[parseCalls.length - 1].body as {
+        messages: { role: string; content: string }[];
+      };
+
+      expect(lastBody.messages).toEqual([
+        { role: "user", content: "tira o filtro de tamanho" },
+        { role: "agent", content: "Ajustei os parametros. Confirma?" },
+        { role: "user", content: "na verdade troca o cargo pra CFO" },
+      ]);
+    });
+
+    // Code review 2026-07-24 (P11): o ramo de confirmacao nao parseia (decisao
+    // deterministica), mas o transcript nao pode ficar com uma resposta do agente sem
+    // o turno do usuario que a provocou.
+    it("recordUserTurn mantem o transcript simetrico no ramo de confirmacao (review P11)", async () => {
+      const fetchMock = createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.parseAdjustment("tira o filtro de tamanho", EXEC_ID);
+      });
+      act(() => {
+        result.current.recordAgentTurn("Ajustei os parametros. Confirma?");
+        // usuario confirma — nao passa pelo parse
+        result.current.recordUserTurn("sim");
+        result.current.recordAgentTurn("Perfeito! Vou executar a etapa de novo.");
+      });
+      await act(async () => {
+        await result.current.parseAdjustment("agora troca o cargo pra CFO", EXEC_ID);
+      });
+
+      const parseCalls = fetchMock
+        .calls()
+        .filter((c) => c.url.includes("/api/agent/briefing/parse"));
+      const lastBody = parseCalls[parseCalls.length - 1].body as {
+        messages: { role: string; content: string }[];
+      };
+
+      expect(lastBody.messages.map((m) => m.role)).toEqual([
+        "user",
+        "agent",
+        "user",
+        "agent",
+        "user",
+      ]);
+      expect(lastBody.messages[2]).toEqual({ role: "user", content: "sim" });
+    });
+
+    it("processMessage continua devolvendo {handled:false} em status confirmed (AC6)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse({ ...COMPLETE_PARSE_RESPONSE, nextAction: "proceed" }),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
+      });
+      await act(async () => {
+        await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
+      });
+      expect(result.current.state.status).toBe("confirmed");
+
+      let outcome: { handled: boolean; confirmed?: boolean } | undefined;
+      await act(async () => {
+        outcome = await result.current.processMessage(
+          "remove o filtro de tamanho",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(outcome).toEqual({ handled: false });
     });
   });
 });

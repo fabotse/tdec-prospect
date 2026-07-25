@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { triggerNextStep } from "@/lib/agent/client-utils";
+import { useAgentStore } from "@/stores/use-agent-store";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -39,6 +40,8 @@ interface AgentLeadReviewProps {
   stepNumber: number;
   totalSteps: number;
   onAction?: () => void;
+  /** Story 22.13 (AC5): rejeicao DURAVEL vinda de `message.metadata.rejected`. */
+  rejected?: boolean;
 }
 
 const LEAD_COUNT_OPTIONS = [50, 100, 200, 500];
@@ -49,6 +52,7 @@ export function AgentLeadReview({
   stepNumber,
   totalSteps,
   onAction,
+  rejected,
 }: AgentLeadReviewProps) {
   // Story 17.12: local leads state (updated after fetch-more)
   const [localLeads, setLocalLeads] = useState<LeadPreview[]>(data.leads);
@@ -57,8 +61,14 @@ export function AgentLeadReview({
   );
   const [filter, setFilter] = useState("");
   const [loading, setLoading] = useState<"approve" | "reject" | null>(null);
-  const [actionTaken, setActionTaken] = useState<"approved" | "rejected" | null>(null);
+  const [localActionTaken, setLocalActionTaken] = useState<"approved" | "rejected" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const setAdjustingStep = useAgentStore((s) => s.setAdjustingStep);
+
+  // Story 22.13: o sinal durável (servidor) vence o local (some no remount).
+  const actionTaken: "approved" | "rejected" | null = rejected
+    ? "rejected"
+    : localActionTaken;
 
   // Story 17.12: quantity selector state
   const [selectedQuantity, setSelectedQuantity] = useState<number | null>(null);
@@ -150,7 +160,7 @@ export function AgentLeadReview({
         const errorData = await response.json();
         throw new Error(errorData?.error?.message ?? "Erro ao aprovar");
       }
-      setActionTaken("approved");
+      setLocalActionTaken("approved");
       onAction?.();
       // Story 17.7 - AC #6: Auto-advance to next step after approval
       // Fire-and-forget: approval already saved, don't let trigger failure affect UI
@@ -173,7 +183,10 @@ export function AgentLeadReview({
         const errorData = await response.json();
         throw new Error(errorData?.error?.message ?? "Erro ao rejeitar");
       }
-      setActionTaken("rejected");
+      setLocalActionTaken("rejected");
+      // Story 22.13 (AC1): entra em estado de ajuste deste step + para o spinner no sucesso.
+      setAdjustingStep({ executionId, stepNumber, stepType: "search_leads", phase: "describe" });
+      setLoading(null);
       onAction?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao rejeitar");

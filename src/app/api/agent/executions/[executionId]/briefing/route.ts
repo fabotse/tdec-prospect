@@ -45,6 +45,11 @@ const briefingUpdateSchema = z.object({
     )
     .optional(),
   emailCount: z.number().int().min(1).max(10).nullable().optional(),
+  // Story 22.13: mesma armadilha da 22.5, com consequencia PAGA. premiumIcebreakers e
+  // escrito pelo SERVIDOR no POST /confirm; sem declara-lo aqui, o z.object o stripava
+  // em qualquer PATCH posterior (ajuste pos-rejeicao) e o usuario que pagou icebreaker
+  // premium receberia standard, em silencio.
+  premiumIcebreakers: z.boolean().optional(),
 });
 
 // ==============================================
@@ -90,10 +95,46 @@ export async function PATCH(
 
   const supabase = await createClient();
 
+  // Story 22.13: MERGE em vez de replace total. Chaves presentes no payload vencem;
+  // as ausentes sao preservadas do briefing persistido. Isto torna o ROUTE a fonte de
+  // verdade da preservacao (premiumIcebreakers, importedLeads e qualquer campo futuro
+  // que o cliente nao reenvie), protegendo tambem chamadores futuros.
+  // Inocuo para o PATCH pre-confirmacao, que envia o objeto completo sobre um briefing
+  // ainda vazio.
+  const { data: currentExecution, error: readError } = await supabase
+    .from("agent_executions")
+    .select("briefing")
+    .eq("id", executionId)
+    .eq("tenant_id", profile.tenant_id)
+    .single();
+
+  // Story 22.13 (review): NUNCA seguir com a leitura falhada. Ignorar o `error` fazia o
+  // merge degradar em silencio para replace-total — apagando premiumIcebreakers e
+  // importedLeads e devolvendo 200, que e exatamente o rebaixamento pago que a Task 5
+  // existe para impedir. Falhar alto e a unica opcao segura.
+  if (readError || !currentExecution) {
+    return NextResponse.json(
+      {
+        error: {
+          code: "UPDATE_ERROR",
+          message: "Erro ao ler o briefing atual da execucao",
+        },
+      },
+      { status: 500 }
+    );
+  }
+
+  const currentBriefing =
+    currentExecution?.briefing && typeof currentExecution.briefing === "object"
+      ? (currentExecution.briefing as Record<string, unknown>)
+      : {};
+
+  const mergedBriefing = { ...currentBriefing, ...validation.data };
+
   const { data: execution, error } = await supabase
     .from("agent_executions")
     .update({
-      briefing: validation.data,
+      briefing: mergedBriefing,
       updated_at: new Date().toISOString(),
     })
     .eq("id", executionId)

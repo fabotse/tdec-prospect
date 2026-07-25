@@ -30,6 +30,9 @@ const mockSetExecutionMode = vi.fn();
 const mockSetTotalSteps = vi.fn();
 const mockProcessMessage = vi.fn().mockResolvedValue({ handled: true });
 const mockToastError = vi.fn();
+// Story 22.13: setters do estado de ajuste pos-rejeicao
+const mockSetAdjustingStep = vi.fn();
+const mockClearAdjustingStep = vi.fn();
 
 let capturedOnSendMessage: ((content: string) => Promise<void>) | null = null;
 let capturedMessageListProps: Record<string, unknown> = {};
@@ -84,14 +87,28 @@ vi.mock("@/hooks/use-auto-trigger", () => ({
 // Story 22.10: `reset` e spy compartilhado — o botao "Nova conversa" precisa chama-lo
 // (sem isso o briefing sobrevive em memoria e o agente retoma a conversa morta).
 const mockResetBriefing = vi.fn();
+// Story 22.13: seams do ajuste pos-rejeicao (memoria da 22.3 reusada, nunca duplicada).
+const mockParseAdjustment = vi.fn();
+const mockRecordAgentTurn = vi.fn();
+const mockRecordUserTurn = vi.fn();
 
-vi.mock("@/hooks/use-briefing-flow", () => ({
-  useBriefingFlow: () => ({
-    state: mockBriefingState,
-    processMessage: mockProcessMessage,
-    reset: mockResetBriefing,
-  }),
-}));
+// Story 22.13: importOriginal preserva os helpers PUROS exportados pelo modulo
+// (isConfirmation — SSOT deterministico da confirmacao). Sem isso o AgentChat
+// importaria `undefined` e o ramo de ajuste quebraria no teste por artefato do mock.
+vi.mock("@/hooks/use-briefing-flow", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/hooks/use-briefing-flow")>();
+  return {
+    ...actual,
+    useBriefingFlow: () => ({
+      state: mockBriefingState,
+      processMessage: mockProcessMessage,
+      reset: mockResetBriefing,
+      parseAdjustment: mockParseAdjustment,
+      recordAgentTurn: mockRecordAgentTurn,
+      recordUserTurn: mockRecordUserTurn,
+    }),
+  };
+});
 
 vi.mock("@/components/agent/AgentMessageList", () => ({
   AgentMessageList: (props: Record<string, unknown>) => {
@@ -136,6 +153,7 @@ function setupDefaults(overrides?: {
   briefing?: Record<string, unknown> | null;
   showModeSelector?: boolean;
   showExecutionPlan?: boolean;
+  adjustingStep?: Record<string, unknown> | null;
 }) {
   mockStoreState = {
     currentExecutionId: overrides?.executionId ?? null,
@@ -151,6 +169,10 @@ function setupDefaults(overrides?: {
     setExecutionMode: mockSetExecutionMode,
     totalSteps: 0,
     setTotalSteps: mockSetTotalSteps,
+    // Story 22.13: estado de ajuste pos-rejeicao (efemero, nunca persistido)
+    adjustingStep: overrides?.adjustingStep ?? null,
+    setAdjustingStep: mockSetAdjustingStep,
+    clearAdjustingStep: mockClearAdjustingStep,
   };
   mockBriefingState = {
     status: overrides?.briefingStatus ?? "idle",
@@ -1279,6 +1301,587 @@ describe("AgentChat", () => {
         "/api/agent/executions/exec-run",
         expect.objectContaining({ method: "PATCH" })
       );
+    });
+  });
+
+  // ==============================================
+  // Story 22.13 — Ajuste pos-rejeicao de etapa
+  // ==============================================
+
+  describe("ajuste pos-rejeicao (Story 22.13)", () => {
+    const EXEC = "exec-adj";
+
+    // Briefing PERSISTIDO na execucao (o que o servidor tem). Carrega a FORMA do
+    // pipeline (skipSteps/mode/productSlug/premiumIcebreakers/importedLeads) que o
+    // ajuste NUNCA pode alterar (AC4).
+    const PERSISTED_BRIEFING = {
+      technology: "Netskope",
+      jobTitles: ["CTO"],
+      location: "Sao Paulo",
+      companySize: "51-200",
+      industry: "fintech",
+      productSlug: "prod-1",
+      mode: "guided",
+      skipSteps: ["search_companies"],
+      premiumIcebreakers: true,
+      objective: "COLD_OUTREACH",
+      urgency: "MEDIUM",
+      campaignDescription: null,
+      emailCount: 3,
+    };
+
+    // Briefing devolvido pelo /parse apos o ajuste ("remove o filtro de tamanho e o de
+    // industria"). O parse re-deriva o briefing INTEIRO — inclusive a forma, que deve
+    // ser descartada pelo merge.
+    const PARSED_BRIEFING = {
+      technology: "Netskope",
+      jobTitles: ["CTO"],
+      location: "Sao Paulo",
+      companySize: null,
+      industry: null,
+      productSlug: null,
+      mode: "guided",
+      skipSteps: [],
+      objective: "COLD_OUTREACH",
+      urgency: "MEDIUM",
+      campaignDescription: null,
+      emailCount: 3,
+    };
+
+    function mockAdjustmentFetch(opts?: {
+      persistedBriefing?: Record<string, unknown> | null;
+      planFails?: boolean;
+      patchOk?: boolean;
+    }) {
+      const persisted = opts?.persistedBriefing ?? PERSISTED_BRIEFING;
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        (url: string, init?: { method?: string }) => {
+          if (url === "/api/agent/executions") {
+            return Promise.resolve({
+              ok: true,
+              json: () =>
+                Promise.resolve({
+                  data: [{ id: EXEC, user_id: "u1", status: "running", briefing: persisted }],
+                }),
+            });
+          }
+          if (url === `/api/agent/executions/${EXEC}/briefing`) {
+            return Promise.resolve({
+              ok: opts?.patchOk ?? true,
+              json: () => Promise.resolve({ data: {} }),
+            });
+          }
+          if (url === `/api/agent/executions/${EXEC}/plan`) {
+            if (opts?.planFails) {
+              return Promise.resolve({ ok: false, json: () => Promise.resolve({}) });
+            }
+            return Promise.resolve({
+              ok: true,
+              json: () =>
+                Promise.resolve({
+                  data: {
+                    steps: [
+                      { stepNumber: 1, stepType: "search_companies", estimatedCost: 5 },
+                      { stepNumber: 2, stepType: "search_leads", estimatedCost: 12.5 },
+                    ],
+                  },
+                }),
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ data: {} }),
+            method: init?.method,
+          });
+        }
+      );
+    }
+
+    function adjusting(phase: "describe" | "confirm") {
+      return { executionId: EXEC, stepNumber: 2, stepType: "search_leads", phase };
+    }
+
+    function patchCalls() {
+      return (global.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (c) => c[0] === `/api/agent/executions/${EXEC}/briefing`
+      );
+    }
+
+    function executeCalls() {
+      return (global.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (c) => c[0] === `/api/agent/executions/${EXEC}/steps/2/execute`
+      );
+    }
+
+    function agentMessages(): string[] {
+      return (global.fetch as ReturnType<typeof vi.fn>).mock.calls
+        .filter((c) => c[0] === `/api/agent/executions/${EXEC}/messages`)
+        .map((c) => JSON.parse((c[1] as { body: string }).body).content as string);
+    }
+
+    // --- AC2: descrever o ajuste -> parse + PATCH + resumo/custo + fase confirm ---
+
+    it("fase describe: parseia com a memoria da 22.3, aplica PATCH e pede confirmacao (AC2)", async () => {
+      setupDefaults({
+        executionId: EXEC,
+        briefingStatus: "confirmed",
+        adjustingStep: adjusting("describe"),
+      });
+      mockAdjustmentFetch();
+      mockParseAdjustment.mockResolvedValueOnce({
+        briefing: PARSED_BRIEFING,
+        missingFields: ["companySize", "industry"],
+        isComplete: false,
+        canProceed: true,
+        suggestions: {},
+        productMentioned: null,
+        nextAction: "confirm",
+        questionText: null,
+      });
+
+      render(<AgentChat />);
+      await act(async () => {
+        await capturedOnSendMessage!("remove o filtro de tamanho e o de industria");
+      });
+
+      // Mensagem do usuario persistida como hoje
+      expect(mockMutate).toHaveBeenCalledWith({
+        executionId: EXEC,
+        content: "remove o filtro de tamanho e o de industria",
+      });
+      // Roteada ao parse REUSANDO o seam do hook (memoria conversacional da 22.3)
+      expect(mockParseAdjustment).toHaveBeenCalledWith(
+        "remove o filtro de tamanho e o de industria",
+        EXEC
+      );
+
+      // PATCH com o briefing MESCLADO
+      expect(patchCalls()).toHaveLength(1);
+      const body = JSON.parse((patchCalls()[0][1] as { body: string }).body);
+      // filtros vem do parse
+      expect(body.companySize).toBeNull();
+      expect(body.industry).toBeNull();
+      expect(body.jobTitles).toEqual(["CTO"]);
+      // forma vem da execucao em andamento (AC4)
+      expect(body.skipSteps).toEqual(["search_companies"]);
+      expect(body.productSlug).toBe("prod-1");
+      expect(body.mode).toBe("guided");
+      expect(body.premiumIcebreakers).toBe(true);
+
+      // UMA mensagem do agente com resumo + custo + pergunta de confirmacao
+      const msgs = agentMessages();
+      expect(msgs).toHaveLength(1);
+      expect(msgs[0]).toContain("12,50");
+      expect(msgs[0]).toMatch(/confirma/i);
+      // ...e ela entra na memoria conversacional (Trap #2)
+      expect(mockRecordAgentTurn).toHaveBeenCalledWith(msgs[0]);
+
+      // Fase avanca para confirm; NADA foi executado
+      expect(mockSetAdjustingStep).toHaveBeenCalledWith({
+        executionId: EXEC,
+        stepNumber: 2,
+        stepType: "search_leads",
+        phase: "confirm",
+      });
+      expect(executeCalls()).toHaveLength(0);
+      expect(mockRefetchMessages).toHaveBeenCalledWith(EXEC);
+    });
+
+    it("custo indisponivel: resumo sem o numero, confirmacao continua obrigatoria (AC2 fail-open)", async () => {
+      setupDefaults({
+        executionId: EXEC,
+        briefingStatus: "confirmed",
+        adjustingStep: adjusting("describe"),
+      });
+      mockAdjustmentFetch({ planFails: true });
+      mockParseAdjustment.mockResolvedValueOnce({
+        briefing: PARSED_BRIEFING,
+        missingFields: [],
+        isComplete: true,
+        canProceed: true,
+        suggestions: {},
+        productMentioned: null,
+        nextAction: "confirm",
+        questionText: null,
+      });
+
+      render(<AgentChat />);
+      await act(async () => {
+        await capturedOnSendMessage!("tira o filtro de tamanho");
+      });
+
+      expect(patchCalls()).toHaveLength(1);
+      expect(agentMessages()[0]).toMatch(/confirma/i);
+      expect(mockSetAdjustingStep).toHaveBeenCalledWith(
+        expect.objectContaining({ phase: "confirm" })
+      );
+      expect(executeCalls()).toHaveLength(0);
+    });
+
+    it("parse falha: avisa, MANTEM o estado de ajuste e nao faz PATCH nem execute (AC2 fail-open)", async () => {
+      setupDefaults({
+        executionId: EXEC,
+        briefingStatus: "confirmed",
+        adjustingStep: adjusting("describe"),
+      });
+      mockAdjustmentFetch();
+      mockParseAdjustment.mockRejectedValueOnce(new Error("timeout"));
+
+      render(<AgentChat />);
+      await act(async () => {
+        await capturedOnSendMessage!("remove o filtro de tamanho");
+      });
+
+      expect(patchCalls()).toHaveLength(0);
+      expect(executeCalls()).toHaveLength(0);
+      expect(mockClearAdjustingStep).not.toHaveBeenCalled();
+      expect(mockSetAdjustingStep).not.toHaveBeenCalled();
+      expect(agentMessages()[0]).toMatch(/nao consegui/i);
+    });
+
+    it("parse sem cargo/localizacao (canProceed=false): nao aplica nada — fail-safe do merge (AC4)", async () => {
+      setupDefaults({
+        executionId: EXEC,
+        briefingStatus: "confirmed",
+        adjustingStep: adjusting("describe"),
+      });
+      mockAdjustmentFetch();
+      mockParseAdjustment.mockResolvedValueOnce({
+        briefing: { ...PARSED_BRIEFING, jobTitles: [], location: null },
+        missingFields: ["jobTitles", "location"],
+        isComplete: false,
+        canProceed: false,
+        suggestions: {},
+        productMentioned: null,
+        nextAction: "ask",
+        questionText: null,
+      });
+
+      render(<AgentChat />);
+      await act(async () => {
+        await capturedOnSendMessage!("de novo");
+      });
+
+      expect(patchCalls()).toHaveLength(0);
+      expect(executeCalls()).toHaveLength(0);
+      expect(mockSetAdjustingStep).not.toHaveBeenCalled();
+    });
+
+    // --- AC3: confirmacao deterministica -> re-execucao ---
+
+    it("fase confirm + confirmacao deterministica: re-executa o step e limpa o estado (AC3)", async () => {
+      setupDefaults({
+        executionId: EXEC,
+        briefingStatus: "confirmed",
+        adjustingStep: adjusting("confirm"),
+      });
+      mockAdjustmentFetch();
+
+      render(<AgentChat />);
+      await act(async () => {
+        await capturedOnSendMessage!("sim, pode buscar de novo");
+      });
+
+      expect(mockMutate).toHaveBeenCalledWith({
+        executionId: EXEC,
+        content: "sim, pode buscar de novo",
+      });
+      // Re-executa o step REJEITADO (nunca um "step corrente" — Trap #6)
+      expect(executeCalls()).toHaveLength(1);
+      expect(executeCalls()[0][1]).toEqual(expect.objectContaining({ method: "POST" }));
+      expect(mockClearAdjustingStep).toHaveBeenCalled();
+      // A decisao de executar NAO passa pelo LLM
+      expect(mockParseAdjustment).not.toHaveBeenCalled();
+      expect(patchCalls()).toHaveLength(0);
+    });
+
+    it("fase confirm + NAO-confirmacao: vira novo ajuste e NAO executa (AC3 fail-safe)", async () => {
+      setupDefaults({
+        executionId: EXEC,
+        briefingStatus: "confirmed",
+        adjustingStep: adjusting("confirm"),
+      });
+      mockAdjustmentFetch();
+      mockParseAdjustment.mockResolvedValueOnce({
+        briefing: { ...PARSED_BRIEFING, jobTitles: ["CFO"] },
+        missingFields: [],
+        isComplete: true,
+        canProceed: true,
+        suggestions: {},
+        productMentioned: null,
+        nextAction: "confirm",
+        questionText: null,
+      });
+
+      render(<AgentChat />);
+      await act(async () => {
+        await capturedOnSendMessage!("na verdade troca o cargo pra CFO");
+      });
+
+      expect(executeCalls()).toHaveLength(0);
+      expect(mockParseAdjustment).toHaveBeenCalled();
+      expect(patchCalls()).toHaveLength(1);
+      const body = JSON.parse((patchCalls()[0][1] as { body: string }).body);
+      expect(body.jobTitles).toEqual(["CFO"]);
+      expect(mockSetAdjustingStep).toHaveBeenCalledWith(
+        expect.objectContaining({ phase: "confirm" })
+      );
+    });
+
+    // --- AC6: sem regressao fora do estado de ajuste ---
+
+    // --- Code review 2026-07-24: confirmacao ESTRITA (P1) ---
+
+    it.each([
+      ["pode tirar o filtro de industria?", "pergunta com keyword 'pode'"],
+      ["assim nao da", "'assim' contem 'sim' + negacao"],
+      ["sim, mas troca o cargo pra CFO", "confirmacao com ressalva/correcao"],
+      ["isso nao esta certo", "'isso' + negacao"],
+      ["vamos mudar o tamanho antes", "'vamos' + verbo de ajuste"],
+    ])(
+      "fase confirm: %s NAO re-executa — vira novo ajuste (review P1: %s)",
+      async (message) => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          adjustingStep: adjusting("confirm"),
+        });
+        mockAdjustmentFetch();
+        mockParseAdjustment.mockResolvedValueOnce({
+          briefing: PARSED_BRIEFING,
+          missingFields: [],
+          isComplete: true,
+          canProceed: true,
+          suggestions: {},
+          productMentioned: null,
+          nextAction: "confirm",
+          questionText: null,
+        });
+
+        render(<AgentChat />);
+        await act(async () => {
+          await capturedOnSendMessage!(message);
+        });
+
+        // NENHUM credito gasto; a mensagem foi tratada como ajuste
+        expect(executeCalls()).toHaveLength(0);
+        expect(mockClearAdjustingStep).not.toHaveBeenCalled();
+        expect(mockParseAdjustment).toHaveBeenCalled();
+      }
+    );
+
+    it.each(["sim", "pode ir", "isso mesmo", "beleza, confirmo"])(
+      "fase confirm: '%s' e confirmacao limpa e re-executa (review P1)",
+      async (message) => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          adjustingStep: adjusting("confirm"),
+        });
+        mockAdjustmentFetch();
+
+        render(<AgentChat />);
+        await act(async () => {
+          await capturedOnSendMessage!(message);
+        });
+
+        expect(executeCalls()).toHaveLength(1);
+        expect(mockClearAdjustingStep).toHaveBeenCalled();
+        // o turno do usuario tambem entra na memoria (review P11)
+        expect(mockRecordUserTurn).toHaveBeenCalledWith(message);
+      }
+    );
+
+    // --- Code review 2026-07-24: falha do execute (P2) ---
+
+    it("execute falha: restaura a fase confirm e avisa em vez de silenciar (review P2)", async () => {
+      setupDefaults({
+        executionId: EXEC,
+        briefingStatus: "confirmed",
+        adjustingStep: adjusting("confirm"),
+      });
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (url === `/api/agent/executions/${EXEC}/steps/2/execute`) {
+          return Promise.resolve({
+            ok: false,
+            status: 409,
+            json: () => Promise.resolve({ error: { code: "EXECUTION_NOT_ACTIVE" } }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+      });
+
+      render(<AgentChat />);
+      await act(async () => {
+        await capturedOnSendMessage!("sim");
+      });
+
+      // O estado de ajuste VOLTA (o usuario pode confirmar de novo)
+      expect(mockSetAdjustingStep).toHaveBeenCalledWith(
+        expect.objectContaining({ stepNumber: 2, phase: "confirm" })
+      );
+      // ...e o usuario e avisado, em vez de ficar com a promessa e nenhum resultado
+      expect(agentMessages().some((m) => /nao consegui reexecutar/i.test(m))).toBe(true);
+    });
+
+    // --- Code review 2026-07-24: ajuste orfao de outra execucao (P6) ---
+
+    it("ajuste de OUTRA execucao e descartado, nao aplicado (review P6)", async () => {
+      setupDefaults({
+        executionId: EXEC,
+        briefingStatus: "confirmed",
+        adjustingStep: {
+          executionId: "exec-antiga",
+          stepNumber: 2,
+          stepType: "search_leads",
+          phase: "describe",
+        },
+      });
+      mockAdjustmentFetch();
+
+      render(<AgentChat />);
+      await act(async () => {
+        await capturedOnSendMessage!("remove o filtro de tamanho");
+      });
+
+      expect(mockClearAdjustingStep).toHaveBeenCalled();
+      expect(mockParseAdjustment).not.toHaveBeenCalled();
+      expect(patchCalls()).toHaveLength(0);
+      expect(executeCalls()).toHaveLength(0);
+    });
+
+    // --- Code review 2026-07-24: reentrada duravel (P3 / decisao 1) ---
+
+    it("reentra em ajuste no load quando o gate mais recente esta rejeitado (review P3)", async () => {
+      setupDefaults({ executionId: EXEC, briefingStatus: "confirmed", adjustingStep: null });
+      // O portao de attach da 22.8 so abre com o profile carregado — sem isto
+      // attachedExecutionId fica null e o efeito de reentrada nem chega a rodar.
+      mockUserState = { profile: { id: "u1" } };
+      mockExecutionData = {
+        messages: [
+          {
+            id: "gate-1",
+            execution_id: EXEC,
+            role: "agent",
+            content: "Revise os leads",
+            created_at: new Date().toISOString(),
+            metadata: {
+              messageType: "approval_gate",
+              stepNumber: 2,
+              rejected: true,
+              approvalData: { stepType: "search_leads", previewData: {} },
+            },
+          },
+        ],
+        steps: [{ id: "s2", step_number: 2, status: "awaiting_approval" }],
+      };
+      mockAdjustmentFetch();
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      expect(mockSetAdjustingStep).toHaveBeenCalledWith({
+        executionId: EXEC,
+        stepNumber: 2,
+        stepType: "search_leads",
+        phase: "describe",
+      });
+    });
+
+    it("NAO reentra quando o gate rejeitado ja foi superado por uma re-execucao (review P3)", async () => {
+      setupDefaults({ executionId: EXEC, briefingStatus: "confirmed", adjustingStep: null });
+      mockUserState = { profile: { id: "u1" } };
+      mockExecutionData = {
+        messages: [
+          {
+            id: "gate-1",
+            execution_id: EXEC,
+            role: "agent",
+            content: "Revise os leads",
+            created_at: "2026-07-24T10:00:00Z",
+            metadata: {
+              messageType: "approval_gate",
+              stepNumber: 2,
+              rejected: true,
+              approvalData: { stepType: "search_leads", previewData: {} },
+            },
+          },
+          {
+            id: "gate-2",
+            execution_id: EXEC,
+            role: "agent",
+            content: "Revise os leads (nova busca)",
+            created_at: "2026-07-24T10:05:00Z",
+            metadata: {
+              messageType: "approval_gate",
+              stepNumber: 2,
+              approvalData: { stepType: "search_leads", previewData: {} },
+            },
+          },
+        ],
+        steps: [{ id: "s2", step_number: 2, status: "awaiting_approval" }],
+      };
+      mockAdjustmentFetch();
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      expect(mockSetAdjustingStep).not.toHaveBeenCalled();
+    });
+
+    it("NAO reentra quando o step ja saiu de awaiting_approval (review P3)", async () => {
+      setupDefaults({ executionId: EXEC, briefingStatus: "confirmed", adjustingStep: null });
+      mockUserState = { profile: { id: "u1" } };
+      mockExecutionData = {
+        messages: [
+          {
+            id: "gate-1",
+            execution_id: EXEC,
+            role: "agent",
+            content: "Revise os leads",
+            created_at: new Date().toISOString(),
+            metadata: {
+              messageType: "approval_gate",
+              stepNumber: 2,
+              rejected: true,
+              approvalData: { stepType: "search_leads", previewData: {} },
+            },
+          },
+        ],
+        steps: [{ id: "s2", step_number: 2, status: "running" }],
+      };
+      mockAdjustmentFetch();
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      expect(mockSetAdjustingStep).not.toHaveBeenCalled();
+    });
+
+    it("sem estado de ajuste: mensagem pos-briefing so persiste (AC6 — comportamento atual)", async () => {
+      setupDefaults({
+        executionId: EXEC,
+        briefingStatus: "confirmed",
+        adjustingStep: null,
+      });
+      mockAdjustmentFetch();
+
+      render(<AgentChat />);
+      await act(async () => {
+        await capturedOnSendMessage!("remove o filtro de tamanho");
+      });
+
+      expect(mockMutate).toHaveBeenCalledWith({
+        executionId: EXEC,
+        content: "remove o filtro de tamanho",
+      });
+      expect(mockParseAdjustment).not.toHaveBeenCalled();
+      expect(patchCalls()).toHaveLength(0);
+      expect(executeCalls()).toHaveLength(0);
+      expect(mockProcessMessage).not.toHaveBeenCalled();
     });
   });
 });

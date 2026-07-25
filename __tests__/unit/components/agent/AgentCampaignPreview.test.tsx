@@ -6,9 +6,10 @@
  * reject works; disable after action; error states; collapsible icebreakers
  */
 
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AgentCampaignPreview } from "@/components/agent/AgentCampaignPreview";
+import { useAgentStore } from "@/stores/use-agent-store";
 
 // ==============================================
 // MOCKS
@@ -191,6 +192,47 @@ describe("AgentCampaignPreview (AC: #1, #2, #3)", () => {
       );
       expect(screen.getByText(/Campanha rejeitada/)).toBeInTheDocument();
     });
+  });
+
+  // ==============================================
+  // Story 22.13 — ajuste pos-rejeicao (o estado e GENERICO: cobre campanha, nao so busca)
+  // ==============================================
+
+  it("rejeitar: liga o estado de ajuste no store e PARA o spinner (22.13 AC1)", async () => {
+    act(() => {
+      useAgentStore.setState({ adjustingStep: null });
+    });
+
+    renderComponent();
+    fireEvent.click(screen.getByTestId("campaign-reject-btn"));
+
+    await waitFor(() => {
+      expect(useAgentStore.getState().adjustingStep).toEqual({
+        executionId: "exec-001",
+        stepNumber: 3,
+        stepType: "create_campaign",
+        phase: "describe",
+      });
+    });
+
+    expect(
+      screen.getByTestId("campaign-reject-btn").querySelector(".animate-spin")
+    ).toBeNull();
+  });
+
+  it("prop rejected: card nasce marcado e com os botoes desabilitados (22.13 AC5)", () => {
+    render(
+      <AgentCampaignPreview
+        data={createDefaultData()}
+        {...defaultProps}
+        totalSteps={5}
+        rejected
+      />
+    );
+
+    expect(screen.getByText(/Campanha rejeitada/)).toBeInTheDocument();
+    expect(screen.getByTestId("campaign-reject-btn")).toBeDisabled();
+    expect(screen.getByTestId("campaign-approve-btn")).toBeDisabled();
   });
 
   // Disable after action

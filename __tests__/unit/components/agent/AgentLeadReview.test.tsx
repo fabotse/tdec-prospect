@@ -5,9 +5,10 @@
  * Tests: renders table, checkboxes, filter, approve with filtered leads
  */
 
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AgentLeadReview } from "@/components/agent/AgentLeadReview";
+import { useAgentStore } from "@/stores/use-agent-store";
 
 // ==============================================
 // MOCKS
@@ -186,6 +187,54 @@ describe("AgentLeadReview (AC: #3, #4)", () => {
         { method: "POST" }
       );
     });
+  });
+
+  // ==============================================
+  // Story 22.13 — ajuste pos-rejeicao
+  // ==============================================
+
+  it("rejeitar: liga o estado de ajuste no store e PARA o spinner (22.13 AC1)", async () => {
+    act(() => {
+      useAgentStore.setState({ adjustingStep: null });
+    });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { stepNumber: 2, status: "awaiting_approval" } }),
+    });
+
+    render(
+      <AgentLeadReview data={defaultData} executionId="exec-001" stepNumber={2} totalSteps={5} />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /rejeitar/i }));
+
+    await waitFor(() => {
+      expect(useAgentStore.getState().adjustingStep).toEqual({
+        executionId: "exec-001",
+        stepNumber: 2,
+        stepType: "search_leads",
+        phase: "describe",
+      });
+    });
+
+    expect(
+      screen.getByRole("button", { name: /rejeitar/i }).querySelector(".animate-spin")
+    ).toBeNull();
+  });
+
+  it("prop rejected: card nasce marcado e com os botoes desabilitados (22.13 AC5)", () => {
+    render(
+      <AgentLeadReview
+        data={defaultData}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+        rejected
+      />
+    );
+
+    expect(screen.getByText("❌ Rejeitado")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /rejeitar/i })).toBeDisabled();
   });
 
   // Approve button disabled when no leads selected

@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { triggerNextStep } from "@/lib/agent/client-utils";
+import { useAgentStore } from "@/stores/use-agent-store";
 
 interface CompanyPreview {
   name: string;
@@ -29,6 +30,11 @@ interface AgentApprovalGateProps {
   stepNumber: number;
   totalSteps: number;
   onAction?: () => void;
+  /**
+   * Story 22.13 (AC5): rejeicao DURAVEL vinda de `message.metadata.rejected`.
+   * Sobrevive a refetch/remount/refresh — o estado local abaixo nao sobrevivia.
+   */
+  rejected?: boolean;
 }
 
 export function AgentApprovalGate({
@@ -37,10 +43,18 @@ export function AgentApprovalGate({
   stepNumber,
   totalSteps,
   onAction,
+  rejected,
 }: AgentApprovalGateProps) {
   const [loading, setLoading] = useState<"approve" | "reject" | null>(null);
-  const [actionTaken, setActionTaken] = useState<"approved" | "rejected" | null>(null);
+  const [localActionTaken, setLocalActionTaken] = useState<"approved" | "rejected" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const setAdjustingStep = useAgentStore((s) => s.setAdjustingStep);
+
+  // O sinal durável vence o local: um card carimbado como rejeitado no servidor volta
+  // marcado (e desabilitado) mesmo depois de um F5.
+  const actionTaken: "approved" | "rejected" | null = rejected
+    ? "rejected"
+    : localActionTaken;
 
   const handleApprove = async () => {
     setLoading("approve");
@@ -54,7 +68,7 @@ export function AgentApprovalGate({
         const errorData = await response.json();
         throw new Error(errorData?.error?.message ?? "Erro ao aprovar");
       }
-      setActionTaken("approved");
+      setLocalActionTaken("approved");
       onAction?.();
       // Story 17.7 - AC #6: Auto-advance to next step after approval
       // Fire-and-forget: approval already saved, don't let trigger failure affect UI
@@ -77,7 +91,18 @@ export function AgentApprovalGate({
         const errorData = await response.json();
         throw new Error(errorData?.error?.message ?? "Erro ao rejeitar");
       }
-      setActionTaken("rejected");
+      setLocalActionTaken("rejected");
+      // Story 22.13 (AC1): a resposta do usuario ganha um consumidor — o chat entra em
+      // estado de AJUSTE deste step. Sem isto, "Rejeitar" era um beco sem saida.
+      setAdjustingStep({
+        executionId,
+        stepNumber,
+        stepType: "search_companies",
+        phase: "describe",
+      });
+      // Story 22.13 (AC1): o spinner tambem para no SUCESSO. Antes so parava no erro —
+      // o botao girava para sempre enquanto o usuario digitava o ajuste.
+      setLoading(null);
       onAction?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao rejeitar");

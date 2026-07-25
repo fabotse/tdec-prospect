@@ -37,9 +37,16 @@ import { useAgentExecution, useSendMessage } from "@/hooks/use-agent-execution";
 import { useAgentOnboarding } from "@/hooks/use-agent-onboarding";
 import { useAutoTrigger } from "@/hooks/use-auto-trigger";
 import { useAgentStore } from "@/stores/use-agent-store";
+import type { AdjustingStepState } from "@/stores/use-agent-store";
 import { useBriefingFlow } from "@/hooks/use-briefing-flow";
 import { useUser } from "@/hooks/use-user";
-import type { AgentExecution, ExecutionMode } from "@/types/agent";
+import {
+  mergeAdjustedBriefing,
+  buildAdjustmentSummary,
+  isAdjustmentConfirmation,
+} from "@/lib/agent/briefing-adjustment";
+import { STEP_LABELS } from "@/types/agent";
+import type { AgentExecution, ExecutionMode, ParsedBriefing, PlannedStep } from "@/types/agent";
 import type { CreateProductInput } from "@/types/product";
 
 export function AgentChat() {
@@ -54,6 +61,10 @@ export function AgentChat() {
   const executionMode = useAgentStore((s) => s.executionMode);
   const setExecutionMode = useAgentStore((s) => s.setExecutionMode);
   const setTotalSteps = useAgentStore((s) => s.setTotalSteps);
+  // Story 22.13: estado de ajuste pos-rejeicao (ligado pelos gates ao rejeitar)
+  const adjustingStep = useAgentStore((s) => s.adjustingStep);
+  const setAdjustingStep = useAgentStore((s) => s.setAdjustingStep);
+  const clearAdjustingStep = useAgentStore((s) => s.clearAdjustingStep);
 
   const [isModeSubmitting, setIsModeSubmitting] = useState(false);
   const [isPlanSubmitting, setIsPlanSubmitting] = useState(false);
@@ -177,6 +188,10 @@ export function AgentChat() {
     state: briefingState,
     processMessage: processBriefing,
     reset: resetBriefing,
+    // Story 22.13: seams do ajuste pos-rejeicao (memoria da 22.3 reusada, nunca duplicada)
+    parseAdjustment,
+    recordAgentTurn,
+    recordUserTurn,
   } = useBriefingFlow();
 
   // Story 17.7: Sync totalSteps to store for approval gates
@@ -237,6 +252,263 @@ export function AgentChat() {
     [briefingState.briefing]
   );
 
+  // ============================================================
+  // Story 22.13 — Ajuste pos-rejeicao de etapa
+  // ============================================================
+
+  // Mensagem do agente que TAMBEM entra na memoria conversacional (Trap #2): sem
+  // isto o turno seguinte ("na verdade troca o cargo pra CFO") seria parseado sem
+  // contexto e o parser esqueceria os campos ja preenchidos. Espelha o `sendAndRecord`
+  // do useBriefingFlow, que e privado ao hook.
+  const sendAndRecordAgent = useCallback(
+    async (executionId: string, content: string) => {
+      recordAgentTurn(content);
+      await sendAgentMessage(executionId, content);
+    },
+    [recordAgentTurn, sendAgentMessage]
+  );
+
+  // Briefing PERSISTIDO da execucao — fonte de verdade da FORMA do pipeline
+  // (skipSteps/mode/productSlug/premiumIcebreakers/importedLeads). NAO usamos
+  // briefingState.briefing como base: numa execucao reatachada (22.8/22.10) o
+  // useBriefingFlow renasce em 'idle' e o briefing local e null. O estado local
+  // fica so como fallback quando a leitura falha.
+  const fetchPersistedBriefing = useCallback(
+    async (executionId: string): Promise<ParsedBriefing | null> => {
+      try {
+        const response = await fetch("/api/agent/executions");
+        if (!response.ok) return briefingState.briefing;
+        const result = await response.json();
+        if (!Array.isArray(result?.data)) return briefingState.briefing;
+        const match = (result.data as AgentExecution[]).find((e) => e.id === executionId);
+        return match?.briefing ?? briefingState.briefing;
+      } catch {
+        return briefingState.briefing;
+      }
+    },
+    [briefingState.briefing]
+  );
+
+  // Custo da re-execucao. Lido DEPOIS do PATCH — o /plan estima a partir do briefing
+  // do BANCO. Fail-open: sem o numero o resumo sai sem custo, mas a confirmacao
+  // continua obrigatoria (nada executa sozinho).
+  const fetchStepEstimatedCost = useCallback(
+    async (executionId: string, stepNumber: number): Promise<number | null> => {
+      try {
+        const response = await fetch(`/api/agent/executions/${executionId}/plan`);
+        if (!response.ok) return null;
+        const result = await response.json();
+        const steps = result?.data?.steps as PlannedStep[] | undefined;
+        const step = steps?.find((s) => s.stepNumber === stepNumber);
+        return typeof step?.estimatedCost === "number" ? step.estimatedCost : null;
+      } catch {
+        return null;
+      }
+    },
+    []
+  );
+
+  // Reentrada DURAVEL no ajuste (decisao de code review, 2026-07-24).
+  //
+  // O `adjustingStep` e efemero de proposito (Trap #5). Mas a AC5 tornou a rejeicao
+  // DURAVEL — e o card rejeitado volta com os dois botoes desabilitados. Sozinhas, as
+  // duas regras trancavam o usuario: rejeitar, dar F5 antes de digitar o ajuste, e nao
+  // sobrava saida nenhuma alem de "Nova conversa" (que cancela a execucao).
+  //
+  // Aqui reconstruimos o estado a partir do SERVIDOR: se o gate mais recente esta
+  // carimbado como rejeitado e o step continua `awaiting_approval`, o chat reentra em
+  // ajuste na fase "describe". A memoria conversacional continua vazia nesse caminho —
+  // quem protege e o guard `canProceed` no ramo de ajuste, que recusa aplicar um
+  // briefing derivado do zero.
+  //
+  // O Set garante "no maximo uma vez por gate, por vida da pagina": sem ele, a janela
+  // entre confirmar a re-execucao e o novo gate nascer (step ainda `awaiting_approval`,
+  // gate antigo ainda o mais recente) jogaria o usuario de volta para "describe".
+  const handledRejectedGatesRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!attachedExecutionId) return;
+
+    const gates = messages.filter(
+      (m) => m.metadata?.messageType === "approval_gate" && m.metadata?.approvalData
+    );
+    const newestGate = gates[gates.length - 1];
+    if (!newestGate?.metadata?.rejected) return;
+    if (handledRejectedGatesRef.current.has(newestGate.id)) return;
+
+    const stepNumber = newestGate.metadata.stepNumber ?? 1;
+    const step = steps.find((s) => s.step_number === stepNumber);
+    if (step?.status !== "awaiting_approval") return;
+
+    // Marca ANTES de decidir entrar: se o usuario ja esta ajustando (fase "confirm",
+    // por exemplo), este gate nao pode reabrir o ajuste mais tarde.
+    handledRejectedGatesRef.current.add(newestGate.id);
+    if (adjustingStep) return;
+
+    const stepType = newestGate.metadata.approvalData?.stepType;
+    if (!stepType) return;
+
+    setAdjustingStep({
+      executionId: attachedExecutionId,
+      stepNumber,
+      stepType,
+      phase: "describe",
+    });
+  }, [messages, steps, attachedExecutionId, adjustingStep, setAdjustingStep]);
+
+  const handleAdjustmentMessage = useCallback(
+    async (executionId: string, content: string, adjusting: AdjustingStepState) => {
+      const stepLabel = STEP_LABELS[adjusting.stepType] ?? adjusting.stepType;
+      // A mensagem do usuario e persistida como em qualquer fluxo.
+      sendMessageMutation.mutate({ executionId, content });
+      setAgentProcessing(true);
+
+      try {
+        // AC3 — a decisao de RE-EXECUTAR (que gasta credito) e DETERMINISTICA: mesmo
+        // helper do fluxo de briefing, nunca a interpretacao do LLM. Qualquer mensagem
+        // que nao seja confirmacao clara cai no ramo de ajuste abaixo (fail-safe 22.11:
+        // na duvida, nao gasta).
+        if (adjusting.phase === "confirm" && isAdjustmentConfirmation(content)) {
+          clearAdjustingStep();
+          // O turno do usuario tambem entra na memoria (aqui nao passamos pelo
+          // parseAdjustment): senao o transcript teria a resposta do agente sem o
+          // "sim" que a provocou.
+          recordUserTurn(content);
+          await sendAndRecordAgent(
+            executionId,
+            `Perfeito! Vou executar a etapa "${stepLabel}" de novo com os parametros ajustados.`
+          );
+          // O disparo nao e aguardado (o step roda por minutos e travaria o input),
+          // mas a FALHA precisa aparecer: um 409/422/500 silencioso deixava o usuario
+          // com a promessa acima, o card antigo desabilitado pelo `rejected` durável e
+          // o estado de ajuste ja destruido — exatamente o beco sem saida que esta
+          // story existe para fechar. Em caso de falha, restauramos a fase "confirm"
+          // (o usuario pode confirmar de novo) e dizemos o que aconteceu.
+          void fetch(
+            `/api/agent/executions/${executionId}/steps/${adjusting.stepNumber}/execute`,
+            { method: "POST" }
+          )
+            .then(async (response) => {
+              if (response.ok) return;
+              setAdjustingStep({ ...adjusting, phase: "confirm" });
+              await sendAndRecordAgent(
+                executionId,
+                `Nao consegui reexecutar a etapa "${stepLabel}" agora. Nenhum credito foi gasto — responda "sim" para eu tentar de novo, ou me diga outro ajuste.`
+              );
+              await refetchMessages(executionId);
+            })
+            .catch(async () => {
+              setAdjustingStep({ ...adjusting, phase: "confirm" });
+              await sendAndRecordAgent(
+                executionId,
+                `Nao consegui reexecutar a etapa "${stepLabel}" agora. Nenhum credito foi gasto — responda "sim" para eu tentar de novo, ou me diga outro ajuste.`
+              ).catch(() => {});
+              await refetchMessages(executionId);
+            });
+          return;
+        }
+
+        // AC2 — descrever o ajuste: parse com a memoria da 22.3.
+        let parsed;
+        try {
+          parsed = await parseAdjustment(content, executionId);
+        } catch {
+          // Fail-open: avisa, MANTEM o estado de ajuste, nao faz PATCH nem execute.
+          await sendAndRecordAgent(
+            executionId,
+            `Nao consegui entender o ajuste. Pode descrever de outro jeito o que voce quer mudar na etapa "${stepLabel}"?`
+          );
+          return;
+        }
+
+        // Guard deterministico (NFR1): sem cargo + localizacao o proprio parse diz que
+        // nao da para prosseguir. Aplicar um briefing assim sobre o persistido apagaria
+        // os filtros da execucao — e o caso classico e um parse SEM memoria (ex.: o
+        // usuario rejeitou logo apos um refresh). Na duvida, nao aplica nada.
+        if (!parsed.canProceed) {
+          await sendAndRecordAgent(
+            executionId,
+            `Nao consegui entender o ajuste. Me diga os parametros da etapa "${stepLabel}" (cargo e localizacao, no minimo) e o que voce quer mudar.`
+          );
+          return;
+        }
+
+        const persisted = await fetchPersistedBriefing(executionId);
+        if (!persisted) {
+          await sendAndRecordAgent(
+            executionId,
+            "Nao consegui recuperar o briefing desta execucao para aplicar o ajuste. Tente novamente."
+          );
+          return;
+        }
+
+        // AC4: filtros do parse, forma da execucao.
+        const merged = mergeAdjustedBriefing(persisted, parsed.briefing);
+
+        // PATCH EXPLICITO com o objeto mesclado — `saveBriefing` fecha sobre
+        // briefingState.briefing (closure stale) e nao serve aqui.
+        let patchOk = false;
+        try {
+          const patchResponse = await fetch(
+            `/api/agent/executions/${executionId}/briefing`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(merged),
+            }
+          );
+          patchOk = patchResponse.ok;
+        } catch {
+          patchOk = false;
+        }
+
+        if (!patchOk) {
+          await sendAndRecordAgent(
+            executionId,
+            "Nao consegui salvar o ajuste agora. Pode tentar de novo em instantes?"
+          );
+          return;
+        }
+
+        const estimatedCost = await fetchStepEstimatedCost(executionId, adjusting.stepNumber);
+        await sendAndRecordAgent(
+          executionId,
+          buildAdjustmentSummary(persisted, merged, adjusting.stepType, estimatedCost)
+        );
+        // Trap #6: sempre o step guardado no estado de ajuste, nunca um "step corrente".
+        setAdjustingStep({ ...adjusting, phase: "confirm" });
+      } catch {
+        // Rede caindo no meio (ex.: o POST da mensagem do agente rejeita) escapava como
+        // unhandled rejection: sem aviso, e — se ja tivessemos PATCHado — com o briefing
+        // alterado e o estado parado na fase "describe". O estado de ajuste PERMANECE:
+        // o usuario redescreve e o fluxo recomeca de forma idempotente.
+        try {
+          await sendAgentMessage(
+            executionId,
+            "Tive um problema ao processar o ajuste. Pode repetir o que voce quer mudar?"
+          );
+        } catch {
+          toast.error("Erro ao processar o ajuste. Tente novamente.");
+        }
+      } finally {
+        await refetchMessages(executionId);
+        setAgentProcessing(false);
+      }
+    },
+    [
+      sendMessageMutation,
+      setAgentProcessing,
+      clearAdjustingStep,
+      setAdjustingStep,
+      sendAndRecordAgent,
+      sendAgentMessage,
+      recordUserTurn,
+      parseAdjustment,
+      fetchPersistedBriefing,
+      fetchStepEstimatedCost,
+      refetchMessages,
+    ]
+  );
+
   const handleSendMessage = useCallback(
     async (content: string) => {
       let execId = currentExecutionId;
@@ -261,6 +533,23 @@ export function AgentChat() {
 
       // Guard: execId must be defined after creation block
       if (!execId) return;
+
+      // Story 22.13: ramo de AJUSTE pos-rejeicao. Vem ANTES do roteamento de briefing
+      // de proposito (Trap #1): numa execucao REATACHADA o useBriefingFlow renasce em
+      // 'idle' e a mensagem cairia no fluxo de briefing. Condicionado SO ao estado de
+      // ajuste — fora dele nada muda (AC6).
+      //
+      // Review: o ajuste so vale para a execucao que o originou. Um estado orfao (a
+      // execucao foi descartada no mount, ou o usuario trocou) e DESCARTADO em vez de
+      // aplicado — senao a primeira mensagem da conversa seguinte seria parseada,
+      // PATCHada e re-executada contra o step de outra execucao.
+      if (adjustingStep) {
+        if (adjustingStep.executionId === execId) {
+          await handleAdjustmentMessage(execId, content, adjustingStep);
+          return;
+        }
+        clearAdjustingStep();
+      }
 
       // Story 16.3: Rotear para fluxo de briefing se nao confirmado
       if (briefingState.status !== "confirmed") {
@@ -314,6 +603,9 @@ export function AgentChat() {
       setAgentProcessing,
       setShowModeSelector,
       refetchMessages,
+      adjustingStep,
+      clearAdjustingStep,
+      handleAdjustmentMessage,
     ]
   );
 
@@ -460,6 +752,10 @@ export function AgentChat() {
       // Sem isto o historico some da tela mas o briefing sobrevive em memoria: o agente
       // retomaria a conversa antiga (pedindo confirmacao de um resumo que ninguem ve).
       resetBriefing();
+      // Story 22.13: um ajuste em aberto nao pode atravessar para a conversa nova —
+      // a primeira mensagem dela seria sequestrada pelo ramo de ajuste de uma execucao
+      // que ja nao existe.
+      clearAdjustingStep();
       setShowAbandonDialog(false);
     } catch {
       toast.error("Erro ao encerrar a conversa. Tente novamente.");
@@ -475,6 +771,7 @@ export function AgentChat() {
     setAgentProcessing,
     setTotalSteps,
     resetBriefing,
+    clearAdjustingStep,
   ]);
 
   const handleNewConversation = useCallback(() => {

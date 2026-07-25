@@ -24,6 +24,31 @@ function createMessage(overrides: Partial<AgentMessage> = {}): AgentMessage {
 }
 
 describe("AgentMessageBubble (AC: #3)", () => {
+  // Story 22.13 (AC5): a marcacao de rejeicao vem do metadata DURAVEL da mensagem,
+  // nao de estado local que morre no remount/refresh.
+  it("repassa metadata.rejected ao gate renderizado (22.13 AC5)", () => {
+    render(
+      <AgentMessageBubble
+        message={createMessage({
+          role: "agent",
+          content: "Revise as empresas",
+          metadata: {
+            messageType: "approval_gate",
+            stepNumber: 1,
+            rejected: true,
+            approvalData: {
+              stepType: "search_companies",
+              previewData: { totalFound: 1, companies: [], filtersApplied: {} },
+            },
+          },
+        })}
+      />
+    );
+
+    expect(screen.getByText("❌ Rejeitado")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /aprovar/i })).toBeDisabled();
+  });
+
   it("renders message content", () => {
     render(<AgentMessageBubble message={createMessage()} />);
     expect(screen.getByText("Buscar leads de tecnologia")).toBeInTheDocument();

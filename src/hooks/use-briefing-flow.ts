@@ -50,7 +50,10 @@ export interface BriefingFlowState {
 // CONFIRMATION KEYWORDS
 // ==============================================
 
-const CONFIRMATION_KEYWORDS = [
+// Story 22.13 (review): exportado para o ajuste pos-rejeicao montar um matcher MAIS
+// ESTRITO sobre a MESMA lista (palavra inteira + sem negacao/pergunta/verbo de ajuste).
+// A lista continua sendo a unica fonte — o que muda e o rigor de quem consome.
+export const CONFIRMATION_KEYWORDS = [
   "sim",
   "confirmo",
   "ok",
@@ -268,7 +271,14 @@ function generateProductSummary(product: ExtractedProduct): string {
   return `Cadastrei o ${product.name} com os seguintes dados:\n- Descricao: ${product.description}\n- Features: ${product.features || "nao informado"}\n- Diferenciais: ${product.differentials || "nao informado"}\n- Publico-alvo: ${product.targetAudience || "nao informado"}\n\nEsta correto?`;
 }
 
-function isConfirmation(message: string): boolean {
+/**
+ * SSOT deterministico da confirmacao textual.
+ *
+ * Story 22.13: exportado (era privado) para que o ajuste pos-rejeicao decida a
+ * RE-EXECUCAO — que gasta credito — pela MESMA regra do fluxo de briefing, sem
+ * duplicar keywords nem delegar a decisao ao LLM. Funcao PURA.
+ */
+export function isConfirmation(message: string): boolean {
   const normalized = message.toLowerCase().trim();
   return CONFIRMATION_KEYWORDS.some((kw) => normalized.includes(kw));
 }
@@ -428,6 +438,26 @@ export interface UseBriefingFlowReturn {
     createProduct?: (product: CreateProductInput) => Promise<string | null>
   ) => Promise<{ handled: boolean; confirmed?: boolean }>;
   reset: () => void;
+  /**
+   * Story 22.13 (seam): parseia uma mensagem de AJUSTE pos-rejeicao reusando a
+   * memoria conversacional da 22.3 — empilha o turno do usuario em conversationRef
+   * e chama o MESMO callParseAPI do fluxo de briefing. NAO toca o estado do hook
+   * (o briefing pos-confirmacao vive no servidor; quem aplica o resultado e o
+   * chamador, sob a regra de merge da 22.13).
+   */
+  parseAdjustment: (content: string, executionId: string) => Promise<BriefingParseResponse>;
+  /**
+   * Story 22.13 (seam): registra um turno do AGENTE na memoria conversacional.
+   * Sem isto o turno seguinte ("na verdade troca o cargo pra CFO") seria parseado
+   * sem contexto e o parser esqueceria os campos ja preenchidos (Trap da 22.3).
+   */
+  recordAgentTurn: (content: string) => void;
+  /**
+   * Story 22.13 (review): registra um turno do USUARIO na memoria sem parsear.
+   * Usado no ramo de confirmacao, que decide sem LLM mas ainda precisa manter o
+   * transcript coerente para o proximo `/parse`.
+   */
+  recordUserTurn: (content: string) => void;
 }
 
 export function useBriefingFlow(): UseBriefingFlowReturn {
@@ -1127,5 +1157,36 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
     conversationRef.current = [];
   }, []);
 
-  return { state, processMessage, reset };
+  // === Story 22.13: seams do ajuste pos-rejeicao ===
+
+  const parseAdjustment = useCallback(
+    async (content: string, executionId: string): Promise<BriefingParseResponse> => {
+      conversationRef.current.push({ role: "user", content });
+      return callParseAPI(executionId);
+    },
+    [callParseAPI]
+  );
+
+  const recordAgentTurn = useCallback((content: string) => {
+    if (!content) return; // content min(1) no schema do /parse — turno vazio invalidaria o proximo parse
+    conversationRef.current.push({ role: "agent", content });
+  }, []);
+
+  // Story 22.13 (review): o ramo de CONFIRMACAO nao chama parseAdjustment (a decisao e
+  // deterministica, sem LLM), mas a resposta do agente entra na memoria — sem registrar
+  // tambem o turno do usuario, o historico enviado ao /parse teria um turno de agente
+  // sem antecedente.
+  const recordUserTurn = useCallback((content: string) => {
+    if (!content) return;
+    conversationRef.current.push({ role: "user", content });
+  }, []);
+
+  return {
+    state,
+    processMessage,
+    reset,
+    parseAdjustment,
+    recordAgentTurn,
+    recordUserTurn,
+  };
 }

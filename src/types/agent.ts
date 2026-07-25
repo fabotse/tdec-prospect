@@ -88,6 +88,11 @@ export interface AgentMessageMetadata {
     stepType: StepType;
     previewData: unknown;
   };
+  // Story 22.13: auditoria DURAVEL da rejeicao de um gate (JSONB, sem migration).
+  // Carimbado pelo POST .../steps/[n]/reject na mensagem approval_gate mais recente
+  // do step. Sem isto, a marcacao "Rejeitado" era estado local e sumia no refresh —
+  // o card voltava com os botoes ativos.
+  rejected?: boolean;
 }
 
 // === Domain Types ===
