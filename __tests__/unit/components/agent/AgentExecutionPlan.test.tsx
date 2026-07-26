@@ -357,9 +357,69 @@ describe("AgentExecutionPlan", () => {
     renderPlan();
 
     await waitFor(() => {
+      // Story 22.14 (AC7): `viability=1` e o OPT-IN da contagem pre-busca. So este
+      // chamador pede — o fetchStepEstimatedCost do AgentChat bate no mesmo endpoint a
+      // cada turno de ajuste e nao pode disparar chamada externa (Trap #7).
       expect(global.fetch).toHaveBeenCalledWith(
-        `/api/agent/executions/${EXEC_ID}/plan`
+        `/api/agent/executions/${EXEC_ID}/plan?viability=1`
       );
+    });
+  });
+
+  // ==============================================
+  // Story 22.14 (AC7) — aviso de viabilidade antes de gastar
+  // ==============================================
+
+  describe("Story 22.14 - viabilidade da busca (AC #7)", () => {
+    function mockPlanWithViability(
+      viability: { estimatedResults: number; isLow: boolean } | null
+    ) {
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({ data: { ...mockPlanData.data, viability } }),
+      });
+    }
+
+    it("estimativa 0: avisa ANTES do 'Iniciar Execucao' (o caso Atibaia)", async () => {
+      mockPlanWithViability({ estimatedResults: 0, isLow: true });
+      renderPlan();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("plan-viability")).toBeInTheDocument();
+      });
+      expect(screen.getByText(/Estimativa: 0 resultados com esses filtros/i)).toBeInTheDocument();
+      // Informa, nunca bloqueia: a decisao continua do usuario.
+      expect(screen.getByRole("button", { name: /iniciar execucao/i })).toBeEnabled();
+    });
+
+    it("estimativa baixa: sugere ampliar em vez de so mostrar o numero", async () => {
+      mockPlanWithViability({ estimatedResults: 4, isLow: true });
+      renderPlan();
+
+      await waitFor(() => {
+        expect(screen.getByText(/~4 resultados/)).toBeInTheDocument();
+      });
+      expect(screen.getByText(/ampliar localizacao|remover o filtro/i)).toBeInTheDocument();
+    });
+
+    it("estimativa saudavel: mostra o numero sem alarme", async () => {
+      mockPlanWithViability({ estimatedResults: 248, isLow: false });
+      renderPlan();
+
+      await waitFor(() => {
+        expect(screen.getByText(/~248 leads/)).toBeInTheDocument();
+      });
+    });
+
+    it("sem viabilidade (fluxo com tech / contagem falhou): plano identico ao de hoje (NFR4)", async () => {
+      mockPlanWithViability(null);
+      renderPlan();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("agent-execution-plan")).toBeInTheDocument();
+      });
+      expect(screen.queryByTestId("plan-viability")).not.toBeInTheDocument();
     });
   });
 });

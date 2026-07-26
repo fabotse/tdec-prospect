@@ -289,6 +289,110 @@ describe("SearchCompaniesStep (AC #1, #3)", () => {
     });
   });
 
+  // ==============================================
+  // Story 22.14: 0 empresas nao e sucesso (AC #1, #5, #6)
+  // ==============================================
+
+  describe("Story 22.14 - busca de empresas vazia", () => {
+    const emptyCompaniesResponse = {
+      metadata: { total_results: 0, total_companies: 0 },
+      data: [],
+    };
+
+    beforeEach(() => {
+      mockSearchCompanies.mockResolvedValue(emptyCompaniesResponse);
+    });
+
+    it("modo guiado: marca emptyResult + diagnostico minimo no output", async () => {
+      const input = createInput();
+      input.mode = "guided";
+
+      const result = await step.run(input);
+
+      expect(result.data.emptyResult).toBe(true);
+      expect(result.data.companies).toEqual([]);
+
+      const diagnosis = result.data.emptyDiagnosis as Record<string, unknown>;
+      expect(diagnosis).toBeDefined();
+      expect(Array.isArray(diagnosis.activeFilters)).toBe(true);
+      expect(Array.isArray(diagnosis.probableCauses)).toBe(true);
+      // AC5: o card de empresas nao ganha chips — a saida e Rejeitar + texto.
+      expect(diagnosis).not.toHaveProperty("suggestedChips");
+      expect(String(diagnosis.guidance)).toMatch(/Rejeitar/);
+    });
+
+    it("aponta a tecnologia nao resolvida como causa provavel", async () => {
+      mockSearchTechnologies.mockResolvedValue([]);
+      const input = createInput({ technology: "TecnologiaInexistente" });
+      input.mode = "guided";
+
+      const result = await step.run(input);
+
+      const diagnosis = result.data.emptyDiagnosis as {
+        probableCauses: Array<{ code: string }>;
+      };
+      expect(diagnosis.probableCauses[0].code).toBe("technology_not_resolved");
+    });
+
+    it("modo guiado: a mensagem do gate NAO promete resultados para revisar (AC1)", async () => {
+      const input = createInput();
+      input.mode = "guided";
+
+      await step.run(input);
+
+      const gateInsert = mockSupabase.messagesChain.insert.mock.calls
+        .map((call) => call[0])
+        .find((arg) => arg?.metadata?.messageType === "approval_gate");
+
+      expect(gateInsert.content).not.toContain("aprove para continuar");
+      expect(gateInsert.content).toMatch(/nao encontrou/i);
+    });
+
+    it("modo autopilot: falha controlada em vez de detonar o search_leads adiante (AC6)", async () => {
+      const input = createInput();
+      input.mode = "autopilot";
+
+      await expect(step.run(input)).rejects.toMatchObject({
+        stepNumber: 1,
+        stepType: "search_companies",
+        isRetryable: false,
+        message: expect.stringContaining("nao encontrou nenhuma empresa"),
+      });
+    });
+
+    /**
+     * Code review 22.14: a versao anterior deste teste so afirmava
+     * `expect(result.cost?.theirstack_search).toBe(0)` — aritmetica (`0 * CREDITS_PER_COMPANY`),
+     * nao comportamento: passaria com o ramo `emptyResult` INTEIRO deletado. O que importa
+     * aqui e que o step de busca vazia entrega o gate honesto E nao cobra nada, com o
+     * `emptyResult` presente para a `BaseStep` trocar as mensagens.
+     */
+    it("custo zero — e o output carrega o gate honesto (nao so a aritmetica)", async () => {
+      const input = createInput();
+      input.mode = "guided";
+
+      const result = await step.run(input);
+
+      expect(result.cost?.theirstack_search).toBe(0);
+      // O que de fato distingue este ramo do de sucesso:
+      expect(result.data).toMatchObject({ emptyResult: true });
+      expect(result.data).toHaveProperty("emptyDiagnosis");
+      expect((result.data as { companies: unknown[] }).companies).toEqual([]);
+    });
+
+    it("busca COM empresas fica byte-a-byte identica", async () => {
+      mockSearchCompanies.mockResolvedValue(mockCompaniesResponse);
+      const input = createInput();
+      input.mode = "guided";
+
+      const result = await step.run(input);
+
+      expect(result.data).not.toHaveProperty("emptyResult");
+      expect(result.data).not.toHaveProperty("emptyDiagnosis");
+      expect(result.cost?.theirstack_search).toBe(6);
+    });
+  });
+
   describe("error handling", () => {
     it("converts ExternalServiceError to retryable PipelineError", async () => {
       mockSearchCompanies.mockRejectedValue(

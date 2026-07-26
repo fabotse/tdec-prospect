@@ -9,6 +9,7 @@ import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AgentApprovalGate } from "@/components/agent/AgentApprovalGate";
 import { useAgentStore } from "@/stores/use-agent-store";
+import { diagnoseEmptyCompanySearch } from "@/lib/agent/empty-search-diagnosis";
 
 // ==============================================
 // MOCKS
@@ -222,6 +223,126 @@ describe("AgentApprovalGate (AC: #1)", () => {
 
     await waitFor(() => {
       expect(onAction).toHaveBeenCalled();
+    });
+  });
+
+  // ==============================================
+  // Story 22.14 — 0 empresas nao engana nem estoura (AC5)
+  // ==============================================
+
+  describe("Story 22.14 - busca de empresas vazia (AC #5)", () => {
+    const emptyDiagnosis = diagnoseEmptyCompanySearch(
+      {
+        technology: "TecnologiaInexistente",
+        location: "Atibaia",
+        companySize: "<11",
+        industry: "clinicas de estetica",
+      },
+      { technologySlugs: [], countryCodes: [], limit: 2, page: 0 }
+    );
+
+    const emptyData = {
+      totalFound: 0,
+      companies: [],
+      filtersApplied: { technologySlugs: [] },
+      emptyResult: true,
+      emptyDiagnosis,
+    };
+
+    beforeEach(() => {
+      act(() => {
+        useAgentStore.setState({ adjustingStep: null });
+      });
+    });
+
+    /**
+     * O bug: `disabled={isDisabled}` nao olhava a contagem. Aprovar 0 empresas era possivel
+     * e o `search_leads` seguinte lancava "Lista de empresas do step anterior e obrigatoria".
+     */
+    it("Aprovar fica DESABILITADO com zero empresas", () => {
+      render(
+        <AgentApprovalGate
+          data={emptyData}
+          executionId="exec-001"
+          stepNumber={1}
+          totalSteps={5}
+        />
+      );
+
+      expect(screen.getByRole("button", { name: "Aprovar" })).toBeDisabled();
+    });
+
+    it("Rejeitar continua habilitado — e a saida do usuario", () => {
+      render(
+        <AgentApprovalGate
+          data={emptyData}
+          executionId="exec-001"
+          stepNumber={1}
+          totalSteps={5}
+        />
+      );
+
+      expect(screen.getByRole("button", { name: "Rejeitar" })).toBeEnabled();
+    });
+
+    it("mostra o diagnostico minimo: filtros efetivos + causa + orientacao", () => {
+      render(
+        <AgentApprovalGate
+          data={emptyData}
+          executionId="exec-001"
+          stepNumber={1}
+          totalSteps={5}
+        />
+      );
+
+      expect(screen.getByText("Nenhuma empresa encontrada")).toBeInTheDocument();
+      expect(screen.getByText("Filtros usados nesta busca")).toBeInTheDocument();
+      // A divergencia que hoje some em silencio: o usuario pediu uma tech que nao existe.
+      expect(screen.getByText(/n[ãa]o foi reconhecida no cat[áa]logo/i)).toBeInTheDocument();
+      // A orientacao aponta o caminho de texto da 22.13 (nao ha chips aqui).
+      expect(screen.getByText(emptyDiagnosis.guidance)).toBeInTheDocument();
+    });
+
+    it("AC5: o card de empresas NAO tem chips (Trap #6 — eles sao so no card de leads)", () => {
+      const { container } = render(
+        <AgentApprovalGate
+          data={emptyData}
+          executionId="exec-001"
+          stepNumber={1}
+          totalSteps={5}
+        />
+      );
+
+      expect(container.querySelectorAll('[data-testid^="empty-chip-"]')).toHaveLength(0);
+    });
+
+    it("execucao antiga sem diagnostico: ainda barra o Aprovar e orienta", () => {
+      render(
+        <AgentApprovalGate
+          data={{ totalFound: 0, companies: [], filtersApplied: {} }}
+          executionId="exec-001"
+          stepNumber={1}
+          totalSteps={5}
+        />
+      );
+
+      expect(screen.getByRole("button", { name: "Aprovar" })).toBeDisabled();
+      expect(screen.getByText(/Rejeite a etapa e descreva o ajuste/i)).toBeInTheDocument();
+    });
+
+    it("com empresas, o card continua identico (NFR4)", () => {
+      render(
+        <AgentApprovalGate
+          data={defaultData}
+          executionId="exec-001"
+          stepNumber={1}
+          totalSteps={5}
+        />
+      );
+
+      expect(screen.getByText("Revisao: Busca de Empresas")).toBeInTheDocument();
+      expect(screen.getByText("15 empresas encontradas")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Aprovar" })).toBeEnabled();
     });
   });
 });

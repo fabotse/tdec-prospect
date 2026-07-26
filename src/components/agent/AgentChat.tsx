@@ -37,7 +37,10 @@ import { useAgentExecution, useSendMessage } from "@/hooks/use-agent-execution";
 import { useAgentOnboarding } from "@/hooks/use-agent-onboarding";
 import { useAutoTrigger } from "@/hooks/use-auto-trigger";
 import { useAgentStore } from "@/stores/use-agent-store";
-import type { AdjustingStepState } from "@/stores/use-agent-store";
+import type {
+  AdjustingStepState,
+  PendingChipAdjustmentState,
+} from "@/stores/use-agent-store";
 import { useBriefingFlow } from "@/hooks/use-briefing-flow";
 import { useUser } from "@/hooks/use-user";
 import {
@@ -48,6 +51,29 @@ import {
 import { STEP_LABELS } from "@/types/agent";
 import type { AgentExecution, ExecutionMode, ParsedBriefing, PlannedStep } from "@/types/agent";
 import type { CreateProductInput } from "@/types/product";
+
+/** Contagem pre-busca devolvida por `GET /plan?viability=1` (Story 22.14, AC7). */
+interface SearchViability {
+  estimatedResults: number;
+  isLow: boolean;
+}
+
+/**
+ * Frase de viabilidade anexada ao resumo do ajuste (code review 22.14).
+ *
+ * Sem acentos, como o resto das mensagens do agente (Trap #9). Devolve "" quando nao ha
+ * contagem — o resumo sai exatamente como saia antes.
+ */
+function buildViabilityNote(viability: SearchViability | null): string {
+  if (!viability) return "";
+  if (viability.estimatedResults === 0) {
+    return "\n\nAtencao: com esses filtros a estimativa continua em 0 resultados. Vale outro ajuste antes de gastar a re-execucao.";
+  }
+  if (viability.isLow) {
+    return `\n\nEstimativa com os filtros novos: ~${viability.estimatedResults} resultados — ainda e pouco para uma campanha.`;
+  }
+  return `\n\nEstimativa com os filtros novos: ~${viability.estimatedResults} resultados.`;
+}
 
 export function AgentChat() {
   const currentExecutionId = useAgentStore((s) => s.currentExecutionId);
@@ -65,6 +91,10 @@ export function AgentChat() {
   const adjustingStep = useAgentStore((s) => s.adjustingStep);
   const setAdjustingStep = useAgentStore((s) => s.setAdjustingStep);
   const clearAdjustingStep = useAgentStore((s) => s.clearAdjustingStep);
+  // Story 22.14: chip de ajuste clicado no empty-state de busca vazia
+  const pendingChipAdjustment = useAgentStore((s) => s.pendingChipAdjustment);
+  const clearPendingChipAdjustment = useAgentStore((s) => s.clearPendingChipAdjustment);
+  const setChatInputDraft = useAgentStore((s) => s.setChatInputDraft);
 
   const [isModeSubmitting, setIsModeSubmitting] = useState(false);
   const [isPlanSubmitting, setIsPlanSubmitting] = useState(false);
@@ -289,20 +319,37 @@ export function AgentChat() {
     [briefingState.briefing]
   );
 
-  // Custo da re-execucao. Lido DEPOIS do PATCH — o /plan estima a partir do briefing
-  // do BANCO. Fail-open: sem o numero o resumo sai sem custo, mas a confirmacao
-  // continua obrigatoria (nada executa sozinho).
-  const fetchStepEstimatedCost = useCallback(
-    async (executionId: string, stepNumber: number): Promise<number | null> => {
+  // Custo da re-execucao + viabilidade dos filtros AJUSTADOS. Lido DEPOIS do PATCH — o
+  // /plan estima a partir do briefing do BANCO. Fail-open: sem os numeros o resumo sai sem
+  // eles, mas a confirmacao continua obrigatoria (nada executa sozinho).
+  //
+  // `withViability` (code review 22.14): o AC7 so contava resultados no plano INICIAL, entao
+  // o loop de recuperacao — o motivo de existir desta story — mandava o usuario pagar R$ 3,00
+  // sem dizer se os filtros novos trariam algo. A contagem entra AQUI, na transicao para a
+  // fase "confirm", que e um gesto unico e explicito; o Trap #7 (nao disparar chamada externa
+  // a cada tecla digitada) segue valendo, porque nenhum outro ponto pede o opt-in.
+  const fetchStepPlanInfo = useCallback(
+    async (
+      executionId: string,
+      stepNumber: number,
+      withViability: boolean
+    ): Promise<{ estimatedCost: number | null; viability: SearchViability | null }> => {
+      const empty = { estimatedCost: null, viability: null };
       try {
-        const response = await fetch(`/api/agent/executions/${executionId}/plan`);
-        if (!response.ok) return null;
+        const response = await fetch(
+          `/api/agent/executions/${executionId}/plan${withViability ? "?viability=1" : ""}`
+        );
+        if (!response.ok) return empty;
         const result = await response.json();
         const steps = result?.data?.steps as PlannedStep[] | undefined;
         const step = steps?.find((s) => s.stepNumber === stepNumber);
-        return typeof step?.estimatedCost === "number" ? step.estimatedCost : null;
+        const viability = (result?.data?.viability ?? null) as SearchViability | null;
+        return {
+          estimatedCost: typeof step?.estimatedCost === "number" ? step.estimatedCost : null,
+          viability: typeof viability?.estimatedResults === "number" ? viability : null,
+        };
       } catch {
-        return null;
+        return empty;
       }
     },
     []
@@ -469,10 +516,17 @@ export function AgentChat() {
           return;
         }
 
-        const estimatedCost = await fetchStepEstimatedCost(executionId, adjusting.stepNumber);
+        // Transicao para "confirm" => conta a viabilidade dos filtros novos (code review
+        // 22.14). E o unico ponto do fluxo de texto que pede o opt-in.
+        const { estimatedCost, viability } = await fetchStepPlanInfo(
+          executionId,
+          adjusting.stepNumber,
+          true
+        );
         await sendAndRecordAgent(
           executionId,
-          buildAdjustmentSummary(persisted, merged, adjusting.stepType, estimatedCost)
+          buildAdjustmentSummary(persisted, merged, adjusting.stepType, estimatedCost) +
+            buildViabilityNote(viability)
         );
         // Trap #6: sempre o step guardado no estado de ajuste, nunca um "step corrente".
         setAdjustingStep({ ...adjusting, phase: "confirm" });
@@ -504,10 +558,157 @@ export function AgentChat() {
       recordUserTurn,
       parseAdjustment,
       fetchPersistedBriefing,
-      fetchStepEstimatedCost,
+      fetchStepPlanInfo,
       refetchMessages,
     ]
   );
+
+  // ============================================================
+  // Story 22.14 — chip de ajuste (delta determinístico, sem /parse)
+  // ============================================================
+
+  /**
+   * Aplica o delta EXATO que o chip carrega sobre o briefing persistido e leva a conversa
+   * à fase de confirmação — o mesmo destino do ajuste por texto (AC4: um estado só).
+   *
+   * O que muda em relação ao caminho de texto: NÃO passa pelo `/parse`. O chip já sabe a
+   * mudança ("remover indústria" = `{industry: null}`), então mandá-la ao LLM só somaria
+   * custo e risco de alucinação (lição da 22.11). O resumo e a confirmação são os MESMOS
+   * helpers — o usuário vê exatamente o mesmo formato dos dois jeitos.
+   */
+  const applyChipAdjustment = useCallback(
+    async (pending: PendingChipAdjustmentState) => {
+      const stepLabel = STEP_LABELS[pending.stepType] ?? pending.stepType;
+      setAgentProcessing(true);
+
+      try {
+        const persisted = await fetchPersistedBriefing(pending.executionId);
+        if (!persisted) {
+          await sendAndRecordAgent(
+            pending.executionId,
+            "Nao consegui recuperar o briefing desta execucao para aplicar o ajuste. Me diga o que voce quer mudar que eu tento de novo."
+          );
+          return;
+        }
+
+        // Trap #3: o PATCH exige o objeto COMPLETO (technology/jobTitles/location/
+        // companySize/industry/mode/skipSteps sao obrigatorios no schema). Um PATCH so
+        // com o delta tomaria 400 VALIDATION_ERROR. O merge server-side protege o que o
+        // cliente nem conhece (premiumIcebreakers, importedLeads) — nao substitui isto.
+        const merged = { ...persisted, ...pending.delta };
+
+        let patchOk = false;
+        try {
+          const patchResponse = await fetch(
+            `/api/agent/executions/${pending.executionId}/briefing`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(merged),
+            }
+          );
+          patchOk = patchResponse.ok;
+        } catch {
+          patchOk = false;
+        }
+
+        if (!patchOk) {
+          await sendAndRecordAgent(
+            pending.executionId,
+            `Nao consegui salvar o ajuste da etapa "${stepLabel}" agora. Pode tentar de novo em instantes?`
+          );
+          return;
+        }
+
+        const { estimatedCost, viability } = await fetchStepPlanInfo(
+          pending.executionId,
+          pending.stepNumber,
+          true
+        );
+
+        // O sinal foi consumido antes dos awaits, entao "Nova conversa" no meio do caminho
+        // nao alcancava mais este fluxo: `recordUserTurn` empurrava o rotulo do chip para
+        // dentro do `conversationRef` que o `reset()` acabara de esvaziar, envenenando o
+        // briefing da conversa NOVA, e o `setAdjustingStep` ressuscitava um ajuste de uma
+        // execucao descartada (code review 22.14). Mesma disciplina do guard de entrada do
+        // efeito, agora tambem DEPOIS da rede. O PATCH ja foi — e inofensivo: alterou o
+        // briefing da execucao antiga, que e exatamente onde ele deveria valer.
+        if (useAgentStore.getState().currentExecutionId !== pending.executionId) return;
+
+        // AC3: os turnos do chip entram na memoria conversacional. Sem isto, um ajuste por
+        // TEXTO logo em seguida ("na verdade troca o cargo pra CFO") seria parseado sem
+        // saber que a industria acabou de sair.
+        recordUserTurn(pending.label);
+        // ...e tambem no transcript DURAVEL, como o caminho de texto sempre fez
+        // (`sendMessageMutation.mutate`). Sem isto o banco guardava o resumo de custo do
+        // agente sem o turno do usuario que o provocou: buraco de auditoria, e memoria
+        // irreconstituivel apos um F5 (code review 22.14).
+        sendMessageMutation.mutate({ executionId: pending.executionId, content: pending.label });
+        await sendAndRecordAgent(
+          pending.executionId,
+          buildAdjustmentSummary(persisted, merged, pending.stepType, estimatedCost) +
+            buildViabilityNote(viability)
+        );
+
+        // D3: um clique PREPARA, o segundo gesto PAGA. A re-execucao so sai da fase
+        // "confirm", pela mesma confirmacao deterministica do fluxo de texto.
+        setAdjustingStep({
+          executionId: pending.executionId,
+          stepNumber: pending.stepNumber,
+          stepType: pending.stepType,
+          phase: "confirm",
+        });
+      } catch {
+        // O estado de ajuste PERMANECE em "describe": o usuario descreve por texto e o
+        // fluxo recomeca de forma idempotente (mesmo fail-open da 22.13).
+        try {
+          await sendAgentMessage(
+            pending.executionId,
+            "Tive um problema ao aplicar o ajuste. Pode me dizer por texto o que voce quer mudar?"
+          );
+        } catch {
+          toast.error("Erro ao aplicar o ajuste. Tente novamente.");
+        }
+      } finally {
+        await refetchMessages(pending.executionId);
+        setAgentProcessing(false);
+      }
+    },
+    [
+      setAgentProcessing,
+      fetchPersistedBriefing,
+      fetchStepPlanInfo,
+      recordUserTurn,
+      sendMessageMutation,
+      sendAndRecordAgent,
+      sendAgentMessage,
+      setAdjustingStep,
+      refetchMessages,
+    ]
+  );
+
+  useEffect(() => {
+    if (!pendingChipAdjustment) return;
+
+    // Mesma disciplina do ramo de ajuste (P6 da review da 22.13): um sinal orfao — de uma
+    // execucao descartada no mount ou trocada pelo "Nova conversa" — e DESCARTADO, nunca
+    // aplicado. Senao um clique antigo PATCHearia o briefing da conversa nova.
+    if (pendingChipAdjustment.executionId !== currentExecutionId) {
+      clearPendingChipAdjustment();
+      return;
+    }
+
+    // Consome ANTES de processar: o sinal vale por UM gesto. Sem isto, o StrictMode (dev)
+    // e qualquer re-render durante o await disparariam o PATCH duas vezes.
+    const pending = pendingChipAdjustment;
+    clearPendingChipAdjustment();
+    void applyChipAdjustment(pending);
+  }, [
+    pendingChipAdjustment,
+    currentExecutionId,
+    clearPendingChipAdjustment,
+    applyChipAdjustment,
+  ]);
 
   const handleSendMessage = useCallback(
     async (content: string) => {
@@ -756,6 +957,10 @@ export function AgentChat() {
       // a primeira mensagem dela seria sequestrada pelo ramo de ajuste de uma execucao
       // que ja nao existe.
       clearAdjustingStep();
+      // Story 22.14: mesmo motivo — um chip clicado (ou um texto sugerido no input) da
+      // execucao encerrada nao pode atravessar para a conversa nova.
+      clearPendingChipAdjustment();
+      setChatInputDraft(null);
       setShowAbandonDialog(false);
     } catch {
       toast.error("Erro ao encerrar a conversa. Tente novamente.");
@@ -772,6 +977,8 @@ export function AgentChat() {
     setTotalSteps,
     resetBriefing,
     clearAdjustingStep,
+    clearPendingChipAdjustment,
+    setChatInputDraft,
   ]);
 
   const handleNewConversation = useCallback(() => {

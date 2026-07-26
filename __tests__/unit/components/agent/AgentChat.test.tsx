@@ -13,7 +13,7 @@
  * AC 16.5: #1-#5 - Plano de execucao, confirmar/cancelar
  */
 
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AgentChat } from "@/components/agent/AgentChat";
 
@@ -33,6 +33,10 @@ const mockToastError = vi.fn();
 // Story 22.13: setters do estado de ajuste pos-rejeicao
 const mockSetAdjustingStep = vi.fn();
 const mockClearAdjustingStep = vi.fn();
+// Story 22.14: chips de recuperacao da busca vazia
+const mockSetPendingChipAdjustment = vi.fn();
+const mockClearPendingChipAdjustment = vi.fn();
+const mockSetChatInputDraft = vi.fn();
 
 let capturedOnSendMessage: ((content: string) => Promise<void>) | null = null;
 let capturedMessageListProps: Record<string, unknown> = {};
@@ -154,6 +158,8 @@ function setupDefaults(overrides?: {
   showModeSelector?: boolean;
   showExecutionPlan?: boolean;
   adjustingStep?: Record<string, unknown> | null;
+  // Story 22.14: sinal do chip de ajuste clicado no empty-state de busca vazia
+  pendingChipAdjustment?: Record<string, unknown> | null;
 }) {
   mockStoreState = {
     currentExecutionId: overrides?.executionId ?? null,
@@ -173,6 +179,12 @@ function setupDefaults(overrides?: {
     adjustingStep: overrides?.adjustingStep ?? null,
     setAdjustingStep: mockSetAdjustingStep,
     clearAdjustingStep: mockClearAdjustingStep,
+    // Story 22.14: chip do empty-state + texto sugerido para o input
+    pendingChipAdjustment: overrides?.pendingChipAdjustment ?? null,
+    setPendingChipAdjustment: mockSetPendingChipAdjustment,
+    clearPendingChipAdjustment: mockClearPendingChipAdjustment,
+    chatInputDraft: null,
+    setChatInputDraft: mockSetChatInputDraft,
   };
   mockBriefingState = {
     status: overrides?.briefingStatus ?? "idle",
@@ -1348,11 +1360,17 @@ describe("AgentChat", () => {
       emailCount: 3,
     };
 
+    /** URLs do /plan pedidas durante o ajuste (code review 22.14 — checagem do opt-in). */
+    let planRequests: string[] = [];
+
     function mockAdjustmentFetch(opts?: {
       persistedBriefing?: Record<string, unknown> | null;
       planFails?: boolean;
       patchOk?: boolean;
+      /** Contagem devolvida por `?viability=1`; `null` = fail-open (plano sem estimativa). */
+      viability?: { estimatedResults: number; isLow: boolean } | null;
     }) {
+      planRequests = [];
       const persisted = opts?.persistedBriefing ?? PERSISTED_BRIEFING;
       (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
         (url: string, init?: { method?: string }) => {
@@ -1371,7 +1389,10 @@ describe("AgentChat", () => {
               json: () => Promise.resolve({ data: {} }),
             });
           }
-          if (url === `/api/agent/executions/${EXEC}/plan`) {
+          // startsWith, nao igualdade: a transicao para "confirm" pede `?viability=1`
+          // (code review 22.14). O `planRequests` guarda a URL exata para o teste do opt-in.
+          if (url.startsWith(`/api/agent/executions/${EXEC}/plan`)) {
+            planRequests.push(url);
             if (opts?.planFails) {
               return Promise.resolve({ ok: false, json: () => Promise.resolve({}) });
             }
@@ -1384,6 +1405,7 @@ describe("AgentChat", () => {
                       { stepNumber: 1, stepType: "search_companies", estimatedCost: 5 },
                       { stepNumber: 2, stepType: "search_leads", estimatedCost: 12.5 },
                     ],
+                    viability: opts?.viability ?? null,
                   },
                 }),
             });
@@ -1882,6 +1904,350 @@ describe("AgentChat", () => {
       expect(patchCalls()).toHaveLength(0);
       expect(executeCalls()).toHaveLength(0);
       expect(mockProcessMessage).not.toHaveBeenCalled();
+    });
+
+    // ==============================================
+    // Story 22.14 — chip de ajuste (delta sem /parse)
+    // ==============================================
+
+    describe("chip de ajuste da busca vazia (Story 22.14, AC #3, #4)", () => {
+      function pendingChip(overrides?: Record<string, unknown>) {
+        return {
+          executionId: EXEC,
+          stepNumber: 2,
+          stepType: "search_leads",
+          label: "Remover filtro de indústria",
+          delta: { industry: null },
+          ...overrides,
+        };
+      }
+
+      it("aplica o delta sobre o PERSISTIDO, PATCHa e para na fase confirm (AC3)", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch();
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        // O sinal e consumido UMA vez (vale por um gesto).
+        expect(mockClearPendingChipAdjustment).toHaveBeenCalled();
+
+        await waitFor(() => expect(patchCalls()).toHaveLength(1));
+
+        // Trap #3: o PATCH leva o objeto COMPLETO (persistido + delta), nao so o delta.
+        const body = JSON.parse((patchCalls()[0][1] as { body: string }).body);
+        expect(body.industry).toBeNull();
+        // A FORMA da execucao e preservada byte-a-byte (AC4 da 22.13).
+        expect(body.skipSteps).toEqual(["search_companies"]);
+        expect(body.premiumIcebreakers).toBe(true);
+        expect(body.productSlug).toBe("prod-1");
+        // Filtros nao tocados pelo chip continuam iguais.
+        expect(body.companySize).toBe("51-200");
+        expect(body.jobTitles).toEqual(["CTO"]);
+
+        expect(mockSetAdjustingStep).toHaveBeenCalledWith(adjusting("confirm"));
+      });
+
+      it("NAO chama o /parse — o chip ja conhece a mudanca (D2, sem LLM)", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch();
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(patchCalls()).toHaveLength(1));
+        expect(mockParseAdjustment).not.toHaveBeenCalled();
+      });
+
+      it("NUNCA executa direto — a re-execucao paga so sai da confirmacao (AC3, D3)", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch();
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(patchCalls()).toHaveLength(1));
+        expect(executeCalls()).toHaveLength(0);
+      });
+
+      it("resumo do chip traz o custo e avisa o filtro REMOVIDO antes do sim (AC3)", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch();
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(agentMessages().length).toBeGreaterThan(0));
+        const summary = agentMessages()[0];
+        expect(summary).toContain("Industria: sem filtro");
+        expect(summary).toContain("vou REMOVER");
+        expect(summary).toContain("12,50");
+        expect(summary).toContain("Confirma?");
+      });
+
+      it("os turnos do chip entram na memoria conversacional (AC3)", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch();
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(mockRecordUserTurn).toHaveBeenCalled());
+        // Sem isto, um ajuste por TEXTO logo em seguida seria parseado sem saber que a
+        // industria acabou de sair.
+        expect(mockRecordUserTurn).toHaveBeenCalledWith("Remover filtro de indústria");
+        expect(mockRecordAgentTurn).toHaveBeenCalled();
+      });
+
+      it("PATCH falhando: avisa, NAO promete re-execucao e nao vai para confirm", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch({ patchOk: false });
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(agentMessages().length).toBeGreaterThan(0));
+        expect(agentMessages()[0]).toContain("Nao consegui salvar o ajuste");
+        expect(mockSetAdjustingStep).not.toHaveBeenCalledWith(adjusting("confirm"));
+        expect(executeCalls()).toHaveLength(0);
+      });
+
+      it("briefing persistido ausente: avisa e nao PATCHa nada", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        // Execucao some da listagem E o estado local esta vazio (caso classico: execucao
+        // reatachada apos F5, em que o useBriefingFlow renasce em 'idle').
+        (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+          if (url === "/api/agent/executions") {
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
+          }
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+        });
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(agentMessages().length).toBeGreaterThan(0));
+        expect(agentMessages()[0]).toContain("Nao consegui recuperar o briefing");
+        expect(patchCalls()).toHaveLength(0);
+      });
+
+      /**
+       * P6 da review da 22.13, aplicado ao chip: um sinal de OUTRA execucao (descartada no
+       * mount, ou trocada pelo "Nova conversa") nao pode PATCHear o briefing da conversa atual.
+       */
+      it("sinal orfao de outra execucao e DESCARTADO, nunca aplicado", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip({ executionId: "outra-execucao" }),
+        });
+        mockAdjustmentFetch();
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        expect(mockClearPendingChipAdjustment).toHaveBeenCalled();
+        expect(patchCalls()).toHaveLength(0);
+        expect(executeCalls()).toHaveLength(0);
+        expect(mockSetAdjustingStep).not.toHaveBeenCalled();
+      });
+
+      it("sem chip clicado, nada acontece (NFR4 — fluxo de hoje intacto)", async () => {
+        setupDefaults({ executionId: EXEC, briefingStatus: "confirmed" });
+        mockAdjustmentFetch();
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        expect(patchCalls()).toHaveLength(0);
+        expect(mockClearPendingChipAdjustment).not.toHaveBeenCalled();
+      });
+
+      /**
+       * AC4: os dois caminhos convergem. Depois do chip a fase e "confirm" — e a
+       * confirmacao deterministica ja existente e quem dispara o execute.
+       */
+      it("apos o chip, o 'sim' do usuario usa o MESMO caminho de confirmacao da 22.13", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          adjustingStep: adjusting("confirm"),
+        });
+        mockAdjustmentFetch();
+
+        render(<AgentChat />);
+        await act(async () => {
+          await capturedOnSendMessage!("sim");
+        });
+
+        await waitFor(() => expect(executeCalls()).toHaveLength(1));
+        expect(mockClearAdjustingStep).toHaveBeenCalled();
+      });
+
+      // ==============================================
+      // Code review 2026-07-26 — patches da 22.14
+      // ==============================================
+
+      /**
+       * O turno do chip precisa existir no transcript DURAVEL, nao so na memoria em RAM.
+       * Sem isto o banco guardava o resumo de custo do agente sem o turno do usuario que o
+       * provocou — e apos um F5 a memoria que gerou aquele resumo era irreconstituivel.
+       * O caminho de TEXTO sempre persistiu (`sendMessageMutation.mutate`); o chip nao.
+       */
+      it("persiste o rotulo do chip como mensagem do usuario, igual ao caminho de texto", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch();
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(patchCalls()).toHaveLength(1));
+        expect(mockMutate).toHaveBeenCalledWith({
+          executionId: EXEC,
+          content: "Remover filtro de indústria",
+        });
+      });
+
+      /**
+       * O sinal e consumido ANTES dos awaits, entao o guard de entrada do efeito nao alcanca
+       * um "Nova conversa" que chega no MEIO da rede. Sem re-check pos-await, o
+       * `recordUserTurn` empurrava o rotulo do chip para dentro do `conversationRef` que o
+       * `reset()` acabara de esvaziar (envenenando o briefing da conversa NOVA) e o
+       * `setAdjustingStep` ressuscitava um ajuste de uma execucao ja descartada.
+       */
+      it("execucao trocada no MEIO do voo: nao grava turno nem ressuscita o ajuste", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch();
+
+        // "Nova conversa" chega enquanto o /plan esta no ar (depois do PATCH).
+        const realFetch = global.fetch as ReturnType<typeof vi.fn>;
+        const impl = realFetch.getMockImplementation() as (
+          url: string,
+          init?: { method?: string }
+        ) => Promise<unknown>;
+        realFetch.mockImplementation((url: string, init?: { method?: string }) => {
+          if (url.startsWith(`/api/agent/executions/${EXEC}/plan`)) {
+            mockStoreState.currentExecutionId = "outra-execucao";
+          }
+          return impl(url, init);
+        });
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(patchCalls()).toHaveLength(1));
+
+        expect(mockRecordUserTurn).not.toHaveBeenCalled();
+        expect(mockSetAdjustingStep).not.toHaveBeenCalledWith(adjusting("confirm"));
+        expect(executeCalls()).toHaveLength(0);
+      });
+
+      /**
+       * AC7 so contava resultados no plano INICIAL, entao o loop de recuperacao mandava o
+       * usuario pagar sem dizer se os filtros novos trariam algo. A contagem entra na
+       * transicao para "confirm" — um gesto unico, nao um por tecla digitada (Trap #7).
+       */
+      it("pede a contagem de viabilidade ao entrar em confirm e mostra o numero no resumo", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch({ viability: { estimatedResults: 138, isLow: false } });
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(agentMessages().length).toBeGreaterThan(0));
+        expect(planRequests.every((url) => url.includes("viability=1"))).toBe(true);
+        expect(agentMessages().join("\n")).toContain("~138 resultados");
+      });
+
+      it("estimativa ZERO nos filtros novos avisa ANTES do usuario gastar a re-execucao", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch({ viability: { estimatedResults: 0, isLow: true } });
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(agentMessages().length).toBeGreaterThan(0));
+        const summary = agentMessages().join("\n");
+        expect(summary).toContain("continua em 0 resultados");
+        // Continua sendo so um AVISO: nada executa, a confirmacao segue obrigatoria.
+        expect(executeCalls()).toHaveLength(0);
+        expect(mockSetAdjustingStep).toHaveBeenCalledWith(adjusting("confirm"));
+      });
+
+      it("sem contagem disponivel o resumo sai como antes (fail-open)", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch({ viability: null });
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(agentMessages().length).toBeGreaterThan(0));
+        const summary = agentMessages().join("\n");
+        expect(summary).not.toContain("Estimativa com os filtros novos");
+        expect(mockSetAdjustingStep).toHaveBeenCalledWith(adjusting("confirm"));
+      });
     });
   });
 });

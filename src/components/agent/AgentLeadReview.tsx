@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { ShieldCheck, Loader2 } from "lucide-react";
+import { ShieldCheck, Loader2, SearchX, AlertTriangle } from "lucide-react";
 import {
   Card,
   CardHeader,
@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { triggerNextStep } from "@/lib/agent/client-utils";
 import { useAgentStore } from "@/stores/use-agent-store";
+import type { AdjustmentChip, EmptySearchDiagnosis } from "@/lib/agent/empty-search-diagnosis";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -35,6 +36,10 @@ interface AgentLeadReviewProps {
     totalFound: number;
     leads: LeadPreview[];
     jobTitles: string[];
+    /** Story 22.14 (AC1): a busca voltou sem nenhum lead. Escrito pelo step. */
+    emptyResult?: boolean;
+    /** Story 22.14 (AC2): diagnóstico determinístico calculado no servidor. */
+    emptyDiagnosis?: EmptySearchDiagnosis;
   };
   executionId: string;
   stepNumber: number;
@@ -64,6 +69,11 @@ export function AgentLeadReview({
   const [localActionTaken, setLocalActionTaken] = useState<"approved" | "rejected" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const setAdjustingStep = useAgentStore((s) => s.setAdjustingStep);
+  // Story 22.14: sinais dos chips do empty-state. Os gates ja falam com o store
+  // diretamente (padrao dos `handleReject`) — ver D4 no story file.
+  const setPendingChipAdjustment = useAgentStore((s) => s.setPendingChipAdjustment);
+  const setChatInputDraft = useAgentStore((s) => s.setChatInputDraft);
+  const [chipLoading, setChipLoading] = useState<string | null>(null);
 
   // Story 22.13: o sinal durável (servidor) vence o local (some no remount).
   const actionTaken: "approved" | "rejected" | null = rejected
@@ -194,7 +204,193 @@ export function AgentLeadReview({
     }
   };
 
-  const isDisabled = loading !== null || actionTaken !== null;
+  const isDisabled = loading !== null || actionTaken !== null || chipLoading !== null;
+
+  // ============================================================
+  // Story 22.14 — empty-state de busca sem resultados
+  // ============================================================
+
+  /**
+   * O gatilho e a LISTA, nunca `totalFound === 0` (Trap #5): uma pagina alem do fim devolve
+   * lista vazia com total > 0 e o usuario continua sem nada na tela.
+   *
+   * `emptyResult` sozinho nao bastava (code review 22.14): o flag so existe em execucoes
+   * criadas DEPOIS desta story, entao um gate legado ainda em `awaiting_approval` com
+   * `leads: []` continuava renderizando tabela vazia + filtro + "Aprovar (0 leads)" — o P1
+   * exato que esta story existe para matar. `data.leads.length === 0` cobre o passado e
+   * satisfaz o Trap #5 igualmente, porque continua olhando a lista. O `AgentApprovalGate`
+   * ja fazia assim (`companies.length === 0`); os dois cards agora concordam.
+   */
+  const isEmpty = data.emptyResult === true || (data.leads?.length ?? 0) === 0;
+  const diagnosis = data.emptyDiagnosis;
+
+  /**
+   * Chip = REJEITAR + ajuste determinístico em um clique (D1).
+   *
+   * O `POST /reject` vem primeiro de propósito: ele carimba a rejeição de forma DURÁVEL
+   * (`metadata.rejected`, 22.13 AC5), mata o card e liga o estado de ajuste — então um F5
+   * no meio do caminho cai na reentrada que a 22.13 já resolveu, de graça.
+   *
+   * O que o chip NÃO faz: chamar `/execute`. Um clique PREPARA o ajuste; quem paga a
+   * re-execução é a confirmação explícita depois do resumo de custo (D3 / Trap #2).
+   */
+  const handleChipClick = async (chip: AdjustmentChip) => {
+    setChipLoading(chip.id);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/agent/executions/${executionId}/steps/${stepNumber}/reject`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: chip.label }),
+        }
+      );
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData?.error?.message ?? "Erro ao aplicar o ajuste");
+      }
+
+      setLocalActionTaken("rejected");
+      setAdjustingStep({ executionId, stepNumber, stepType: "search_leads", phase: "describe" });
+
+      if (chip.kind === "delta" && chip.delta) {
+        // O AgentChat consome este sinal: briefing persistido + delta -> PATCH -> resumo
+        // com custo -> fase "confirm".
+        setPendingChipAdjustment({
+          executionId,
+          stepNumber,
+          stepType: "search_leads",
+          label: chip.label,
+          delta: chip.delta,
+        });
+      } else if (chip.prefillText) {
+        // Sem delta seguro (não inventamos geografia): o texto sugerido vai para o input e
+        // o usuário envia, caindo no caminho de TEXTO da 22.13.
+        setChatInputDraft(chip.prefillText);
+      }
+
+      onAction?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao aplicar o ajuste");
+    } finally {
+      setChipLoading(null);
+    }
+  };
+
+  if (isEmpty) {
+    const chips = diagnosis?.suggestedChips ?? [];
+    const chipsWithWarning = chips.filter((chip) => chip.warning);
+
+    return (
+      <Card className="border-primary/20" data-testid="agent-lead-review-empty">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <SearchX className="h-5 w-5 text-muted-foreground" />
+            <CardTitle className="text-base">Nenhum lead encontrado</CardTitle>
+          </div>
+          <CardDescription>
+            A busca rodou, mas não retornou nenhum contato com os filtros abaixo.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {diagnosis ? (
+            <>
+              <section className="flex flex-col gap-2">
+                <p className="text-sm font-medium">Filtros usados nesta busca</p>
+                <ul className="flex flex-col gap-1.5">
+                  {diagnosis.activeFilters.map((filterLine) => (
+                    <li key={filterLine.label} className="text-sm">
+                      <span className="text-muted-foreground">{filterLine.label}: </span>
+                      <span className="font-medium">{filterLine.value}</span>
+                      {filterLine.note && (
+                        <p className="text-xs text-muted-foreground">{filterLine.note}</p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+
+              <section className="flex flex-col gap-2">
+                <p className="text-sm font-medium">Causas mais prováveis</p>
+                <ol className="flex flex-col gap-1.5 list-decimal pl-5">
+                  {diagnosis.probableCauses.map((cause) => (
+                    <li key={cause.code} className="text-sm text-muted-foreground">
+                      {cause.text}
+                    </li>
+                  ))}
+                </ol>
+              </section>
+
+              {chips.length > 0 && (
+                <section className="flex flex-col gap-2 rounded-lg border border-border bg-muted/50 p-4">
+                  <p className="text-sm font-medium">Ajustes rápidos</p>
+                  <div className="flex flex-wrap gap-2">
+                    {chips.map((chip) => (
+                      <Button
+                        key={chip.id}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleChipClick(chip)}
+                        disabled={isDisabled}
+                        data-testid={`empty-chip-${chip.id}`}
+                      >
+                        {chipLoading === chip.id && (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        )}
+                        {chip.label}
+                      </Button>
+                    ))}
+                  </div>
+                  {chipsWithWarning.map((chip) => (
+                    <p
+                      key={`${chip.id}-warning`}
+                      className="flex items-start gap-1.5 text-xs text-muted-foreground"
+                    >
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                      <span>
+                        <span className="font-medium">{chip.label}:</span> {chip.warning}
+                      </span>
+                    </p>
+                  ))}
+                  <p className="text-xs text-muted-foreground">
+                    Eu mostro o resumo e o custo antes de refazer a busca — nada é executado
+                    só com o clique.
+                  </p>
+                </section>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Rejeite a etapa e descreva o ajuste que quer fazer nos filtros da busca.
+            </p>
+          )}
+
+          {error && <p className="text-sm text-destructive">{error}</p>}
+
+          {actionTaken && (
+            <p className="text-sm font-medium text-muted-foreground">
+              {actionTaken === "approved" ? "✅ Aprovado" : "❌ Rejeitado"}
+            </p>
+          )}
+
+          {/* AC4: o caminho de TEXTO continua vivo e converge no mesmo `adjustingStep`. */}
+          <div className="flex gap-2 pt-2">
+            <Button
+              variant="outline"
+              onClick={handleReject}
+              disabled={isDisabled}
+              size="sm"
+              className="text-destructive border-destructive/50 hover:bg-destructive/10"
+            >
+              {loading === "reject" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Rejeitar e ajustar por texto
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="border-primary/20">

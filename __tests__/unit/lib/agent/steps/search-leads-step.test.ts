@@ -615,6 +615,189 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
     });
   });
 
+  // ==============================================
+  // Story 22.14: busca com 0 resultados nao e sucesso
+  // ==============================================
+
+  describe("Story 22.14 - busca vazia (AC #1, #6)", () => {
+    /**
+     * Trap #8: o mock padrao SEMPRE devolve 2 leads — nenhum teste existente exercitava
+     * o caminho de 0. Os casos "0" que ja existiam neste arquivo sao de outro cenario
+     * (empresas ausentes no step anterior, que lanca antes de chamar a Apollo).
+     */
+    const emptyLeadsResponse = {
+      leads: [],
+      pagination: { totalEntries: 0, page: 1, perPage: 25, totalPages: 0 },
+    };
+
+    function directEntryInput(overrides: Partial<StepInput["briefing"]> = {}): StepInput {
+      const input = createInput(overrides, undefined);
+      input.previousStepOutput = undefined;
+      input.mode = "guided";
+      return input;
+    }
+
+    describe("modo guiado - o gate abre com diagnostico em vez de mentir", () => {
+      beforeEach(() => {
+        mockSearchPeople.mockResolvedValue(emptyLeadsResponse);
+      });
+
+      it("marca emptyResult no output (hoje o output nem tem a chave)", async () => {
+        const result = await step.run(directEntryInput());
+
+        expect(result.data.emptyResult).toBe(true);
+        expect(result.data.leads).toEqual([]);
+        expect(result.data.totalFound).toBe(0);
+      });
+
+      it("carrega o diagnostico determinístico no output (JSONB, zero migration)", async () => {
+        const result = await step.run(
+          directEntryInput({ companySize: "<11", industry: "clinicas de estetica", location: "Atibaia" })
+        );
+
+        const diagnosis = result.data.emptyDiagnosis as Record<string, unknown>;
+        expect(diagnosis).toBeDefined();
+        expect(diagnosis.branch).toBe("direct");
+        expect(Array.isArray(diagnosis.activeFilters)).toBe(true);
+        expect(Array.isArray(diagnosis.probableCauses)).toBe(true);
+        expect(Array.isArray(diagnosis.suggestedChips)).toBe(true);
+
+        const causes = diagnosis.probableCauses as Array<{ code: string }>;
+        expect(causes[0].code).toBe("company_size_non_canonical");
+      });
+
+      it("a mensagem do gate NAO diz 'Revise os resultados e aprove' — orienta ao ajuste (AC1)", async () => {
+        await step.run(directEntryInput());
+
+        const gateInsert = mockSupabase.messagesChain.insert.mock.calls
+          .map((call) => call[0])
+          .find((arg) => arg?.metadata?.messageType === "approval_gate");
+
+        expect(gateInsert).toBeDefined();
+        expect(gateInsert.content).not.toContain("aprove para continuar");
+        expect(gateInsert.content).toMatch(/nao encontrou/i);
+      });
+
+      it("o logStep NAO diz 'concluido com sucesso' (AC1)", async () => {
+        await step.run(directEntryInput());
+
+        const progressInserts = mockSupabase.messagesChain.insert.mock.calls
+          .map((call) => call[0])
+          .filter((arg) => arg?.metadata?.messageType === "progress");
+
+        const conclusion = progressInserts.find((arg) =>
+          String(arg.content).startsWith("Step 2")
+        );
+        expect(conclusion).toBeDefined();
+        expect(conclusion.content).not.toContain("concluido com sucesso");
+        expect(conclusion.content).toMatch(/nao encontrou/i);
+      });
+
+      it("custo zero — nenhum lead foi entregue", async () => {
+        const result = await step.run(directEntryInput());
+
+        expect(result.cost?.apollo_search).toBe(0);
+      });
+
+      it("ramo por dominios: diagnostico aponta as empresas da etapa anterior (Trap #4)", async () => {
+        const input = createInput();
+        input.mode = "guided";
+
+        const result = await step.run(input);
+
+        const diagnosis = result.data.emptyDiagnosis as Record<string, unknown>;
+        expect(diagnosis.branch).toBe("domains");
+        expect(diagnosis.companiesSearched).toBe(2);
+        const chipIds = (diagnosis.suggestedChips as Array<{ id: string }>).map((c) => c.id);
+        expect(chipIds).not.toContain("remove-industry");
+      });
+
+      /**
+       * Trap #5: `totalFound` vem de `pagination.totalEntries` — uma pagina vazia com
+       * total > 0 e possivel. O gatilho e SEMPRE `leads.length === 0`.
+       */
+      it("dispara pelo array vazio mesmo com totalFound > 0 (Trap #5)", async () => {
+        mockSearchPeople.mockResolvedValue({
+          leads: [],
+          pagination: { totalEntries: 137, page: 6, perPage: 25, totalPages: 6 },
+        });
+
+        const result = await step.run(directEntryInput());
+
+        expect(result.data.emptyResult).toBe(true);
+        expect(result.data.totalFound).toBe(137);
+      });
+    });
+
+    describe("modo autopilot - falha controlada em vez de estourar adiante (AC6)", () => {
+      beforeEach(() => {
+        mockSearchPeople.mockResolvedValue(emptyLeadsResponse);
+      });
+
+      it("lanca erro com mensagem clara em PT-BR (hoje devolve success e o create_campaign estoura)", async () => {
+        const input = createInput({}, undefined);
+        input.previousStepOutput = undefined;
+        input.mode = "autopilot";
+
+        // Mesmo codigo das demais validacoes de dominio deste step (cargos ausentes,
+        // empresas ausentes): erro terminal, nao-retryable — repetir a mesma busca
+        // devolveria o mesmo 0.
+        await expect(step.run(input)).rejects.toMatchObject({
+          code: "STEP_EXECUTION_ERROR",
+          stepNumber: 2,
+          stepType: "search_leads",
+          isRetryable: false,
+          message: expect.stringContaining("nao encontrou nenhum lead"),
+        });
+      });
+
+      it("mode ausente segue a mesma regra do autopilot (nao ha gate para abrir)", async () => {
+        const input = createInput({}, undefined);
+        input.previousStepOutput = undefined;
+        input.mode = undefined;
+
+        await expect(step.run(input)).rejects.toMatchObject({
+          stepNumber: 2,
+        });
+      });
+
+      it("marca o step como failed (o pipeline pausa, mecanica existente do orchestrator)", async () => {
+        const input = createInput({}, undefined);
+        input.previousStepOutput = undefined;
+        input.mode = "autopilot";
+
+        await expect(step.run(input)).rejects.toBeDefined();
+
+        expect(mockSupabase.stepsChain.update).toHaveBeenCalledWith(
+          expect.objectContaining({ status: "failed" })
+        );
+      });
+    });
+
+    describe("busca COM resultados fica byte-a-byte identica (AC1)", () => {
+      it("nao introduz emptyResult nem emptyDiagnosis no output", async () => {
+        const result = await step.run(createInput());
+
+        expect(result.data).not.toHaveProperty("emptyResult");
+        expect(result.data).not.toHaveProperty("emptyDiagnosis");
+        expect(result.cost?.apollo_search).toBe(2);
+      });
+
+      it("mantem as mensagens de sucesso de hoje", async () => {
+        const input = createInput();
+        input.mode = "guided";
+
+        await step.run(input);
+
+        const contents = mockSupabase.messagesChain.insert.mock.calls.map((call) =>
+          String(call[0]?.content)
+        );
+        expect(contents.some((c) => c.includes("Revise os resultados e aprove"))).toBe(true);
+        expect(contents.some((c) => c.includes("concluido com sucesso"))).toBe(true);
+      });
+    });
+  });
+
   // 4.8
   describe("transformation LeadRow -> SearchLeadResult (2.8)", () => {
     it("maps fields correctly, handles nulls", async () => {

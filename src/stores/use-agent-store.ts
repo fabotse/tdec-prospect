@@ -16,6 +16,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { ExecutionMode, StepType } from "@/types/agent";
+import type { ChipDelta } from "@/lib/agent/empty-search-diagnosis";
 
 /**
  * Story 22.13: estado de AJUSTE POS-REJEICAO.
@@ -41,6 +42,30 @@ export interface AdjustingStepState {
   phase: "describe" | "confirm";
 }
 
+/**
+ * Story 22.14: sinal de um AJUSTE POR CHIP recém-clicado no empty-state de busca vazia.
+ *
+ * Por que um sinal no store e não um callback: o chip nasce dentro de
+ * `AgentMessageList` -> `AgentMessageBubble` -> `ApprovalGateRenderer` -> `AgentLeadReview`,
+ * enquanto `handleAdjustmentMessage` é interno ao `AgentChat`. Threading de callback custaria
+ * 3 níveis de prop drilling que o padrão atual já evita — os gates falam com o store
+ * diretamente (é assim que os `handleReject` ligam o `adjustingStep` desde a 22.13). O
+ * `AgentChat` CONSOME e LIMPA este sinal num efeito.
+ *
+ * Efêmero pelo mesmo motivo do `adjustingStep` (ver `partialize`), e amarrado ao
+ * `executionId` pela mesma lição (P6 da review da 22.13): um sinal órfão jamais pode
+ * PATCHear o briefing de outra execução.
+ */
+export interface PendingChipAdjustmentState {
+  executionId: string;
+  stepNumber: number;
+  stepType: StepType;
+  /** Rótulo do chip. Vira o turno do usuário na memória conversacional (AC3). */
+  label: string;
+  /** Mudança EXATA sobre o briefing persistido — sem `/parse`, sem LLM (D2). */
+  delta: ChipDelta;
+}
+
 interface AgentUIState {
   currentExecutionId: string | null;
   isInputDisabled: boolean;
@@ -50,6 +75,13 @@ interface AgentUIState {
   executionMode: ExecutionMode | null;
   totalSteps: number;
   adjustingStep: AdjustingStepState | null;
+  pendingChipAdjustment: PendingChipAdjustmentState | null;
+  /**
+   * Story 22.14: texto que o chat deve PRÉ-PREENCHER no input (chips de localização, que
+   * não têm delta determinístico seguro). O usuário revisa e envia — caindo no caminho de
+   * TEXTO da 22.13. Nunca envia sozinho: um clique não pode disparar busca paga.
+   */
+  chatInputDraft: string | null;
 }
 
 interface AgentUIActions {
@@ -62,6 +94,9 @@ interface AgentUIActions {
   setTotalSteps: (count: number) => void;
   setAdjustingStep: (adjusting: AdjustingStepState) => void;
   clearAdjustingStep: () => void;
+  setPendingChipAdjustment: (pending: PendingChipAdjustmentState) => void;
+  clearPendingChipAdjustment: () => void;
+  setChatInputDraft: (draft: string | null) => void;
 }
 
 export const useAgentStore = create<AgentUIState & AgentUIActions>()(
@@ -75,6 +110,8 @@ export const useAgentStore = create<AgentUIState & AgentUIActions>()(
       executionMode: null,
       totalSteps: 0,
       adjustingStep: null,
+      pendingChipAdjustment: null,
+      chatInputDraft: null,
 
       setCurrentExecutionId: (id) => set({ currentExecutionId: id }),
       setInputDisabled: (disabled) => set({ isInputDisabled: disabled }),
@@ -85,6 +122,9 @@ export const useAgentStore = create<AgentUIState & AgentUIActions>()(
       setTotalSteps: (count) => set({ totalSteps: count }),
       setAdjustingStep: (adjusting) => set({ adjustingStep: adjusting }),
       clearAdjustingStep: () => set({ adjustingStep: null }),
+      setPendingChipAdjustment: (pending) => set({ pendingChipAdjustment: pending }),
+      clearPendingChipAdjustment: () => set({ pendingChipAdjustment: null }),
+      setChatInputDraft: (draft) => set({ chatInputDraft: draft }),
     }),
     {
       // Story 22.8: so o currentExecutionId persiste (localStorage). As demais flags
@@ -99,6 +139,9 @@ export const useAgentStore = create<AgentUIState & AgentUIActions>()(
       // conversacional (conversationRef, 22.3) VAZIA — o parser derivaria um briefing do
       // zero a partir de uma frase e o merge destruiria os filtros. Pos-refresh o usuario
       // cai no comportamento atual (rejeitar de novo reabre o ajuste).
+      // Story 22.14: `pendingChipAdjustment` e `chatInputDraft` seguem a mesma regra —
+      // sao sinais de UM gesto, consumidos em seguida pelo AgentChat/AgentInput. Persistidos,
+      // um refresh reaplicaria um ajuste que o usuario ja tinha abandonado.
       name: "tdec-agent-ui",
       partialize: (state) => ({ currentExecutionId: state.currentExecutionId }),
     }

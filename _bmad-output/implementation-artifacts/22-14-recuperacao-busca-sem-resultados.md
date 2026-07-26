@@ -1,6 +1,12 @@
+---
+baseline_commit: 5cd167096f8ab2819b63845dd63dbace9e4920f1
+---
+
 # Story 22.14: Busca com 0 Resultados — diagnóstico honesto e recuperação em 1 clique
 
-Status: ready-for-dev
+Status: done
+
+> **Code review + re-smoke concluídos (2026-07-26).** 3 camadas cegas auditaram AC1–AC8 (todos MET) → 14 patches aplicados → **re-smoke real APROVADO** pela interface, com LLM e Apollo reais. O re-smoke encontrou e fechou 1 defeito num patch do próprio review (o texto do prefill era ecoado literalmente pelo parser). Validação final: 402 files / 7270 pass / 0 fail; tsc 182 = baseline exato, 0 em `src/`; eslint limpo. 9 defers em `deferred-work.md`. Ver "Review Findings" abaixo.
 
 > **P1 — busca vazia hoje é apresentada como sucesso e trava o usuário.** "0 de 0 leads selecionados" + "Step concluído com sucesso" + botão Aprovar desabilitado = fim da linha. Com a 22.13 pronta, a saída existe (Rejeitar → ajuste NL) mas o usuário não tem NENHUMA pista de causa nem atalho — e no autopilot o 0 avança e estoura na campanha com erro genérico.
 
@@ -50,14 +56,90 @@ Briefing legítimo mas nichado (Dono/Diretor + "clínicas de estética" + Atibai
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Helper puro de diagnóstico** (AC: #2): novo `src/lib/agent/empty-search-diagnosis.ts` — entrada: `briefing` + `searchFilters` do output; saída: `{ activeFilters: [...rotulados], probableCauses: [...ordenadas], suggestedChips: [...com delta] }`. Inclui validação de `companySize` contra os buckets canônicos (`QUALITY_MIN_COMPANY_SIZES` + `"1-10"` — a lista literal de [filter-extraction.ts:14](../../src/lib/ai/prompts/filter-extraction.ts#L14)) e o `defaultsApplied` do SSOT [search-defaults.ts:51-58](../../src/lib/agent/search-defaults.ts#L51). Teste unitário puro (padrão `briefing-adjustment.test.ts` — sem mock, sem fetch).
-- [ ] **Task 2 — Zero deixa de ser sucesso nos steps** (AC: #1, #6): em [search-leads-step.ts](../../src/lib/agent/steps/search-leads-step.ts), ramo `leads.length === 0`: guided → output com `emptyResult: true` + diagnóstico (chamando o helper da Task 1, que roda server-side onde briefing e filtros coexistem); autopilot → throw controlado com mensagem PT-BR clara. Idem mínimo em [search-companies-step.ts](../../src/lib/agent/steps/search-companies-step.ts). Ajustar `logStep`/`sendApprovalGateMessage` ([base-step.ts:143,240](../../src/lib/agent/steps/base-step.ts#L143)) para textos honestos quando `emptyResult` (ver Trap #1 — coordenação com a 22.17, que mexe no MESMO `logStep`).
-- [ ] **Task 3 — Empty-state no `AgentLeadReview`** (AC: #2): quando `data.emptyResult` — sem tabela, sem filtro, sem Aprovar; diagnóstico + chips (padrão visual: o grid de `<Button size="sm" variant="outline">` do seletor de quantidade, [AgentLeadReview.tsx:219-233](../../src/components/agent/AgentLeadReview.tsx#L219) — único chip-like existente). Manter "Rejeitar"/ajuste por texto vivos (AC4).
-- [ ] **Task 4 — Wiring dos chips → mecânica 22.13** (AC: #3, #4): chip clicado → `POST /reject` (carimba o gate durável e ativa `adjustingStep`, como os `handleReject` de hoje) → sinal efêmero no store (ex.: `pendingChipAdjustment: { executionId, stepNumber, delta, label } | null`, FORA do `partialize` como o `adjustingStep`) → `AgentChat` consome num efeito: `fetchPersistedBriefing` → aplica delta → `PATCH` (objeto completo — Trap #3) → `fetchStepEstimatedCost` + `buildAdjustmentSummary` → `recordUserTurn(label)`/`recordAgentTurn(resumo)` → `setAdjustingStep({...phase: "confirm"})`. A confirmação e o execute são os já existentes de [AgentChat.tsx:370-406](../../src/components/agent/AgentChat.tsx#L370) — NÃO duplicar.
-- [ ] **Task 5 — Guard do `search_companies`** (AC: #5): `AgentApprovalGate` — Aprovar `disabled` quando `totalFound === 0`/lista vazia + diagnóstico mínimo no card.
-- [ ] **Task 6 — Spike viabilidade pré-busca** (AC: #7): investigar ponto de injeção (candidato: geração do plano p/ briefing direct-entry, com cache/flag para não repetir a chamada — o `/plan` é chamado a CADA turno de ajuste pela 22.13, Trap #7); implementar se limpo, senão documentar descarte no Dev Agent Record.
-- [ ] **Task 7 — Testes RED→GREEN** (AC: #8 a-c): estender [search-leads-step.test.ts](../../__tests__/unit/lib/agent/steps/search-leads-step.test.ts) (hoje NENHUM caso com `totalEntries: 0`/`leads: []` — o mock sempre devolve 2 leads), `search-companies-step.test.ts`, [AgentLeadReview.test.tsx](../../__tests__/unit/components/agent/AgentLeadReview.test.tsx) (nenhum render com `totalFound: 0` hoje), `AgentApprovalGate.test.tsx`, e o bloco 22.13 do [AgentChat.test.tsx:1311-1886](../../__tests__/unit/components/agent/AgentChat.test.tsx#L1311) (reusar `mockAdjustmentFetch`/`adjusting()`/`patchCalls()`/`executeCalls()`).
-- [ ] **Task 8 — Smoke real** (AC: #8 d): skill `verify` (Playwright, app local, LLM+Apollo reais, logado). Roteiro no AC8. Parar no gate reaberto.
+- [x] **Task 1 — Helper puro de diagnóstico** (AC: #2): novo `src/lib/agent/empty-search-diagnosis.ts` — entrada: `briefing` + `searchFilters` do output; saída: `{ activeFilters: [...rotulados], probableCauses: [...ordenadas], suggestedChips: [...com delta] }`. Inclui validação de `companySize` contra os buckets canônicos (`QUALITY_MIN_COMPANY_SIZES` + `"1-10"` — a lista literal de [filter-extraction.ts:14](../../src/lib/ai/prompts/filter-extraction.ts#L14)) e o `defaultsApplied` do SSOT [search-defaults.ts:51-58](../../src/lib/agent/search-defaults.ts#L51). Teste unitário puro (padrão `briefing-adjustment.test.ts` — sem mock, sem fetch).
+- [x] **Task 2 — Zero deixa de ser sucesso nos steps** (AC: #1, #6): em [search-leads-step.ts](../../src/lib/agent/steps/search-leads-step.ts), ramo `leads.length === 0`: guided → output com `emptyResult: true` + diagnóstico (chamando o helper da Task 1, que roda server-side onde briefing e filtros coexistem); autopilot → throw controlado com mensagem PT-BR clara. Idem mínimo em [search-companies-step.ts](../../src/lib/agent/steps/search-companies-step.ts). Ajustar `logStep`/`sendApprovalGateMessage` ([base-step.ts:143,240](../../src/lib/agent/steps/base-step.ts#L143)) para textos honestos quando `emptyResult` (ver Trap #1 — coordenação com a 22.17, que mexe no MESMO `logStep`).
+- [x] **Task 3 — Empty-state no `AgentLeadReview`** (AC: #2): quando `data.emptyResult` — sem tabela, sem filtro, sem Aprovar; diagnóstico + chips (padrão visual: o grid de `<Button size="sm" variant="outline">` do seletor de quantidade, [AgentLeadReview.tsx:219-233](../../src/components/agent/AgentLeadReview.tsx#L219) — único chip-like existente). Manter "Rejeitar"/ajuste por texto vivos (AC4).
+- [x] **Task 4 — Wiring dos chips → mecânica 22.13** (AC: #3, #4): chip clicado → `POST /reject` (carimba o gate durável e ativa `adjustingStep`, como os `handleReject` de hoje) → sinal efêmero no store (ex.: `pendingChipAdjustment: { executionId, stepNumber, delta, label } | null`, FORA do `partialize` como o `adjustingStep`) → `AgentChat` consome num efeito: `fetchPersistedBriefing` → aplica delta → `PATCH` (objeto completo — Trap #3) → `fetchStepEstimatedCost` + `buildAdjustmentSummary` → `recordUserTurn(label)`/`recordAgentTurn(resumo)` → `setAdjustingStep({...phase: "confirm"})`. A confirmação e o execute são os já existentes de [AgentChat.tsx:370-406](../../src/components/agent/AgentChat.tsx#L370) — NÃO duplicar.
+- [x] **Task 5 — Guard do `search_companies`** (AC: #5): `AgentApprovalGate` — Aprovar `disabled` quando `totalFound === 0`/lista vazia + diagnóstico mínimo no card.
+- [x] **Task 6 — Spike viabilidade pré-busca** (AC: #7): investigar ponto de injeção (candidato: geração do plano p/ briefing direct-entry, com cache/flag para não repetir a chamada — o `/plan` é chamado a CADA turno de ajuste pela 22.13, Trap #7); implementar se limpo, senão documentar descarte no Dev Agent Record.
+- [x] **Task 7 — Testes RED→GREEN** (AC: #8 a-c): estender [search-leads-step.test.ts](../../__tests__/unit/lib/agent/steps/search-leads-step.test.ts) (hoje NENHUM caso com `totalEntries: 0`/`leads: []` — o mock sempre devolve 2 leads), `search-companies-step.test.ts`, [AgentLeadReview.test.tsx](../../__tests__/unit/components/agent/AgentLeadReview.test.tsx) (nenhum render com `totalFound: 0` hoje), `AgentApprovalGate.test.tsx`, e o bloco 22.13 do [AgentChat.test.tsx:1311-1886](../../__tests__/unit/components/agent/AgentChat.test.tsx#L1311) (reusar `mockAdjustmentFetch`/`adjusting()`/`patchCalls()`/`executeCalls()`).
+- [x] **Task 8 — Smoke real** (AC: #8 d): skill `verify` (Playwright, app local, LLM+Apollo reais, logado). Roteiro no AC8. Parar no gate reaberto.
+
+### Review Findings
+
+> Code review 3 camadas cegas e paralelas (Blind Hunter / Edge Case Hunter / Acceptance Auditor), 2026-07-26, baseline `5cd1670`. 34 achados brutos → 25 após dedup. **Veredito do Acceptance Auditor: AC1–AC8 todos MET** (ele revalidou suíte, `tsc` e eslint por conta própria, sem confiar no autorrelato). Nenhum achado invalida a story; os High são defeitos de heurística que gastam re-execução paga.
+
+**Decisões necessárias** — *ambas resolvidas por Fabossi em 2026-07-26; viraram patches.*
+
+- [x] [Review][Decision] **RESOLVIDA → patch: rebaixar o chip para `kind: "prefill"`.** Chip "Ampliar localização" entrega UF nua como delta — `"Atibaia, SP"` → `{location: "SP"}` ([empty-search-diagnosis.ts:529-540](../../src/lib/agent/empty-search-diagnosis.ts#L529)) vai direto para `person_locations[]` sem validação. O smoke real nunca exercitou este chip (usou o de tamanho). Se a Apollo não resolve UF abreviada, o chip de recuperação de 0 paga uma re-execução para devolver outro 0 — e [empty-search-diagnosis.test.ts:327](../../__tests__/unit/lib/agent/empty-search-diagnosis.test.ts#L327) já congela `{location: "SP"}` como correto. Opções: (a) probe real na Apollo e manter/ajustar; (b) rebaixar o chip para `prefill` (cai no caminho de texto da 22.13, que passa pelo parser); (c) expandir UF → nome do estado via mapa determinístico.
+- [x] [Review][Decision] **RESOLVIDA → patch: contar UMA vez na transição para a fase `confirm`** (nunca por turno digitado — o Trap #7 segue respeitado). Viabilidade (AC7) ausente exatamente no momento em que se paga — `fetchStepEstimatedCost` ([AgentChat.tsx:305](../../src/components/agent/AgentChat.tsx#L305)) chama `/plan` sem `?viability=1`, então o resumo "custa R$ 3,00. Confirma?" do loop de recuperação não traz estimativa de resultado, mesmo com os filtros recém-alterados e a contagem sendo gratuita em créditos. O Trap #7 proíbe contar a CADA turno — mas o `confirm` é um gesto único e explícito. Opções: (a) manter como está (Trap #7 literal); (b) contar só no turno que entra em `confirm`; (c) contar só quando o step em ajuste é `search_leads` e o briefing é busca direta.
+
+**Patches**
+
+- [x] [Review][Patch] `detectsSmallCompanyIntent` inverte a intenção do usuário em frases de piso e em faixas amplas [src/lib/agent/empty-search-diagnosis.ts:200-208] — `Math.min` sem lista de marcadores de limite INFERIOR: `"mais de 10"`, `"acima de 10"`, `"10+"`, `"a partir de 10"`, `"de 5 a 500"`, `"entre 10 e 1000"`, `"10-100"`, `"5 a 50"` → todos `true` (verificado em runtime), oferecendo "Corrigir tamanho para 1-10" — o inverso do pedido. Fix: exigir também o MAIOR número ≤ 10 e/ou lista de marcadores de piso que retorna `false`. Achado por 2 camadas independentes.
+- [x] [Review][Patch] Test set negativo de `detectsSmallCompanyIntent` evita justamente a fronteira que quebra [__tests__/unit/lib/agent/empty-search-diagnosis.test.ts:115-126] — `"mais de 500"` só passa porque 500 > 10; nenhum caso com `"mais de 10"` / `"10+"`. 78 testes no helper e nenhum toca o caso que gasta dinheiro. Mesmo padrão em `isSingleCityLocation` (`:130-140`): nenhum estado brasileiro testado.
+- [x] [Review][Patch] `CITY_STATE_REGEX` deforma (e às vezes ESTREITA) localizações com mais de uma vírgula [src/lib/agent/empty-search-diagnosis.ts:237,529-540] — verificado: `"Campinas, Atibaia e Jundiaí"` → `{location: "Atibaia e Jundiaí"}` (estreita!), `"São Paulo, SP, Brasil"` → `"SP, Brasil"`. Além disso `buildLocationChips` nunca consulta `BROAD_LOCATIONS`, então `"Brasil"` gera o prefill sem sentido *"buscar no estado inteiro em vez de só Brasil"*. Achado por 3 camadas independentes.
+- [x] [Review][Patch] `isSingleCityLocation` acusa estados, regiões e países como "uma única cidade" [src/lib/agent/empty-search-diagnosis.ts:212-218] — qualquer string sem vírgula fora dos 12 itens de `BROAD_LOCATIONS`: `"Minas Gerais"`, `"Rio Grande do Sul"`, `"Sudeste"`, `"Argentina"` → causa fabricada *"limitada a uma única cidade"*, ranqueada ACIMA da causa real na lista ordenada. Num card chamado "diagnóstico honesto". Achado por 2 camadas.
+- [x] [Review][Patch] `/plan?viability=1` sem orçamento de tempo próprio [src/app/api/agent/executions/[executionId]/plan/route.ts:72,139-141] — `searchPeople` awaitado inline com `DEFAULT_TIMEOUT_MS = 10000` + `MAX_RETRIES = 1` ([base-service.ts:115-116](../../src/lib/services/base-service.ts#L115)) = até ~20s bloqueando o GET. O `catch` fail-open captura o AbortError (não vira 504), então é latência e não bloqueio — mas o próprio AC7 cita o NFR de <5s, e o Trap #7 sugeria cache no JSONB. Fix: `Promise.race` com deadline de ~4s → `null`. Achado por 3 camadas.
+- [x] [Review][Patch] Os dois cards usam gatilhos diferentes para o mesmo invariante; o de leads não é retroativo [src/components/agent/AgentLeadReview.tsx:217] — `data.emptyResult === true` só existe em execuções novas: um gate legado já em `awaiting_approval` com `leads: []` segue renderizando tabela vazia + filtro + "Aprovar (0 leads)" — o P1 exato que a story existe para matar. [AgentApprovalGate.tsx:126](../../src/components/agent/AgentApprovalGate.tsx#L126) resolveu o caso simétrico de forma retroativa (`companies.length === 0`). Fix: `data.emptyResult === true || data.leads.length === 0` (satisfaz o Trap #5 igualmente — o gatilho continua sendo a LISTA). Achado por 2 camadas, em direções opostas.
+- [x] [Review][Patch] Chip em voo sobrevive ao "Nova conversa" e contamina a memória da conversa nova [src/components/agent/AgentChat.tsx:598-641] — o sinal é consumido em `:640` e `applyChipAdjustment` roda sem token de cancelamento nem re-check de `executionId` DEPOIS dos awaits; `recordUserTurn`/`sendAndRecordAgent`/`setAdjustingStep` disparam contra a execução já descartada, empurrando "Remover filtro de indústria" para dentro do `conversationRef` que o `reset()` acabou de esvaziar. O guard de órfão existe só na ENTRADA do efeito.
+- [x] [Review][Patch] Rótulo do chip "Incluir empresas de 1 a 10 pessoas" contradiz o delta [src/lib/agent/empty-search-diagnosis.ts:399-406] — com `companySize` null o efetivo é o piso 11+; o delta `{companySize: "1-10"}` SUBSTITUI (não inclui), estreitando a busca num card cujo propósito é ampliá-la. O `warning` diz a verdade ("Passa a buscar SÓ…"), o rótulo lido primeiro não. Fix: alinhar o rótulo ao efeito.
+- [x] [Review][Patch] Turno do chip não vira mensagem durável [src/components/agent/AgentChat.tsx:584] — o caminho de texto persiste via `sendMessageMutation.mutate` ([:369](../../src/components/agent/AgentChat.tsx#L369)); o chip só faz `recordUserTurn` (RAM). O transcript fica com o resumo de custo do agente sem o turno do usuário que o provocou — buraco de auditoria e memória irreconstituível após F5.
+- [x] [Review][Patch] Texto sugerido pelo chip sobrevive na caixa após "Nova conversa" [src/components/agent/AgentInput.tsx:44-53] — o `AgentInput` copia o draft para o estado local e zera a store; o `setChatInputDraft(null)` do cancelamento é ignorado pelo listener (`if (!draft …) return`) e o componente não desmonta. O comentário promete que nada atravessa para a conversa nova; a frase fica na caixa. `subscribe` também é cego ao valor já presente antes do efeito montar.
+- [x] [Review][Patch] `isCanonicalCompanySize` faz `.trim()`, mas a Apollo recebe o valor verbatim [src/lib/agent/empty-search-diagnosis.ts:181-184] — `resolveDirectSearchCompanySizes` envia `[briefing.companySize]` sem normalizar ([search-defaults.ts:55](../../src/lib/agent/search-defaults.ts#L55)). Com `" 11-50 "` a busca está quebrada e o card jura que o formato é válido — o card mente exatamente sobre a causa que ele existe para nomear.
+- [x] [Review][Patch] `normalize()` escreve o range de diacríticos com marcas combinantes literais [src/lib/agent/empty-search-diagnosis.ts:176] — confirmei os bytes: `U+0300`–`U+036F`, funcionalmente correto hoje, mas invisível em editores/diffs e silenciosamente corrompível em qualquer round-trip de encoding. Fix grátis: `/[̀-ͯ]/g`.
+- [x] [Review][Patch] Dois testes novos passam contra código arbitrariamente quebrado [__tests__/unit/components/agent/AgentInput.test.tsx:716-727] — limpar um input e afirmar que ele está vazio é verdade incondicional (não prova que o draft não volta); e `expect(result.cost?.theirstack_search).toBe(0)` em `search-companies-step.test.ts` é aritmética (`0 * CREDITS_PER_COMPANY`), passaria com o ramo `emptyResult` inteiro deletado. Ambos em describes intitulados como se guardassem o invariante novo.
+
+**Deferidos**
+
+- [x] [Review][Defer] Diagnóstico recalcula Tamanho/Indústria do briefing em vez de ler `searchFilters` [src/lib/agent/empty-search-diagnosis.ts:295-325] — deferido: `filters.companySizes`/`filters.industries` nunca são lidos (só `titles`/`locations` têm precedência). Hoje não há drift porque o mesmo SSOT monta os dois; a fixture do teste (`:275-278`) prova a cegueira ao parear uma combinação que `buildDirectSearchFilters` nunca produziria. Sem consequência visível agora.
+- [x] [Review][Defer] `estimateSearchViability` engole toda falha num `catch` nu, sem sinal [src/app/api/agent/executions/[executionId]/plan/route.ts:77-79] — deferido: chave ausente, 401, 403, 429 e rede são indistinguíveis; a estimativa pode morrer em produção com UI byte-idêntica. Não há utilitário de log em `src/lib/utils/` e o eslint proíbe `console` — o fix exige decidir infraestrutura de observabilidade, fora do escopo.
+- [x] [Review][Defer] Autopilot não persiste o diagnóstico que já estava de graça na mão [src/lib/agent/steps/search-leads-step.ts:192-193] — deferido: `diagnoseEmptySearch` não é chamado no ramo de throw e `saveFailure` sobrescreve o `output` com `{error}`, destruindo também `searchFilters`. AC6 só pediu a mensagem honesta, que foi entregue.
+- [x] [Review][Defer] `POST /reject` endereça o step, não o gate clicado [src/components/agent/AgentLeadReview.tsx:234] — deferido, pré-existente: a rota pega o gate mais recente (`order created_at desc limit 1`) e o `handleReject` da 22.13 tem a mesma fraqueza de endereçamento. Cenário de dois gates com o antigo NÃO carimbado é difícil de alcançar.
+- [x] [Review][Defer] `await response.json()` em corpo não-JSON vaza `SyntaxError` cru na UI PT-BR [src/components/agent/AgentLeadReview.tsx:242-244] — deferido, pré-existente: `handleApprove` (`:194`) e `handleReject` (`:194`) já tinham o padrão idêntico antes desta story. Um 502 com HTML mostra `Unexpected token '<'` no lugar da mensagem em português.
+- [x] [Review][Defer] `isDirectSearch` da rota decide por input diferente do ramo do step [src/app/api/agent/executions/[executionId]/plan/route.ts:59-65] — deferido: com `technology === null` e `search_companies` fora de `skipSteps`, a rota conta busca direta mas o pipeline rodaria `search_companies`. Alcançável só se a tecnologia for removida sem recomputar `skipSteps`.
+- [x] [Review][Defer] PATCH bem-sucedido pode ser reportado como falha [src/components/agent/AgentChat.tsx:598-608] — deferido: se `sendAndRecordAgent` rejeitar depois do PATCH, o briefing já mudou mas o usuário lê "Tive um problema ao aplicar o ajuste". Estado é recuperável e convergente (o caminho de texto mescla sobre o briefing já alterado); mesma forma de fail-open da 22.13.
+- [x] [Review][Defer] `quality_floor_applied` fora da ordem da spec e torna o fallback de cargos inalcançável [src/lib/agent/empty-search-diagnosis.ts:356-362] — deferido: desvio documentado pelo dev nas Completion Notes, mas a justificativa ("manter o fallback de cargos alcançável") é contrariada pelo próprio teste — com `companySize` null e localização ampla o fallback nunca dispara.
+- [x] [Review][Defer] F5 na fase "confirm" deixa o briefing já PATCHeado sem caminho de volta [src/components/agent/AgentChat.tsx:335-363] — deferido, pré-existente da 22.13: a reentrada durável restaura sempre a fase `describe`, então "sim" cai no `parseAdjustment` com memória vazia → "Nao consegui entender o ajuste", enquanto a mudança de filtro já está no banco. Vale junto com a persistência do turno do chip.
+
+**Patches aplicados — 2026-07-26**
+
+Todos os 14 aplicados (13 bullets acima + as 2 decisões, sendo que a de localização se fundiu ao patch do `CITY_STATE_REGEX`). Validação: **vitest 402 files / 7270 pass / 2 skip / 0 fail** (era 7243 → **+27 testes**, zero regressão); `tsc --noEmit` **182 = baseline EXATO, 0 em `src/`**; `eslint --max-warnings=0` limpo nos 11 arquivos tocados.
+
+Mudanças de comportamento (não são só correções pontuais):
+
+1. **Chip de localização nunca mais produz delta** — virou `prefill` sempre, caindo no parser do caminho de texto da 22.13. O id `broaden-location-prefill` deixou de existir (só `broaden-location`). O teste que congelava `{location: "SP"}` como correto foi invertido e passou a proibir delta de localização.
+2. **`detectsSmallCompanyIntent` ganhou lista de marcadores de PISO e passou a decidir pelo MAIOR número** — `"mais de 10"`, `"10+"`, `"acima de 10"`, `"10-100"`, `"de 5 a 500"` deixaram de ser lidos como "empresa pequena". 12 casos de fronteira novos.
+3. **`isSingleCityLocation` → `isNarrowLocation`**, e a causa `single_city_location` → `narrow_location`, com texto que não afirma mais "uma única cidade" (era falso para estados, regiões e países fora da lista).
+4. **Gatilho do empty-state passou a ser retroativo** — `emptyResult === true || leads.length === 0`, cobrindo gates criados antes desta story. Continua sendo a LISTA (Trap #5 intacto).
+5. **Viabilidade passou a ser contada na transição para `confirm`**, nos DOIS caminhos (chip e texto), via o mesmo opt-in `?viability=1`. O resumo ganha uma linha de estimativa; quando a contagem falha, o resumo sai idêntico ao de antes.
+6. **`GET /plan?viability=1` ganhou deadline de 4s** (`Promise.race`) — antes podia segurar o plano por ~20s.
+7. **`isCanonicalCompanySize` deixou de fazer `.trim()`** — passa a refletir o que a Apollo realmente recebe.
+8. **Rótulo do chip sem tamanho**: "Incluir empresas de 1 a 10 pessoas" → **"Buscar só empresas de 1 a 10 pessoas"**.
+
+**RE-SMOKE REAL DOS PATCHES — FEITO E APROVADO (2026-07-26, Playwright, app local, LLM + Apollo reais, logado Fabossi).** Fabossi autorizou o caminho pago. 2 buscas pagas, dentro do guardrail. Parado no gate reaberto: nenhum lead aprovado, nenhuma campanha criada, nada exportado.
+
+| # | O que foi provado | Evidência |
+|---|---|---|
+| 1 | Parser real reproduziu o defeito da story: `companySize: "menos de 11 funcionários"` (não-canônico) | — |
+| 2 | **Deadline de 4s**: o plano abriu rápido COM a contagem real — *"Estimativa: 0 resultados com esses filtros"* | `resmoke-22-14-1-viabilidade-zero.png` |
+| 3 | Empty-state honesto; log *"Step 2 (search_leads) nao encontrou resultados"*; e o **patch da localização visível**: a causa agora diz *"limitada a uma **localidade só**"* (ontem: "uma única cidade") | `resmoke-22-14-2-empty-state-localidade.png` |
+| 4 | **Chip → `prefill` (patch principal)**: clique rejeitou a etapa, desabilitou os 3 chips e pré-preencheu a caixa. Rede pós-clique: **só `POST /steps/2/reject → 200`** — nenhum `PATCH /briefing`, nenhum `execute`. Um clique não toca no briefing nem gasta | `resmoke-22-14-3-chip-prefill.png` |
+| 5 | Texto do chip enviado sem redigitar → caiu no `/parse` da 22.13 | — |
+| 6 | **Estimativa no `confirm`, os DOIS ramos**: com filtros ruins *"Atencao: com esses filtros a estimativa continua em 0 resultados. Vale outro ajuste antes de gastar a re-execucao"*; com filtros bons *"Estimativa com os filtros novos: ~89429 resultados"* | `resmoke-22-14-4-estimativa-zero-no-confirm.png` |
+| 7 | Gate reaberto no card **NORMAL** ("25 de 89429 leads selecionados", tabela + filtro + Aprovar habilitado, log de volta a "concluido com sucesso") — o gatilho retroativo do patch 6 não quebrou o caminho não-vazio | `resmoke-22-14-5-gate-reaberto.png` |
+
+**Console:** apenas o hydration mismatch PRÉ-EXISTENTE do submenu Leads da sidebar. Nenhum erro novo.
+
+**🐛 DEFEITO ENCONTRADO PELO SMOKE — em um patch do próprio review, corrigido na hora.** No passo 6 a estimativa não veio 0 por acaso: o parser ecoou o texto do prefill LITERALMENTE, produzindo `Localizacao: "região maior que Atibaia"` — string que a Apollo não resolve. A redação que escrevi no patch 4 era uma DESCRIÇÃO, e descrição vira valor de filtro; a spec da story já prescrevia a frase certa (`"buscar no estado inteiro em vez de só {cidade}"`), que é uma INSTRUÇÃO e dá ao LLM um alvo concreto. Revertido para a redação da spec e reconferido no app real: passou a produzir `Localizacao: São Paulo`. Teste de regressão adicionado travando a forma da frase (`/^buscar no estado inteiro em vez de só /` e proibindo `região maior que`).
+
+Vale registrar o que isso demonstra: **a linha de estimativa no `confirm` (patch 14) pegou um defeito que a suíte inteira não pegaria** — os 96 testes do helper validam o CONTRATO do prefill, não como um LLM real o interpreta. Foi o guard novo avisando "isso vai voltar vazio" que expôs o problema antes de gastar os R$ 3,00. É exatamente o cenário que a story existe para cobrir, acontecendo com o próprio código da story.
+
+**Validação final pós-correção:** vitest **402 files / 7270 pass / 2 skip / 0 fail**; `tsc` **182 = baseline exato, 0 em `src/`**; eslint `--max-warnings=0` limpo.
+
+**Descartados como ruído (3)**
+
+`LOW_VIABILITY_THRESHOLD = 10` desconectado de `LEADS_PER_PAGE` (constante razoável; `leadCount` está explicitamente fora de escopo) · chip malformado consumir o gate silenciosamente (inalcançável — todos os chips nascem do helper com forma válida) · `search_companies` passar a lançar no autopilot sem AC próprio (coerente com D5 e estritamente melhor que o erro genérico de hoje; registrado como informativo).
 
 ## Dev Notes
 
@@ -176,15 +258,183 @@ Chips derivados (cada um com `delta` determinístico sobre o briefing):
 
 ### Agent Model Used
 
+Claude Opus 5 (1M context) — dev-story 2026-07-25.
+
 ### Debug Log References
+
+**Baseline.** A 22.13 estava DONE porém não-commitada (24 M + 4 novos no working tree). Fabossi
+autorizou o commit antes de começar: `5cd1670` (`feat(story-22.13): ajuste pos-rejeicao de etapa +
+code review 3 camadas`). Diffs separados, rollback granular preservado. `baseline_commit` no
+frontmatter aponta para ele.
+
+**RED provado (AC8a) — 3 eixos, todos observados antes de escrever a correção:**
+
+| Eixo | Comando | RED | GREEN |
+|---|---|---|---|
+| `search-leads-step` | `npx vitest run __tests__/unit/lib/agent/steps/search-leads-step.test.ts` | **9 falhas** / 31 pass | 40 pass |
+| `search-companies-step` | idem `search-companies-step.test.ts` | **4 falhas** / 22 pass | 26 pass |
+| `AgentLeadReview` | `git stash push -- src/components/agent/AgentLeadReview.tsx` + run | **13 falhas** / 20 pass | 33 pass |
+
+O RED do card foi provado revertendo APENAS o componente (stash cirúrgico) e restaurando em seguida —
+os testes novos falham contra o código de ontem, não contra um fixture inventado.
+
+**Correção de expectativa durante o RED→GREEN:** o primeiro teste do autopilot esperava
+`code: "STEP_SEARCH_LEADS_ERROR"`. Um `throw new Error` genérico vira `STEP_EXECUTION_ERROR` em
+`BaseStep.toPipelineError` (só `ExternalServiceError` recebe o código tipado). O código do step está
+correto e consistente com as outras validações de domínio dele ("Cargos sao obrigatorios", "Lista de
+empresas..."); a expectativa é que estava errada.
+
+**Regressão encontrada e fechada na hora:** o mock de store do `AgentChat.test.tsx` é um objeto
+literal fixo — sem `setChatInputDraft` nele, a chamada dentro de `cancelCurrentExecution` lançava
+`TypeError`, o `catch` disparava `toast.error` e o teste do 409 da 22.10 quebrava. Os 3 setters novos
+entraram em `setupDefaults`.
+
+**Lint (pré-commit `--max-warnings=0` linta o arquivo INTEIRO — memória do projeto):**
+- `AgentInput.tsx`: `react-hooks/set-state-in-effect` barrou `setMessage` no corpo do efeito.
+  Reescrito com `useAgentStore.subscribe` — que é o padrão indicado pela própria regra ("subscribe
+  for updates from some external system, calling setState in a callback").
+- `AgentExecutionPlan.tsx:87`: `Unused eslint-disable directive` **PRÉ-EXISTENTE** (confirmado
+  rodando eslint na versão do HEAD via stash). Não foi introduzido aqui, mas bloquearia o commit de
+  quem tocasse o arquivo. Diretiva removida, motivo documentado no lugar dela.
+
+**Validações finais:** `npx vitest run` → **402 files / 7243 pass / 2 skip / 0 fail** (baseline
+7108 → **+135 testes**, zero regressão). `npx tsc --noEmit` → **182 erros = baseline EXATO, 0 em
+`src/`**. `npx eslint --max-warnings=0` limpo nos 12 arquivos de `src/` e nos 9 de teste.
 
 ### Completion Notes List
 
+**AC1 — zero deixou de ser sucesso.** `buildSearchOutput` (leads) e o retorno do `search_companies`
+ganharam o ramo de lista vazia. `BaseStep` passou a ler `output.emptyResult` e trocar as DUAS
+mensagens mentirosas: o gate ("...concluida. Revise os resultados e aprove") e o `logStep`
+("...concluido com sucesso"). O gatilho é sempre `leads.length === 0` / `companies.length === 0`,
+**nunca `totalFound`** (Trap #5 — coberto por teste com `totalEntries: 137` e página vazia). Busca
+com ≥1 resultado continua byte-a-byte igual, com teste explícito nos dois steps.
+
+**AC2 — empty-state de diagnóstico.** Novo helper puro `src/lib/agent/empty-search-diagnosis.ts`
+(78 testes). Roda no SERVIDOR, dentro do step, onde briefing e filtros efetivos coexistem; o
+resultado viaja no `output` JSONB (zero migration) até o card. Ordem de causas implementada conforme
+a spec, com uma adição: `quality_floor_applied` (piso 11+ auto-aplicado da 22.6) entra DEPOIS de
+cidade-única, para não empurrar as causas explícitas para baixo e manter o fallback de cargos
+alcançável.
+
+**AC3 — chips determinísticos.** Chip = `POST /reject` (carimbo durável + `adjustingStep`, ganhando
+a reentrada pós-F5 da 22.13 de graça) → sinal efêmero `pendingChipAdjustment` no store → efeito no
+`AgentChat` consome UMA vez → `{...persistido, ...delta}` → `PATCH` (objeto completo, Trap #3) →
+custo + `buildAdjustmentSummary` → fase `confirm`. **Nenhum chip chama `/execute`** (teste
+dedicado). `recordUserTurn(label)` + `recordAgentTurn(resumo)` mantêm a memória coerente.
+
+**AC4 — um estado por vez.** Chip e texto convergem no MESMO `adjustingStep`. Clicar um chip desabilita
+os demais (`isDisabled` cobre `loading`, `actionTaken` e `chipLoading`), e o `rejected` durável mantém
+tudo desabilitado após F5. Sinal órfão (execução trocada/descartada) é DESCARTADO, nunca aplicado —
+mesma disciplina do P6 da review da 22.13.
+
+**AC5 — `search_companies`.** "Aprovar" agora tem `disabled={isDisabled || hasNoCompanies}`. Antes
+era possível aprovar 0 empresas e o `search_leads` seguinte lançava "Lista de empresas do step
+anterior e obrigatoria". Diagnóstico mínimo próprio (`diagnoseEmptyCompanySearch`) — sem chips
+(Trap #6), porque o valor ali é outro: mostrar a **divergência silenciosa** entre o que o usuário
+pediu e o que foi resolvido (tecnologia fora do catálogo, localização não mapeada para país, tamanho
+que não casou o regex — hoje tudo isso some sem aviso).
+
+**AC6 — autopilot para com a verdade.** Sem gate não há empty-state para renderizar, então o step
+falha de forma controlada com mensagem PT-BR e o orchestrator faz o de sempre (`paused` + mensagem de
+erro). A condição é `mode !== "guided"` — espelha exatamente a decisão de `BaseStep.run`, cobrindo
+também `mode` ausente.
+
+**AC7 — spike IMPLEMENTADO (não descartado).** O ponto de injeção limpo existe: `GET /plan` com
+**opt-in `?viability=1`**, pedido só pelo `AgentExecutionPlan` (monta uma vez, antes do "Iniciar
+Execução"). O `fetchStepEstimatedCost` da 22.13 bate no MESMO endpoint a cada turno de ajuste e não
+passa o param — Trap #7 fechado por construção, com teste que prova que a Apollo não é chamada sem o
+opt-in. Fail-open em tudo (chave ausente, decrypt, rede, rate limit → `viability: null`, plano
+idêntico ao de hoje). **Achado de escopo tratado:** a contagem e a busca real montavam os filtros
+separadamente, o que faria a estimativa mentir; extraí `buildDirectSearchFilters` em `search-defaults.ts`
+como SSOT dos dois (a busca usa `perPage: 25`, a contagem `perPage: 1`).
+
+**AC8d — SMOKE REAL FEITO E APROVADO (Playwright, app local, LLM + Apollo reais, logado Fabossi,
+2026-07-25).** Fabossi autorizou explicitamente o caminho pago. Roteiro do E2E reproduzido e o
+resultado foi **0 → 138 leads**:
+
+1. **Reprodução exata do caso Atibaia.** "Donos e Diretores de clínicas de estética em Atibaia,
+   empresas com menos de 11 funcionários" → o parser real produziu `companySize: "menos de 11
+   funcionários"` (**não-canônico**, exatamente o defeito que a story previu), `industry: "clínicas
+   de estética"`, `location: "Atibaia"`.
+2. **AC7 provado ANTES de gastar** — o Plano de Execução exibiu *"Estimativa: 0 resultados com esses
+   filtros. Vale ajustar o briefing antes de iniciar — do jeito que esta, a busca deve voltar
+   vazia."* A contagem foi feita na Apollo REAL com os filtros REAIS. A suíte mocka a Apollo e não
+   provaria isso. Screenshot `22-14-smoke-1-viabilidade-zero.png`.
+3. **AC1 provado na tela** — a mensagem do log virou *"Step 2 (search_leads) nao encontrou
+   resultados"*. Antes desta story era *"concluido com sucesso"* com zero leads na mão.
+4. **AC2 provado com dado real** — nenhuma tabela vazia, nenhum input de filtro, nenhum "Aprovar (0
+   leads)". O card listou os filtros efetivos, marcou `menos de 11 funcionários` como *"Formato não
+   reconhecido pela base"* com a lista dos 8 buckets aceitos, explicou a indústria como busca por
+   TEXTO, e ordenou as 3 causas exatamente como a heurística prevê (tamanho não-canônico → indústria
+   textual → cidade única). Screenshot `22-14-smoke-2-empty-state-diagnostico.png`.
+5. **AC3 provado** — clique em "Corrigir tamanho para 1-10" → `POST /reject` carimbou o gate
+   (*"Motivo informado: Corrigir tamanho para 1-10"*), o card virou ❌ Rejeitado, e o agente
+   respondeu com o resumo já ajustado (`Tamanho: 1-10`) + *"custa aproximadamente R$ 3,00.
+   Confirma?"*. **Nada executou com o clique.** Screenshot `22-14-smoke-3-resumo-chip-custo.png`.
+6. **AC4 provado ao vivo (o que só o app real prova)** — em vez de confirmar direto, mandei
+   "remove também o filtro de indústria" por TEXTO. O novo resumo veio com `Tamanho: 1-10`
+   **preservado** (o delta do chip sobreviveu, via `recordUserTurn` na memória conversacional) e
+   `Industria: sem filtro` + *"Atencao: vou REMOVER Industria do que estava valendo"*. Chip e texto
+   convergiram no mesmo estado, sem estado paralelo.
+7. **Re-execução e gate reaberto COM resultados** — "sim" → a busca rodou e o gate voltou com
+   **"25 de 138 leads selecionados"**, no card NORMAL (tabela + "Aprovar (25 leads)" habilitado),
+   e o log de volta a "concluido com sucesso" (correto: agora há resultados). Confirma também que o
+   caminho não-vazio ficou byte-a-byte igual. Screenshot `22-14-smoke-4-gate-reaberto-138-leads.png`.
+
+**Parei no gate reaberto** (guardrail de custo): não aprovei leads, não criei campanha, não exportei.
+
+**Console durante o smoke:** apenas o hydration mismatch PRÉ-EXISTENTE do submenu Leads da sidebar
+(gotcha já documentado nas stories 22.3/22.4/22.5/22.6). Nenhum erro novo.
+
+**Achado colateral (não é defeito desta story):** o `AgentMessageBubble` renderiza o badge
+"Processando..." com spinner na mensagem de conclusão do step, porque o `logStep` grava
+`messageType: "progress"`. É exatamente a causa nº2 mapeada pela **Story 22.17** (ready-for-dev), que
+mexe no TIPO da mensagem enquanto esta mexeu no CONTEÚDO — a divisão prevista no Trap #1 se
+confirmou na prática, sem colisão de arquivo.
+
+**Fora de escopo confirmado:** `leadCount` no briefing e a normalização de `companySize` freeform →
+bucket canônico ANTES da Apollo continuam fora (registrados na story). Esta story dá **consequência
+visível** ao defer da 22.6 — o formato inválido agora é diagnosticado e corrigível em um clique — sem
+mexer no parser.
+
 ### File List
+
+**Novos**
+- `src/lib/agent/empty-search-diagnosis.ts`
+- `__tests__/unit/lib/agent/empty-search-diagnosis.test.ts`
+
+**Modificados — código**
+- `src/lib/agent/search-defaults.ts` (SSOT `buildDirectSearchFilters`)
+- `src/lib/agent/steps/base-step.ts` (mensagens honestas de gate e log)
+- `src/lib/agent/steps/search-leads-step.ts` (ramo vazio: diagnóstico no guiado, throw no autopilot)
+- `src/lib/agent/steps/search-companies-step.ts` (idem, com diagnóstico mínimo)
+- `src/stores/use-agent-store.ts` (`pendingChipAdjustment`, `chatInputDraft`)
+- `src/components/agent/AgentLeadReview.tsx` (empty-state + chips)
+- `src/components/agent/AgentApprovalGate.tsx` (guard de 0 + diagnóstico mínimo)
+- `src/components/agent/AgentChat.tsx` (`applyChipAdjustment` + efeito consumidor)
+- `src/components/agent/AgentInput.tsx` (pré-preenchimento via `subscribe`)
+- `src/components/agent/AgentExecutionPlan.tsx` (aviso de viabilidade + opt-in)
+- `src/app/api/agent/executions/[executionId]/plan/route.ts` (contagem de viabilidade)
+
+**Modificados — testes**
+- `__tests__/unit/lib/agent/steps/search-leads-step.test.ts`
+- `__tests__/unit/lib/agent/steps/search-companies-step.test.ts`
+- `__tests__/unit/components/agent/AgentLeadReview.test.tsx`
+- `__tests__/unit/components/agent/AgentApprovalGate.test.tsx`
+- `__tests__/unit/components/agent/AgentChat.test.tsx`
+- `__tests__/unit/components/agent/AgentInput.test.tsx`
+- `__tests__/unit/components/agent/AgentExecutionPlan.test.tsx`
+- `__tests__/unit/api/agent/execution-plan.test.ts`
+
+**Modificados — artefatos BMAD**
+- `_bmad-output/implementation-artifacts/22-14-recuperacao-busca-sem-resultados.md`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`
 
 ## Change Log
 
 | Data | Mudança |
 |---|---|
+| 2026-07-25 | **Implementada (dev-story, Opus 5). Status: review.** 8 tasks, AC1-AC8 (incl. AC7, que foi IMPLEMENTADO e não descartado). Baseline `5cd1670` (22.13 commitada antes, por decisão do Fabossi). Novo helper puro `empty-search-diagnosis.ts` (diagnóstico + chips determinísticos, 78 testes); zero deixou de ser sucesso nos 2 steps de busca e nas 2 mensagens da `BaseStep`; empty-state com chips no card de leads; guard de "Aprovar 0" no card de empresas; autopilot falha controlado; contagem de viabilidade pré-busca via opt-in `?viability=1` no `/plan` (Trap #7 fechado por construção) com `buildDirectSearchFilters` extraído como SSOT para a estimativa não mentir. RED provado em 3 eixos (9 + 4 falhas nos steps; 13 no card via stash cirúrgico). Suíte 402 files/7243 pass/2 skip/0 fail (+135, zero regressão); tsc 182 = baseline exato, 0 em `src/`; eslint `--max-warnings=0` limpo (2 achados de lint fechados, um deles pré-existente que bloquearia o commit). **SMOKE REAL APROVADO: 0 → 138 leads**, com o aviso de viabilidade prevendo o 0 antes de gastar e a convergência chip→texto provada ao vivo. Falta: code-review. |
 | 2026-07-25 | **Contexto completo (create-story, Fable 5).** Caminho do 0-leads mapeado ponta-a-ponta em código (`buildSearchOutput` sem guard → gate/logStep mentirosos → "0 de 0" no card); causa raiz provável do caso Atibaia identificada (`companySize` freeform cru + `industry` via `q_keywords` textual); AC ampliados: autopilot para com a verdade (AC6) e guard do `search_companies` (AC5); chips especificados como delta determinístico SEM `/parse` reusando a 22.13 (D1-D5); spike de contagem validado na doc oficial Apollo (search não consome créditos, `total_entries` disponível); 9 traps com file:line, incl. colisão com a 22.17 no `logStep` e baseline não-commitado da 22.13. Status: ready-for-dev. |
 | 2026-07-24 | Story criada (Amelia) a partir do teste E2E — busca vazia tratada como sucesso, sem recuperação; contraste 0 → 248 leads ao relaxar filtros provado ao vivo. Status: draft. |

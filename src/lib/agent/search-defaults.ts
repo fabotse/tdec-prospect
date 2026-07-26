@@ -56,3 +56,47 @@ export function resolveDirectSearchCompanySizes(
   }
   return { companySizes: [...QUALITY_MIN_COMPANY_SIZES], defaultsApplied: true };
 }
+
+// ==============================================
+// Story 22.14 — filtros da busca direta (SSOT)
+// ==============================================
+
+/**
+ * `type` e não `interface` de propósito: só um type alias de object literal ganha index
+ * signature implícita em TS, e estes filtros precisam fluir para consumidores tipados como
+ * `Record<string, unknown>` (o `searchFilters` que vai para o JSONB do step e para o
+ * diagnóstico da 22.14) sem cast.
+ */
+export type DirectSearchFilters = {
+  titles: string[];
+  perPage: number;
+  page: number;
+  companySizes: string[];
+  locations?: string[];
+  industries?: string[];
+};
+
+/**
+ * Monta os filtros da BUSCA DIRETA na Apollo a partir do briefing.
+ *
+ * Story 22.14: extraído de `SearchLeadsStep` para ser a fonte única de DOIS consumidores —
+ * a busca real (`perPage: 25`) e a contagem de viabilidade pré-execução (`perPage: 1`, AC7).
+ * Se os dois montassem os filtros por conta própria, o "estimativa: N resultados" mostrado
+ * antes do "Iniciar Execução" poderia divergir do que a busca de fato faz — uma estimativa
+ * que mente é pior do que estimativa nenhuma.
+ */
+export function buildDirectSearchFilters(
+  briefing: Pick<ParsedBriefing, "jobTitles" | "location" | "industry" | "companySize">,
+  perPage: number
+): DirectSearchFilters {
+  const { companySizes } = resolveDirectSearchCompanySizes(briefing);
+
+  return {
+    titles: briefing.jobTitles,
+    perPage,
+    page: 1,
+    companySizes,
+    ...(briefing.location ? { locations: [briefing.location] } : {}),
+    ...(briefing.industry ? { industries: [briefing.industry] } : {}),
+  };
+}

@@ -126,8 +126,21 @@ export abstract class BaseStep {
   }
 
   /**
+   * Story 22.14 (AC1): o step voltou sem nenhum resultado?
+   *
+   * O flag vive no `output` do proprio step (JSONB — zero migration, NFR5) e e escrito
+   * pelos steps de busca quando a lista volta vazia. As duas mensagens que a BaseStep
+   * emite (gate e log) mentiam nesse caso: "concluida, revise e aprove" e "concluido com
+   * sucesso" com zero itens na mao.
+   */
+  private static isEmptyResult(result: StepOutput): boolean {
+    return result.data?.emptyResult === true;
+  }
+
+  /**
    * Send approval gate message with preview data for frontend rendering.
    * Story 17.5 - Task 1.1
+   * Story 22.14 - AC #1: texto honesto quando a busca voltou vazia.
    */
   private async sendApprovalGateMessage(
     db: SupabaseClient,
@@ -137,10 +150,16 @@ export abstract class BaseStep {
     const previewData = this.buildPreviewData(result);
     const stepLabel = STEP_LABELS[this.stepType];
 
+    // Pedir "revise os resultados e aprove" diante de uma tabela vazia (com o proprio
+    // botao Aprovar desabilitado) era o beco sem saida que esta story fecha.
+    const content = BaseStep.isEmptyResult(result)
+      ? `A etapa "${stepLabel}" nao encontrou nenhum resultado com esses filtros. Veja o diagnostico abaixo e ajuste a busca.`
+      : `Etapa "${stepLabel}" concluida. Revise os resultados e aprove para continuar.`;
+
     await db.from("agent_messages").insert({
       execution_id: executionId,
       role: "agent",
-      content: `Etapa "${stepLabel}" concluida. Revise os resultados e aprove para continuar.`,
+      content,
       metadata: {
         stepNumber: this.stepNumber,
         messageType: "approval_gate",
@@ -227,6 +246,7 @@ export abstract class BaseStep {
   /**
    * Log step execution as agent_message with metadata.
    * (2.7)
+   * Story 22.14 - AC #1: 0 resultados nao e "sucesso".
    */
   private async logStep(
     db: SupabaseClient,
@@ -234,10 +254,14 @@ export abstract class BaseStep {
     input: StepInput,
     output: StepOutput
   ): Promise<void> {
+    const content = BaseStep.isEmptyResult(output)
+      ? `Step ${this.stepNumber} (${this.stepType}) nao encontrou resultados`
+      : `Step ${this.stepNumber} (${this.stepType}) concluido com sucesso`;
+
     await db.from("agent_messages").insert({
       execution_id: executionId,
       role: "system",
-      content: `Step ${this.stepNumber} (${this.stepType}) concluido com sucesso`,
+      content,
       metadata: {
         stepNumber: this.stepNumber,
         messageType: "progress",
