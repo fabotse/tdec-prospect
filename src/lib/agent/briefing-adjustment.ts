@@ -156,6 +156,10 @@ export function mergeAdjustedBriefing(
     urgency: parsed.urgency ?? persisted.urgency ?? null,
     campaignDescription: parsed.campaignDescription ?? persisted.campaignDescription ?? null,
     emailCount: parsed.emailCount ?? persisted.emailCount ?? null,
+    // Story 22.15: o segmento de destino segue a MESMA politica dos metadados de campanha
+    // — ausencia PRESERVA. Um ajuste de busca ("tira o filtro de tamanho") nao pode zerar
+    // em silencio o "coloca no segmento Teste Atibaia" pedido antes.
+    segmentName: parsed.segmentName ?? persisted.segmentName ?? null,
   };
 }
 
@@ -246,6 +250,10 @@ export function buildAdjustmentSummary(
     );
     lines.push(`- Descricao: ${merged.campaignDescription ?? "sem descricao"}`);
     lines.push(`- Nº de e-mails: ${merged.emailCount ?? "padrao do objetivo"}`);
+    // Story 22.15: esta e a ULTIMA tela antes de uma re-execucao PAGA. Sem a linha do
+    // segmento o usuario confirma um gasto sem saber para onde os leads vao — o defeito
+    // exato que a story existe para matar.
+    lines.push(`- Segmento: ${merged.segmentName ?? "nome da campanha"}`);
     lines.push("");
     lines.push("Os leads ja aprovados continuam os mesmos — vou reescrever a campanha.");
   } else {

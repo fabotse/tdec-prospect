@@ -192,6 +192,106 @@ describe("PATCH /api/agent/executions/[executionId]/briefing", () => {
     expect(updateArg.briefing.emailCount).toBe(3);
   });
 
+  // Story 22.15: mesma armadilha de strip — sem `segmentName` declarado no schema, o
+  // "coloca no segmento Teste Atibaia" seria descartado antes do update e o
+  // CreateCampaignStep cairia sempre no nome da campanha.
+  it("deve PRESERVAR segmentName no briefing enviado ao update (22.15 - armadilha do strip)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const briefingWithSegment = { ...VALID_BRIEFING, segmentName: "Teste Atibaia" };
+
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing: briefingWithSegment, status: "pending" },
+      error: null,
+    });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(createRequest(briefingWithSegment), createParams());
+    expect(response.status).toBe(200);
+
+    const updateArg = chain.update.mock.calls[0][0] as { briefing: Record<string, unknown> };
+    expect(updateArg.briefing.segmentName).toBe("Teste Atibaia");
+  });
+
+  it("deve rejeitar segmentName acima de 100 chars (segments.name e VARCHAR(100)) - 22.15", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const response = await PATCH(
+      createRequest({ ...VALID_BRIEFING, segmentName: "s".repeat(120) }),
+      createParams()
+    );
+
+    expect(response.status).toBe(400);
+  });
+
+  it("segmentName NAO-string vira null em vez de derrubar o PATCH inteiro - 22.15", async () => {
+    // O cliente reenvia o `merged`, cujo `segmentName` vem do JSONB do briefing (mais de
+    // um escritor). Reprovar o schema aqui custaria TODOS os ajustes do turno por causa
+    // de um campo acessorio — o oposto do fail-open que a story pede.
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing: VALID_BRIEFING, status: "pending" },
+      error: null,
+    });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(
+      createRequest({ ...VALID_BRIEFING, segmentName: 42 as unknown as string }),
+      createParams()
+    );
+
+    expect(response.status).toBe(200);
+    const updateArg = chain.update.mock.calls[0][0] as { briefing: Record<string, unknown> };
+    expect(updateArg.briefing.segmentName).toBeNull();
+  });
+
+  it("PATCH que nao menciona segmentName NAO zera o valor ja salvo - 22.15", async () => {
+    // Guard do `undefined` no preprocess: sem ele o campo omitido viraria null e o
+    // "coloca no segmento X" pedido antes desapareceria no primeiro ajuste seguinte.
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const chain = createChainBuilder({
+      data: {
+        id: EXEC_ID,
+        briefing: { ...VALID_BRIEFING, segmentName: "Teste Atibaia" },
+        status: "pending",
+      },
+      error: null,
+    });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(createRequest({ ...VALID_BRIEFING }), createParams());
+
+    expect(response.status).toBe(200);
+    const updateArg = chain.update.mock.calls[0][0] as { briefing: Record<string, unknown> };
+    // `undefined` sai do payload validado e o merge com o persistido preserva o valor.
+    expect(updateArg.briefing.segmentName).toBe("Teste Atibaia");
+  });
+
+  // O teto e por CODE POINT, coerente com o schema do parser: com `.max(100)` cru
+  // (unidades UTF-16), um nome que o parser ACEITA derrubaria aqui o PATCH do briefing
+  // INTEIRO com 400 — perdendo tambem os outros campos do turno.
+  it("deve ACEITAR segmentName com 100 code points (200 unidades UTF-16) - 22.15", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const segmentName = "🚀".repeat(100);
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing: { ...VALID_BRIEFING, segmentName }, status: "pending" },
+      error: null,
+    });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(
+      createRequest({ ...VALID_BRIEFING, segmentName }),
+      createParams()
+    );
+
+    expect(response.status).toBe(200);
+    const updateArg = chain.update.mock.calls[0][0] as { briefing: Record<string, unknown> };
+    expect(updateArg.briefing.segmentName).toBe(segmentName);
+  });
+
   it("deve aceitar briefing sem os campos de campanha (opcionais, regressao 22.5)", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
 

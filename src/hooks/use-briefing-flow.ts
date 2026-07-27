@@ -202,6 +202,10 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
   if (briefing.urgency) lines.push(`- Urgencia: ${URGENCY_LABELS[briefing.urgency] ?? briefing.urgency}`);
   if (briefing.campaignDescription) lines.push(`- Descricao: ${briefing.campaignDescription}`);
   if (briefing.emailCount) lines.push(`- Nº de e-mails: ${briefing.emailCount}`);
+  // Story 22.15: destino dos leads em "Meus Leads". Exibido SEMPRE, espelhando o resumo
+  // de ajuste (buildAdjustmentSummary): esta e a PRIMEIRA confirmacao — a que autoriza o
+  // gasto — e era justamente ela que omitia para onde os leads iam no caso default.
+  lines.push(`- Segmento: ${briefing.segmentName ?? "nome da campanha"}`);
 
   // Story 22.6: busca direta = search_companies pulado SEM leads importados (search_leads roda).
   const isDirectSearch =
@@ -301,6 +305,9 @@ function briefingChanged(prev: ParsedBriefing | null, next: ParsedBriefing): boo
     (prev.urgency ?? null) !== (next.urgency ?? null) ||
     (prev.campaignDescription ?? null) !== (next.campaignDescription ?? null) ||
     (prev.emailCount ?? null) !== (next.emailCount ?? null) ||
+    // Story 22.15: idem para o segmento — "sim, mas coloca no segmento Teste Atibaia"
+    // e uma CORRECAO, nao uma confirmacao: tem que reapresentar o resumo.
+    (prev.segmentName ?? null) !== (next.segmentName ?? null) ||
     // Story 22.11 (patch review): skipSteps entra no diff. Sem isto, um turno que injeta o
     // shape de import (search_companies+search_leads) SEM mudar outro campo passa como
     // "briefing inalterado" e um "sim" o confirma direto (keywordConfirmed), pulando o guard

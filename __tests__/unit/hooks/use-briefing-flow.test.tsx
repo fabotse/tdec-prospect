@@ -3498,6 +3498,116 @@ describe("useBriefingFlow", () => {
       );
     });
 
+    // ==============================================
+    // Story 22.15: segmento de destino em "Meus Leads"
+    // ==============================================
+
+    it("resumo exibe 'Segmento: X' quando o usuario pediu um segmento (22.15 AC2)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse({
+            ...COMPLETE_PARSE_RESPONSE,
+            briefing: {
+              ...COMPLETE_PARSE_RESPONSE.briefing,
+              segmentName: "Teste Atibaia",
+            },
+          }),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage(
+          "CTOs em SP e coloca no segmento Teste Atibaia",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      const summary = mockSendAgentMessage.mock.calls.at(-1)?.[1] as string;
+      expect(summary).toContain("Segmento: Teste Atibaia");
+    });
+
+    it("resumo SEMPRE diz o destino dos leads, mesmo sem segmento pedido (22.15)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE), // sem segmentName
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
+      });
+
+      // Esta e a PRIMEIRA confirmacao — a que autoriza o gasto. Omitir o destino aqui
+      // (como o resumo fazia) e justamente esconder para onde os leads vao no caso
+      // default. `buildAdjustmentSummary` ja imprimia sempre; agora os dois batem.
+      const summary = mockSendAgentMessage.mock.calls.at(-1)?.[1] as string;
+      expect(summary).toContain("- Segmento: nome da campanha");
+    });
+
+    it("guard hibrido NAO confirma quando o UNICO delta e segmentName ('sim, mas coloca no segmento X') (22.15)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+
+      await act(async () => {
+        await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
+      });
+      expect(result.current.state.status).toBe("confirming");
+
+      // "sim, mas..." tem keyword de confirmacao; o unico campo que mudou e o segmento.
+      // Sem segmentName no diff, o turno seria ENGOLIDO como confirmacao e o pedido do
+      // usuario iria para o lixo (os leads cairiam no segmento com o nome da campanha).
+      restoreFetch();
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse({
+            ...COMPLETE_PARSE_RESPONSE,
+            briefing: {
+              ...COMPLETE_PARSE_RESPONSE.briefing,
+              segmentName: "Teste Atibaia",
+            },
+            nextAction: "confirm",
+          }),
+        },
+      ]);
+      mockSendAgentMessage.mockClear();
+
+      let outcome: { handled: boolean; confirmed?: boolean } | undefined;
+      await act(async () => {
+        outcome = await result.current.processMessage(
+          "sim, mas coloca no segmento Teste Atibaia",
+          EXEC_ID,
+          mockSendAgentMessage
+        );
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      expect(outcome?.confirmed).toBeUndefined();
+      expect(result.current.state.briefing?.segmentName).toBe("Teste Atibaia");
+      expect(mockSendAgentMessage).toHaveBeenCalledWith(
+        EXEC_ID,
+        expect.stringContaining("Segmento: Teste Atibaia")
+      );
+    });
+
     it("'sim' puro ainda confirma quando nada mudou (briefingChanged=false, regressao 22.5)", async () => {
       createMockFetch([
         {

@@ -6,9 +6,10 @@
  * icebreaker batching, error handling (retryable/terminal), cost calculation
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { CreateCampaignStep } from "@/lib/agent/steps/create-campaign-step";
 import { createChainBuilder } from "../../../../helpers/mock-supabase";
+import { FakeDb, createFakeSupabase } from "../../../../helpers/fake-leads-db";
 import type { StepInput, SearchLeadResult } from "@/types/agent";
 import { ExternalServiceError } from "@/lib/services/base-service";
 
@@ -83,6 +84,26 @@ vi.mock("@/lib/services/apify", () => ({
   },
 }));
 
+// Story 22.15: Apollo mockado para exercitar o REVEAL (enrichment) antes da persistencia.
+const mockEnrichPerson = vi.fn();
+vi.mock("@/lib/services/apollo", () => ({
+  ApolloService: class {
+    enrichPerson = (...args: unknown[]) => mockEnrichPerson(...args);
+  },
+}));
+
+// Story 22.15: a persistencia em "Meus Leads" e mockada aqui (tem suite propria em
+// lead-persistence.test.ts). O que este arquivo protege e o CONTRATO do step: o que ele
+// entrega ao helper e o que ele faz quando o helper falha ou degrada.
+const mockPersistApprovedLeads = vi.fn();
+vi.mock("@/lib/agent/lead-persistence", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/agent/lead-persistence")>();
+  return {
+    ...actual,
+    persistApprovedLeads: (...args: unknown[]) => mockPersistApprovedLeads(...args),
+  };
+});
+
 const mockLogApifySuccess = vi.fn().mockResolvedValue(undefined);
 const mockLogApifyFailure = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/lib/services/usage-logger", () => ({
@@ -130,9 +151,13 @@ const VALID_STRUCTURE_JSON = JSON.stringify({
   ],
 });
 
+// `apolloId` presente de proposito: sem ele a costura step->persistApprovedLeads nunca
+// exercitava a gravacao de `apollo_id` (nem o unique parcial, nem o dedupe por apollo),
+// e uma regressao que parasse de repassar o campo passaria verde. Nome e email vem
+// revelados, entao o enrichment continua sendo pulado.
 const MOCK_LEADS: SearchLeadResult[] = [
-  { name: "John Doe", title: "CTO", companyName: "Acme Corp", email: "john@acme.com", linkedinUrl: null },
-  { name: "Jane Smith", title: "VP Engineering", companyName: "Beta Inc", email: "jane@beta.io", linkedinUrl: "https://linkedin.com/in/jane" },
+  { name: "John Doe", title: "CTO", companyName: "Acme Corp", email: "john@acme.com", linkedinUrl: null, apolloId: "apollo-john" },
+  { name: "Jane Smith", title: "VP Engineering", companyName: "Beta Inc", email: "jane@beta.io", linkedinUrl: "https://linkedin.com/in/jane", apolloId: "apollo-jane" },
 ];
 
 // Story 22.2: posts do LinkedIn retornados pelo Apify mock
@@ -164,7 +189,12 @@ function createStatefulApiConfigs(byService: Record<string, { encrypted_key: str
   return chain;
 }
 
-function createMockSupabase() {
+/**
+ * Story 22.15: com `leadsDb`, as tabelas de Meus Leads (`leads`/`segments`/
+ * `lead_segments`) passam a ser servidas pelo banco fake — e a costura step -> helper
+ * roda de verdade. Sem ele, o comportamento e exatamente o de antes.
+ */
+function createMockSupabase(leadsDb?: FakeDb) {
   const stepsChain = createChainBuilder({ data: { id: "step-1" }, error: null });
   const messagesChain = createChainBuilder({ data: { id: "msg-1" }, error: null });
   const kbChain = createChainBuilder({ data: null, error: null });
@@ -174,7 +204,12 @@ function createMockSupabase() {
   const apiConfigsChain = createChainBuilder({ data: null, error: null });
   const icebreakerExamplesChain = createChainBuilder({ data: [], error: null });
 
+  const leadsFrom = leadsDb ? (createFakeSupabase(leadsDb).from as (t: string) => unknown) : null;
+
   const mockFrom = vi.fn().mockImplementation((table: string) => {
+    if (leadsFrom && (table === "leads" || table === "segments" || table === "lead_segments")) {
+      return leadsFrom(table);
+    }
     if (table === "agent_steps") return stepsChain;
     if (table === "agent_messages") return messagesChain;
     if (table === "knowledge_base") return kbChain;
@@ -214,6 +249,17 @@ function createInput(
 }
 
 function setupDefaultMocks() {
+  // Story 22.15: sem person devolvida, o step segue com os dados que ja tem.
+  mockEnrichPerson.mockResolvedValue({ person: null });
+  mockPersistApprovedLeads.mockResolvedValue({
+    segmentId: "segment-1",
+    segmentName: "Campanha React - 01/01/2026",
+    inserted: 2,
+    reused: 0,
+    associated: 2,
+    skipped: 0,
+    degraded: false,
+  });
   mockBuildAIVariables.mockReturnValue(DEFAULT_AI_VARS);
   mockDecryptApiKey.mockReturnValue("decrypted-openai-key");
   // Story 22.9: por padrao TODAS as chaves existem no tenant (equivalente ao mock
@@ -824,10 +870,15 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
       );
       input.previousStepOutput = undefined;
 
-      await step.run(input);
+      const result = await step.run(input);
 
-      // Verify cost: apollo_enrich should be 0 (no enrichment attempted)
-      // The step completes without errors — if enrichPerson were called without mock, it would throw
+      // Assert DIRETO no colaborador: o mecanismo antigo ("sem mock, enrichPerson
+      // lancaria") nunca funcionou — a chamada e envolvida num `catch {}` que engoliria o
+      // throw. Sem estas duas linhas, remover o guard `typedLead.apolloId &&` queimaria um
+      // credito do Apollo por lead importado e o teste continuaria verde.
+      expect(mockEnrichPerson).not.toHaveBeenCalled();
+      expect(result.cost?.apollo_enrich ?? 0).toBe(0);
+
       const insertCalls = mockSupabase.messagesChain.insert.mock.calls;
       expect(insertCalls.length).toBeGreaterThan(0);
     });
@@ -1024,7 +1075,7 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
     it("nao chama Apify para leads sem linkedinUrl (fallback standard)", async () => {
       setupStructureThenContent();
       const noUrlLeads: SearchLeadResult[] = [
-        { name: "Sem Link", title: "CTO", companyName: "X", email: "x@x.com", linkedinUrl: null },
+        { name: "Sem Link", title: "CTO", companyName: "X", email: "x@x.com", linkedinUrl: null, apolloId: "apollo-sem-link" },
       ];
 
       const input = createInput({ premiumIcebreakers: true }, {
@@ -1062,6 +1113,461 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
       expect(stats.premium).toBe(0);
       expect(stats.standard).toBe(2);
       expect(result.cost?.apify).toBeUndefined();
+    });
+  });
+
+  // ==============================================
+  // Story 22.15: persistencia em "Meus Leads"
+  // ==============================================
+
+  describe("persistencia em Meus Leads (Story 22.15)", () => {
+    // O caminho de fail-open loga com console.error de proposito — silenciado aqui para
+    // nao poluir a saida da suite. O restore e obrigatorio: `vi.clearAllMocks()` do
+    // beforeEach externo NAO desinstala o spy, e ele vazaria para os testes seguintes.
+    beforeEach(() => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    function setupStructureThenContent() {
+      let callCount = 0;
+      mockGenerateText.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ text: VALID_STRUCTURE_JSON, model: "gpt-4o", usage: {} });
+        }
+        return Promise.resolve({ text: `Icebreaker/email ${callCount}`, model: "gpt-4o", usage: {} });
+      });
+    }
+
+    /**
+     * Bolhas escritas pelo step EXCLUINDO as do ciclo de vida (`progress` do inicio e
+     * `step_complete` do fim, ambas do BaseStep). Sobra exatamente o que a persistencia
+     * emitiu.
+     *
+     * Filtro ESTRUTURAL de proposito: filtrar por uma frase ("Meus Leads") torna o teste
+     * de "sucesso limpo nao polui a conversa" cego para qualquer bolha sem aquela frase —
+     * inclusive as que o proprio codigo emite. Aqui o inverso: qualquer bolha nova,
+     * escreva o que escrever, aparece.
+     */
+    const LIFECYCLE_MESSAGE_TYPES = ["progress", "step_complete"];
+
+    function myLeadsMessages(): string[] {
+      return mockSupabase.messagesChain.insert.mock.calls
+        .map((call: unknown[]) => call[0] as { content?: string; metadata?: { messageType?: string } })
+        .filter((row) => !LIFECYCLE_MESSAGE_TYPES.includes(row?.metadata?.messageType ?? ""))
+        .map((row) => row?.content ?? "");
+    }
+
+    it("chama a persistencia com os leads REVELADOS (pos-enrichment) e com icebreaker", async () => {
+      setupStructureThenContent();
+      // Lead mascarado, como a tabela de revisao mostra: sem email e com "*" no nome.
+      mockEnrichPerson.mockResolvedValue({
+        person: { email: "amanda@acme.com", first_name: "Amanda", last_name: "Rebel" },
+      });
+
+      const input = createInput({}, {
+        leads: [
+          {
+            name: "Amanda Re***l",
+            title: "CTO",
+            companyName: "Acme",
+            email: null,
+            linkedinUrl: null,
+            apolloId: "apollo-amanda",
+          },
+        ],
+        totalFound: 1,
+        jobTitles: ["CTO"],
+        domainsSearched: [],
+      });
+
+      const result = await step.run(input);
+      expect(result.success).toBe(true);
+
+      expect(mockPersistApprovedLeads).toHaveBeenCalledTimes(1);
+      const args = mockPersistApprovedLeads.mock.calls[0][0] as {
+        tenantId: string;
+        segmentName: string;
+        leads: Array<{
+          name: string;
+          email: string | null;
+          icebreaker: string | null;
+          apolloId?: string | null;
+        }>;
+      };
+
+      expect(args.tenantId).toBe(TENANT_ID);
+      // Dados REVELADOS: jamais o valor mascarado.
+      expect(args.leads[0].name).toBe("Amanda Rebel");
+      expect(args.leads[0].email).toBe("amanda@acme.com");
+      expect(args.leads[0].icebreaker).toBeTruthy();
+      // `apolloId` faz parte do contrato: e a chave de dedupe do helper. Um lead cujo
+      // reveal falhasse (email null) so seria identificavel por ele.
+      expect(args.leads[0].apolloId).toBe("apollo-amanda");
+    });
+
+    it("sem segmentName no briefing, usa o nome da campanha", async () => {
+      setupStructureThenContent();
+
+      await step.run(createInput());
+
+      const args = mockPersistApprovedLeads.mock.calls[0][0] as { segmentName: string };
+      expect(args.segmentName).toContain("Campanha React");
+    });
+
+    it("segmentName pedido na conversa vence o nome da campanha", async () => {
+      setupStructureThenContent();
+
+      await step.run(createInput({ segmentName: "  Teste Atibaia  " }));
+
+      const args = mockPersistApprovedLeads.mock.calls[0][0] as { segmentName: string };
+      expect(args.segmentName).toBe("Teste Atibaia");
+    });
+
+    it("segmentName nao-string no JSONB nao escapa do fail-open (cai no nome da campanha)", async () => {
+      setupStructureThenContent();
+
+      const input = createInput();
+      // O briefing vem de um JSONB com mais de um escritor: o valor pode ser qualquer coisa.
+      (input.briefing as unknown as Record<string, unknown>).segmentName = { nome: "x" };
+
+      const result = await step.run(input);
+
+      expect(result.success).toBe(true);
+      const args = mockPersistApprovedLeads.mock.calls[0][0] as { segmentName: string };
+      expect(args.segmentName).toContain("Campanha React");
+    });
+
+    it("falha da persistencia NAO derruba o step e escreve a bolha de aviso", async () => {
+      setupStructureThenContent();
+      mockPersistApprovedLeads.mockRejectedValue(new Error("permission denied for table leads"));
+
+      const result = await step.run(createInput());
+
+      // A campanha ja estava pronta: o efeito colateral nao pode custar a execucao paga.
+      expect(result.success).toBe(true);
+      expect((result.data as Record<string, unknown>).campaignName).toBeDefined();
+
+      const messages = myLeadsMessages();
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatch(/nao consegui salvar/i);
+      expect(messages[0]).toMatch(/importe-os manualmente/i);
+    });
+
+    it("bolha de aviso que tambem falha nao derruba o step (try aninhado)", async () => {
+      setupStructureThenContent();
+      mockPersistApprovedLeads.mockRejectedValue(new Error("falhou"));
+      // So a bolha de aviso falha (a de progresso, escrita antes, segue funcionando).
+      mockSupabase.messagesChain.insert.mockImplementation((payload: { content?: string }) => {
+        if ((payload?.content ?? "").includes("Meus Leads")) {
+          throw new Error("agent_messages indisponivel");
+        }
+        return mockSupabase.messagesChain;
+      });
+
+      const result = await step.run(createInput());
+      expect(result.success).toBe(true);
+    });
+
+    it("skipped > 0 gera bolha INFORMATIVA, nunca a de falha total", async () => {
+      setupStructureThenContent();
+      mockPersistApprovedLeads.mockResolvedValue({
+        segmentId: "segment-1",
+        segmentName: "Teste Atibaia",
+        inserted: 1,
+        reused: 0,
+        associated: 1,
+        skipped: 1,
+        degraded: false,
+      });
+
+      const result = await step.run(createInput());
+      expect(result.success).toBe(true);
+
+      const messages = myLeadsMessages();
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toContain("Teste Atibaia");
+      expect(messages[0]).toMatch(/ficou de fora/i);
+      // O usuario NAO pode ser mandado reimportar leads que estao salvos.
+      expect(messages[0]).not.toMatch(/importe-os manualmente/i);
+      expect(messages[0]).not.toMatch(/nao consegui salvar/i);
+    });
+
+    it("degraded gera bolha INFORMATIVA de verdade parcial, nunca a de falha total", async () => {
+      setupStructureThenContent();
+      mockPersistApprovedLeads.mockResolvedValue({
+        segmentId: "segment-1",
+        segmentName: "Teste Atibaia",
+        inserted: 2,
+        reused: 0,
+        associated: 0,
+        skipped: 0,
+        degraded: true,
+      });
+
+      const result = await step.run(createInput());
+      expect(result.success).toBe(true);
+
+      const messages = myLeadsMessages();
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatch(/parte da gravacao falhou/i);
+      expect(messages[0]).not.toMatch(/importe-os manualmente/i);
+    });
+
+    it("degraded SEM segmento criado nao manda o usuario procurar uma lista inexistente", async () => {
+      setupStructureThenContent();
+      // Estado real e alcancavel (ver lead-persistence.test.ts, "falha no segmento com
+      // leads JA na base"): leads salvos, segmento NUNCA criado.
+      mockPersistApprovedLeads.mockResolvedValue({
+        segmentId: null,
+        segmentName: "Teste Atibaia",
+        inserted: 0,
+        reused: 2,
+        associated: 0,
+        skipped: 0,
+        degraded: true,
+      });
+
+      const result = await step.run(createInput());
+      expect(result.success).toBe(true);
+
+      const messages = myLeadsMessages();
+      expect(messages).toHaveLength(1);
+      // Diz a verdade: leads na base, segmento nao criado.
+      expect(messages[0]).toMatch(/nao consegui criar o segmento "Teste Atibaia"/i);
+      expect(messages[0]).toMatch(/2 leads/);
+      // e NAO afirma que eles estao no segmento
+      expect(messages[0]).not.toMatch(/no segmento "Teste Atibaia"[.,]/);
+      expect(messages[0]).not.toMatch(/importe-os manualmente/i);
+      // Com `inserted: 0` NADA foi gravado nesta execucao: "Salvei" seria uma escrita
+      // anunciada que nao houve, numa story cuja premissa e a mensagem honesta.
+      expect(messages[0]).not.toMatch(/Salvei/i);
+      expect(messages[0]).toMatch(/ja estavam em meus leads/i);
+    });
+
+    it("com leads REALMENTE gravados a bolha diz 'Salvei'", async () => {
+      setupStructureThenContent();
+      mockPersistApprovedLeads.mockResolvedValue({
+        segmentId: null,
+        segmentName: "Teste Atibaia",
+        inserted: 2,
+        reused: 0,
+        associated: 0,
+        skipped: 0,
+        degraded: true,
+      });
+
+      await step.run(createInput());
+
+      const messages = myLeadsMessages();
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatch(/salvei 2 leads em meus leads/i);
+    });
+
+    it("degraded COM segmento e inserted 0 nao anuncia escrita nem agrupamento que nao houve", async () => {
+      setupStructureThenContent();
+      // Todos os leads ja existiam e a associacao falhou (Fase 4): o segmento existe, mas
+      // esta VAZIO. A frase fixa "Salvei os leads em Meus Leads no segmento X" afirmava as
+      // duas coisas que nao aconteceram e mandava o usuario abrir uma lista sem os leads.
+      mockPersistApprovedLeads.mockResolvedValue({
+        segmentId: "segment-1",
+        segmentName: "Teste Atibaia",
+        inserted: 0,
+        reused: 2,
+        associated: 0,
+        skipped: 0,
+        degraded: true,
+      });
+
+      const result = await step.run(createInput());
+      expect(result.success).toBe(true);
+
+      const messages = myLeadsMessages();
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).not.toMatch(/Salvei/i);
+      expect(messages[0]).toMatch(/ja estavam em meus leads/i);
+      expect(messages[0]).toMatch(/parte da gravacao falhou/i);
+      // Nao afirma o agrupamento — ele e justamente o que pode ter faltado.
+      expect(messages[0]).not.toMatch(/em meus leads no segmento "Teste Atibaia"/i);
+      expect(messages[0]).not.toMatch(/importe-os manualmente/i);
+    });
+
+    it("degradado sem NENHUM lead resolvido nao inventa 'Seus 0 leads' nem manda reimportar", async () => {
+      setupStructureThenContent();
+      // Estado real (ver lead-persistence.test.ts, "insert sem RETURNING utilizavel"): o
+      // insert pode ter gravado e nao devolvido os ids. Contar leads aqui produzia
+      // "Seus 0 leads ja estavam em Meus Leads ... eles estao na base" — absurdo e
+      // contraditorio na mesma frase.
+      mockPersistApprovedLeads.mockResolvedValue({
+        segmentId: null,
+        segmentName: "Teste Atibaia",
+        inserted: 0,
+        reused: 0,
+        associated: 0,
+        skipped: 0,
+        degraded: true,
+      });
+
+      const result = await step.run(createInput());
+      expect(result.success).toBe(true);
+
+      const messages = myLeadsMessages();
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).not.toMatch(/0 leads?/);
+      expect(messages[0]).toMatch(/nao consegui confirmar/i);
+      // Pode ter sido gravado: mandar reimportar duplicaria a base.
+      expect(messages[0]).not.toMatch(/importe-os manualmente/i);
+    });
+
+    it("falha da BOLHA informativa nao vira a bolha de falha total sobre leads salvos", async () => {
+      setupStructureThenContent();
+      mockPersistApprovedLeads.mockResolvedValue({
+        segmentId: "segment-1",
+        segmentName: "Teste Atibaia",
+        inserted: 2,
+        reused: 0,
+        associated: 2,
+        skipped: 1,
+        degraded: false,
+      });
+      // A escrita da bolha informativa falha DEPOIS dos leads gravados. Estando ela dentro
+      // do try da persistencia, o catch anunciava "importe-os manualmente" sobre leads que
+      // ESTAO em Meus Leads — a reimportacao duplica a base que a story existe para organizar.
+      let seen = 0;
+      mockSupabase.messagesChain.insert.mockImplementation((payload: { content?: string }) => {
+        if ((payload?.content ?? "").includes("Meus Leads")) {
+          seen += 1;
+          if (seen === 1) throw new Error("agent_messages indisponivel");
+        }
+        return mockSupabase.messagesChain;
+      });
+
+      const result = await step.run(createInput());
+      expect(result.success).toBe(true);
+      // Uma unica tentativa: a informativa. A de falha total nem chega a ser montada.
+      expect(seen).toBe(1);
+      expect(myLeadsMessages().some((m) => /importe-os manualmente/i.test(m))).toBe(false);
+    });
+
+    it("nada salvo com leads pulados: a bolha diz explicitamente que NADA foi para Meus Leads", async () => {
+      setupStructureThenContent();
+      mockPersistApprovedLeads.mockResolvedValue({
+        segmentId: null,
+        segmentName: "Teste Atibaia",
+        inserted: 0,
+        reused: 0,
+        associated: 0,
+        skipped: 2,
+        degraded: false,
+      });
+
+      const result = await step.run(createInput());
+      expect(result.success).toBe(true);
+
+      const messages = myLeadsMessages();
+      expect(messages).toHaveLength(1);
+      // Sem esta frase o usuario supoe que o "resto" foi salvo — nao havia resto.
+      expect(messages[0]).toMatch(/nenhum lead foi salvo em meus leads/i);
+      expect(messages[0]).toMatch(/ficaram de fora/i);
+      expect(messages[0]).not.toMatch(/Salvei/i);
+    });
+
+    it("sucesso limpo nao polui a conversa com bolha nenhuma", async () => {
+      setupStructureThenContent();
+
+      await step.run(createInput());
+
+      expect(myLeadsMessages()).toHaveLength(0);
+    });
+
+    // ==============================================
+    // Costura step -> helper REAL (sem mock da persistencia)
+    // ==============================================
+
+    describe("contra o helper REAL (FakeDb)", () => {
+      let db: FakeDb;
+
+      beforeEach(async () => {
+        db = new FakeDb();
+        // Roteia leads/segments/lead_segments para o banco fake; o resto do step
+        // (agent_steps, agent_messages, knowledge_base, products) segue nos chains.
+        mockSupabase = createMockSupabase(db);
+        step = new CreateCampaignStep(3, mockSupabase as never, TENANT_ID);
+        setupDefaultMocks();
+
+        const actual = await vi.importActual<typeof import("@/lib/agent/lead-persistence")>(
+          "@/lib/agent/lead-persistence"
+        );
+        mockPersistApprovedLeads.mockImplementation(actual.persistApprovedLeads);
+      });
+
+      it("grava de fato os leads, o segmento e as associacoes em Meus Leads", async () => {
+        setupStructureThenContent();
+
+        const result = await step.run(createInput());
+        expect(result.success).toBe(true);
+
+        expect(db.leads).toHaveLength(2);
+        expect(db.leads.map((l) => l.email).sort()).toEqual(["jane@beta.io", "john@acme.com"]);
+        // `apollo_id` atravessa a costura: e a chave do unique parcial e do dedupe da
+        // proxima execucao. Sem este assert, parar de repassar o campo passaria verde.
+        expect(db.leads.map((l) => l.apollo_id).sort()).toEqual(["apollo-jane", "apollo-john"]);
+        expect(db.leads.every((l) => l.first_name !== "")).toBe(true);
+        expect(db.leads.every((l) => Boolean(l.icebreaker))).toBe(true);
+        expect(db.leads.every((l) => l.tenant_id === TENANT_ID)).toBe(true);
+
+        expect(db.segments).toHaveLength(1);
+        expect(db.segments[0].name).toContain("Campanha React");
+        expect(db.associations).toHaveLength(2);
+
+        // sucesso limpo: nenhuma bolha
+        expect(myLeadsMessages()).toHaveLength(0);
+      });
+
+      it("re-executar o step (ajuste pos-rejeicao) nao duplica lead nem associacao", async () => {
+        setupStructureThenContent();
+        await step.run(createInput());
+
+        setupStructureThenContent();
+        const second = await step.run(createInput());
+
+        expect(second.success).toBe(true);
+        expect(db.leads).toHaveLength(2);
+        expect(db.segments).toHaveLength(1);
+        expect(db.associations).toHaveLength(2);
+      });
+
+      it("usa o segmento pedido na conversa e o reusa na re-execucao", async () => {
+        setupStructureThenContent();
+        await step.run(createInput({ segmentName: "Teste Atibaia" }));
+
+        expect(db.segments).toHaveLength(1);
+        expect(db.segments[0].name).toBe("Teste Atibaia");
+
+        // caixa diferente no turno seguinte (o LLM varia): mesmo segmento
+        setupStructureThenContent();
+        await step.run(createInput({ segmentName: "teste atibaia" }));
+
+        expect(db.segments).toHaveLength(1);
+        expect(db.associations).toHaveLength(2);
+      });
+
+      it("falha real do banco nao derruba o step e produz a bolha honesta", async () => {
+        setupStructureThenContent();
+        db.fail("leads", "select", { code: "42501", message: "permission denied for table leads" }, 5);
+
+        const result = await step.run(createInput());
+
+        expect(result.success).toBe(true);
+        expect(db.leads).toHaveLength(0);
+        const messages = myLeadsMessages();
+        expect(messages).toHaveLength(1);
+        expect(messages[0]).toMatch(/nao consegui salvar/i);
+      });
     });
   });
 });

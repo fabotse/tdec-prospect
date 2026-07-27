@@ -41,6 +41,31 @@ const campaignDescriptionSchema = z.preprocess(
   z.string().max(200).nullable()
 );
 
+// Story 22.15: nome do segmento de destino em "Meus Leads". Mesma normalizacao da
+// descricao (trim + vazio->null), mas com teto de 100 — `segments.name` e VARCHAR(100)
+// (migration 00012), enquanto campaignDescription aceita 200.
+//
+// O teto e medido em CODE POINTS, nao em unidades UTF-16 (`.max()` do zod usa `.length`),
+// pela mesma razao que `normalizeSegmentName` trunca por code point: VARCHAR(100) do
+// Postgres conta CARACTERES. Com `.max(100)` cru, um nome com emoji que CABE no banco
+// seria reprovado e o `.catch(null)` descartaria o pedido do usuario em silencio — a
+// exata falha "engolido" que esta story existe para matar.
+const SEGMENT_NAME_MAX_CODE_POINTS = 100;
+
+const segmentNameSchema = z.preprocess(
+  (value) => {
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  },
+  z
+    .string()
+    .refine((value) => [...value].length <= SEGMENT_NAME_MAX_CODE_POINTS, {
+      message: `Nome de segmento acima de ${SEGMENT_NAME_MAX_CODE_POINTS} caracteres`,
+    })
+    .nullable()
+);
+
 export const briefingResponseSchema = z.object({
   technology: z.string().nullable(),
   jobTitles: z.array(z.string()).default([]),
@@ -70,6 +95,9 @@ export const briefingResponseSchema = z.object({
   // coercao, z.number() rejeitaria e o .catch(null) descartaria SILENCIOSAMENTE a intencao
   // do usuario. Coerce blinda esse caso; valor fora de 1-10/NaN ainda cai para null (fail-open).
   emailCount: z.coerce.number().int().min(1).max(10).nullable().default(null).catch(null),
+  // Story 22.15: mesma politica fail-open dos demais metadados — ausente ou invalido
+  // (nao-string, > 100 chars) cai para null sem derrubar o parse inteiro.
+  segmentName: segmentNameSchema.default(null).catch(null),
 });
 
 export type BriefingResponse = z.infer<typeof briefingResponseSchema>;
@@ -98,6 +126,8 @@ Extraia SOMENTE quando o usuario mencionar; nunca invente. Ausentes = null.
 - urgency ("LOW" | "MEDIUM" | "HIGH" | null): urgencia/ritmo. "urgente"/"rapido"/"o quanto antes"/"pra ontem" -> HIGH; "sem pressa"/"tranquilo"/"pode ser devagar" -> LOW; ritmo normal ou nao mencionado -> null (o sistema usa MEDIUM por padrao).
 - campaignDescription (string | null): descricao livre/nome tematico da campanha quando o usuario der um (ex.: "campanha de Black Friday", "lancamento do produto X"). Null se nao mencionado.
 - emailCount (number | null): quantidade de e-mails desejada na sequencia, inteiro entre 1 e 10, quando o usuario pedir uma quantidade ("quero 3 e-mails", "uma sequencia curta de 2", "manda so 1 e-mail"). Null se o usuario nao especificar quantidade.
+- segmentName (string | null): nome do SEGMENTO (lista em "Meus Leads") onde os leads aprovados devem ser salvos. Extraia SOMENTE quando o usuario pedir explicitamente um nome de segmento/lista ("coloca no segmento Teste Atibaia", "salva esses leads na lista Clientes SP", "agrupa num segmento chamado X"). Maximo de 100 caracteres. NAO confunda com campaignDescription: descricao/tema da campanha ("campanha de Black Friday") e campaignDescription e mantem segmentName null; so o pedido explicito de segmento/lista preenche segmentName. Null quando o usuario nao pedir.
+  - Se o usuario PERGUNTAR se da para colocar os leads num segmento ("da pra colocar esses leads num segmento?"), responda AFIRMATIVAMENTE no questionText e CITE o nome que sera usado — o nome que ele pediu, ou o nome da campanha quando ele nao pediu nenhum. Nunca ignore a pergunta.
 - skipSteps (string[]): Etapas a pular. Default [].
   - Se o usuario NAO selecionar tecnologia, ou recusar/remover um filtro de tecnologia, adicione "search_companies" no skipSteps (a busca sera por cargo + localizacao, sem a etapa de filtro por tecnologia).
   - Se o usuario selecionar afirmativamente uma tecnologia atual, NAO adicione "search_companies" no skipSteps.
@@ -111,7 +141,7 @@ REGRAS:
 4. Interprete abreviacoes e sinonimos em portugues (ex: "SP" = "Sao Paulo", "TI" = "Tecnologia da Informacao").
 5. Para jobTitles, normalize para o formato padrao (ex: "CTOs" -> "CTO", "heads de TI" -> "Head de TI").
 6. Se o usuario mencionar um produto especifico (ex: "nosso produto X", "quem usa o Y"), extraia o nome em productMentioned.
-6.1. objective/urgency/campaignDescription/emailCount sao METADADOS DE CAMPANHA: NAO alteram nextAction, skipSteps nem os parametros de busca. A regra de avancar (cargo + localizacao) segue igual — esses campos nunca sao exigidos para prosseguir e nunca travam a conversa.
+6.1. objective/urgency/campaignDescription/emailCount/segmentName sao METADADOS DE CAMPANHA: NAO alteram nextAction, skipSteps nem os parametros de busca. A regra de avancar (cargo + localizacao) segue igual — esses campos nunca sao exigidos para prosseguir e nunca travam a conversa.
 
 CONVERSA (nextAction + questionText):
 Voce recebe a conversa inteira (mensagens do usuario e do agente). Alem dos parametros acima, decida a proxima acao da CONVERSA e escreva a mensagem natural a exibir.
@@ -221,6 +251,9 @@ export class BriefingParserService {
         urgency: raw.urgency,
         campaignDescription: raw.campaignDescription,
         emailCount: raw.emailCount,
+        // Story 22.15: sem esta linha o segmentName some em silencio (o objeto e montado
+        // campo-a-campo, sem spread do raw — armadilha de strip #1).
+        segmentName: raw.segmentName,
       };
 
       return {

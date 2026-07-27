@@ -45,6 +45,29 @@ const briefingUpdateSchema = z.object({
     )
     .optional(),
   emailCount: z.number().int().min(1).max(10).nullable().optional(),
+  // Story 22.15: mesma armadilha de strip — sem declarar `segmentName`, o PATCH o
+  // descartaria antes do update e o CreateCampaignStep cairia sempre no nome da campanha,
+  // engolindo o "coloca no segmento X" pedido na conversa. Teto de 100 (segments.name).
+  // O teto e medido em CODE POINTS, coerente com o schema do parser e com
+  // `normalizeSegmentName`: com `.max(100)` cru (unidades UTF-16), um nome com emoji que
+  // o parser ACEITA seria reprovado aqui e derrubaria o PATCH do briefing INTEIRO com 400.
+  // Valor nao-string vira null em vez de reprovar o schema: o `segmentName` do `merged`
+  // que o cliente reenvia vem do JSONB do briefing, que tem mais de um escritor. Um
+  // numero/objeto ali derrubaria o PATCH INTEIRO com 400 e o usuario perderia TODOS os
+  // ajustes daquele turno por causa de um campo acessorio. `undefined` continua passando
+  // intacto — sem isso o `.optional()` deixaria de funcionar e um PATCH que nem menciona
+  // o campo o ZERARIA.
+  segmentName: z
+    .preprocess(
+      (v) => (v === undefined ? undefined : typeof v === "string" ? v.trim() || null : null),
+      z
+        .string()
+        .refine((value) => [...value].length <= 100, {
+          message: "Nome de segmento acima de 100 caracteres",
+        })
+        .nullable()
+    )
+    .optional(),
   // Story 22.13: mesma armadilha da 22.5, com consequencia PAGA. premiumIcebreakers e
   // escrito pelo SERVIDOR no POST /confirm; sem declara-lo aqui, o z.object o stripava
   // em qualquer PATCH posterior (ajuste pos-rejeicao) e o usuario que pagou icebreaker

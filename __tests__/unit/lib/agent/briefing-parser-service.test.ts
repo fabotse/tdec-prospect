@@ -79,6 +79,8 @@ describe("BriefingParserService", () => {
         urgency: null,
         campaignDescription: null,
         emailCount: null,
+        // Story 22.15: idem para o segmento de destino em "Meus Leads"
+        segmentName: null,
       });
       expect(result.rawResponse.productMentioned).toBeNull();
     });
@@ -551,6 +553,88 @@ describe("BriefingParserService", () => {
       expect(systemPrompt).toContain("CAMPOS OPCIONAIS DE CAMPANHA");
       // guardrail NFR1: nao alteram nextAction/skipSteps/busca
       expect(systemPrompt).toContain("NAO alteram nextAction, skipSteps");
+    });
+
+    // ==============================================
+    // Story 22.15: segmentName (destino em "Meus Leads")
+    // ==============================================
+
+    it("deve extrair segmentName quando o usuario pede um segmento (22.15 AC2)", async () => {
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, segmentName: "Teste Atibaia" });
+
+      const result = await BriefingParserService.parse(
+        "CTOs em SP, e coloca no segmento Teste Atibaia",
+        "sk-test"
+      );
+
+      // Sem a linha na montagem campo-a-campo do ParsedBriefing, o campo sumiria aqui.
+      expect(result.briefing.segmentName).toBe("Teste Atibaia");
+    });
+
+    it("deve default null em segmentName quando o usuario nao pede segmento (22.15)", async () => {
+      mockOpenAIResponse(FULL_BRIEFING_RESPONSE);
+
+      const result = await BriefingParserService.parse("briefing simples", "sk-test");
+
+      expect(result.briefing.segmentName).toBeNull();
+    });
+
+    it("deve normalizar segmentName: trim, vazio -> null e > 100 chars -> null (22.15)", async () => {
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, segmentName: "  Teste Atibaia  " });
+      const trimmed = await BriefingParserService.parse("briefing", "sk-test");
+      expect(trimmed.briefing.segmentName).toBe("Teste Atibaia");
+
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, segmentName: "   " });
+      const blank = await BriefingParserService.parse("briefing", "sk-test");
+      expect(blank.briefing.segmentName).toBeNull();
+
+      // segments.name e VARCHAR(100): acima disso cai para null (fail-open) em vez de
+      // derrubar o parse inteiro.
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, segmentName: "s".repeat(120) });
+      const huge = await BriefingParserService.parse("briefing", "sk-test");
+      expect(huge.briefing.segmentName).toBeNull();
+
+      // valor nao-string tambem cai para null sem quebrar o resto do briefing
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, segmentName: 42 });
+      const wrongType = await BriefingParserService.parse("briefing", "sk-test");
+      expect(wrongType.briefing.segmentName).toBeNull();
+      expect(wrongType.briefing.jobTitles).toEqual(["CTO"]);
+    });
+
+    it("mede o teto do segmentName por CODE POINT, nao por unidade UTF-16 (22.15)", async () => {
+      // 100 emojis = 100 caracteres para o VARCHAR(100), mas 200 unidades UTF-16. Com
+      // `.max(100)` cru o nome seria reprovado e o `.catch(null)` descartaria o pedido do
+      // usuario EM SILENCIO — a mesma falha "engolido" que a story existe para matar.
+      const cabe = "🚀".repeat(100);
+      expect(cabe.length).toBe(200);
+
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, segmentName: cabe });
+      const ok = await BriefingParserService.parse("briefing", "sk-test");
+      expect(ok.briefing.segmentName).toBe(cabe);
+
+      // 101 code points continua sendo reprovado (fail-open -> null)
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, segmentName: "🚀".repeat(101) });
+      const naoCabe = await BriefingParserService.parse("briefing", "sk-test");
+      expect(naoCabe.briefing.segmentName).toBeNull();
+    });
+
+    it("SYSTEM_PROMPT ensina a distinguir segmentName de campaignDescription e a responder a pergunta (22.15)", async () => {
+      mockOpenAIResponse(FULL_BRIEFING_RESPONSE);
+
+      await BriefingParserService.parse("briefing", "sk-test");
+
+      const request = mockCreate.mock.calls[0][0] as {
+        messages: Array<{ role: string; content: string }>;
+      };
+      const systemPrompt = request.messages.find((m) => m.role === "system")?.content ?? "";
+
+      expect(systemPrompt).toContain("segmentName");
+      // extrair SO quando pedido
+      expect(systemPrompt).toMatch(/Extraia SOMENTE quando o usuario pedir explicitamente um nome de segmento/);
+      // nao confundir com a descricao da campanha
+      expect(systemPrompt).toContain("NAO confunda com campaignDescription");
+      // e responder afirmativamente citando o nome quando perguntado
+      expect(systemPrompt).toMatch(/AFIRMATIVAMENTE/);
     });
   });
 

@@ -25,6 +25,7 @@ import {
   getServiceApiKeyOrNull,
   requireServiceApiKey,
 } from "@/lib/agent/service-keys";
+import { normalizeSegmentName, persistApprovedLeads } from "@/lib/agent/lead-persistence";
 import { transformProductRow, type ProductRow } from "@/types/product";
 import { ICEBREAKER_CATEGORY_INSTRUCTIONS } from "@/types/ai-prompt";
 import type { IcebreakerCategory } from "@/types/ai-prompt";
@@ -38,6 +39,7 @@ import type {
   CreateCampaignOutput,
   CampaignStructureItem,
   LeadWithIcebreaker,
+  ParsedBriefing,
 } from "@/types/agent";
 import type { AIModel } from "@/types/ai-provider";
 import type { AIContextVariables } from "@/lib/services/knowledge-base-context";
@@ -253,6 +255,16 @@ export class CreateCampaignStep extends BaseStep {
       cost.apify = apifyCalls;
     }
 
+    // Story 22.15: persiste em "Meus Leads" os leads APROVADOS — aqui e o unico ponto do
+    // pipeline onde eles ja estao aprovados (o orchestrator substituiu `leads` por
+    // `approvedLeads`), REVELADOS (bloco de enrichment acima) e com icebreaker.
+    //
+    // Fail-open TOTAL: a campanha ja esta pronta e nunca pode cair por causa disto. A
+    // derivacao do nome do segmento fica DENTRO do try de proposito — `briefing` vem de um
+    // JSONB com mais de um escritor, e um `segmentName` nao-string nao pode escapar do
+    // fail-open.
+    await this.persistLeadsToMyLeads(input.executionId, leadsWithIcebreakers, briefing, campaignName);
+
     return {
       success: true,
       data: data as unknown as Record<string, unknown>,
@@ -263,6 +275,130 @@ export class CreateCampaignStep extends BaseStep {
   // ==============================================
   // PRIVATE HELPERS
   // ==============================================
+
+  /**
+   * Story 22.15: grava os leads aprovados em `leads` + segmento do tenant.
+   *
+   * Contrato desta funcao: NUNCA lanca. A campanha ja esta pronta quando chegamos aqui —
+   * uma falha de RLS/rede na persistencia nao pode derrubar o step (o usuario perderia
+   * uma execucao paga por causa de um efeito colateral). Toda falha vira log + bolha.
+   *
+   * As bolhas sao SEPARADAS de proposito:
+   * - falha total (nada salvo)  -> "nao consegui salvar ... importe manualmente";
+   * - sucesso parcial/`skipped` -> bolha INFORMATIVA. Mandar reimportar leads que ESTAO
+   *   salvos e o que duplica a base que esta story existe para organizar.
+   */
+  private async persistLeadsToMyLeads(
+    executionId: string,
+    leadsWithIcebreakers: LeadWithIcebreaker[],
+    briefing: ParsedBriefing,
+    campaignName: string
+  ): Promise<void> {
+    let persisted = false;
+
+    try {
+      const segmentName =
+        normalizeSegmentName(briefing.segmentName) ?? normalizeSegmentName(campaignName);
+
+      if (!segmentName) return; // nome inutilizavel dos dois lados: nao ha o que fazer
+
+      const result = await persistApprovedLeads({
+        supabase: this.supabase,
+        tenantId: this.tenantId,
+        segmentName,
+        leads: leadsWithIcebreakers,
+      });
+
+      // A partir daqui a persistencia JA rodou: nada mais pode levar a bolha de falha
+      // total ("importe-os manualmente") — ela mandaria reimportar leads que estao salvos.
+      persisted = true;
+
+      const saved = result.inserted + result.reused;
+      const savedLabel = `${saved} ${saved === 1 ? "lead" : "leads"}`;
+      // "Salvei" so quando algo foi REALMENTE gravado nesta execucao. Com `inserted: 0`
+      // (todos os leads ja estavam na base) a frase anunciava uma escrita que nao houve —
+      // numa story cuja premissa e a mensagem honesta.
+      const savedClause =
+        result.inserted > 0
+          ? `Salvei ${savedLabel} em Meus Leads`
+          : `Seus ${savedLabel} ja estavam em Meus Leads`;
+      const lines: string[] = [];
+
+      if (saved === 0) {
+        // Nao ha lead resolvido para citar: `savedClause` diria "Seus 0 leads ja estavam
+        // em Meus Leads", frase absurda — e, no caminho degradado, o OPOSTO do que
+        // aconteceu (o insert pode ter gravado e so nao devolvido os ids).
+        if (result.degraded) {
+          lines.push(
+            "Nao consegui confirmar o salvamento dos leads em Meus Leads — parte deles pode ter sido gravada. Confira por la antes de importar de novo."
+          );
+        } else if (result.skipped > 0) {
+          // Sem esta linha, a bolha diria apenas "N ficaram de fora" e o usuario suporia
+          // que o RESTO foi salvo — nao havia resto.
+          lines.push("Nenhum lead foi salvo em Meus Leads.");
+        }
+      } else if (result.degraded && result.segmentId === null) {
+        // O segmento NAO existe: citar o nome como se existisse manda o usuario procurar
+        // em Meus Leads uma lista que nunca foi criada.
+        lines.push(
+          `${savedClause}, mas nao consegui criar o segmento "${result.segmentName}" — eles estao na base, so nao agrupados nessa lista.`
+        );
+      } else if (result.degraded) {
+        // `savedClause` tambem aqui: com `inserted: 0` (todos ja existiam) e a associacao
+        // falhando, o "Salvei ... no segmento X" fixo anunciava uma escrita que nao houve
+        // E mandava o usuario abrir uma lista onde os leads nao estao.
+        lines.push(
+          `${savedClause}, mas parte da gravacao falhou — pode faltar algum lead, icebreaker ou o agrupamento no segmento "${result.segmentName}".`
+        );
+      } else if (result.skipped > 0) {
+        lines.push(`${savedClause} no segmento "${result.segmentName}".`);
+      }
+
+      if (result.skipped > 0) {
+        lines.push(
+          `${result.skipped} ${result.skipped === 1 ? "lead ficou" : "leads ficaram"} de fora por nao ter e-mail nem ID de origem.`
+        );
+      }
+
+      if (lines.length === 0) return;
+
+      await this.sendMyLeadsNotice(executionId, lines.join("\n"));
+    } catch (error) {
+      console.error("[CreateCampaignStep] Falha ao salvar leads em Meus Leads:", error);
+      // `persisted` guarda o contrato de falha parcial: depois que `persistApprovedLeads`
+      // retornou, os leads estao na base e mandar reimportar duplicaria a base que esta
+      // story existe para organizar. Nesse caso so resta o log.
+      if (!persisted) {
+        await this.sendMyLeadsNotice(
+          executionId,
+          "Nao consegui salvar os leads em Meus Leads — a campanha foi criada normalmente. Se quiser te-los na base, importe-os manualmente."
+        );
+      }
+    }
+  }
+
+  /**
+   * Escreve uma bolha de aviso sobre "Meus Leads". NUNCA lanca e NUNCA propaga erro:
+   * antes, esta escrita ficava dentro do try da persistencia, entao uma falha dela
+   * derrubava o fluxo no catch e o usuario lia "importe-os manualmente" sobre leads que
+   * ESTAVAM salvos. `supabase-js` tambem RETORNA `{ error }` em vez de lancar — sem
+   * checar, a bolha informativa sumia da conversa em silencio.
+   */
+  private async sendMyLeadsNotice(executionId: string, content: string): Promise<void> {
+    try {
+      const { error } = await this.supabase.from("agent_messages").insert({
+        execution_id: executionId,
+        role: "system",
+        content,
+        metadata: { stepNumber: this.stepNumber, messageType: "text" },
+      });
+      if (error) {
+        console.error("[CreateCampaignStep] Falha ao avisar sobre Meus Leads:", error);
+      }
+    } catch (messageError) {
+      console.error("[CreateCampaignStep] Falha ao avisar sobre Meus Leads:", messageError);
+    }
+  }
 
   private async loadKBContext(): Promise<KnowledgeBaseContext | null> {
     const { data: companyData } = await this.supabase

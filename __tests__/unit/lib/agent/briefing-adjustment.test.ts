@@ -99,6 +99,25 @@ describe("mergeAdjustedBriefing (Story 22.13 AC4)", () => {
     expect(merged.industry).toBeNull();
   });
 
+  // Story 22.15: o segmento segue a MESMA politica dos metadados de campanha.
+  it("aplica o segmentName do parse e PRESERVA o persistido quando o parse nao o re-deriva (22.15)", () => {
+    const persistedComSegmento: ParsedBriefing = { ...PERSISTED, segmentName: "Teste Atibaia" };
+
+    // parse traz um novo nome -> vence
+    const trocado = mergeAdjustedBriefing(persistedComSegmento, {
+      ...PARSED,
+      segmentName: "Clientes SP",
+    });
+    expect(trocado.segmentName).toBe("Clientes SP");
+
+    // parse nao re-deriva (ajuste de busca) -> preserva, nunca zera em silencio
+    const preservado = mergeAdjustedBriefing(persistedComSegmento, PARSED);
+    expect(preservado.segmentName).toBe("Teste Atibaia");
+
+    // nenhum dos dois tem -> null
+    expect(mergeAdjustedBriefing(PERSISTED, PARSED).segmentName).toBeNull();
+  });
+
   it("NUNCA deixa o parse rebaixar icebreaker premium pago para standard", () => {
     const merged = mergeAdjustedBriefing(PERSISTED, PARSED);
     expect(merged.premiumIcebreakers).toBe(true);
@@ -195,6 +214,21 @@ describe("buildAdjustmentSummary (Story 22.13 AC2)", () => {
     expect(summary).not.toContain("Localizacao:");
     // e diz a verdade sobre os leads
     expect(summary).toMatch(/leads ja aprovados continuam os mesmos/i);
+  });
+
+  // Story 22.15: esta e a ultima tela antes de uma re-execucao PAGA — sem a linha do
+  // segmento o usuario confirma um gasto sem saber para onde os leads vao.
+  it("na campanha, exibe o SEGMENTO de destino dos leads (22.15)", () => {
+    const comSegmento: ParsedBriefing = { ...PERSISTED, segmentName: "Teste Atibaia" };
+    const summary = buildAdjustmentSummary(comSegmento, comSegmento, "create_campaign", 3);
+
+    expect(summary).toContain("- Segmento: Teste Atibaia");
+  });
+
+  it("na campanha sem segmento pedido, diz que o segmento sera o nome da campanha (22.15)", () => {
+    const summary = buildAdjustmentSummary(PERSISTED, PERSISTED, "create_campaign", 3);
+
+    expect(summary).toContain("- Segmento: nome da campanha");
   });
 });
 
