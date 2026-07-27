@@ -125,3 +125,4 @@ _bmad-output/epic-22-agente-tdec-2.0.html
 # bmad-loop (que roda no tmux/msys2) quebrava com "git worktree is not clean". Ignorar
 # no repo torna a checagem consistente em qualquer ambiente/HOME.
 .claude/settings.local.json
+.bmad-loop/policy.toml
