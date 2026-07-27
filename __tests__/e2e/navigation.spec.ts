@@ -14,6 +14,41 @@ import { test, expect } from "@playwright/test";
 const TEST_USER_EMAIL = process.env.TEST_USER_EMAIL;
 const TEST_USER_PASSWORD = process.env.TEST_USER_PASSWORD;
 
+/**
+ * Espera o AppShell/Sidebar chegarem ao estado final. São DOIS re-renders
+ * assíncronos, e pular qualquer um deles deixa os testes de foco intermitentes:
+ *
+ * 1. Hidratação — a `transition` do <aside> é "none" até `isHydrated` virar
+ *    true, quando passa a 200ms (Sidebar.tsx:443). `networkidle` não serve como
+ *    sinal: o websocket de HMR do dev server mantém tráfego e o evento dispara
+ *    antes do React hidratar.
+ * 2. Perfil do usuário — `visibleNavItems` depende de
+ *    `isAdmin && !isLoading && !isProfileLoading` (Sidebar.tsx:108), vindo de uma
+ *    query. Os itens adminOnly só entram depois que o perfil carrega, e essa
+ *    remontagem da lista rouba o foco. Sob workers em paralelo o fetch demora
+ *    mais — por isso a falha só aparecia em paralelo.
+ */
+async function waitForShellHydrated(page: import("@playwright/test").Page) {
+  await page.locator("aside").waitFor({ state: "visible" });
+  await expect
+    .poll(
+      async () =>
+        page
+          .locator("aside")
+          .evaluate((el) => getComputedStyle(el).transitionDuration),
+      { timeout: 15_000 }
+    )
+    .not.toBe("0s");
+
+  // Item adminOnly visível = perfil resolvido = lista do nav final.
+  // (O usuário de teste é admin — ver docs/client/credentials.md.)
+  await expect(
+    page
+      .getByRole("navigation", { name: /sidebar/i })
+      .getByRole("link", { name: /configurações/i })
+  ).toBeVisible();
+}
+
 test.describe("Application Shell - Navigation (Authenticated)", () => {
   test.beforeEach(async ({ page }) => {
     // Skip all tests if test credentials not configured
@@ -26,10 +61,20 @@ test.describe("Application Shell - Navigation (Authenticated)", () => {
     await page.goto("/login");
     await page.getByLabel(/email/i).fill(TEST_USER_EMAIL!);
     await page.getByLabel(/senha/i).fill(TEST_USER_PASSWORD!);
-    await page.getByRole("button", { name: /entrar/i }).click();
 
-    // Wait for redirect to /leads
-    await page.waitForURL("/leads", { timeout: 10000 });
+    // O clique é retentado até a navegação acontecer.
+    //
+    // Motivo: o fill/click atuam no DOM, que existe antes do React hidratar. Se
+    // o clique chega antes do onSubmit ser ligado, ele simplesmente se perde —
+    // sem erro, sem spinner, o form fica preenchido e parado. Sob carga a
+    // hidratação de /login atrasa e era exatamente isso que acontecia; aumentar
+    // o timeout não resolve, porque não há navegação pendente para esperar.
+    await expect(async () => {
+      await page.getByRole("button", { name: /entrar/i }).click();
+      await page.waitForURL("/leads", { timeout: 15_000 });
+    }).toPass({ timeout: 60_000 });
+
+    await waitForShellHydrated(page);
   });
 
   test.describe("Sidebar", () => {
@@ -38,7 +83,7 @@ test.describe("Application Shell - Navigation (Authenticated)", () => {
     }) => {
       await page.evaluate(() => localStorage.removeItem("sidebar-collapsed"));
       await page.reload();
-      await page.waitForLoadState("networkidle");
+      await waitForShellHydrated(page);
 
       const sidebar = page.locator("aside");
       await expect(sidebar).toBeVisible();
@@ -53,7 +98,10 @@ test.describe("Application Shell - Navigation (Authenticated)", () => {
     }) => {
       const nav = page.getByRole("navigation", { name: /sidebar/i });
 
-      await expect(nav.getByRole("link", { name: /leads/i })).toBeVisible();
+      // "Leads" é um grupo expansível (button aria-haspopup), não um link.
+      await expect(
+        nav.getByRole("button", { name: "Leads", exact: true })
+      ).toBeVisible();
       await expect(nav.getByRole("link", { name: /campanhas/i })).toBeVisible();
       await expect(
         nav.getByRole("link", { name: /configurações/i })
@@ -63,51 +111,55 @@ test.describe("Application Shell - Navigation (Authenticated)", () => {
     test("should highlight active route with left border and background", async ({
       page,
     }) => {
-      const activeLink = page
+      // Em /leads o item ativo é o grupo "Leads" (button), que recebe a borda.
+      const activeItem = page
         .getByRole("navigation", { name: /sidebar/i })
-        .getByRole("link", { name: /leads/i });
+        .getByRole("button", { name: "Leads", exact: true });
 
-      await expect(activeLink).toBeVisible();
-      await expect(activeLink).toHaveCSS("border-left-width", "3px");
+      await expect(activeItem).toBeVisible();
+      await expect(activeItem).toHaveCSS("border-left-width", "3px");
     });
 
     test("should navigate between pages when clicking nav items", async ({
       page,
     }) => {
+      const nav = page.getByRole("navigation", { name: /sidebar/i });
+
       // Click on Campanhas
-      await page
-        .getByRole("navigation", { name: /sidebar/i })
-        .getByRole("link", { name: /campanhas/i })
-        .click();
+      await nav.getByRole("link", { name: /campanhas/i }).click();
 
       await expect(page).toHaveURL("/campaigns");
 
       // Click on Configurações
-      await page
-        .getByRole("navigation", { name: /sidebar/i })
-        .getByRole("link", { name: /configurações/i })
-        .click();
+      await nav.getByRole("link", { name: /configurações/i }).click();
 
       await expect(page).toHaveURL("/settings");
 
-      // Click back on Leads
-      await page
-        .getByRole("navigation", { name: /sidebar/i })
-        .getByRole("link", { name: /leads/i })
-        .click();
+      // Voltar para Leads: o grupo só expande; quem navega é o subitem "Buscar"
+      // (role=menuitem, href=/leads).
+      const leadsGroup = nav.getByRole("button", { name: "Leads", exact: true });
+      if ((await leadsGroup.getAttribute("aria-expanded")) !== "true") {
+        await leadsGroup.click();
+      }
+      await nav.getByRole("menuitem", { name: /buscar/i }).click();
 
       await expect(page).toHaveURL("/leads");
     });
   });
 
   test.describe("Sidebar Collapse", () => {
+    // O <aside> tem mais de um button (grupos expansíveis do menu + este).
+    // Ancorar no aria-label próprio, que cobre os dois estados.
+    const collapseToggle = (page: import("@playwright/test").Page) =>
+      page.getByRole("button", { name: /(recolher|expandir) sidebar/i });
+
     test("should collapse when collapse button clicked", async ({ page }) => {
       await page.evaluate(() => localStorage.removeItem("sidebar-collapsed"));
       await page.reload();
-      await page.waitForLoadState("networkidle");
+      await waitForShellHydrated(page);
 
       const sidebar = page.locator("aside");
-      const toggleButton = page.locator("aside button");
+      const toggleButton = collapseToggle(page);
 
       let box = await sidebar.boundingBox();
       expect(box?.width).toBeGreaterThanOrEqual(238);
@@ -130,14 +182,11 @@ test.describe("Application Shell - Navigation (Authenticated)", () => {
     }) => {
       await page.evaluate(() => localStorage.removeItem("sidebar-collapsed"));
       await page.reload();
-      await page.waitForLoadState("networkidle");
+      await waitForShellHydrated(page);
 
       const sidebar = page.locator("aside");
 
-      await page.evaluate(() => {
-        const button = document.querySelector("aside button");
-        if (button) (button as HTMLButtonElement).click();
-      });
+      await collapseToggle(page).click({ force: true });
 
       // Wait for collapse animation
       await expect.poll(async () => {
@@ -148,10 +197,10 @@ test.describe("Application Shell - Navigation (Authenticated)", () => {
       let box = await sidebar.boundingBox();
       expect(box?.width).toBeLessThanOrEqual(66);
 
-      await page.evaluate(() => {
-        const button = document.querySelector("aside button");
-        if (button) (button as HTMLButtonElement).click();
-      });
+      // Com a sidebar recolhida (64px) o badge do Next.js devtools fica sobre o
+      // botão; um click por coordenada acerta o overlay. dispatchEvent vai no
+      // elemento real, sem hit-testing.
+      await collapseToggle(page).dispatchEvent("click");
 
       // Wait for expand animation
       await expect.poll(async () => {
@@ -168,10 +217,10 @@ test.describe("Application Shell - Navigation (Authenticated)", () => {
     }) => {
       await page.evaluate(() => localStorage.removeItem("sidebar-collapsed"));
       await page.reload();
-      await page.waitForLoadState("networkidle");
+      await waitForShellHydrated(page);
 
       const sidebar = page.locator("aside");
-      const toggleButton = page.locator("aside button");
+      const toggleButton = collapseToggle(page);
 
       await toggleButton.click({ force: true });
 
@@ -190,7 +239,7 @@ test.describe("Application Shell - Navigation (Authenticated)", () => {
       expect(storedValue).toBe("true");
 
       await page.reload();
-      await page.waitForLoadState("networkidle");
+      await waitForShellHydrated(page);
 
       // Wait for sidebar to render in collapsed state
       await expect.poll(async () => {
@@ -258,12 +307,13 @@ test.describe("Application Shell - Navigation (Authenticated)", () => {
     });
 
     test("should show visible focus states", async ({ page }) => {
-      const leadsLink = page
+      const leadsItem = page
         .getByRole("navigation", { name: /sidebar/i })
-        .getByRole("link", { name: /leads/i });
+        .getByRole("button", { name: "Leads", exact: true });
 
-      await leadsLink.focus();
-      await expect(leadsLink).toBeFocused();
+      await expect(leadsItem).toBeVisible();
+      await leadsItem.focus();
+      await expect(leadsItem).toBeFocused();
     });
   });
 });
