@@ -21,7 +21,7 @@ class TestStep extends BaseStep {
   public shouldThrow: Error | null = null;
   public callCount = 0;
 
-  protected async executeInternal(_input: StepInput): Promise<StepOutput> {
+  protected async executeInternal(): Promise<StepOutput> {
     this.callCount++;
     if (this.shouldThrow) throw this.shouldThrow;
     return this.executeResult;
@@ -311,7 +311,10 @@ describe("BaseStep (AC #4)", () => {
           role: "system",
           metadata: expect.objectContaining({
             stepNumber: 1,
-            messageType: "progress",
+            // Story 22.17 (AC3): o log de CONCLUSAO do step deixou de ser "progress"
+            // (que a bolha renderiza como "Processando..." + spinner) e virou um tipo
+            // proprio de conclusao.
+            messageType: "step_complete",
           }),
         })
       );

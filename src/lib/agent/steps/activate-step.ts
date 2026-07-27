@@ -33,6 +33,15 @@ export class ActivateStep extends BaseStep {
     this.tenantId = tenantId;
   }
 
+  /**
+   * Story 22.17 (AC2): a aprovacao da ativacao acontece ANTES — no gate do export,
+   * quando o usuario clica "Ativar Campanha". Depois de a campanha estar ativa no
+   * Instantly nao ha nada para aprovar: o step conclui e a execucao fecha.
+   */
+  override requiresPostApproval(): boolean {
+    return false;
+  }
+
   protected async executeInternal(input: StepInput): Promise<StepOutput> {
     const { previousStepOutput } = input;
 
@@ -103,11 +112,13 @@ export class ActivateStep extends BaseStep {
     });
 
     // 3.7 - Sub-step C: Enviar mensagem de confirmacao
+    // Story 22.17 (AC4): "com 1 leads" era o texto da mensagem de MAIOR sucesso do fluxo.
     const leadsCount = totalLeads ?? 0;
+    const leadsLabel = leadsCount === 1 ? "1 lead" : `${leadsCount} leads`;
     await this.supabase.from("agent_messages").insert({
       execution_id: input.executionId,
       role: "agent",
-      content: `Campanha '${campaignName}' ativa no Instantly com ${leadsCount} leads`,
+      content: `Campanha '${campaignName}' ativa no Instantly com ${leadsLabel}`,
       metadata: {
         stepNumber: this.stepNumber,
         messageType: "summary",

@@ -50,14 +50,28 @@ export abstract class BaseStep {
     try {
       const result = await this.executeInternal(input);
 
-      if (input.mode === "guided") {
+      if (input.mode === "guided" && this.requiresPostApproval()) {
         await this.saveAwaitingApproval(db, input.executionId, result);
         await this.sendApprovalGateMessage(db, input.executionId, result);
       } else {
         await this.saveCheckpoint(db, input.executionId, result);
       }
 
-      await this.logStep(db, input.executionId, input, result);
+      // Story 22.17 (code review): o `logStep` e a escrita MENOS critica do step — puro
+      // registro do que JA aconteceu. Fora da guarda, uma falha nele caia no `catch` abaixo,
+      // que chama `saveFailure`: o step recem-gravado como `completed` virava `failed`, o
+      // `output` real (`activated: true`, `externalCampaignId`) era substituido por
+      // `{ error }`, e o orchestrator escrevia `paused` — com a campanha JA ativa no
+      // Instantly. E a mesma regra ja adotada para o `sendSummaryMessage`, uma camada antes.
+      // Vale para os 5 steps: nenhum deve ser declarado falho por causa de uma linha de log.
+      try {
+        await this.logStep(db, input.executionId, input, result);
+      } catch (logError) {
+        console.error(
+          `[BaseStep] Falha ao registrar a conclusao do step ${this.stepNumber} (${this.stepType}, execution=${input.executionId}); o status ja gravado permanece:`,
+          logError instanceof Error ? logError.message : logError
+        );
+      }
 
       return result;
     } catch (error) {
@@ -72,6 +86,24 @@ export abstract class BaseStep {
    * (2.1)
    */
   protected abstract executeInternal(input: StepInput): Promise<StepOutput>;
+
+  /**
+   * Story 22.17 (AC2): o step guiado precisa de uma aprovacao DEPOIS de executar?
+   *
+   * Default `true` — o modo guiado existe justamente para o usuario revisar o
+   * resultado de cada etapa antes de seguir.
+   *
+   * O `activate` sobrescreve para `false`: ali a aprovacao e EX-ANTE (o usuario ja
+   * clicou "Ativar Campanha" no gate do export, com `approvedData.activate: true`).
+   * Pedir um segundo approve depois de a campanha JA estar ativa no Instantly era
+   * teatro — e sem UI para esse gate, prendia a execucao em `running` para sempre.
+   *
+   * Publico de proposito: o orchestrator consulta este contrato para decidir se o
+   * ultimo step guiado fecha a execucao.
+   */
+  requiresPostApproval(): boolean {
+    return true;
+  }
 
   /**
    * Convert any error to PipelineError.
@@ -264,7 +296,10 @@ export abstract class BaseStep {
       content,
       metadata: {
         stepNumber: this.stepNumber,
-        messageType: "progress",
+        // Story 22.17 (AC3): esta mensagem RELATA o fim do step — nao e progresso.
+        // Como "progress", a bolha exibia "Processando..." + spinner eterno em cima
+        // de um texto que dizia "concluido com sucesso".
+        messageType: "step_complete",
         input: { briefing: input.briefing },
         output: output.data,
       },

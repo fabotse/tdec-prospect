@@ -27,6 +27,8 @@ vi.mock("@/lib/agent/steps/search-companies-step", () => {
       run = mockSearchCompaniesRun;
       stepNumber: number;
       stepType: string;
+      // Story 22.17: espelha o contrato publico do BaseStep.
+      requiresPostApproval = () => true;
       constructor(stepNumber: number) {
         this.stepNumber = stepNumber;
         this.stepType = "search_companies";
@@ -41,6 +43,8 @@ vi.mock("@/lib/agent/steps/search-leads-step", () => {
       run = mockSearchLeadsRun;
       stepNumber: number;
       stepType: string;
+      // Story 22.17: espelha o contrato publico do BaseStep.
+      requiresPostApproval = () => true;
       constructor(stepNumber: number) {
         this.stepNumber = stepNumber;
         this.stepType = "search_leads";
@@ -55,6 +59,8 @@ vi.mock("@/lib/agent/steps/create-campaign-step", () => {
       run = mockCreateCampaignRun;
       stepNumber: number;
       stepType: string;
+      // Story 22.17: espelha o contrato publico do BaseStep.
+      requiresPostApproval = () => true;
       constructor(stepNumber: number) {
         this.stepNumber = stepNumber;
         this.stepType = "create_campaign";
@@ -69,6 +75,8 @@ vi.mock("@/lib/agent/steps/export-step", () => {
       run = mockExportRun;
       stepNumber: number;
       stepType: string;
+      // Story 22.17: espelha o contrato publico do BaseStep.
+      requiresPostApproval = () => true;
       constructor(stepNumber: number) {
         this.stepNumber = stepNumber;
         this.stepType = "export";
@@ -83,6 +91,8 @@ vi.mock("@/lib/agent/steps/activate-step", () => {
       run = mockActivateRun;
       stepNumber: number;
       stepType: string;
+      // Story 22.17: espelha o contrato publico do BaseStep.
+      requiresPostApproval = () => false;
       constructor(stepNumber: number) {
         this.stepNumber = stepNumber;
         this.stepType = "activate";
@@ -351,7 +361,9 @@ describe("DeterministicOrchestrator (AC #5)", () => {
           stepsCallCount++;
           if (stepsCallCount === 1) return stepsChain;
           if (stepsCallCount === 2) return prevStepChain;
-          return createChainBuilder({ data: { id: "step-x" }, error: null });
+          // Story 22.17: a 3a leitura de agent_steps e o sendSummaryMessage (o activate
+          // guiado agora FECHA a execucao) — precisa devolver um array.
+          return createChainBuilder({ data: [], error: null });
         }
         if (table === "agent_messages") return mockSupabase.messagesChain;
         return createChainBuilder();
@@ -426,7 +438,9 @@ describe("DeterministicOrchestrator (AC #5)", () => {
           // Third+: BaseStep internal calls (updateStepStatus, saveCheckpoint, etc.)
           if (stepsCallCount === 1) return stepsChain;
           if (stepsCallCount === 2) return prevStepChain;
-          return createChainBuilder({ data: { id: "step-x" }, error: null });
+          // Story 22.17: a 3a leitura de agent_steps e o sendSummaryMessage (o activate
+          // guiado agora FECHA a execucao) — precisa devolver um array.
+          return createChainBuilder({ data: [], error: null });
         }
         if (table === "agent_messages") return mockSupabase.messagesChain;
         return createChainBuilder();
@@ -480,7 +494,9 @@ describe("DeterministicOrchestrator (AC #5)", () => {
           stepsCallCount++;
           if (stepsCallCount === 1) return stepsChain;
           if (stepsCallCount === 2) return prevStepChain;
-          return createChainBuilder({ data: { id: "step-x" }, error: null });
+          // Story 22.17: a 3a leitura de agent_steps e o sendSummaryMessage (o activate
+          // guiado agora FECHA a execucao) — precisa devolver um array.
+          return createChainBuilder({ data: [], error: null });
         }
         if (table === "agent_messages") return mockSupabase.messagesChain;
         return createChainBuilder();
@@ -528,7 +544,9 @@ describe("DeterministicOrchestrator (AC #5)", () => {
           stepsCallCount++;
           if (stepsCallCount === 1) return stepsChain;
           if (stepsCallCount === 2) return prevStepChain;
-          return createChainBuilder({ data: { id: "step-x" }, error: null });
+          // Story 22.17: a 3a leitura de agent_steps e o sendSummaryMessage (o activate
+          // guiado agora FECHA a execucao) — precisa devolver um array.
+          return createChainBuilder({ data: [], error: null });
         }
         if (table === "agent_messages") return mockSupabase.messagesChain;
         return createChainBuilder();
@@ -622,7 +640,9 @@ describe("DeterministicOrchestrator (AC #5)", () => {
           stepsCallCount++;
           if (stepsCallCount === 1) return stepsChain;
           if (stepsCallCount === 2) return prevStepChain;
-          return createChainBuilder({ data: { id: "step-x" }, error: null });
+          // Story 22.17: a 3a leitura de agent_steps e o sendSummaryMessage (o activate
+          // guiado agora FECHA a execucao) — precisa devolver um array.
+          return createChainBuilder({ data: [], error: null });
         }
         if (table === "agent_messages") return mockSupabase.messagesChain;
         return createChainBuilder();
@@ -667,7 +687,9 @@ describe("DeterministicOrchestrator (AC #5)", () => {
           stepsCallCount++;
           if (stepsCallCount === 1) return stepsChain;
           if (stepsCallCount === 2) return prevStepChain;
-          return createChainBuilder({ data: { id: "step-x" }, error: null });
+          // Story 22.17: a 3a leitura de agent_steps e o sendSummaryMessage (o activate
+          // guiado agora FECHA a execucao) — precisa devolver um array.
+          return createChainBuilder({ data: [], error: null });
         }
         if (table === "agent_messages") return mockSupabase.messagesChain;
         return createChainBuilder();
@@ -767,7 +789,14 @@ describe("DeterministicOrchestrator (AC #5)", () => {
       );
     });
 
-    it("does NOT mark execution as completed for last step in guided mode", async () => {
+    /**
+     * Story 22.17 (AC2): ANTES desta story este teste afirmava o BUG — "guided nunca
+     * completa no ultimo step". A execucao ficava `running` para sempre depois de uma
+     * ativacao REAL bem-sucedida no Instantly. A aprovacao do activate e EX-ANTE (o
+     * clique em "Ativar Campanha" no gate do export), entao o ultimo step guiado que
+     * nao exige post-approval FECHA a execucao, igual ao autopilot.
+     */
+    it("marks execution as completed when the last GUIDED step needs no post-approval (Story 22.17 AC2)", async () => {
       // Default mock execution has mode: "guided"
       const prevStepChain = createChainBuilder({
         data: { output: { externalCampaignId: "camp-123", campaignName: "Test" } },
@@ -785,9 +814,91 @@ describe("DeterministicOrchestrator (AC #5)", () => {
         error: null,
       });
 
+      const allStepsChain = createChainBuilder({
+        data: [
+          { step_number: 5, step_type: "activate", status: "completed", output: { activated: true } },
+        ],
+        error: null,
+      });
+
       let stepsCallCount = 0;
       mockSupabase.from.mockImplementation((table: string) => {
         if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          if (stepsCallCount === 3) return allStepsChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      mockActivateRun.mockResolvedValue({
+        success: true,
+        data: { activated: true },
+        cost: { instantly_activate: 1 },
+      });
+
+      await orchestrator.executeStep("exec-001", 5);
+
+      expect(mockSupabase.executionsChain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "completed",
+          completed_at: expect.any(String),
+        })
+      );
+      // CAS da 22.10 preservado — um cancel concorrente continua prevalecendo.
+      expect(mockSupabase.executionsChain.neq).toHaveBeenCalledWith("status", "cancelled");
+      // Resumo final do pipeline (o mesmo do autopilot) chega ao chat.
+      expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: expect.stringContaining("Pipeline concluido"),
+          metadata: expect.objectContaining({ messageType: "summary" }),
+        })
+      );
+    });
+
+    /**
+     * Story 22.17 (code review): o supabase-js NAO lanca em erro de query — devolve
+     * `{ error }`. Sem checar, uma falha na escrita de `completed` passava batida e o
+     * "Pipeline concluido com sucesso!" ia para o chat de uma execucao que continuou
+     * `running`. O irmao do ramo defer (22.12) ja levantava ORCHESTRATOR_COMPLETION_FAILED.
+     */
+    it("levanta ORCHESTRATOR_COMPLETION_FAILED e nao manda resumo quando a escrita de completed falha (Story 22.17 review)", async () => {
+      const prevStepChain = createChainBuilder({
+        data: { output: { externalCampaignId: "camp-123", campaignName: "Test" } },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-5",
+          execution_id: "exec-001",
+          step_number: 5,
+          step_type: "activate",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      const failingCompletion = createChainBuilder({
+        data: null,
+        error: { message: "permission denied for table agent_executions" },
+      });
+      const pausedChain = createChainBuilder({ data: null, error: null });
+
+      let execCallCount = 0;
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") {
+          execCallCount++;
+          // 1: fetch da execucao | 2: escrita de completed (falha) | 3+: paused
+          if (execCallCount === 1) return mockSupabase.executionsChain;
+          if (execCallCount === 2) return failingCompletion;
+          return pausedChain;
+        }
         if (table === "agent_steps") {
           stepsCallCount++;
           if (stepsCallCount === 1) return stepsChain;
@@ -804,9 +915,66 @@ describe("DeterministicOrchestrator (AC #5)", () => {
         cost: { instantly_activate: 1 },
       });
 
+      await expect(orchestrator.executeStep("exec-001", 5)).rejects.toMatchObject({
+        code: "ORCHESTRATOR_COMPLETION_FAILED",
+      });
+
+      // Nenhum "Pipeline concluido com sucesso!" sobre uma execucao que nao completou.
+      const summaryInserts = mockSupabase.messagesChain.insert.mock.calls
+        .map((call: unknown[]) => call[0] as Record<string, unknown>)
+        .filter(
+          (arg) =>
+            typeof arg.content === "string" &&
+            (arg.content as string).includes("Pipeline concluido")
+        );
+      expect(summaryInserts).toHaveLength(0);
+
+      // Caminho de erro padrao do orchestrator: 'paused', NUNCA 'failed' direto.
+      expect(pausedChain.update).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "paused" })
+      );
+    });
+
+    it("does NOT mark execution as completed when the last guided step DOES need post-approval (Story 22.17 AC5)", async () => {
+      // Default mock execution has mode: "guided"
+      const prevStepChain = createChainBuilder({
+        data: { output: { campaignId: "camp-1", campaignName: "Test" } },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-5",
+          execution_id: "exec-001",
+          step_number: 5,
+          step_type: "export",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          // Story 22.17: a 3a leitura de agent_steps e o sendSummaryMessage (o activate
+          // guiado agora FECHA a execucao) — precisa devolver um array.
+          return createChainBuilder({ data: [], error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      mockExportRun.mockResolvedValue({
+        success: true,
+        data: { externalCampaignId: "camp-ext", leadsUploaded: 3 },
+      });
+
       await orchestrator.executeStep("exec-001", 5);
 
-      // Should NOT mark as completed — guided mode waits for user approval
       const updateCalls = mockSupabase.executionsChain.update.mock.calls;
       const completedCalls = updateCalls.filter(
         (call: unknown[]) => (call[0] as Record<string, unknown>).status === "completed"
@@ -856,7 +1024,9 @@ describe("DeterministicOrchestrator (AC #5)", () => {
           stepsCallCount++;
           if (stepsCallCount === 1) return stepsChain;
           if (stepsCallCount === 2) return prevStepChain;
-          return createChainBuilder({ data: { id: "step-x" }, error: null });
+          // Story 22.17: a 3a leitura de agent_steps e o sendSummaryMessage (o activate
+          // guiado agora FECHA a execucao) — precisa devolver um array.
+          return createChainBuilder({ data: [], error: null });
         }
         if (table === "agent_messages") return mockSupabase.messagesChain;
         return createChainBuilder();
@@ -910,7 +1080,9 @@ describe("DeterministicOrchestrator (AC #5)", () => {
           stepsCallCount++;
           if (stepsCallCount === 1) return stepsChain;
           if (stepsCallCount === 2) return prevStepChain;
-          return createChainBuilder({ data: { id: "step-x" }, error: null });
+          // Story 22.17: a 3a leitura de agent_steps e o sendSummaryMessage (o activate
+          // guiado agora FECHA a execucao) — precisa devolver um array.
+          return createChainBuilder({ data: [], error: null });
         }
         if (table === "agent_messages") return mockSupabase.messagesChain;
         return createChainBuilder();
@@ -977,7 +1149,9 @@ describe("DeterministicOrchestrator (AC #5)", () => {
           stepsCallCount++;
           if (stepsCallCount === 1) return stepsChain;
           if (stepsCallCount === 2) return prevStepChain;
-          return createChainBuilder({ data: { id: "step-x" }, error: null });
+          // Story 22.17: a 3a leitura de agent_steps e o sendSummaryMessage (o activate
+          // guiado agora FECHA a execucao) — precisa devolver um array.
+          return createChainBuilder({ data: [], error: null });
         }
         if (table === "agent_messages") return mockSupabase.messagesChain;
         return createChainBuilder();
@@ -1083,7 +1257,9 @@ describe("DeterministicOrchestrator (AC #5)", () => {
           stepsCallCount++;
           if (stepsCallCount === 1) return stepsChain;
           if (stepsCallCount === 2) return prevStepChain;
-          return createChainBuilder({ data: { id: "step-x" }, error: null });
+          // Story 22.17: a 3a leitura de agent_steps e o sendSummaryMessage (o activate
+          // guiado agora FECHA a execucao) — precisa devolver um array.
+          return createChainBuilder({ data: [], error: null });
         }
         if (table === "agent_messages") return mockSupabase.messagesChain;
         return createChainBuilder();
@@ -1134,7 +1310,9 @@ describe("DeterministicOrchestrator (AC #5)", () => {
           stepsCallCount++;
           if (stepsCallCount === 1) return stepsChain;
           if (stepsCallCount === 2) return prevStepChain;
-          return createChainBuilder({ data: { id: "step-x" }, error: null });
+          // Story 22.17: a 3a leitura de agent_steps e o sendSummaryMessage (o activate
+          // guiado agora FECHA a execucao) — precisa devolver um array.
+          return createChainBuilder({ data: [], error: null });
         }
         if (table === "agent_messages") return mockSupabase.messagesChain;
         return createChainBuilder();
@@ -1272,7 +1450,9 @@ describe("DeterministicOrchestrator (AC #5)", () => {
           stepsCallCount++;
           if (stepsCallCount === 1) return stepsChain;
           if (stepsCallCount === 2) return prevStepChain;
-          return createChainBuilder({ data: { id: "step-x" }, error: null });
+          // Story 22.17: a 3a leitura de agent_steps e o sendSummaryMessage (o activate
+          // guiado agora FECHA a execucao) — precisa devolver um array.
+          return createChainBuilder({ data: [], error: null });
         }
         if (table === "agent_messages") return mockSupabase.messagesChain;
         return createChainBuilder();
@@ -1314,7 +1494,9 @@ describe("DeterministicOrchestrator (AC #5)", () => {
           stepsCallCount++;
           if (stepsCallCount === 1) return stepsChain;
           if (stepsCallCount === 2) return prevStepChain;
-          return createChainBuilder({ data: { id: "step-x" }, error: null });
+          // Story 22.17: a 3a leitura de agent_steps e o sendSummaryMessage (o activate
+          // guiado agora FECHA a execucao) — precisa devolver um array.
+          return createChainBuilder({ data: [], error: null });
         }
         if (table === "agent_messages") return mockSupabase.messagesChain;
         return createChainBuilder();
@@ -1473,7 +1655,9 @@ describe("DeterministicOrchestrator (AC #5)", () => {
           stepsCallCount++;
           if (stepsCallCount === 1) return stepsChain;
           if (stepsCallCount === 2) return prevStepChain;
-          return createChainBuilder({ data: { id: "step-x" }, error: null });
+          // Story 22.17: a 3a leitura de agent_steps e o sendSummaryMessage (o activate
+          // guiado agora FECHA a execucao) — precisa devolver um array.
+          return createChainBuilder({ data: [], error: null });
         }
         if (table === "agent_messages") return mockSupabase.messagesChain;
         return createChainBuilder();
@@ -1562,7 +1746,149 @@ describe("DeterministicOrchestrator (AC #5)", () => {
       );
     });
 
-    it("does NOT send summary message in guided mode", async () => {
+    /**
+     * Story 22.17 (code review): a AC4 matou o "com 1 leads" do activate, mas a AC2 fez
+     * ESTE resumo aparecer no guiado pela primeira vez — com os mesmos plurais cravados,
+     * uma bolha abaixo da string corrigida. No cenario do smoke (1 lead) o usuario lia
+     * "ativa no Instantly com 1 lead" seguido de "exportada para Instantly com 1 leads".
+     */
+    it("pluraliza o resumo final — 1 lead / 1 contato / 1 email no singular (Story 22.17 review)", async () => {
+      const autopilotExecution = createChainBuilder({
+        data: {
+          id: "exec-001",
+          tenant_id: "tenant-1",
+          user_id: "user-1",
+          status: "running",
+          mode: "autopilot",
+          briefing: mockBriefing,
+          current_step: 1,
+          total_steps: 1,
+          cost_estimate: null,
+          cost_actual: null,
+          result_summary: null,
+          error_message: null,
+          started_at: "2026-03-26T10:00:00Z",
+          completed_at: null,
+          created_at: "2026-03-26T10:00:00Z",
+          updated_at: "2026-03-26T10:00:00Z",
+        },
+        error: null,
+      });
+
+      const allStepsChain = createChainBuilder({
+        data: [
+          { step_number: 1, step_type: "search_companies", status: "completed", output: { totalFound: 1 } },
+          { step_number: 2, step_type: "search_leads", status: "completed", output: { totalFound: 1 } },
+          {
+            step_number: 3,
+            step_type: "create_campaign",
+            status: "completed",
+            output: { campaignName: "Campanha X", structure: { totalEmails: 1 } },
+          },
+          { step_number: 4, step_type: "export", status: "completed", output: { leadsUploaded: 1 } },
+        ],
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return autopilotExecution;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return mockSupabase.stepsChain;
+          if (stepsCallCount === 2) return allStepsChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      mockSearchCompaniesRun.mockResolvedValue({
+        success: true,
+        data: { companies: [], totalFound: 1 },
+      });
+
+      await orchestrator.executeStep("exec-001", 1);
+
+      const summaryInsert = mockSupabase.messagesChain.insert.mock.calls
+        .map((call: unknown[]) => call[0] as Record<string, unknown>)
+        .find(
+          (arg) =>
+            (arg.metadata as Record<string, unknown> | undefined)?.messageType === "summary"
+        );
+      const content = summaryInsert?.content as string;
+
+      expect(content).toContain("1 encontrada via TheirStack");
+      expect(content).toContain("1 contato encontrado via Apollo");
+      expect(content).toContain("criada com 1 email na sequencia");
+      expect(content).toContain("com 1 lead");
+      // O defeito exato que a AC4 mata — em nenhuma das linhas.
+      expect(content).not.toContain("1 leads");
+      expect(content).not.toContain("1 contatos");
+      expect(content).not.toContain("1 emails");
+      expect(content).not.toContain("1 encontradas");
+    });
+
+    it("mantem o plural quando ha mais de um (Story 22.17 review)", async () => {
+      const autopilotExecution = createChainBuilder({
+        data: {
+          id: "exec-001",
+          tenant_id: "tenant-1",
+          user_id: "user-1",
+          status: "running",
+          mode: "autopilot",
+          briefing: mockBriefing,
+          current_step: 1,
+          total_steps: 1,
+          cost_estimate: null,
+          cost_actual: null,
+          result_summary: null,
+          error_message: null,
+          started_at: "2026-03-26T10:00:00Z",
+          completed_at: null,
+          created_at: "2026-03-26T10:00:00Z",
+          updated_at: "2026-03-26T10:00:00Z",
+        },
+        error: null,
+      });
+
+      const allStepsChain = createChainBuilder({
+        data: [
+          { step_number: 1, step_type: "export", status: "completed", output: { leadsUploaded: 7 } },
+        ],
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return autopilotExecution;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return mockSupabase.stepsChain;
+          if (stepsCallCount === 2) return allStepsChain;
+          return createChainBuilder({ data: { id: "step-x" }, error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      mockSearchCompaniesRun.mockResolvedValue({ success: true, data: { totalFound: 7 } });
+
+      await orchestrator.executeStep("exec-001", 1);
+
+      const summaryInsert = mockSupabase.messagesChain.insert.mock.calls
+        .map((call: unknown[]) => call[0] as Record<string, unknown>)
+        .find(
+          (arg) =>
+            (arg.metadata as Record<string, unknown> | undefined)?.messageType === "summary"
+        );
+      expect(summaryInsert?.content as string).toContain("com 7 leads");
+    });
+
+    // Story 22.17 (code review): o titulo antigo era "does NOT send summary message in
+    // guided mode" — regra que a 22.17 DELETOU (o guiado passa a mandar resumo quando o
+    // ultimo step nao exige post-approval). O corpo sempre foi sobre step intermediario.
+    it("does NOT send summary message for a non-last step in guided mode", async () => {
       // Default mock execution is guided, total_steps=5
       // Step 1 of 5 = not last step → no summary regardless
       await orchestrator.executeStep("exec-001", 1);

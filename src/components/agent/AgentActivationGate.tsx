@@ -93,6 +93,10 @@ export function AgentActivationGate({
         throw new Error(errorData?.error?.message ?? "Erro ao ativar");
       }
       setActionTaken("activated");
+      // Story 22.17 (AC1): o caminho de SUCESSO tambem precisa limpar `loading` — sem
+      // isso o Loader2 girava para sempre ao lado do "✅ Campanha ativada". Os botoes
+      // continuam desabilitados porque `isDisabled` tambem olha `actionTaken`.
+      setLoading(null);
       onAction?.();
       // Story 17.7 - AC #6: Auto-advance (guard: won't trigger if last step)
       // Fire-and-forget: activation already saved, don't let trigger failure affect UI
@@ -126,6 +130,8 @@ export function AgentActivationGate({
         throw new Error(errorData?.error?.message ?? "Erro ao adiar ativacao");
       }
       setActionTaken("deferred");
+      // Story 22.17 (AC1): idem handleActivate — spinner para no sucesso.
+      setLoading(null);
       onAction?.();
       // Trigger next step so orchestrator processes activationDeferred skip + completes execution
       triggerNextStep(executionId, stepNumber, totalSteps).catch(() => {});

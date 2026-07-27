@@ -681,11 +681,14 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
       it("o logStep NAO diz 'concluido com sucesso' (AC1)", async () => {
         await step.run(directEntryInput());
 
-        const progressInserts = mockSupabase.messagesChain.insert.mock.calls
+        // Story 22.17 (AC3): o log de conclusao do step passou de "progress" para
+        // "step_complete" (nao gira mais spinner). O que a 22.14 guarda aqui continua
+        // igual: o TEXTO nao pode dizer "concluido com sucesso" com zero resultados.
+        const completionInserts = mockSupabase.messagesChain.insert.mock.calls
           .map((call) => call[0])
-          .filter((arg) => arg?.metadata?.messageType === "progress");
+          .filter((arg) => arg?.metadata?.messageType === "step_complete");
 
-        const conclusion = progressInserts.find((arg) =>
+        const conclusion = completionInserts.find((arg) =>
           String(arg.content).startsWith("Step 2")
         );
         expect(conclusion).toBeDefined();

@@ -128,6 +128,63 @@ describe("AgentMessageBubble (AC: #3)", () => {
     expect(screen.getByText("Processando...")).toBeInTheDocument();
   });
 
+  // ==============================================
+  // Story 22.17 (AC3): conclusao nao "processa"
+  // ==============================================
+
+  describe("Story 22.17 - messageType step_complete (AC3)", () => {
+    it("renderiza label 'Concluido' sem spinner", () => {
+      const { container } = render(
+        <AgentMessageBubble
+          message={createMessage({
+            role: "agent",
+            content: "Step 5 (activate) concluido com sucesso",
+            metadata: { messageType: "step_complete", stepNumber: 5 },
+          })}
+        />
+      );
+      expect(screen.getByText("Concluido")).toBeInTheDocument();
+      // O bug: a conclusao era gravada como `progress` e girava um Loader2 eterno.
+      expect(container.querySelector(".animate-spin")).toBeNull();
+    });
+
+    it("mensagens progress legitimas mantem o visual atual (spinner + 'Processando...')", () => {
+      const { container } = render(
+        <AgentMessageBubble
+          message={createMessage({
+            role: "agent",
+            content: "Etapa 5/5: Ativando campanha no Instantly...",
+            metadata: { messageType: "progress", stepNumber: 5 },
+          })}
+        />
+      );
+      expect(screen.getByText("Processando...")).toBeInTheDocument();
+      expect(container.querySelector(".animate-spin")).not.toBeNull();
+    });
+
+    /**
+     * Story 22.17 (code review): a cadeia de `messageType === "x" && "..."` nao tinha
+     * default. Um tipo FORA da union (exatamente o que `step_complete` era para um cliente
+     * anterior a esta story) passava no guard `!== "text"`, nao casava label nenhum e caia
+     * no `default: null` do icone — renderizando uma faixa de cabecalho VAZIA sobre o texto.
+     */
+    it("tipo desconhecido cai num label neutro em vez de faixa vazia", () => {
+      render(
+        <AgentMessageBubble
+          message={createMessage({
+            role: "agent",
+            content: "Mensagem de um tipo que este cliente ainda nao conhece",
+            metadata: { messageType: "tipo_do_futuro" as never, stepNumber: 1 },
+          })}
+        />
+      );
+      expect(screen.getByText("Atualizacao")).toBeInTheDocument();
+      expect(
+        screen.getByText("Mensagem de um tipo que este cliente ainda nao conhece")
+      ).toBeInTheDocument();
+    });
+  });
+
   it("renders error message type with label", () => {
     render(
       <AgentMessageBubble

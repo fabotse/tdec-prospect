@@ -156,6 +156,48 @@ describe("AgentActivationGate (AC: #4, #5, #6)", () => {
     });
   });
 
+  // ==============================================
+  // Story 22.17 (AC1): o spinner tem que PARAR no sucesso
+  // ==============================================
+
+  describe("Story 22.17 - spinner para no sucesso (AC1)", () => {
+    it("para o spinner do botao apos ativar com sucesso", async () => {
+      const { container } = renderComponent();
+      fireEvent.click(screen.getByLabelText("Selecionar conta sender1@company.com"));
+      fireEvent.click(screen.getByTestId("activation-activate-btn"));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Campanha ativada/)).toBeInTheDocument();
+      });
+      // O bug: `loading` continuava "activate" no caminho de sucesso — o Loader2
+      // girava para sempre ao lado do "✅ Campanha ativada".
+      expect(container.querySelector(".animate-spin")).toBeNull();
+    });
+
+    it("para o spinner do botao apos adiar com sucesso", async () => {
+      const { container } = renderComponent();
+      fireEvent.click(screen.getByLabelText("Selecionar conta sender1@company.com"));
+      fireEvent.click(screen.getByTestId("activation-defer-btn"));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Ativacao adiada/)).toBeInTheDocument();
+      });
+      expect(container.querySelector(".animate-spin")).toBeNull();
+    });
+
+    it("mantem os botoes desabilitados apos o sucesso (actionTaken segura)", async () => {
+      renderComponent();
+      fireEvent.click(screen.getByLabelText("Selecionar conta sender1@company.com"));
+      fireEvent.click(screen.getByTestId("activation-activate-btn"));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Campanha ativada/)).toBeInTheDocument();
+      });
+      expect(screen.getByTestId("activation-activate-btn")).toBeDisabled();
+      expect(screen.getByTestId("activation-defer-btn")).toBeDisabled();
+    });
+  });
+
   // Error handling
   it("shows error message on activation failure", async () => {
     mockFetch.mockResolvedValueOnce({

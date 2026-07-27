@@ -17,7 +17,11 @@ export type ExecutionMode = 'guided' | 'autopilot';
 export type StepType = 'search_companies' | 'search_leads' | 'create_campaign' | 'export' | 'activate';
 export type StepStatus = 'pending' | 'running' | 'awaiting_approval' | 'approved' | 'completed' | 'failed' | 'skipped';
 export type MessageRole = 'user' | 'agent' | 'system';
-export type MessageType = 'text' | 'approval_gate' | 'progress' | 'error' | 'cost_estimate' | 'summary' | 'skip';
+// Story 22.17 (AC3): `step_complete` e o log de CONCLUSAO de um step. Antes ele era
+// gravado como `progress`, e a bolha renderizava "Processando..." + spinner girando
+// em cima de um texto que dizia "concluido com sucesso". Mensagens antigas no banco
+// continuam `progress` e seguem renderizando (o render nao quebra por tipo).
+export type MessageType = 'text' | 'approval_gate' | 'progress' | 'step_complete' | 'error' | 'cost_estimate' | 'summary' | 'skip';
 
 // Story 22.3: conversa com memoria real + intencao via LLM
 // nextAction e a decisao de CONVERSA do parser (perguntar/confirmar/prosseguir/etc).

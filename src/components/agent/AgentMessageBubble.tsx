@@ -8,7 +8,7 @@
 
 "use client";
 
-import { Bot, Loader2, AlertCircle, DollarSign, BarChart3, ShieldCheck, SkipForward } from "lucide-react";
+import { Bot, Loader2, AlertCircle, CheckCircle2, DollarSign, BarChart3, ShieldCheck, SkipForward } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -26,6 +26,27 @@ interface AgentMessageBubbleProps {
 function getMessageType(message: AgentMessage): MessageType {
   return message.metadata?.messageType || "text";
 }
+
+/**
+ * Story 22.17 (code review): tabela COM fallback.
+ *
+ * A cadeia de `{messageType === "x" && "..."}` nao tinha default: um tipo fora da union
+ * passava no guard `!== "text"`, nao casava nenhum label e caia no `default: null` do icone
+ * — renderizando uma faixa de cabecalho VAZIA acima do texto. Note que `getMessageType` so
+ * cai em "text" quando o campo esta AUSENTE; um valor presente e desconhecido chegava aqui.
+ *
+ * Isto NAO conserta uma aba ja aberta com o bundle antigo (la quem roda e o codigo velho) —
+ * serve para o proximo membro novo de `MessageType` nao repetir o buraco.
+ */
+const MESSAGE_TYPE_LABELS: Record<string, string> = {
+  progress: "Processando...",
+  step_complete: "Concluido",
+  error: "Erro",
+  cost_estimate: "Estimativa de Custo",
+  summary: "Resumo",
+  approval_gate: "Aprovacao",
+  skip: "Etapa Pulada",
+};
 
 function getTimestamp(dateStr: string): string {
   try {
@@ -85,12 +106,7 @@ export function AgentMessageBubble({ message }: AgentMessageBubbleProps) {
             <div className="flex items-center gap-2 mb-1.5 text-muted-foreground">
               <MessageTypeIcon messageType={messageType} />
               <span className="text-xs font-medium">
-                {messageType === "progress" && "Processando..."}
-                {messageType === "error" && "Erro"}
-                {messageType === "cost_estimate" && "Estimativa de Custo"}
-                {messageType === "summary" && "Resumo"}
-                {messageType === "approval_gate" && "Aprovacao"}
-                {messageType === "skip" && "Etapa Pulada"}
+                {MESSAGE_TYPE_LABELS[messageType] ?? "Atualizacao"}
               </span>
             </div>
           )}
@@ -176,6 +192,9 @@ function MessageTypeIcon({ messageType }: { messageType: MessageType }) {
   switch (messageType) {
     case "progress":
       return <Loader2 className="h-3.5 w-3.5 animate-spin" />;
+    // Story 22.17 (AC3): icone ESTATICO — a etapa acabou, nada mais gira.
+    case "step_complete":
+      return <CheckCircle2 className="h-3.5 w-3.5" />;
     case "error":
       return <AlertCircle className="h-3.5 w-3.5 text-destructive" />;
     case "cost_estimate":
@@ -186,7 +205,9 @@ function MessageTypeIcon({ messageType }: { messageType: MessageType }) {
       return <ShieldCheck className="h-3.5 w-3.5" />;
     case "skip":
       return <SkipForward className="h-3.5 w-3.5" />;
+    // Story 22.17 (code review): tipo desconhecido ganha um icone neutro em vez de `null`.
+    // Sem isso a faixa de cabecalho renderizava VAZIA (ver MESSAGE_TYPE_LABELS).
     default:
-      return null;
+      return <Bot className="h-3.5 w-3.5" />;
   }
 }

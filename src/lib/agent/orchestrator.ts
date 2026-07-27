@@ -31,6 +31,24 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // PIPELINE ERROR TYPE GUARD
 // ==============================================
 
+/**
+ * Story 22.17 (code review): plural PT-BR do resumo final.
+ *
+ * A AC4 matou o "com 1 leads" do activate, mas a AC2 fez o `sendSummaryMessage` aparecer no
+ * modo guiado pela PRIMEIRA vez — e ele carregava os mesmos plurais cravados, uma bolha
+ * abaixo da string corrigida. No cenario do smoke (1 lead) o usuario lia
+ * "ativa no Instantly com 1 lead" seguido de "exportada para Instantly com 1 leads".
+ */
+function pluralize(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/** Coerce a JSONB field to a safe non-NaN count. */
+function toCount(value: unknown): number {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export function isPipelineError(error: unknown): error is PipelineError {
   return (
     typeof error === "object" &&
@@ -338,13 +356,29 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
       const result = await stepInstance.run(input);
 
       // 4.3 - Mark execution as 'completed' when last step succeeds
-      // In guided mode, step ends as 'awaiting_approval' — don't mark execution completed yet.
-      // Execution completion in guided mode happens after the user approves the last step.
+      //
+      // Story 22.17 (AC2): a regra antiga era `mode !== "guided"` — e o comentario
+      // prometia que o guided completaria "apos o usuario aprovar o ultimo step".
+      // Essa aprovacao nunca existiu na UI: a execucao guiada com ativacao REAL ficava
+      // `running` para sempre, exatamente no momento de maior sucesso.
+      //
+      // A regra correta olha o CONTRATO do step: se o ultimo step guiado nao exige
+      // post-approval (o `activate`, cuja aprovacao e ex-ante no gate de ativacao),
+      // ele ja concluiu — a execucao fecha e o resumo final vai para o chat, igual ao
+      // autopilot. Steps guiados que exigem post-approval seguem esperando o usuario.
       const totalSteps = executionData.total_steps;
-      if (stepNumber === totalSteps && executionData.mode !== "guided") {
+      const guidedStepStillNeedsApproval =
+        executionData.mode === "guided" && stepInstance.requiresPostApproval();
+
+      if (stepNumber === totalSteps && !guidedStepStillNeedsApproval) {
         // Story 22.10 (code review): CAS — nao sobrescrever um cancel concorrente ("Nova
         // conversa") com 'completed'. `.neq("status","cancelled")` deixa o cancel prevalecer.
-        await this.supabase
+        //
+        // Story 22.17 (code review): o `error` PRECISA ser checado. O supabase-js NAO lanca
+        // em erro de query — devolve `{ error }` — entao, sem esta guarda, uma falha de
+        // escrita passava batida e o "Pipeline concluido com sucesso!" ia para o chat de uma
+        // execucao que continuou `running`. O irmao do ramo defer (:295) ja fazia isso.
+        const { error: completionError } = await this.supabase
           .from("agent_executions")
           .update({
             status: "completed",
@@ -353,8 +387,29 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
           .eq("id", executionId)
           .neq("status", "cancelled");
 
+        if (completionError) {
+          throw this.createPipelineError(
+            "ORCHESTRATOR_COMPLETION_FAILED",
+            "Erro ao completar execucao",
+            stepNumber,
+            stepType
+          );
+        }
+
         // Story 17.7 - AC #2: Summary message in autopilot mode
-        await this.sendSummaryMessage(executionId, totalSteps);
+        //
+        // Story 22.17 (AC2): o resumo e a ULTIMA coisa e a menos critica. Sem a guarda,
+        // uma falha aqui subia para o catch de executeStep, que escreve `paused` por
+        // cima do `completed` que acabamos de gravar — recriando exatamente a execucao
+        // pendurada que esta story fecha, com a campanha ja ativa no Instantly.
+        try {
+          await this.sendSummaryMessage(executionId, totalSteps);
+        } catch (summaryError) {
+          console.error(
+            `[Orchestrator] Falha ao enviar o resumo final (execution=${executionId}); a execucao permanece completed:`,
+            summaryError instanceof Error ? summaryError.message : summaryError
+          );
+        }
       }
 
       return result;
@@ -491,13 +546,26 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
     totalSteps: number
   ): Promise<void> {
     // Fetch all steps with outputs
-    const { data: allSteps } = await this.supabase
+    //
+    // Story 22.17 (code review): checar o `error` aqui e no insert abaixo. O supabase-js NAO
+    // lanca em erro de query, entao o caminho MAIS provavel de "o resumo sumiu do chat"
+    // (erro/RLS no select, insert que falha) retornava em silencio — sem log, sem bolha — e o
+    // try/catch do chamador nunca via nada. Um array VAZIO tambem e tratado aqui: ele passava
+    // pelo `!allSteps` e gerava um resumo degenerado ("Pipeline concluido com sucesso!" sem
+    // nenhuma linha embaixo).
+    const { data: allSteps, error: stepsError } = await this.supabase
       .from("agent_steps")
       .select("step_number, step_type, status, output")
       .eq("execution_id", executionId)
       .order("step_number", { ascending: true });
 
-    if (!allSteps) return;
+    if (stepsError || !allSteps || allSteps.length === 0) {
+      console.error(
+        `[Orchestrator] Nao consegui montar o resumo final (execution=${executionId}); a execucao permanece completed:`,
+        stepsError?.message ?? "nenhum step retornado"
+      );
+      return;
+    }
 
     const lines: string[] = ["Pipeline concluido com sucesso!", "", "Resumo:"];
 
@@ -511,21 +579,28 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
         continue;
       }
 
+      // Story 22.17 (code review): plurais via `pluralize` — ver AC4.
       switch (stepType) {
         case "search_companies":
-          lines.push(`• Empresas: ${output?.totalFound ?? 0} encontradas via TheirStack`);
-          break;
-        case "search_leads":
-          lines.push(`• Leads: ${output?.totalFound ?? 0} contatos encontrados via Apollo`);
-          break;
-        case "create_campaign":
           lines.push(
-            `• Campanha: "${output?.campaignName ?? "—"}" criada com ${output?.structure && typeof output.structure === "object" && "totalEmails" in (output.structure as Record<string, unknown>) ? (output.structure as Record<string, unknown>).totalEmails : 0} emails na sequencia`
+            `• Empresas: ${pluralize(toCount(output?.totalFound), "encontrada", "encontradas")} via TheirStack`
           );
           break;
+        case "search_leads":
+          lines.push(
+            `• Leads: ${pluralize(toCount(output?.totalFound), "contato encontrado", "contatos encontrados")} via Apollo`
+          );
+          break;
+        case "create_campaign": {
+          const structure = output?.structure as Record<string, unknown> | undefined;
+          lines.push(
+            `• Campanha: "${output?.campaignName ?? "—"}" criada com ${pluralize(toCount(structure?.totalEmails), "email", "emails")} na sequencia`
+          );
+          break;
+        }
         case "export":
           lines.push(
-            `• Export: Campanha exportada para Instantly com ${output?.leadsUploaded ?? 0} leads`
+            `• Export: Campanha exportada para Instantly com ${pluralize(toCount(output?.leadsUploaded), "lead", "leads")}`
           );
           break;
         case "activate":
@@ -538,7 +613,7 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
       }
     }
 
-    await this.supabase.from("agent_messages").insert({
+    const { error: insertError } = await this.supabase.from("agent_messages").insert({
       execution_id: executionId,
       role: "agent",
       content: lines.join("\n"),
@@ -547,6 +622,13 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
         messageType: "summary",
       },
     });
+
+    if (insertError) {
+      console.error(
+        `[Orchestrator] Falha ao gravar o resumo final (execution=${executionId}); a execucao permanece completed:`,
+        insertError.message
+      );
+    }
   }
 
   /**

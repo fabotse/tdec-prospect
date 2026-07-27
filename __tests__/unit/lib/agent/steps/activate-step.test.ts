@@ -244,6 +244,88 @@ describe("ActivateStep (Story 17.4 AC #3, #4)", () => {
     });
   });
 
+  // ==============================================
+  // Story 22.17
+  // ==============================================
+
+  describe("Story 22.17 - pluralizacao (AC4)", () => {
+    it("diz 'com 1 lead' no singular", async () => {
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const input = createDefaultInput({
+        ...(createPreviousStepOutput() as unknown as Record<string, unknown>),
+        leadsUploaded: 1,
+      });
+
+      await step.run(input);
+
+      const contents = mockSupabase.messagesChain.insert.mock.calls.map(
+        (call: unknown[]) => String((call[0] as Record<string, unknown>).content)
+      );
+      expect(contents).toContain(
+        "Campanha 'Campanha React Outbound' ativa no Instantly com 1 lead"
+      );
+    });
+
+    it("diz 'com N leads' no plural (e 0 leads)", async () => {
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+
+      await step.run(createDefaultInput());
+      const contents = mockSupabase.messagesChain.insert.mock.calls.map(
+        (call: unknown[]) => String((call[0] as Record<string, unknown>).content)
+      );
+      expect(contents).toContain(
+        "Campanha 'Campanha React Outbound' ativa no Instantly com 15 leads"
+      );
+
+      vi.clearAllMocks();
+      mockSupabase = createMockSupabase();
+      mockActivateCampaign.mockResolvedValue({ success: true });
+      const zeroStep = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      await zeroStep.run(
+        createDefaultInput({
+          ...(createPreviousStepOutput() as unknown as Record<string, unknown>),
+          leadsUploaded: 0,
+          selectedAccounts: undefined,
+        })
+      );
+      const zeroContents = mockSupabase.messagesChain.insert.mock.calls.map(
+        (call: unknown[]) => String((call[0] as Record<string, unknown>).content)
+      );
+      expect(zeroContents).toContain(
+        "Campanha 'Campanha React Outbound' ativa no Instantly com 0 leads"
+      );
+    });
+  });
+
+  describe("Story 22.17 - aprovacao ex-ante (AC2)", () => {
+    it("nao exige post-approval (a aprovacao foi no gate de ativacao)", () => {
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      expect(step.requiresPostApproval()).toBe(false);
+    });
+
+    it("em modo guiado conclui o step e NAO abre um novo gate", async () => {
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const input = { ...createDefaultInput(), mode: "guided" as const };
+
+      await step.run(input);
+
+      const statuses = mockSupabase.stepsChain.update.mock.calls.map(
+        (call: unknown[]) => (call[0] as Record<string, unknown>).status
+      );
+      expect(statuses).toContain("completed");
+      expect(statuses).not.toContain("awaiting_approval");
+
+      const gateInsert = mockSupabase.messagesChain.insert.mock.calls
+        .map((call: unknown[]) => call[0] as Record<string, unknown>)
+        .find(
+          (arg) =>
+            (arg.metadata as Record<string, unknown> | undefined)?.messageType ===
+            "approval_gate"
+        );
+      expect(gateInsert).toBeUndefined();
+    });
+  });
+
   // 5.19 - Cost calculated correctly
   describe("cost calculation", () => {
     it("calculates cost correctly", async () => {
