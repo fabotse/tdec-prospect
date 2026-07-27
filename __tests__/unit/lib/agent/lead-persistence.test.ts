@@ -384,12 +384,13 @@ describe("persistApprovedLeads (Story 22.15)", () => {
 
     expect(result.segmentId).toBe(seeded.id);
     expect(db.segments).toHaveLength(1);
-    // Valor CITADO, igual ao filtro de email: dentro das aspas o `\` do LIKE vai dobrado.
-    // Os `%` das PONTAS sao os curingas do padrao nao-ancorado (nome gravado com espaco
-    // em volta); o `%` do MEIO e o do nome e vai escapado — sem isso a busca varreria a
-    // tabela `segments` inteira do tenant.
+    // Valor CRU, sem aspas: num filtro `ilike` AVULSO o PostgREST nao desfaz valor
+    // citado (so dentro de `or=(...)`), entao aspas viravam texto do pattern e a busca
+    // nunca achava o segmento. Os `%` das PONTAS sao os curingas do padrao nao-ancorado
+    // (nome gravado com espaco em volta); o `%` do MEIO e o do nome e vai escapado — sem
+    // isso a busca varreria a tabela `segments` inteira do tenant.
     const segmentQuery = db.log.find((e) => e.table === "segments" && e.op === "select");
-    expect(segmentQuery?.ilike?.[0]).toEqual(["name", String.raw`"%Leads 50\\% off%"`]);
+    expect(segmentQuery?.ilike?.[0]).toEqual(["name", String.raw`%Leads 50\% off%`]);
   });
 
   it("acha o segmento existente quando o nome vem com aspas do LLM", async () => {

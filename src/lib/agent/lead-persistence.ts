@@ -502,10 +502,16 @@ async function resolveOrCreateSegment(
       // `%`/`_` no nome ("Leads 50% off") viram curinga sem este escape e a busca deixa
       // de ser pelo nome pedido. O match final e reconferido em memoria de qualquer forma.
       //
-      // O valor vai ENTRE ASPAS, igual ao filtro de email: o PostgREST le uma `"` inicial
-      // como abertura de valor citado e a REMOVE. Um nome que o LLM devolveu com aspas
-      // (`"Teste Atibaia"`) buscava outro texto, nao achava o segmento existente, batia na
-      // unique no insert e caia na bolha de falha total.
+      // SEM `quoteFilterValue` aqui, ao contrario do filtro de email. O PostgREST so
+      // desfaz valor citado DENTRO de `or=(...)`, onde as aspas existem para proteger
+      // virgula e parentese da separacao de termos. Num filtro AVULSO como este as aspas
+      // entram no pattern como texto literal, e a busca deixa de achar qualquer coisa —
+      // medido contra o banco real: `%CEO%` devolve 2 linhas, `"%CEO%"` devolve 0. O
+      // efeito era o segmento NUNCA ser reusado: toda campanha seguinte com o mesmo nome
+      // batia na `unique_segment_name_per_tenant`, degradava, e os leads novos ficavam em
+      // Meus Leads FORA do segmento pedido — contra a AC de reuso. O fake dos testes nao
+      // pegava porque desfazia valor citado em QUALQUER filtro, premissa que so vale no
+      // `or=()`.
       //
       // Padrao NAO ancorado pelo mesmo motivo do filtro de email: `POST /api/segments`
       // grava o nome CRU (`z.string().min(1).max(100)`, sem `.trim()`), entao existe
@@ -513,7 +519,7 @@ async function resolveOrCreateSegment(
       // (byte-exata) deixa o insert passar e o tenant fica com dois segmentos identicos
       // aos olhos — com os leads no que o usuario NAO estava olhando. A reconferencia em
       // memoria abaixo compara por igualdade e descarta o resto.
-      .ilike("name", quoteFilterValue(`%${escapeLikePattern(name)}%`));
+      .ilike("name", `%${escapeLikePattern(name)}%`);
 
     if (error) throw toError(error, "Erro ao buscar segmento");
     const match = ((data ?? []) as Array<{ id: string; name: string }>).find(

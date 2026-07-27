@@ -126,3 +126,10 @@ _bmad-output/epic-22-agente-tdec-2.0.html
 # no repo torna a checagem consistente em qualquer ambiente/HOME.
 .claude/settings.local.json
 .bmad-loop/policy.toml
+
+# Harness ad-hoc de verificacao manual da Story 22.15 (dirige o persistApprovedLeads
+# REAL contra o Postgres real e escreve/limpa dados no tenant de teste). Fica local:
+# util para reverificar a 22.16, mas nao e suite — a suite versionada roda no fake.
+.verify-2215/
+playwright.verify.config.ts
+vitest.verify.config.mts

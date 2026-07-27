@@ -213,9 +213,12 @@ export class FakeDb {
       if (!values.includes(row[column] as never)) return false;
     }
     for (const [column, pattern] of ctx.ilike) {
-      // Valor citado tambem no filtro simples: o PostgREST le a `"` inicial como abertura
-      // de valor citado em QUALQUER filtro, nao so dentro de `or=(...)`.
-      if (!ilikeMatch(row[column] as string | null, unquoteFilterValue(pattern))) return false;
+      // SEM unquote aqui. Medido contra o PostgREST real: aspas so sao desfeitas dentro
+      // de `or=(...)`, onde existem para proteger virgula/parentese da separacao de
+      // termos. Num filtro AVULSO elas entram no pattern como texto literal — `%CEO%`
+      // devolve 2 linhas e `"%CEO%"` devolve 0. O fake desfazia em qualquer filtro e com
+      // isso certificava como verde uma busca de segmento que nunca achava nada.
+      if (!ilikeMatch(row[column] as string | null, pattern)) return false;
     }
     if (ctx.or) {
       const terms = [...ctx.or.matchAll(/(\w+)\.ilike\.("(?:[^"\\]|\\.)*"|[^,]*)/g)];
