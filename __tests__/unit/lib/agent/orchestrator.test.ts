@@ -1164,6 +1164,141 @@ describe("DeterministicOrchestrator (AC #5)", () => {
       expect(result.data).toMatchObject({ skipped: true, reason: "activation_deferred" });
     });
 
+    // ==============================================
+    // Story 22.18 (code review, D1): carimbo `deferred` mora AQUI, nao no approve
+    // ==============================================
+    //
+    // A AC3 mandava carimbar no `approve`, sob o argumento de que "ali o approve E a acao
+    // completa". Falso: anexar contas, pular o step e concluir a execucao e tudo o que
+    // acontece NESTE ramo, disparado pelo `execute` — o approve responde antes. Carimbado
+    // la, um `execute` que falhasse deixava o card desabilitado sobre um step ainda
+    // `pending`, com a retomada da AC2 inalcancavel atras dele.
+    it("D1: carimba activationOutcome='deferred' no gate do export DEPOIS de concluir", async () => {
+      const prevStepChain = createChainBuilder({
+        data: {
+          output: {
+            externalCampaignId: "camp-123",
+            campaignName: "Test Campaign",
+            activationDeferred: true,
+          },
+          status: "approved",
+        },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-5",
+          execution_id: "exec-001",
+          step_number: 5,
+          step_type: "activate",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      // O gate do export precisa existir para o helper achar o que carimbar.
+      const gateChain = createChainBuilder({
+        data: [
+          {
+            id: "gate-msg-1",
+            metadata: {
+              messageType: "approval_gate",
+              stepNumber: 4,
+              approvalData: { stepType: "export" },
+            },
+          },
+        ],
+        error: null,
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: [], error: null });
+        }
+        if (table === "agent_messages") return gateChain;
+        return createChainBuilder();
+      });
+
+      await orchestrator.executeStep("exec-001", 5);
+
+      const stamped = gateChain.update.mock.calls
+        .map((call: unknown[]) => call[0] as Record<string, unknown>)
+        .some(
+          (arg) =>
+            (arg.metadata as Record<string, unknown> | undefined)?.activationOutcome ===
+            "deferred"
+        );
+      expect(stamped).toBe(true);
+    });
+
+    // Guardrail invertido do D1: o carimbo e auditoria — nao pode derrubar um defer que
+    // deu certo (mesmo fail-open dos outros carimbos desta story).
+    it("D1: falha no carimbo NAO transforma um defer bem-sucedido em erro (fail-open)", async () => {
+      const prevStepChain = createChainBuilder({
+        data: {
+          output: {
+            externalCampaignId: "camp-123",
+            campaignName: "Test Campaign",
+            activationDeferred: true,
+          },
+          status: "approved",
+        },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-5",
+          execution_id: "exec-001",
+          step_number: 5,
+          step_type: "activate",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      const gateChain = createChainBuilder({
+        data: [
+          {
+            id: "gate-msg-1",
+            metadata: {
+              messageType: "approval_gate",
+              stepNumber: 4,
+              approvalData: { stepType: "export" },
+            },
+          },
+        ],
+        error: null,
+      });
+      gateChain.update = vi.fn().mockImplementation(() => {
+        throw new Error("boom");
+      });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: [], error: null });
+        }
+        if (table === "agent_messages") return gateChain;
+        return createChainBuilder();
+      });
+
+      const result = await orchestrator.executeStep("exec-001", 5);
+
+      expect(result.success).toBe(true);
+      expect(result.data).toMatchObject({ skipped: true, reason: "activation_deferred" });
+    });
+
     it("marks step as skipped and execution as completed when activation deferred", async () => {
       const prevStepChain = createChainBuilder({
         data: {

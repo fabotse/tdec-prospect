@@ -97,6 +97,13 @@ export interface AgentMessageMetadata {
   // do step. Sem isto, a marcacao "Rejeitado" era estado local e sumia no refresh —
   // o card voltava com os botoes ativos.
   rejected?: boolean;
+  // Story 22.18 (AC3): desfecho DURAVEL do gate de ativacao (JSONB, sem migration).
+  // "deferred" e carimbado pelo POST .../steps/[n]/approve (ali o approve E a acao
+  // completa); "activated" e carimbado pelo ActivateStep DEPOIS de a campanha ficar
+  // ativa no Instantly — nunca no approve, que retorna antes de o `execute` disparar e
+  // nao tem como saber se a ativacao deu certo. Ativacao que falha NAO carimba nada:
+  // o card volta re-armado para a retomada continuar alcancavel.
+  activationOutcome?: "activated" | "deferred";
 }
 
 // === Domain Types ===
@@ -175,6 +182,19 @@ export interface PipelineError {
   stepType: StepType;
   isRetryable: boolean;
   externalService?: string;
+  /**
+   * Story 22.18 (code review, P2): a bolha de erro JA foi escrita em `agent_messages`
+   * por `sendErrorMessage`.
+   *
+   * O cliente usava a presenca de `stepType` como proxy disso ("tem forma de
+   * PipelineError logo ja foi reportado"), mas `createPipelineError` preenche `stepType`
+   * SEMPRE — inclusive em `ORCHESTRATOR_INVALID_STEP` e `ORCHESTRATOR_STEP_NOT_READY`,
+   * lancados FORA do try/catch que chama `sendErrorMessage`. Nesses casos o gate
+   * suprimia a mensagem e nao havia bolha nenhuma: falha 100% silenciosa, o defeito que
+   * a AC1 existe para matar. Este flag e escrito DEPOIS da escrita da bolha, entao
+   * afirma um fato em vez de inferi-lo. Ausente = mostrar (falhar visivel).
+   */
+  reportedInChat?: boolean;
 }
 
 export interface ExtractedProduct {

@@ -135,9 +135,16 @@ export interface BulkAddLeadsResponse {
 
 /**
  * Response from POST /api/v2/campaigns/{id}/activate
+ *
+ * Story 22.18 (AC7): a v2 responde o *Campaign object*, nao um envelope `{ success }`.
+ * O tipo antigo declarava `success: boolean` e o service repassava esse campo
+ * inexistente adiante como se fosse confirmacao. Todos os campos sao opcionais porque
+ * nada aqui e consumido — falha vira excecao no `request()`.
  */
 export interface ActivateCampaignResponse {
-  success: boolean;
+  id?: string;
+  name?: string;
+  status?: number;
 }
 
 /**
@@ -310,11 +317,10 @@ export interface ActivateCampaignParams {
 }
 
 /**
- * Result from InstantlyService.activateCampaign()
+ * Story 22.18 (AC7): `ActivateResult` foi REMOVIDO. Ele declarava `{ success: boolean }`
+ * sobre uma resposta da API que nunca teve esse campo — `activateCampaign` agora devolve
+ * `void` (erro = excecao) em vez de afirmar um sucesso que a API nao manda.
  */
-export interface ActivateResult {
-  success: boolean;
-}
 
 /**
  * Parameters for InstantlyService.getCampaignStatus()
@@ -332,6 +338,12 @@ export interface CampaignStatusResult {
   name: string;
   status: number;
   statusLabel: string;
+  /**
+   * Story 22.18 (AC6): contas de envio associadas a campanha, vindas do mesmo GET.
+   * `undefined` = a resposta nao trouxe o campo (nao sabemos); `[]` = a campanha
+   * comprovadamente nao tem remetente.
+   */
+  emailList?: string[];
 }
 
 /**

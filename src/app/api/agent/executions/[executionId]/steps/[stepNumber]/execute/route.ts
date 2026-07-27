@@ -142,7 +142,11 @@ export async function POST(
     // 5.7 - PipelineError
     if (isPipelineError(error)) {
       console.error(`[Execute Step] PipelineError step=${stepNumber}:`, JSON.stringify(error));
-      const status = error.isRetryable ? 503 : 500;
+      // Story 22.18 (code review, D2): perder o CAS de posse do step nao e erro de
+      // servidor — e conflito de concorrencia. 409 diz isso, e nada foi escrito no
+      // banco por esta chamada.
+      const status =
+        error.code === "STEP_ALREADY_RUNNING" ? 409 : error.isRetryable ? 503 : 500;
       return NextResponse.json(
         {
           error: {
@@ -152,6 +156,9 @@ export async function POST(
             stepType: error.stepType,
             isRetryable: error.isRetryable,
             externalService: error.externalService,
+            // Story 22.18 (code review, P2): fato, nao inferencia — so vem `true` quando
+            // `sendErrorMessage` ja escreveu a bolha no chat.
+            reportedInChat: error.reportedInChat === true,
           },
         },
         { status }

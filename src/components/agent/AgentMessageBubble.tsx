@@ -87,6 +87,9 @@ export function AgentMessageBubble({ message }: AgentMessageBubbleProps) {
             // Story 22.13 (AC5): rejeicao durável — o card carimbado volta marcado
             // e desabilitado apos refetch/refresh.
             rejected={message.metadata.rejected}
+            // Story 22.18 (AC3): mesma ideia para o gate de ATIVACAO, que ainda nao
+            // tinha nenhum estado durável.
+            activationOutcome={message.metadata.activationOutcome}
           />
         ) : (
         <div
@@ -136,12 +139,14 @@ function ApprovalGateRenderer({
   stepNumber,
   totalSteps,
   rejected,
+  activationOutcome,
 }: {
   approvalData: { stepType: StepType; previewData: unknown };
   executionId: string;
   stepNumber: number;
   totalSteps: number;
   rejected?: boolean;
+  activationOutcome?: "activated" | "deferred";
 }) {
   switch (approvalData.stepType) {
     case "search_companies":
@@ -181,6 +186,7 @@ function ApprovalGateRenderer({
           executionId={executionId}
           stepNumber={stepNumber}
           totalSteps={totalSteps}
+          activationOutcome={activationOutcome}
         />
       );
     default:

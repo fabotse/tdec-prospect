@@ -264,15 +264,58 @@ export abstract class BaseStep {
   ): Promise<void> {
     const updateData: Record<string, unknown> = { status };
 
-    if (status === "running") {
-      updateData.started_at = new Date().toISOString();
+    if (status !== "running") {
+      await db
+        .from("agent_steps")
+        .update(updateData)
+        .eq("execution_id", executionId)
+        .eq("step_number", this.stepNumber);
+      return;
     }
 
-    await db
+    updateData.started_at = new Date().toISOString();
+
+    // Story 22.18 (code review, D2): CAS na entrada em `running` — o unico lock que
+    // este pipeline tem.
+    //
+    // A retomada da AC2 tornou alcancavel um segundo `POST .../execute` sobre um step
+    // que AINDA esta rodando: o 409 do approve so informa o status do step do GATE (N),
+    // nao o do step disparado (N+1), e nem a rota de execute nem o orchestrator olham o
+    // status do alvo. As duas guardas da AC4 erram essa janela — o `output` com
+    // `activated: true` so e gravado na conclusao, e o pre-flight ainda le `Draft`.
+    // Resultado sem esta guarda: dois `POST /activate` concorrentes num endpoint que e
+    // "activate (start), **or resume**".
+    //
+    // `.neq("status", "running")` faz a transicao ser a propria disputa: quem escreve
+    // primeiro roda, o segundo nao encontra linha e desiste ANTES de qualquer chamada
+    // externa. Mesmo padrao CAS dos `.neq("status","cancelled")` da 22.10.
+    //
+    // TRADE-OFF ACEITO (decisao do Fabossi na code review): um step deixado `running`
+    // por uma funcao que morreu no meio nao pode ser redisparado sem intervencao manual
+    // no banco. Preferimos travar um retry raro a reenviar e-mail para leads que ja
+    // receberam a sequencia.
+    const { data: claimed } = await db
       .from("agent_steps")
       .update(updateData)
       .eq("execution_id", executionId)
-      .eq("step_number", this.stepNumber);
+      .eq("step_number", this.stepNumber)
+      .neq("status", "running")
+      .select("step_number");
+
+    // `null` = o mock/driver nao devolveu linhas (nao sabemos) -> fail-open, mantem o
+    // comportamento de hoje. Array VAZIO = sabemos que ninguem foi atualizado, ou seja,
+    // a linha ja estava `running`: outro executor tem a posse.
+    if (Array.isArray(claimed) && claimed.length === 0) {
+      const alreadyRunning: PipelineError = {
+        code: "STEP_ALREADY_RUNNING",
+        message:
+          "Esta etapa ja esta em execucao. Aguarde ela terminar antes de tentar de novo.",
+        stepNumber: this.stepNumber,
+        stepType: this.stepType,
+        isRetryable: false,
+      };
+      throw alreadyRunning;
+    }
   }
 
   /**

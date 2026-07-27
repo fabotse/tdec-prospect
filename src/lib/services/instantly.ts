@@ -24,7 +24,6 @@ import type {
   BulkAddLeadsRequest,
   BulkAddLeadsResponse,
   ActivateCampaignParams,
-  ActivateResult,
   ActivateCampaignResponse,
   GetCampaignStatusParams,
   CampaignStatusResult,
@@ -115,6 +114,77 @@ function buildDefaultSchedule() {
       },
     ],
   };
+}
+
+/**
+ * Story 22.18 (AC5): chave de COMPARACAO de conta de envio.
+ *
+ * Normaliza `trim` + caixa apenas para COMPARAR. O valor enviado no `email_list`
+ * preserva a grafia original — baixar tudo para `toLowerCase()` no payload seria
+ * apostar que o Instantly e case-insensitive no e-mail da conta, aposta que a
+ * Story 22.12 explicitamente recusou fazer sem confirmar.
+ */
+function accountKey(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+/**
+ * Uniao deduplicada de contas preservando a ordem (existentes primeiro) e a grafia
+ * original do PRIMEIRO ocorrido de cada conta.
+ */
+function mergeEmailList(
+  existing: string[] | undefined | null,
+  incoming: string[]
+): string[] {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+
+  for (const raw of [...(existing ?? []), ...incoming]) {
+    if (typeof raw !== "string") continue;
+    const key = accountKey(raw);
+    if (key.length === 0 || seen.has(key)) continue;
+    seen.add(key);
+    // Story 22.18 (code review, P7): envia `trim()`, nao `raw`.
+    //
+    // A AC5 dizia "normaliza trim + case apenas para COMPARAR, preservando a grafia
+    // original" — mas "grafia" ali e CAIXA (o ponto que a 22.12 se recusou a assumir
+    // como insensivel). Espaco em branco nao e grafia, e sujeira de entrada: mandar
+    // `"  a@x.com  "` literal no `email_list` cria um remetente que o Instantly
+    // provavelmente nao reconhece, e a verificacao pos-escrita nao pega porque ela
+    // compara normalizado. A caixa continua preservada.
+    merged.push(raw.trim());
+  }
+
+  return merged;
+}
+
+/**
+ * Contas pedidas que NAO estao presentes no estado resultante (comparacao normalizada).
+ *
+ * Story 22.18 (code review, P7): aplica os MESMOS filtros do `mergeEmailList`.
+ * Sem isso, uma entrada vazia/whitespace (descartada pelo merge, logo jamais enviada) ou
+ * um valor nao-string continuavam sendo EXIGIDOS aqui — a primeira garantia um 2o PATCH
+ * inutil seguido de erro terminal com nome vazio ("nao registrou as contas: "), e o
+ * segundo estourava `TypeError: email.trim is not a function` mascarado como falha de
+ * attach. As duas funcoes precisam concordar sobre o que e uma conta pedida.
+ */
+function findMissingAccounts(resultList: string[], requested: string[]): string[] {
+  const present = new Set(
+    resultList.filter((e) => typeof e === "string").map(accountKey)
+  );
+  const missing: string[] = [];
+  const alreadyReported = new Set<string>();
+
+  for (const email of requested) {
+    if (typeof email !== "string") continue;
+    const key = accountKey(email);
+    if (key.length === 0) continue;
+    if (present.has(key) || alreadyReported.has(key)) continue;
+    alreadyReported.add(key);
+    missing.push(email.trim());
+  }
+
+  return missing;
 }
 
 function buildAuthHeaders(apiKey: string): Record<string, string> {
@@ -334,20 +404,100 @@ export class InstantlyService extends ExternalService {
 
     // 2) Mesclar (uniao deduplicada, preservando ordem: existentes primeiro).
     //    `current?` blinda contra um corpo GET nulo (ex.: 200 com JSON `null`).
-    const mergedEmailList = Array.from(
-      new Set([...(current?.email_list ?? []), ...accountEmails])
-    );
+    const mergedEmailList = mergeEmailList(current?.email_list, accountEmails);
 
     // 3) PATCH com o conjunto completo.
-    const requestBody: UpdateCampaignRequest = { email_list: mergedEmailList };
+    const patched = await this.patchEmailList(apiKey, campaignUrl, mergedEmailList);
 
-    await this.request<UpdateCampaignResponse>(campaignUrl, {
+    // 4) Story 22.18 (AC5): VERIFICAR o resultado da escrita.
+    //
+    // O corpo da resposta do PATCH ja traz `email_list` (o Campaign object atualizado) e
+    // era simplesmente descartado — usa-lo mantem o caminho feliz em 1 GET + 1 PATCH.
+    // O GET extra so acontece se o corpo nao trouxer o campo.
+    let resultList = await this.resolveEmailList(apiKey, campaignUrl, patched);
+    let missing = findMissingAccounts(resultList, accountEmails);
+
+    if (missing.length > 0) {
+      // Lost update: alguem escreveu `email_list` entre o nosso GET e o nosso PATCH.
+      // Refazemos o merge UMA vez, partindo do estado que acabamos de observar.
+      const retryList = mergeEmailList(resultList, accountEmails);
+      const retried = await this.patchEmailList(apiKey, campaignUrl, retryList);
+      resultList = await this.resolveEmailList(apiKey, campaignUrl, retried);
+      missing = findMissingAccounts(resultList, accountEmails);
+    }
+
+    if (missing.length > 0) {
+      // Terminal de proposito: devolver `{ success: true }` com conta faltando seria o
+      // fracasso silencioso que esta verificacao existe para matar. Quem chama decide o
+      // que fazer — na ativacao REAL isso BLOQUEIA (Story 22.12 AC4); no ramo defer o
+      // orchestrator apenas liga `accountsAttachFailed`.
+      // Story 22.18 (code review, P8): 422, nao 502.
+      //
+      // `BaseStep.isRetryableStatus` trata 502 como RETRYABLE, entao a UI oferecia
+      // "tentar novamente" para uma condicao que, por construcao, nao passa: a corrida de
+      // lost-update ja foi refeita uma vez acima: se a conta continua ausente depois
+      // disso, a causa e deterministica (conta fora do workspace, endereco recusado). Cada
+      // nova tentativa queimaria 2 PATCH + ate 2 GET sem chance de mudar o resultado.
+      throw new ExternalServiceError(
+        "instantly",
+        422,
+        `O Instantly nao registrou as contas de envio: ${missing.join(", ")}`,
+        { missingAccounts: missing, requested: accountEmails }
+      );
+    }
+
+    return { success: true, accountsAdded: accountEmails.length };
+  }
+
+  /** PATCH /campaigns/{id} com o email_list completo (Story 22.12/22.18). */
+  private async patchEmailList(
+    apiKey: string,
+    campaignUrl: string,
+    emailList: string[]
+  ): Promise<UpdateCampaignResponse | null> {
+    const requestBody: UpdateCampaignRequest = { email_list: emailList };
+
+    return this.request<UpdateCampaignResponse>(campaignUrl, {
       method: "PATCH",
       headers: buildAuthHeaders(apiKey),
       body: JSON.stringify(requestBody),
     });
+  }
 
-    return { success: true, accountsAdded: accountEmails.length };
+  /**
+   * Story 22.18 (AC5): estado resultante do `email_list` apos uma escrita.
+   * Prefere o corpo do PATCH (gratis); so faz um GET extra se ele nao trouxer o campo.
+   */
+  private async resolveEmailList(
+    apiKey: string,
+    campaignUrl: string,
+    patched: UpdateCampaignResponse | null
+  ): Promise<string[]> {
+    if (Array.isArray(patched?.email_list)) return patched.email_list;
+
+    try {
+      const verified = await this.request<GetCampaignResponse>(campaignUrl, {
+        method: "GET",
+        headers: buildAuthHeaders(apiKey),
+      });
+      return Array.isArray(verified?.email_list) ? verified.email_list : [];
+    } catch (verifyError) {
+      // Story 22.18 (code review, P9): o PATCH deu 2xx; foi a LEITURA de conferencia que
+      // caiu. Continuamos bloqueando (nao sabemos o estado, e declarar sucesso as cegas e
+      // exatamente o fracasso silencioso que a AC5 existe para matar), mas o erro precisa
+      // dizer a verdade: antes, esta falha virava "O Instantly nao registrou as contas de
+      // envio: <lista>" — uma afirmacao FALSA sobre contas que muito provavelmente estao
+      // anexadas, e que manda o usuario reanexa-las a mao.
+      throw new ExternalServiceError(
+        "instantly",
+        422,
+        "Nao consegui confirmar as contas de envio no Instantly: a escrita foi aceita, mas a leitura de conferencia falhou. Verifique as contas da campanha no Instantly antes de ativar.",
+        {
+          cause: verifyError instanceof Error ? verifyError.message : verifyError,
+          verificationFailed: true,
+        }
+      );
+    }
   }
 
   /**
@@ -460,20 +610,28 @@ export class InstantlyService extends ExternalService {
    * Activate a campaign in Instantly
    * Story 7.2: AC #4
    *
+   * ATENCAO: o endpoint e "Activate (start), **or resume** a campaign" — chamar de novo
+   * numa campanha ja ativa pode RETOMAR a sequencia. Quem chama e responsavel pela
+   * idempotencia (ver ActivateStep, Story 22.18 AC4).
+   *
+   * Story 22.18 (AC7): esta funcao devolvia `{ success: response.success }` e o tipo
+   * declarava `{ success: boolean }` — mas a API v2 responde o *Campaign object*, sem
+   * nenhum campo `success`. Ou seja, o unico consumidor possivel receberia `undefined`
+   * disfarcado de boolean. Ninguem usava o retorno (o `ActivateStep` ignora e a rota
+   * `/api/instantly/campaign/[id]/activate`, orfa, foi removida), entao o contrato passa
+   * a nao afirmar nada: erro vira excecao, sucesso vira retorno vazio.
+   *
    * @param params - API key and campaign ID
-   * @returns Success status
    */
-  async activateCampaign(params: ActivateCampaignParams): Promise<ActivateResult> {
+  async activateCampaign(params: ActivateCampaignParams): Promise<void> {
     const { apiKey, campaignId } = params;
     const url = `${INSTANTLY_API_BASE}${INSTANTLY_CAMPAIGNS_ENDPOINT}/${campaignId}/activate`;
 
-    const response = await this.request<ActivateCampaignResponse>(url, {
+    await this.request<ActivateCampaignResponse>(url, {
       method: "POST",
       headers: buildAuthHeaders(apiKey),
       body: JSON.stringify({}),
     });
-
-    return { success: response.success };
   }
 
   /**
@@ -519,6 +677,12 @@ export class InstantlyService extends ExternalService {
       name: response.name,
       status: response.status,
       statusLabel: INSTANTLY_CAMPAIGN_STATUS_LABELS[response.status] ?? "Desconhecido",
+      // Story 22.18 (AC6): o GET cru sempre trouxe `email_list` e o mapper descartava.
+      // Expor aqui deixa a guarda de servidor ("campanha sem remetente nao ativa")
+      // reaproveitar exatamente a mesma leitura do pre-flight de status da AC4b.
+      // `undefined` (campo ausente na resposta) e DIFERENTE de `[]` (campanha sem
+      // conta): so o segundo autoriza bloquear a ativacao.
+      emailList: Array.isArray(response.email_list) ? response.email_list : undefined,
     };
   }
 

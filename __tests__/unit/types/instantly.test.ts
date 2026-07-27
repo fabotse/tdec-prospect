@@ -22,7 +22,6 @@ import {
   type AddLeadsParams,
   type AddLeadsResult,
   type ActivateCampaignParams,
-  type ActivateResult,
   type GetCampaignStatusParams,
   type CampaignStatusResult,
 } from "@/types/instantly";
@@ -228,12 +227,6 @@ describe("instantly types", () => {
   // ACTIVATE/STATUS TYPES (AC: #4)
   // ==============================================
 
-  describe("ActivateCampaignResponse", () => {
-    it("should have success boolean", () => {
-      const response: ActivateCampaignResponse = { success: true };
-      expect(response.success).toBe(true);
-    });
-  });
 
   describe("GetCampaignResponse", () => {
     it("should have id, name, and numeric status", () => {
@@ -328,10 +321,18 @@ describe("instantly types", () => {
     });
   });
 
-  describe("ActivateResult", () => {
-    it("should have success boolean", () => {
-      const result: ActivateResult = { success: true };
-      expect(result.success).toBe(true);
+  // Story 22.18 (AC7): `ActivateResult` deixou de existir — a v2 responde o Campaign
+  // object e nao um envelope `{ success }`. O que sobra e o shape da RESPOSTA, opcional
+  // de ponta a ponta porque nada dela e consumido.
+  describe("ActivateCampaignResponse (Story 22.18 AC7)", () => {
+    it("aceita o Campaign object devolvido pela v2, sem exigir `success`", () => {
+      const response: ActivateCampaignResponse = { id: "camp-abc", status: 1 };
+      expect(response.id).toBe("camp-abc");
+    });
+
+    it("aceita corpo vazio", () => {
+      const response: ActivateCampaignResponse = {};
+      expect(response.status).toBeUndefined();
     });
   });
 

@@ -25,6 +25,7 @@ import { ActivateStep } from "./steps/activate-step";
 import { InstantlyService } from "@/lib/services/instantly";
 import { PlanGeneratorService } from "@/lib/services/agent-plan-generator";
 import { getServiceApiKey } from "./steps/step-utils";
+import { stampLatestApprovalGate } from "@/lib/agent/gate-metadata";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ==============================================
@@ -333,6 +334,29 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
           },
         });
 
+        // Story 22.18 (code review, D1): carimbo DURAVEL de "adiada" — SO AQUI.
+        //
+        // A AC3 mandava carimbar isto no `approve`, sob o argumento de que "ali o approve
+        // E a acao completa". Isso e factualmente falso: o trabalho do defer (attach de
+        // contas, skip do step e conclusao da execucao) e tudo o que esta ACIMA, e roda no
+        // `execute` — o approve retorna antes. Carimbado la, um `execute` que falhasse
+        // deixava o card desabilitado sobre um step ainda `pending`, com a execucao nunca
+        // concluida e a retomada da AC2 inalcancavel: exatamente o defeito que a AC1
+        // existe para matar, so que no botao "Ativar Depois".
+        //
+        // Aqui o carimbo so acontece depois de a execucao ter sido escrita como
+        // `completed` e o resumo enviado — ou seja, quando "adiada" e verdade.
+        // Fail-open: auditoria nao derruba um defer bem-sucedido.
+        await stampLatestApprovalGate(
+          this.supabase,
+          executionId,
+          { activationOutcome: "deferred" },
+          // Filtro por TIPO, nao por `stepNumber - 1`: o gate vive no step do export, que
+          // nem sempre e o numero imediatamente anterior (steps podem ter sido pulados).
+          // Mesmo filtro que o ActivateStep usa no carimbo "activated".
+          { stepType: "export" as StepType }
+        );
+
         return { success: true, data: { skipped: true, reason: "activation_deferred", ...attachFlag } };
       } catch (error) {
         const pipelineError = isPipelineError(error)
@@ -345,7 +369,8 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
             );
         await this.updateExecutionStatus(executionId, "paused");
         await this.sendErrorMessage(executionId, pipelineError);
-        throw pipelineError;
+        // Story 22.18 (code review, P2): bolha escrita — o gate nao deve duplicar.
+        throw { ...pipelineError, reportedInChat: true } as PipelineError;
       }
     }
 
@@ -423,11 +448,23 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
             stepType
           );
 
+      // Story 22.18 (code review, D2): o CAS de posse do step nao e uma falha DESTA
+      // execucao — e a segunda chamada descobrindo que perdeu a corrida. O executor que
+      // venceu segue rodando normalmente; pausar a execucao e escrever uma bolha de erro
+      // aqui sabotaria justamente quem esta trabalhando. Devolvemos o erro para a rota
+      // (que responde 409) sem tocar em nada.
+      if (pipelineError.code === "STEP_ALREADY_RUNNING") {
+        throw pipelineError;
+      }
+
       // 4.7 - NEVER 'failed' directly, always 'paused'
       await this.updateExecutionStatus(executionId, "paused");
       await this.sendErrorMessage(executionId, pipelineError);
 
-      throw pipelineError;
+      // Story 22.18 (code review, P2): so DEPOIS de a bolha existir. O cliente le este
+      // flag em vez de inferir "ja reportado" da presenca de `stepType` — que tambem
+      // vem nos erros lancados fora deste catch, onde bolha nenhuma foi escrita.
+      throw { ...pipelineError, reportedInChat: true } as PipelineError;
     }
   }
 

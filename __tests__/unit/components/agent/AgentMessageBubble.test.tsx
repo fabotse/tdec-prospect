@@ -49,6 +49,40 @@ describe("AgentMessageBubble (AC: #3)", () => {
     expect(screen.getByRole("button", { name: /aprovar/i })).toBeDisabled();
   });
 
+  // Story 22.18 (AC3): o gate de ATIVACAO tambem precisa do sinal durável — ate aqui
+  // ele era o unico dos quatro gates sem nenhum estado que sobrevivesse ao F5.
+  it("repassa metadata.activationOutcome ao gate de ativacao (22.18 AC3)", () => {
+    render(
+      <AgentMessageBubble
+        message={createMessage({
+          role: "agent",
+          content: "Campanha exportada",
+          metadata: {
+            messageType: "approval_gate",
+            stepNumber: 4,
+            activationOutcome: "activated",
+            approvalData: {
+              stepType: "export",
+              previewData: {
+                externalCampaignId: "camp-1",
+                campaignName: "Campanha X",
+                totalEmails: 3,
+                leadsUploaded: 10,
+                accountsAdded: 1,
+                platform: "instantly",
+                accounts: [{ email: "sender@x.com" }],
+              },
+            },
+          },
+        })}
+      />
+    );
+
+    expect(screen.getByText(/Campanha ativada/)).toBeInTheDocument();
+    expect(screen.getByTestId("activation-activate-btn")).toBeDisabled();
+    expect(screen.getByTestId("activation-defer-btn")).toBeDisabled();
+  });
+
   it("renders message content", () => {
     render(<AgentMessageBubble message={createMessage()} />);
     expect(screen.getByText("Buscar leads de tecnologia")).toBeInTheDocument();

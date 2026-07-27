@@ -112,11 +112,29 @@ export async function POST(
 
   // Verify step is awaiting_approval
   if (stepRecord.status !== "awaiting_approval") {
+    // Story 22.18 (AC2): o 409 vira um DISCRIMINADOR ESTRUTURADO.
+    //
+    // Antes, TODOS os status != awaiting_approval devolviam `code: "CONFLICT"` e o status
+    // atual vivia so dentro da string em PT-BR. Um cliente que quisesse retomar uma
+    // ativacao interrompida (step ja `approved`, step de ativacao `failed`) so tinha a
+    // opcao de dar match na mensagem — e "todo CONFLICT = siga adiante" dispararia o
+    // `execute` por cima de um step `running`, causando um double-execute concorrente.
+    //
+    // `currentStatus` e o campo que o cliente le; `STEP_ALREADY_APPROVED` e o code
+    // dedicado do UNICO status que autoriza a retomada. Nenhum comportamento pode ser
+    // derivado da mensagem em PT-BR.
+    const currentStatus = stepRecord.status as string;
+    const stepOutput = (stepRecord.output as Record<string, unknown> | null) ?? {};
     return NextResponse.json(
       {
         error: {
-          code: "CONFLICT",
-          message: `Step nao esta aguardando aprovacao. Status atual: ${stepRecord.status}`,
+          code: currentStatus === "approved" ? "STEP_ALREADY_APPROVED" : "CONFLICT",
+          message: `Step nao esta aguardando aprovacao. Status atual: ${currentStatus}`,
+          currentStatus,
+          // Intencao JA persistida no output do step. A retomada nao pode trocar de
+          // caminho: um "Ativar Depois" que virasse "Ativar Campanha" (ou o inverso)
+          // ativaria — ou deixaria de ativar — a campanha contra a decisao registrada.
+          activationDeferred: stepOutput.activationDeferred === true,
         },
       },
       { status: 409 }
@@ -249,6 +267,22 @@ export async function POST(
       },
     });
   }
+
+  // Story 22.18 (AC3): carimbo DURAVEL do gate de ativacao — so o ADIAMENTO.
+  //
+  // Aqui o approve E a acao completa: adiar significa "nao ative", e isso ja esta
+  // gravado no output do step. O desfecho "activated" NAO pode ser carimbado neste
+  // ponto: esta rota retorna antes de o `POST .../execute` sequer disparar e nao tem
+  // como saber se a ativacao no Instantly deu certo — carimbar aqui deixaria o card
+  // desabilitado sobre uma ativacao que falhou, tornando a retomada (AC2) inalcancavel.
+  // Quem carimba "activated" e o ActivateStep, depois de a campanha ficar ativa.
+  // Story 22.18 (code review, D1): NADA e carimbado aqui — nem `activated`, nem
+  // `deferred`. Esta rota retorna ANTES de o `POST .../execute` disparar, e e o
+  // `execute` que faz o trabalho real dos dois desfechos (ativar no Instantly, ou
+  // anexar contas + pular o step + concluir a execucao). Carimbar aqui deixava o card
+  // desabilitado sobre uma acao que podia nunca ter acontecido, tornando a retomada da
+  // AC2 inalcancavel. Quem carimba `activated` e o ActivateStep; quem carimba
+  // `deferred` e o ramo defer do orchestrator — cada um depois de o desfecho ser real.
 
   return NextResponse.json({
     data: {
