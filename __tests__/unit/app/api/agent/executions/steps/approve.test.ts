@@ -175,6 +175,52 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/approve", 
     expect(json.error.code).toBe("NOT_FOUND");
   });
 
+  // ==============================================
+  // Story 22.10 — guarda anti-race de execucao terminal (AC4)
+  // ==============================================
+
+  // Repontar o select da execucao respeitando a assinatura do chain builder
+  // (o padrao mais frouxo usado no resto do arquivo nao type-checa).
+  function stubExecution(execution: Record<string, unknown>) {
+    executionsChain.then = (resolve: (value: { data: unknown; error: unknown }) => unknown) =>
+      Promise.resolve({ data: execution, error: null }).then(resolve);
+  }
+
+  it.each(["cancelled", "completed", "failed"])(
+    "returns 409 EXECUTION_NOT_ACTIVE quando a execucao esta '%s' (Story 22.10 AC4)",
+    async (terminalStatus) => {
+      stubExecution({
+        id: VALID_UUID,
+        tenant_id: "tenant-1",
+        status: terminalStatus,
+        total_steps: 1,
+      });
+
+      const res = await POST(createRequest(), createParams());
+      const json = await res.json();
+
+      expect(res.status).toBe(409);
+      expect(json.error.code).toBe("EXECUTION_NOT_ACTIVE");
+      // o step NUNCA foi aprovado -> o bloco de "ultimo step" nao roda e o
+      // status 'cancelled' nao e sobrescrito por 'completed'
+      expect(stepsChain.update).not.toHaveBeenCalled();
+    }
+  );
+
+  it("aprova normalmente quando a execucao esta RUNNING (guarda nao afeta o caminho feliz)", async () => {
+    stubExecution({ id: VALID_UUID, tenant_id: "tenant-1", status: "running", total_steps: 5 });
+
+    const res = await POST(createRequest(), createParams());
+    expect(res.status).toBe(200);
+  });
+
+  it("aprova normalmente quando a execucao esta PAUSED (retry de erro segue valido)", async () => {
+    stubExecution({ id: VALID_UUID, tenant_id: "tenant-1", status: "paused", total_steps: 5 });
+
+    const res = await POST(createRequest(), createParams());
+    expect(res.status).toBe(200);
+  });
+
   // 9.5 - Step not awaiting_approval -> 409
   it("returns 409 when step is not awaiting_approval (9.5)", async () => {
     stepsChain.then = (resolve: (v: unknown) => unknown) =>
@@ -193,6 +239,131 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/approve", 
 
     expect(res.status).toBe(409);
     expect(json.error.code).toBe("CONFLICT");
+  });
+
+  // ==============================================
+  // Story 22.18 (AC2): o 409 de status de step vira DISCRIMINADOR ESTRUTURADO
+  // ==============================================
+
+  describe("Story 22.18 (AC2) - 409 estruturado", () => {
+    function mockStepStatus(status: string, output: Record<string, unknown> = {}) {
+      stepsChain.then = (resolve: (v: unknown) => unknown) =>
+        Promise.resolve({
+          data: { step_number: 4, step_type: "export", status, output },
+          error: null,
+        }).then(resolve);
+    }
+
+    it("devolve currentStatus='approved' e code STEP_ALREADY_APPROVED quando o step ja foi aprovado", async () => {
+      mockStepStatus("approved", { selectedAccounts: ["a@x.com"] });
+
+      const res = await POST(createRequest(), createParams());
+      const json = await res.json();
+
+      expect(res.status).toBe(409);
+      expect(json.error.code).toBe("STEP_ALREADY_APPROVED");
+      expect(json.error.currentStatus).toBe("approved");
+    });
+
+    it.each(["running", "failed", "completed", "skipped", "pending"])(
+      "devolve currentStatus='%s' com code CONFLICT (o cliente NAO pode seguir adiante)",
+      async (status) => {
+        mockStepStatus(status);
+
+        const res = await POST(createRequest(), createParams());
+        const json = await res.json();
+
+        expect(res.status).toBe(409);
+        expect(json.error.code).toBe("CONFLICT");
+        expect(json.error.currentStatus).toBe(status);
+      }
+    );
+
+    it("expoe a intencao persistida (activationDeferred) para a retomada nao trocar de caminho", async () => {
+      mockStepStatus("approved", { activationDeferred: true });
+
+      const res = await POST(createRequest(), createParams());
+      const json = await res.json();
+
+      expect(json.error.activationDeferred).toBe(true);
+    });
+
+    it("activationDeferred=false quando a aprovacao persistida foi ATIVAR", async () => {
+      mockStepStatus("approved", { selectedAccounts: ["a@x.com"] });
+
+      const res = await POST(createRequest(), createParams());
+      const json = await res.json();
+
+      expect(json.error.activationDeferred).toBe(false);
+    });
+  });
+
+  // ==============================================
+  // Story 22.18 (AC3): o APPROVE carimba o `deferred` (ali ele E a acao completa)
+  // ==============================================
+
+  // Story 22.18 (code review, D1): o approve NAO carimba mais NENHUM desfecho.
+  //
+  // A AC3 mandava carimbar `deferred` aqui, sob o argumento de que "ali o approve E a
+  // acao completa". Isso e factualmente falso: anexar as contas, pular o step e concluir
+  // a execucao acontecem no `POST .../execute`, que so e disparado DEPOIS desta rota
+  // responder. Carimbado aqui, um `execute` que falhasse deixava o card desabilitado
+  // sobre um step ainda `pending` — o mesmo defeito da AC1, no botao "Ativar Depois", e
+  // com a retomada da AC2 inalcancavel. Quem carimba `deferred` agora e o ramo defer do
+  // orchestrator, depois de a execucao ser escrita como `completed`.
+  describe("Story 22.18 (code review, D1) - o approve nao carimba desfecho", () => {
+    function mockGateMessageLookup() {
+      messagesChain.then = (resolve: (v: unknown) => unknown) =>
+        Promise.resolve({
+          data: [
+            {
+              id: "gate-msg-1",
+              metadata: { messageType: "approval_gate", stepNumber: 1 },
+            },
+          ],
+          error: null,
+        }).then(resolve);
+    }
+
+    function stampedOutcomes(): unknown[] {
+      return messagesChain.update.mock.calls
+        .map((call: unknown[]) => call[0] as Record<string, unknown>)
+        .map((arg) => (arg.metadata as Record<string, unknown> | undefined)?.activationOutcome)
+        .filter((v) => v !== undefined);
+    }
+
+    it("NAO carimba 'deferred' no approve (o defer ainda nem rodou)", async () => {
+      mockGateMessageLookup();
+
+      await POST(
+        createRequest({ approvedData: { activate: false, deferred: true } }),
+        createParams()
+      );
+
+      expect(stampedOutcomes()).toEqual([]);
+    });
+
+    it("NAO carimba 'activated' no approve (a ativacao ainda nem disparou)", async () => {
+      mockGateMessageLookup();
+
+      await POST(
+        createRequest({ approvedData: { activate: true, selectedAccounts: ["a@x.com"] } }),
+        createParams()
+      );
+
+      expect(stampedOutcomes()).toEqual([]);
+    });
+
+    it("o adiamento continua respondendo 200 normalmente", async () => {
+      mockGateMessageLookup();
+
+      const res = await POST(
+        createRequest({ approvedData: { activate: false, deferred: true } }),
+        createParams()
+      );
+
+      expect(res.status).toBe(200);
+    });
   });
 
   // 9.7 - approvedData merge (leads filtrados)

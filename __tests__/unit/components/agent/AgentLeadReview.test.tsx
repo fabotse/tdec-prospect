@@ -5,9 +5,12 @@
  * Tests: renders table, checkboxes, filter, approve with filtered leads
  */
 
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AgentLeadReview } from "@/components/agent/AgentLeadReview";
+import { useAgentStore } from "@/stores/use-agent-store";
+import { diagnoseEmptySearch } from "@/lib/agent/empty-search-diagnosis";
+import type { ParsedBriefing } from "@/types/agent";
 
 // ==============================================
 // MOCKS
@@ -186,6 +189,54 @@ describe("AgentLeadReview (AC: #3, #4)", () => {
         { method: "POST" }
       );
     });
+  });
+
+  // ==============================================
+  // Story 22.13 — ajuste pos-rejeicao
+  // ==============================================
+
+  it("rejeitar: liga o estado de ajuste no store e PARA o spinner (22.13 AC1)", async () => {
+    act(() => {
+      useAgentStore.setState({ adjustingStep: null });
+    });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { stepNumber: 2, status: "awaiting_approval" } }),
+    });
+
+    render(
+      <AgentLeadReview data={defaultData} executionId="exec-001" stepNumber={2} totalSteps={5} />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /rejeitar/i }));
+
+    await waitFor(() => {
+      expect(useAgentStore.getState().adjustingStep).toEqual({
+        executionId: "exec-001",
+        stepNumber: 2,
+        stepType: "search_leads",
+        phase: "describe",
+      });
+    });
+
+    expect(
+      screen.getByRole("button", { name: /rejeitar/i }).querySelector(".animate-spin")
+    ).toBeNull();
+  });
+
+  it("prop rejected: card nasce marcado e com os botoes desabilitados (22.13 AC5)", () => {
+    render(
+      <AgentLeadReview
+        data={defaultData}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+        rejected
+      />
+    );
+
+    expect(screen.getByText("❌ Rejeitado")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /rejeitar/i })).toBeDisabled();
   });
 
   // Approve button disabled when no leads selected
@@ -373,6 +424,280 @@ describe("AgentLeadReview (AC: #3, #4)", () => {
         ok: true,
         json: () => Promise.resolve({ data: { leads: [], totalFetched: 0, totalFound: 200, cost: {} } }),
       });
+    });
+  });
+
+  // ==============================================
+  // Story 22.14 — empty-state de busca sem resultados
+  // ==============================================
+
+  describe("Story 22.14 - busca vazia (AC #2, #3, #4)", () => {
+    // O diagnostico vem do helper REAL: se o contrato mudar, o teste do card quebra junto
+    // (em vez de validar um fixture inventado que ninguem mais produz).
+    const atibaiaBriefing: ParsedBriefing = {
+      technology: null,
+      jobTitles: ["Owner", "Director"],
+      location: "Atibaia",
+      companySize: "<11",
+      industry: "clinicas de estetica",
+      productSlug: null,
+      mode: "guided",
+      skipSteps: ["search_companies"],
+    };
+
+    const atibaiaFilters = {
+      titles: ["Owner", "Director"],
+      perPage: 25,
+      page: 1,
+      companySizes: ["<11"],
+      locations: ["Atibaia"],
+      industries: ["clinicas de estetica"],
+    };
+
+    const emptyData = {
+      totalFound: 0,
+      leads: [],
+      jobTitles: ["Owner", "Director"],
+      emptyResult: true,
+      emptyDiagnosis: diagnoseEmptySearch(atibaiaBriefing, atibaiaFilters),
+    };
+
+    function renderEmpty(data: Record<string, unknown> = emptyData) {
+      return render(
+        <AgentLeadReview
+          data={data as typeof emptyData}
+          executionId="exec-001"
+          stepNumber={2}
+          totalSteps={5}
+        />
+      );
+    }
+
+    beforeEach(() => {
+      act(() => {
+        useAgentStore.setState({
+          adjustingStep: null,
+          pendingChipAdjustment: null,
+          chatInputDraft: null,
+        });
+      });
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: { stepNumber: 2, status: "awaiting_approval" } }),
+      });
+    });
+
+    it("NAO renderiza tabela vazia, input de filtro nem 'Aprovar (0 leads)' (AC2)", () => {
+      renderEmpty();
+
+      expect(screen.getByTestId("agent-lead-review-empty")).toBeInTheDocument();
+      expect(screen.queryByText("0 de 0 leads selecionados")).not.toBeInTheDocument();
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+      expect(
+        screen.queryByPlaceholderText("Filtrar por nome, empresa ou cargo...")
+      ).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /aprovar/i })).not.toBeInTheDocument();
+    });
+
+    it("lista os filtros EFETIVOS enviados a Apollo, com a nota do formato invalido (AC2a)", () => {
+      renderEmpty();
+
+      expect(screen.getByText("Cargos:")).toBeInTheDocument();
+      expect(screen.getByText("Owner, Director")).toBeInTheDocument();
+      expect(screen.getByText("Atibaia")).toBeInTheDocument();
+      expect(screen.getByText("<11")).toBeInTheDocument();
+      expect(screen.getByText(/nao reconhecido|não reconhecido/i)).toBeInTheDocument();
+    });
+
+    it("explica que industria e busca por TEXTO (AC2c)", () => {
+      renderEmpty();
+
+      expect(screen.getByText(/busca por ind[úu]stria .* por TEXTO/i)).toBeInTheDocument();
+    });
+
+    it("lista as causas provaveis na ordem da heuristica (AC2b)", () => {
+      renderEmpty();
+
+      const causes = screen.getByText("Causas mais prováveis").parentElement;
+      const items = causes?.querySelectorAll("li") ?? [];
+      expect(items.length).toBeGreaterThanOrEqual(2);
+      // Caso Atibaia: tamanho em formato invalido vem antes de industria.
+      expect(items[0].textContent).toContain("<11");
+      expect(items[1].textContent).toContain("clinicas de estetica");
+    });
+
+    it("renderiza os chips de recuperacao com o aviso de efeito colateral (AC3)", () => {
+      renderEmpty();
+
+      expect(screen.getByTestId("empty-chip-remove-industry")).toBeInTheDocument();
+      expect(screen.getByTestId("empty-chip-fix-company-size")).toBeInTheDocument();
+      expect(screen.getByTestId("empty-chip-broaden-location")).toBeInTheDocument();
+      // Guardrail de custo comunicado na tela.
+      expect(screen.getByText(/nada é executado só com o clique/i)).toBeInTheDocument();
+    });
+
+    it("chip de delta: rejeita, entra em ajuste e publica o delta para o AgentChat (AC3)", async () => {
+      renderEmpty();
+
+      fireEvent.click(screen.getByTestId("empty-chip-remove-industry"));
+
+      await waitFor(() => {
+        expect(useAgentStore.getState().pendingChipAdjustment).toEqual({
+          executionId: "exec-001",
+          stepNumber: 2,
+          stepType: "search_leads",
+          label: "Remover filtro de indústria",
+          delta: { industry: null },
+        });
+      });
+
+      // O reject vem PRIMEIRO (carimbo duravel + reentrada pos-F5 de graca — D1).
+      const rejectCall = mockFetch.mock.calls.find(([url]) =>
+        String(url).endsWith("/steps/2/reject")
+      );
+      expect(rejectCall).toBeDefined();
+      expect(JSON.parse(rejectCall![1].body)).toEqual({
+        reason: "Remover filtro de indústria",
+      });
+
+      expect(useAgentStore.getState().adjustingStep).toEqual({
+        executionId: "exec-001",
+        stepNumber: 2,
+        stepType: "search_leads",
+        phase: "describe",
+      });
+    });
+
+    it("chip NUNCA dispara /execute — quem paga e a confirmacao (AC3, Trap #2)", async () => {
+      renderEmpty();
+
+      fireEvent.click(screen.getByTestId("empty-chip-fix-company-size"));
+
+      await waitFor(() => {
+        expect(useAgentStore.getState().pendingChipAdjustment).not.toBeNull();
+      });
+
+      const executeCalls = mockFetch.mock.calls.filter(([url]) =>
+        String(url).includes("/execute")
+      );
+      expect(executeCalls).toHaveLength(0);
+    });
+
+    it("chip de prefill NAO tem delta — pre-preenche o input e cai no caminho de texto", async () => {
+      renderEmpty();
+
+      fireEvent.click(screen.getByTestId("empty-chip-broaden-location"));
+
+      await waitFor(() => {
+        expect(useAgentStore.getState().chatInputDraft).toContain("Atibaia");
+      });
+
+      expect(useAgentStore.getState().pendingChipAdjustment).toBeNull();
+      // Mesmo assim entra em ajuste: sem isso a mensagem digitada nao teria consumidor.
+      expect(useAgentStore.getState().adjustingStep?.phase).toBe("describe");
+    });
+
+    it("reject que falha NAO publica o sinal do chip (nada de PATCH sobre um gate vivo)", async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        json: () => Promise.resolve({ error: { message: "Step nao esta aguardando aprovacao" } }),
+      });
+
+      renderEmpty();
+      fireEvent.click(screen.getByTestId("empty-chip-remove-industry"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Step nao esta aguardando aprovacao")).toBeInTheDocument();
+      });
+
+      expect(useAgentStore.getState().pendingChipAdjustment).toBeNull();
+      expect(useAgentStore.getState().adjustingStep).toBeNull();
+    });
+
+    it("caminho de TEXTO continua vivo e converge no MESMO adjustingStep (AC4)", async () => {
+      renderEmpty();
+
+      fireEvent.click(screen.getByRole("button", { name: /rejeitar e ajustar por texto/i }));
+
+      await waitFor(() => {
+        expect(useAgentStore.getState().adjustingStep).toEqual({
+          executionId: "exec-001",
+          stepNumber: 2,
+          stepType: "search_leads",
+          phase: "describe",
+        });
+      });
+      expect(useAgentStore.getState().pendingChipAdjustment).toBeNull();
+    });
+
+    it("gate ja rejeitado (duravel): chips desabilitados — um ajuste por vez (AC4)", () => {
+      render(
+        <AgentLeadReview
+          data={emptyData}
+          executionId="exec-001"
+          stepNumber={2}
+          totalSteps={5}
+          rejected
+        />
+      );
+
+      expect(screen.getByTestId("empty-chip-remove-industry")).toBeDisabled();
+      expect(screen.getByRole("button", { name: /rejeitar e ajustar por texto/i })).toBeDisabled();
+      expect(screen.getByText("❌ Rejeitado")).toBeInTheDocument();
+    });
+
+    it("chip com aviso mostra o efeito colateral do piso 11+ antes do clique", () => {
+      const noSizeBriefing: ParsedBriefing = { ...atibaiaBriefing, companySize: null, industry: null };
+      renderEmpty({
+        ...emptyData,
+        emptyDiagnosis: diagnoseEmptySearch(noSizeBriefing, {
+          ...atibaiaFilters,
+          companySizes: ["11-50"],
+          industries: undefined,
+        }),
+      });
+
+      expect(screen.getByTestId("empty-chip-include-small-companies")).toBeInTheDocument();
+      expect(screen.getAllByText(/11\+/).length).toBeGreaterThan(0);
+    });
+
+    it("execucao antiga sem diagnostico no output: degrada com graca, sem quebrar", () => {
+      renderEmpty({ totalFound: 0, leads: [], jobTitles: [], emptyResult: true });
+
+      expect(screen.getByTestId("agent-lead-review-empty")).toBeInTheDocument();
+      expect(screen.getByText(/Rejeite a etapa e descreva o ajuste/i)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^aprovar/i })).not.toBeInTheDocument();
+    });
+
+    /**
+     * Code review 22.14 — gate LEGADO, sem o flag.
+     *
+     * `emptyResult` so existe em execucoes criadas depois desta story. Um gate anterior
+     * ainda em `awaiting_approval` com `leads: []` continuava renderizando tabela vazia +
+     * input de filtro + "Aprovar (0 leads)": exatamente o P1 que a story existe para matar,
+     * sobrevivendo no banco. O gatilho passou a olhar tambem a LISTA — o que satisfaz o
+     * Trap #5 igualmente (nunca `totalFound`) e cobre o passado.
+     *
+     * `totalFound: 137` prova as duas coisas de uma vez: sem o flag E com total > 0, o
+     * empty-state ainda assim dispara, porque quem manda e a lista.
+     */
+    it("gate LEGADO sem emptyResult tambem cai no empty-state (retroativo, Trap #5)", () => {
+      renderEmpty({ totalFound: 137, leads: [], jobTitles: ["Owner"] });
+
+      expect(screen.getByTestId("agent-lead-review-empty")).toBeInTheDocument();
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^aprovar/i })).not.toBeInTheDocument();
+      expect(screen.queryByText(/0 de 137 leads selecionados/i)).not.toBeInTheDocument();
+    });
+
+    it("com leads, o card normal continua identico (NFR4)", () => {
+      render(
+        <AgentLeadReview data={defaultData} executionId="exec-001" stepNumber={2} totalSteps={5} />
+      );
+
+      expect(screen.queryByTestId("agent-lead-review-empty")).not.toBeInTheDocument();
+      expect(screen.getByText("3 de 3 leads selecionados")).toBeInTheDocument();
+      expect(screen.getByText("Aprovar (3 leads)")).toBeInTheDocument();
     });
   });
 });

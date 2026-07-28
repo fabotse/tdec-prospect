@@ -7,9 +7,10 @@
  * convertToInstantlySequences, progress message
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ExportStep, convertToInstantlySequences } from "@/lib/agent/steps/export-step";
 import { createChainBuilder } from "../../../../helpers/mock-supabase";
+import { FakeDb, createFakeSupabase, FAKE_TENANT } from "../../../../helpers/fake-leads-db";
 import type { StepInput } from "@/types/agent";
 import { ExternalServiceError } from "@/lib/services/base-service";
 
@@ -73,7 +74,13 @@ function createPreviousStepOutput() {
   };
 }
 
-function createMockSupabase(apiConfigData: unknown = { encrypted_key: "enc-key" }) {
+/**
+ * Story 22.16: `campaigns` e servida pelo `FakeDb`, nao por um chain-builder. O carimbo de
+ * export e a parte da story que mais importa (`external_campaign_id` e a chave de que
+ * analytics, reply-sweep e webhook dependem) e um chain-builder generico aceitaria
+ * qualquer payload em silencio.
+ */
+function createMockSupabase(apiConfigData: unknown = { encrypted_key: "enc-key" }, db?: FakeDb) {
   const apiConfigsChain = createChainBuilder({
     data: apiConfigData,
     error: null,
@@ -84,14 +91,18 @@ function createMockSupabase(apiConfigData: unknown = { encrypted_key: "enc-key" 
   // BaseStep internal chains
   const stepsChain = createChainBuilder({ data: { id: "step-4" }, error: null });
 
+  const campaignsDb = db ?? new FakeDb();
+  const fakeFrom = createFakeSupabase(campaignsDb).from as (t: string) => unknown;
+
   const mockFrom = vi.fn().mockImplementation((table: string) => {
     if (table === "api_configs") return apiConfigsChain;
     if (table === "agent_messages") return messagesChain;
     if (table === "agent_steps") return stepsChain;
+    if (table === "campaigns" || table === "campaign_leads") return fakeFrom(table);
     return createChainBuilder();
   });
 
-  return { from: mockFrom, apiConfigsChain, messagesChain, stepsChain };
+  return { from: mockFrom, db: campaignsDb, apiConfigsChain, messagesChain, stepsChain };
 }
 
 function createDefaultInput(previousStepOutput?: Record<string, unknown>): StepInput {
@@ -175,11 +186,9 @@ describe("ExportStep (Story 17.4 AC #1, #2)", () => {
 
       await step.run(input);
 
-      expect(mockGetServiceApiKey).toHaveBeenCalledWith(
-        expect.anything(),
-        TENANT_ID,
-        "instantly"
-      );
+      // Story 22.9: assinatura sem client — a leitura e sempre service-role,
+      // nunca com o client de sessao passado pelo caller.
+      expect(mockGetServiceApiKey).toHaveBeenCalledWith(TENANT_ID, "instantly");
       // Accounts fetched first, then passed to createCampaign via sendingAccounts
       expect(mockListAccounts).toHaveBeenCalledWith(
         expect.objectContaining({ apiKey: "decrypted-instantly-key" })
@@ -508,6 +517,132 @@ describe("ExportStep (Story 17.4 AC #1, #2)", () => {
           content: "Etapa 4/5: Exportando campanha para o Instantly...",
         })
       );
+    });
+  });
+
+  // ==============================================
+  // Story 22.16: carimbo do export na campanha local
+  // ==============================================
+
+  describe("carimbo do export na campanha local (Story 22.16)", () => {
+    let db: FakeDb;
+    let campaignId: string;
+
+    const LIFECYCLE_MESSAGE_TYPES = ["progress", "step_complete", "approval_gate"];
+
+    function noticeMessages(): string[] {
+      return mockSupabase.messagesChain.insert.mock.calls
+        .map((call: unknown[]) => call[0] as { content?: string; metadata?: { messageType?: string } })
+        .filter((row) => !LIFECYCLE_MESSAGE_TYPES.includes(row?.metadata?.messageType ?? ""))
+        .map((row) => row?.content ?? "");
+    }
+
+    beforeEach(() => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      db = new FakeDb();
+      campaignId = db.seedCampaign({ tenant_id: FAKE_TENANT, name: "Campanha React Outbound" }).id;
+      mockSupabase = createMockSupabase({ encrypted_key: "enc-key" }, db);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    function inputWithCampaign(overrides: Record<string, unknown> = {}): StepInput {
+      return {
+        ...createDefaultInput({ ...createPreviousStepOutput(), campaignId, ...overrides }),
+        mode: "autopilot",
+      };
+    }
+
+    it("grava os quatro campos de export com o shape do builder", async () => {
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+
+      const result = await step.run(inputWithCampaign());
+
+      expect(result.success).toBe(true);
+      const campaign = db.campaigns[0];
+      // Sem este campo o reply-sweep e o webhook nunca acham a campanha: a resposta do
+      // lead vira `skipped` silencioso e o Epic 10/14/21 ignora a campanha do agente.
+      expect(campaign.external_campaign_id).toBe("instantly-camp-123");
+      expect(campaign.export_platform).toBe("instantly");
+      expect(campaign.export_status).toBe("success");
+      expect(Number.isNaN(Date.parse(campaign.exported_at as string))).toBe(false);
+      // Nada mais foi tocado: a sequencia continua vivendo no Instantly.
+      expect(campaign.status).toBe("draft");
+      expect(noticeMessages()).toHaveLength(0);
+    });
+
+    it("propaga o campaignId no output (senao o activate perde a referencia)", async () => {
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+
+      const result = await step.run(inputWithCampaign());
+
+      expect((result.data as Record<string, unknown>).campaignId).toBe(campaignId);
+    });
+
+    it("sem campaignId: nenhuma escrita, nenhuma bolha, nenhum erro", async () => {
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+      const previous = createPreviousStepOutput() as unknown as Record<string, unknown>;
+
+      const result = await step.run({
+        ...createDefaultInput(previous),
+        mode: "autopilot",
+      });
+
+      expect(result.success).toBe(true);
+      // Caminho normal (a persistencia do create falhou la atras), nao e falha aqui.
+      expect(db.log.some((entry) => entry.table === "campaigns")).toBe(false);
+      expect(db.campaigns[0].external_campaign_id).toBeNull();
+      expect((result.data as Record<string, unknown>).campaignId).toBeNull();
+      expect(noticeMessages()).toHaveLength(0);
+    });
+
+    it("falha da escrita local NAO derruba um export que ja gastou credito", async () => {
+      db.fail("campaigns", "update", { code: "42501", message: "permission denied" });
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+
+      const result = await step.run(inputWithCampaign());
+
+      expect(result.success).toBe(true);
+      expect((result.data as Record<string, unknown>).externalCampaignId).toBe("instantly-camp-123");
+      expect(db.campaigns[0].external_campaign_id).toBeNull();
+
+      const messages = noticeMessages();
+      expect(messages).toHaveLength(1);
+      // A bolha nao pode negar o export: ele ACONTECEU no Instantly.
+      expect(messages[0]).toMatch(/exportada para o instantly/i);
+      expect(messages[0]).toMatch(/nao consegui registrar/i);
+    });
+
+    it("campanha local apagada no meio: ZERO linhas nao passa por sucesso silencioso", async () => {
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+
+      const result = await step.run(
+        inputWithCampaign({ campaignId: "campaign-que-o-usuario-apagou" })
+      );
+
+      expect(result.success).toBe(true);
+      // Um UPDATE que casa zero linhas volta `{ error: null }` no PostgREST. Sem a
+      // conferencia por leitura, a campanha ficaria sem `external_campaign_id` — fora do
+      // analytics, do reply-sweep e do webhook — e ninguem saberia.
+      const messages = noticeMessages();
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatch(/nao consegui registrar/i);
+      expect(db.campaigns[0].external_campaign_id).toBeNull();
+    });
+
+    it("so carimba DEPOIS do sucesso no Instantly", async () => {
+      mockAddLeadsToCampaign.mockRejectedValue(
+        new ExternalServiceError("instantly", 500, "Erro ao adicionar leads")
+      );
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+
+      await expect(step.run(inputWithCampaign())).rejects.toBeDefined();
+
+      // Export incompleto: a campanha local nao pode dizer "exportada com sucesso".
+      expect(db.campaigns[0].external_campaign_id).toBeNull();
+      expect(db.campaigns[0].export_status).toBeNull();
     });
   });
 });

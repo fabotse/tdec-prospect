@@ -62,6 +62,18 @@ function createRequest(): NextRequest {
   );
 }
 
+// Story 22.2: request com corpo JSON (toggle premium)
+function createRequestWithBody(body: unknown): NextRequest {
+  return new NextRequest(
+    `http://localhost/api/agent/executions/${EXEC_ID}/confirm`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+}
+
 function createParams() {
   return { params: Promise.resolve({ executionId: EXEC_ID }) };
 }
@@ -320,5 +332,127 @@ describe("POST /api/agent/executions/[executionId]/confirm", () => {
 
     const response = await POST(createRequest(), createParams());
     expect(response.status).toBe(200);
+  });
+
+  // ==============================================
+  // Story 22.2: toggle de icebreaker premium
+  // ==============================================
+
+  it("persiste briefing.premiumIcebreakers=true e recomputa custo quando corpo pede premium", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const updateChain = createChainBuilder({ data: { ...mockExecution }, error: null });
+    let callCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callCount++;
+      if (callCount === 1) {
+        return createChainBuilder({ data: mockExecution, error: null });
+      }
+      if (table === "cost_models") {
+        return createChainBuilder({ data: [], error: null });
+      }
+      if (table === "agent_steps") {
+        return createChainBuilder({ data: null, error: null });
+      }
+      if (table === "agent_executions") {
+        return updateChain;
+      }
+      return createChainBuilder({ data: null, error: null });
+    });
+
+    const response = await POST(
+      createRequestWithBody({ premiumIcebreakers: true }),
+      createParams()
+    );
+    expect(response.status).toBe(200);
+
+    // o update de agent_executions inclui briefing com premiumIcebreakers:true e um cost_estimate
+    expect(updateChain.update).toHaveBeenCalled();
+    const updatePayload = updateChain.update.mock.calls[0][0] as {
+      briefing?: { premiumIcebreakers?: boolean };
+      cost_estimate?: { total: number };
+    };
+    expect(updatePayload.briefing?.premiumIcebreakers).toBe(true);
+    expect(updatePayload.cost_estimate).toBeDefined();
+    // premium ligado → custo total > 0 (inclui Apify)
+    expect(updatePayload.cost_estimate?.total).toBeGreaterThan(0);
+  });
+
+  it("trata corpo ausente como premiumIcebreakers=false sem 400 (compat)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const updateChain = createChainBuilder({ data: { ...mockExecution }, error: null });
+    let callCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callCount++;
+      if (callCount === 1) {
+        return createChainBuilder({ data: mockExecution, error: null });
+      }
+      if (table === "cost_models") {
+        return createChainBuilder({ data: [], error: null });
+      }
+      if (table === "agent_steps") {
+        return createChainBuilder({ data: null, error: null });
+      }
+      if (table === "agent_executions") {
+        return updateChain;
+      }
+      return createChainBuilder({ data: null, error: null });
+    });
+
+    // createRequest() nao envia corpo → request.json() falha → tratado como false
+    const response = await POST(createRequest(), createParams());
+    expect(response.status).toBe(200);
+
+    const updatePayload = updateChain.update.mock.calls[0][0] as {
+      briefing?: { premiumIcebreakers?: boolean };
+    };
+    expect(updatePayload.briefing?.premiumIcebreakers).toBe(false);
+  });
+
+  // ==============================================
+  // Story 22.10: semantica de status (AC1)
+  // ==============================================
+
+  it("marca a execucao como RUNNING e grava started_at ao confirmar (AC1)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const updateChain = createChainBuilder({ data: { ...mockExecution }, error: null });
+    let callCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callCount++;
+      if (callCount === 1) {
+        return createChainBuilder({ data: mockExecution, error: null });
+      }
+      if (table === "cost_models") {
+        return createChainBuilder({ data: [], error: null });
+      }
+      if (table === "agent_steps") {
+        return createChainBuilder({ data: null, error: null });
+      }
+      if (table === "agent_executions") {
+        return updateChain;
+      }
+      return createChainBuilder({ data: null, error: null });
+    });
+
+    const response = await POST(createRequest(), createParams());
+    expect(response.status).toBe(200);
+
+    // O MESMO update que ja gravava briefing/cost_estimate/total_steps passa a dar
+    // semantica real ao status: sem isto, execucao confirmada seguiria 'pending' e o
+    // reattach da AC2 nao teria como distingui-la de briefing abandonado.
+    const updatePayload = updateChain.update.mock.calls[0][0] as {
+      status?: string;
+      started_at?: string;
+      cost_estimate?: unknown;
+      total_steps?: number;
+    };
+    expect(updatePayload.status).toBe("running");
+    expect(typeof updatePayload.started_at).toBe("string");
+    expect(Number.isNaN(Date.parse(updatePayload.started_at as string))).toBe(false);
+    // e o que ja existia continua no MESMO write (sem request extra)
+    expect(updatePayload.cost_estimate).toBeDefined();
+    expect(updatePayload.total_steps).toBeGreaterThan(0);
   });
 });

@@ -7,9 +7,20 @@
 
 import { BaseStep } from "./base-step";
 import { TheirStackService } from "@/lib/services/theirstack";
+import { diagnoseEmptyCompanySearch } from "@/lib/agent/empty-search-diagnosis";
 import type { StepInput, StepOutput, StepType } from "@/types/agent";
 import type { TheirStackSearchFilters } from "@/types/theirstack";
 import type { SupabaseClient } from "@supabase/supabase-js";
+
+/**
+ * Story 22.14 (AC6): mensagem do autopilot quando a busca de empresas volta vazia.
+ *
+ * Sem gate para mostrar o diagnostico, seguir adiante com `companies: []` levava o
+ * `search_leads` a lancar "Lista de empresas do step anterior e obrigatoria" — erro de
+ * plumbing no lugar do motivo real. Sem acentos (convencao das strings do agente).
+ */
+export const EMPTY_COMPANY_SEARCH_MESSAGE =
+  "A busca nao encontrou nenhuma empresa com esses filtros. Ajuste o briefing e tente novamente.";
 
 // ==============================================
 // STATIC MAPS
@@ -167,15 +178,37 @@ export class SearchCompaniesStep extends BaseStep {
     const companiesCount = result.data.length;
     const cost = { theirstack_search: companiesCount * CREDITS_PER_COMPANY };
 
+    const baseData = {
+      companies: result.data,
+      totalFound: result.metadata.total_companies,
+      technologySlug: technologySlugs[0] ?? briefing.technology,
+      filtersApplied: filters,
+    };
+
+    // Story 22.14 (AC1/AC5/AC6): 0 empresas deixa de ser um sucesso silencioso. Assim como
+    // na busca de leads, o gatilho e a LISTA vazia — nunca `total_companies` (metadado da
+    // API, que pode divergir da pagina devolvida).
+    if (companiesCount === 0) {
+      // Espelha `BaseStep.run`: sem modo guiado nao ha gate onde mostrar o diagnostico.
+      if (input.mode !== "guided") {
+        throw new Error(EMPTY_COMPANY_SEARCH_MESSAGE);
+      }
+
+      return {
+        success: true,
+        data: {
+          ...baseData,
+          emptyResult: true,
+          emptyDiagnosis: diagnoseEmptyCompanySearch(briefing, { ...filters }),
+        },
+        cost,
+      };
+    }
+
     // 3.4 - Return StepOutput
     return {
       success: true,
-      data: {
-        companies: result.data,
-        totalFound: result.metadata.total_companies,
-        technologySlug: technologySlugs[0] ?? briefing.technology,
-        filtersApplied: filters,
-      },
+      data: baseData,
       cost,
     };
   }

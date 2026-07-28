@@ -135,9 +135,16 @@ export interface BulkAddLeadsResponse {
 
 /**
  * Response from POST /api/v2/campaigns/{id}/activate
+ *
+ * Story 22.18 (AC7): a v2 responde o *Campaign object*, nao um envelope `{ success }`.
+ * O tipo antigo declarava `success: boolean` e o service repassava esse campo
+ * inexistente adiante como se fosse confirmacao. Todos os campos sao opcionais porque
+ * nada aqui e consumido — falha vira excecao no `request()`.
  */
 export interface ActivateCampaignResponse {
-  success: boolean;
+  id?: string;
+  name?: string;
+  status?: number;
 }
 
 /**
@@ -150,6 +157,27 @@ export interface GetCampaignResponse {
   sequences?: Array<{
     steps: InstantlySequenceStep[];
   }>;
+  /** Sending accounts currently associated with the campaign (Story 22.12) */
+  email_list?: string[];
+}
+
+/**
+ * Request body for PATCH /api/v2/campaigns/{id} (Story 22.12)
+ * Canonical v2 mechanism to associate sending accounts with a campaign.
+ * `email_list` = "List of accounts to use for sending emails" (doc oficial).
+ */
+export interface UpdateCampaignRequest {
+  email_list?: string[];
+}
+
+/**
+ * Response from PATCH /api/v2/campaigns/{id} (Story 22.12)
+ */
+export interface UpdateCampaignResponse {
+  id: string;
+  name?: string;
+  status?: number;
+  email_list?: string[];
 }
 
 /**
@@ -199,26 +227,13 @@ export interface ListAccountsResult {
 }
 
 // ==============================================
-// ACCOUNT CAMPAIGN MAPPING TYPES (Story 7.5: AC #1)
+// ADD ACCOUNTS TYPES (Story 7.5: AC #1; rewritten Story 22.12)
 // ==============================================
-
-/**
- * Request body for POST /api/v2/account-campaign-mappings
- * Story 7.5: Associates a sending account with a campaign
- */
-export interface AccountCampaignMappingRequest {
-  campaign_id: string;
-  email_account: string;
-}
-
-/**
- * Response from POST /api/v2/account-campaign-mappings
- */
-export interface AccountCampaignMappingResponse {
-  campaign_id: string;
-  email_account: string;
-  status: string;
-}
+//
+// Story 22.12: o antigo POST /api/v2/account-campaign-mappings NAO EXISTE na v2
+// (404 real). O mecanismo canonico e PATCH /api/v2/campaigns/{id} com `email_list`
+// (ver UpdateCampaignRequest acima). Os tipos AccountCampaignMappingRequest/Response
+// foram removidos junto com o endpoint morto.
 
 /**
  * Parameters for InstantlyService.addAccountsToCampaign()
@@ -302,11 +317,10 @@ export interface ActivateCampaignParams {
 }
 
 /**
- * Result from InstantlyService.activateCampaign()
+ * Story 22.18 (AC7): `ActivateResult` foi REMOVIDO. Ele declarava `{ success: boolean }`
+ * sobre uma resposta da API que nunca teve esse campo — `activateCampaign` agora devolve
+ * `void` (erro = excecao) em vez de afirmar um sucesso que a API nao manda.
  */
-export interface ActivateResult {
-  success: boolean;
-}
 
 /**
  * Parameters for InstantlyService.getCampaignStatus()
@@ -324,6 +338,12 @@ export interface CampaignStatusResult {
   name: string;
   status: number;
   statusLabel: string;
+  /**
+   * Story 22.18 (AC6): contas de envio associadas a campanha, vindas do mesmo GET.
+   * `undefined` = a resposta nao trouxe o campo (nao sabemos); `[]` = a campanha
+   * comprovadamente nao tem remetente.
+   */
+  emailList?: string[];
 }
 
 /**

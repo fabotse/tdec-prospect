@@ -13,7 +13,7 @@
  * AC 16.5: #1-#5 - Plano de execucao, confirmar/cancelar
  */
 
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AgentChat } from "@/components/agent/AgentChat";
 
@@ -30,6 +30,13 @@ const mockSetExecutionMode = vi.fn();
 const mockSetTotalSteps = vi.fn();
 const mockProcessMessage = vi.fn().mockResolvedValue({ handled: true });
 const mockToastError = vi.fn();
+// Story 22.13: setters do estado de ajuste pos-rejeicao
+const mockSetAdjustingStep = vi.fn();
+const mockClearAdjustingStep = vi.fn();
+// Story 22.14: chips de recuperacao da busca vazia
+const mockSetPendingChipAdjustment = vi.fn();
+const mockClearPendingChipAdjustment = vi.fn();
+const mockSetChatInputDraft = vi.fn();
 
 let capturedOnSendMessage: ((content: string) => Promise<void>) | null = null;
 let capturedMessageListProps: Record<string, unknown> = {};
@@ -38,15 +45,30 @@ let capturedModeSelectorProps: Record<string, unknown> | null = null;
 let capturedExecutionPlanProps: Record<string, unknown> | null = null;
 let mockStoreState: Record<string, unknown> = {};
 let mockBriefingState: Record<string, unknown> = {};
+// Story 22.8: profile do usuario logado (usado na validacao-no-mount do reattach).
+// Default null -> a validacao aguarda o profile e nao dispara (mantem os testes legados intactos).
+let mockUserState: { profile: { id: string } | null } = { profile: null };
 
 vi.mock("sonner", () => ({
   toast: { error: (...args: unknown[]) => mockToastError(...args) },
 }));
 
+vi.mock("@/hooks/use-user", () => ({
+  useUser: () => mockUserState,
+}));
+
 const mockRefetchMessages = vi.fn();
+// Story 22.8: dados da execucao reidratados pelo hook (mutavel para testar reattach de steps/mensagens)
+let mockExecutionData: { messages: unknown[]; steps: unknown[] } = { messages: [], steps: [] };
 
 vi.mock("@/hooks/use-agent-execution", () => ({
-  useAgentExecution: () => ({ messages: [], steps: [], isLoading: false, isConnected: false, refetchMessages: mockRefetchMessages }),
+  useAgentExecution: () => ({
+    messages: mockExecutionData.messages,
+    steps: mockExecutionData.steps,
+    isLoading: false,
+    isConnected: false,
+    refetchMessages: mockRefetchMessages,
+  }),
   useSendMessage: () => ({ mutate: mockMutate, isPending: false }),
 }));
 
@@ -55,21 +77,42 @@ vi.mock("@/hooks/use-agent-onboarding", () => ({
 }));
 
 vi.mock("@/stores/use-agent-store", () => ({
-  useAgentStore: (selector: (s: Record<string, unknown>) => unknown) =>
-    selector(mockStoreState),
+  // Story 22.8: expoe getState() (usado pela validacao-no-mount para ler o id persistido)
+  useAgentStore: Object.assign(
+    (selector: (s: Record<string, unknown>) => unknown) => selector(mockStoreState),
+    { getState: () => mockStoreState }
+  ),
 }));
 
 vi.mock("@/hooks/use-auto-trigger", () => ({
   useAutoTrigger: () => {},
 }));
 
-vi.mock("@/hooks/use-briefing-flow", () => ({
-  useBriefingFlow: () => ({
-    state: mockBriefingState,
-    processMessage: mockProcessMessage,
-    reset: vi.fn(),
-  }),
-}));
+// Story 22.10: `reset` e spy compartilhado — o botao "Nova conversa" precisa chama-lo
+// (sem isso o briefing sobrevive em memoria e o agente retoma a conversa morta).
+const mockResetBriefing = vi.fn();
+// Story 22.13: seams do ajuste pos-rejeicao (memoria da 22.3 reusada, nunca duplicada).
+const mockParseAdjustment = vi.fn();
+const mockRecordAgentTurn = vi.fn();
+const mockRecordUserTurn = vi.fn();
+
+// Story 22.13: importOriginal preserva os helpers PUROS exportados pelo modulo
+// (isConfirmation — SSOT deterministico da confirmacao). Sem isso o AgentChat
+// importaria `undefined` e o ramo de ajuste quebraria no teste por artefato do mock.
+vi.mock("@/hooks/use-briefing-flow", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/hooks/use-briefing-flow")>();
+  return {
+    ...actual,
+    useBriefingFlow: () => ({
+      state: mockBriefingState,
+      processMessage: mockProcessMessage,
+      reset: mockResetBriefing,
+      parseAdjustment: mockParseAdjustment,
+      recordAgentTurn: mockRecordAgentTurn,
+      recordUserTurn: mockRecordUserTurn,
+    }),
+  };
+});
 
 vi.mock("@/components/agent/AgentMessageList", () => ({
   AgentMessageList: (props: Record<string, unknown>) => {
@@ -100,6 +143,10 @@ vi.mock("@/components/agent/AgentExecutionPlan", () => ({
   },
 }));
 
+vi.mock("@/components/agent/AgentStepProgress", () => ({
+  AgentStepProgress: () => <div data-testid="agent-step-progress">step progress</div>,
+}));
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -110,6 +157,9 @@ function setupDefaults(overrides?: {
   briefing?: Record<string, unknown> | null;
   showModeSelector?: boolean;
   showExecutionPlan?: boolean;
+  adjustingStep?: Record<string, unknown> | null;
+  // Story 22.14: sinal do chip de ajuste clicado no empty-state de busca vazia
+  pendingChipAdjustment?: Record<string, unknown> | null;
 }) {
   mockStoreState = {
     currentExecutionId: overrides?.executionId ?? null,
@@ -125,6 +175,16 @@ function setupDefaults(overrides?: {
     setExecutionMode: mockSetExecutionMode,
     totalSteps: 0,
     setTotalSteps: mockSetTotalSteps,
+    // Story 22.13: estado de ajuste pos-rejeicao (efemero, nunca persistido)
+    adjustingStep: overrides?.adjustingStep ?? null,
+    setAdjustingStep: mockSetAdjustingStep,
+    clearAdjustingStep: mockClearAdjustingStep,
+    // Story 22.14: chip do empty-state + texto sugerido para o input
+    pendingChipAdjustment: overrides?.pendingChipAdjustment ?? null,
+    setPendingChipAdjustment: mockSetPendingChipAdjustment,
+    clearPendingChipAdjustment: mockClearPendingChipAdjustment,
+    chatInputDraft: null,
+    setChatInputDraft: mockSetChatInputDraft,
   };
   mockBriefingState = {
     status: overrides?.briefingStatus ?? "idle",
@@ -145,6 +205,9 @@ describe("AgentChat", () => {
     vi.clearAllMocks();
     capturedOnSendMessage = null;
     setupDefaults();
+    // Story 22.8: profile ausente por padrao -> validacao-no-mount nao dispara nos testes legados
+    mockUserState = { profile: null };
+    mockExecutionData = { messages: [], steps: [] };
     // Default fetch mock: successful execution creation
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -332,10 +395,8 @@ describe("AgentChat", () => {
         }
       );
 
-      let fetchCallCount = 0;
+      // First call is sendMessageMutation (not fetch), second is sendAgentMessage
       (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(() => {
-        fetchCallCount++;
-        // First call is sendMessageMutation (not fetch), second is sendAgentMessage
         return Promise.resolve({
           ok: false,
           status: 500,
@@ -842,6 +903,1351 @@ describe("AgentChat", () => {
       render(<AgentChat />);
       expect(capturedExecutionPlanProps?.executionId).toBe("exec-123");
       expect(capturedExecutionPlanProps?.isSubmitting).toBe(false);
+    });
+  });
+
+  // --- Story 22.8: Reattach de execucao no refresh ---
+
+  describe("reattach de execucao no refresh (Story 22.8)", () => {
+    const USER_ID = "user-1";
+
+    // Mock URL-aware do GET /api/agent/executions (fonte da validacao-no-mount)
+    function mockExecutionsList(executions: Array<Record<string, unknown>>) {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (typeof url === "string" && url === "/api/agent/executions") {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ data: executions }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+      });
+    }
+
+    it("mantem o id quando a execucao persistida esta RUNNING e e do usuario (AC1/AC2)", async () => {
+      setupDefaults({ executionId: "exec-run" });
+      mockUserState = { profile: { id: USER_ID } };
+      mockExecutionsList([{ id: "exec-run", user_id: USER_ID, status: "running" }]);
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      // Validou contra o servidor (GET, sem body)
+      expect(global.fetch).toHaveBeenCalledWith("/api/agent/executions");
+      // NAO descartou o id
+      expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
+    });
+
+    it("mantem o id quando a execucao esta PAUSED (ativo) (AC2)", async () => {
+      setupDefaults({ executionId: "exec-paused" });
+      mockUserState = { profile: { id: USER_ID } };
+      mockExecutionsList([{ id: "exec-paused", user_id: USER_ID, status: "paused" }]);
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      // Consultou o servidor antes de decidir manter (nao "manteve" so por nunca ter validado)
+      expect(global.fetch).toHaveBeenCalledWith("/api/agent/executions");
+      expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
+    });
+
+    // Story 22.10 (AC2): INVERSAO deliberada do caso PENDING da 22.8.
+    // Toda conversa abandonada no meio do briefing fica 'pending' PARA SEMPRE (nada a
+    // encerra), entao o criterio da 22.8 fazia historico morto reaparecer em todo login/
+    // refresh — e reaparecer QUEBRADO (mensagens reidratam, mas o useBriefingFlow volta a
+    // 'idle' e o agente repergunta tudo dentro do mesmo historico). Com o confirm gravando
+    // 'running' (AC1), 'pending' passa a significar exatamente "briefing nao confirmado".
+    it("DESCARTA o id quando a execucao esta PENDING (briefing abandonado) (AC2)", async () => {
+      setupDefaults({ executionId: "exec-pending" });
+      mockUserState = { profile: { id: USER_ID } };
+      mockExecutionsList([{ id: "exec-pending", user_id: USER_ID, status: "pending" }]);
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      expect(global.fetch).toHaveBeenCalledWith("/api/agent/executions");
+      expect(mockSetCurrentExecutionId).toHaveBeenCalledWith(null);
+    });
+
+    it("descarta o id quando a execucao foi CANCELADA (terminal, Story 22.10) (AC2)", async () => {
+      setupDefaults({ executionId: "exec-cancel" });
+      mockUserState = { profile: { id: USER_ID } };
+      mockExecutionsList([{ id: "exec-cancel", user_id: USER_ID, status: "cancelled" }]);
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      expect(mockSetCurrentExecutionId).toHaveBeenCalledWith(null);
+    });
+
+    it("descarta o id quando a execucao esta COMPLETED (terminal) (AC2)", async () => {
+      setupDefaults({ executionId: "exec-done" });
+      mockUserState = { profile: { id: USER_ID } };
+      mockExecutionsList([{ id: "exec-done", user_id: USER_ID, status: "completed" }]);
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      expect(mockSetCurrentExecutionId).toHaveBeenCalledWith(null);
+    });
+
+    it("descarta o id quando a execucao FALHOU (terminal) (AC2)", async () => {
+      setupDefaults({ executionId: "exec-fail" });
+      mockUserState = { profile: { id: USER_ID } };
+      mockExecutionsList([{ id: "exec-fail", user_id: USER_ID, status: "failed" }]);
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      expect(mockSetCurrentExecutionId).toHaveBeenCalledWith(null);
+    });
+
+    it("descarta o id quando nao existe na lista (inexistente) (AC2)", async () => {
+      setupDefaults({ executionId: "exec-ghost" });
+      mockUserState = { profile: { id: USER_ID } };
+      mockExecutionsList([{ id: "outra", user_id: USER_ID, status: "running" }]);
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      expect(mockSetCurrentExecutionId).toHaveBeenCalledWith(null);
+    });
+
+    it("descarta o id de execucao de OUTRO usuario, mesmo ativa (guardrail user_id) (AC2)", async () => {
+      setupDefaults({ executionId: "exec-alheia" });
+      mockUserState = { profile: { id: USER_ID } };
+      mockExecutionsList([{ id: "exec-alheia", user_id: "outro-user", status: "running" }]);
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      expect(mockSetCurrentExecutionId).toHaveBeenCalledWith(null);
+    });
+
+    it("NAO descarta o id se o GET responde 200 com payload nao-array (defensivo, shape inesperado)", async () => {
+      setupDefaults({ executionId: "exec-run" });
+      mockUserState = { profile: { id: USER_ID } };
+      // 200 OK mas data nao e array (contrato mudado / proxy / erro serializado)
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: { error: "unexpected" } }),
+      });
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      // Trata como transitorio: mantem o id (nao descarta uma execucao possivelmente ativa)
+      expect(global.fetch).toHaveBeenCalledWith("/api/agent/executions");
+      expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
+    });
+
+    it("NAO descarta o id em falha de rede, mas TENTA validar (defensivo — nao apaga a toa) (AC2)", async () => {
+      setupDefaults({ executionId: "exec-run" });
+      mockUserState = { profile: { id: USER_ID } };
+      (global.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("Network"));
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      // A validacao foi tentada (o teste falharia se a validacao inteira nao rodasse)...
+      expect(global.fetch).toHaveBeenCalledWith("/api/agent/executions");
+      // ...e mesmo assim o id NAO foi descartado (revalida no proximo mount)
+      expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
+    });
+
+    it("reataca RUNNING autopilot: reidrata steps + mensagens E restaura o mode (AC3/AC4)", async () => {
+      setupDefaults({ executionId: "exec-run" });
+      mockUserState = { profile: { id: USER_ID } };
+      mockExecutionsList([
+        { id: "exec-run", user_id: USER_ID, status: "running", mode: "autopilot" },
+      ]);
+      mockExecutionData = {
+        messages: [{ id: "m1", role: "user", content: "oi" }],
+        steps: [{ id: "s1", step_number: 1, status: "running" }],
+      };
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      // Progresso volta a ficar visivel (a execucao que gasta reaparece)
+      expect(screen.getByTestId("agent-step-progress")).toBeInTheDocument();
+      // Mensagens reidratadas -> sem tela em branco
+      expect(capturedMessageListProps.messages).toHaveLength(1);
+      // O id foi MANTIDO (nao descartado)
+      expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
+      // E o mode foi restaurado -> useAutoTrigger volta a avancar os steps
+      // (sem isto, autopilot reatacharia visualmente mas pararia de progredir)
+      expect(mockSetExecutionMode).toHaveBeenCalledWith("autopilot");
+    });
+
+    it("first-time / sem id persistido: nao valida nem descarta (zero regressao, NFR4)", async () => {
+      setupDefaults({ executionId: null });
+      mockUserState = { profile: { id: USER_ID } };
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      // Sem id persistido -> nao bate no endpoint de validacao
+      expect(global.fetch).not.toHaveBeenCalledWith("/api/agent/executions");
+      expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
+    });
+  });
+
+  // --- Story 22.10: botao "Nova conversa" ---
+
+  describe('botao "Nova conversa" (Story 22.10)', () => {
+    const USER_ID = "user-1";
+
+    // Mock URL-aware: PATCH de cancelamento + GET de validacao.
+    function mockCancel(ok: boolean) {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        (url: string, options?: RequestInit) => {
+          if (typeof url === "string" && url === "/api/agent/executions") {
+            return Promise.resolve({
+              ok: true,
+              json: () => Promise.resolve({ data: [] }),
+            });
+          }
+          if (options?.method === "PATCH") {
+            return Promise.resolve({
+              ok,
+              status: ok ? 200 : 500,
+              json: () => Promise.resolve({ data: { status: "cancelled" } }),
+            });
+          }
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+        }
+      );
+    }
+
+    function clickNewConversation() {
+      return act(async () => {
+        screen.getByTestId("agent-new-conversation").click();
+      });
+    }
+
+    it("NAO renderiza o botao sem execucao (first-time byte-a-byte, NFR4/AC5)", () => {
+      setupDefaults({ executionId: null });
+      render(<AgentChat />);
+      expect(screen.queryByTestId("agent-new-conversation")).not.toBeInTheDocument();
+    });
+
+    it("renderiza o botao quando ha execucao em andamento (AC5)", () => {
+      setupDefaults({ executionId: "exec-123" });
+      render(<AgentChat />);
+      expect(screen.getByTestId("agent-new-conversation")).toBeInTheDocument();
+    });
+
+    it("execucao de BRIEFING (pending, sem steps): cancela DIRETO, sem dialog (AC5)", async () => {
+      setupDefaults({ executionId: "exec-123" });
+      mockCancel(true);
+
+      render(<AgentChat />);
+      await clickNewConversation();
+
+      // PATCH { status: "cancelled" } — sem passar por confirmacao
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/agent/executions/exec-123",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ status: "cancelled" }),
+        })
+      );
+      expect(
+        screen.queryByTestId("agent-confirm-new-conversation")
+      ).not.toBeInTheDocument();
+    });
+
+    it("cancelamento bem-sucedido limpa TUDO: store + briefing reset() (AC6)", async () => {
+      setupDefaults({ executionId: "exec-123" });
+      mockCancel(true);
+
+      render(<AgentChat />);
+      await clickNewConversation();
+
+      expect(mockSetCurrentExecutionId).toHaveBeenCalledWith(null);
+      expect(mockSetShowModeSelector).toHaveBeenCalledWith(false);
+      expect(mockSetShowExecutionPlan).toHaveBeenCalledWith(false);
+      expect(mockSetExecutionMode).toHaveBeenCalledWith(null);
+      expect(mockSetAgentProcessing).toHaveBeenCalledWith(false);
+      expect(mockSetTotalSteps).toHaveBeenCalledWith(0);
+      // o reset do briefing e o que impede o agente de retomar a conversa morta
+      expect(mockResetBriefing).toHaveBeenCalled();
+    });
+
+    it("PATCH falhou: toast de erro e NADA e limpo (tudo-ou-nada, AC5)", async () => {
+      setupDefaults({ executionId: "exec-123" });
+      mockCancel(false);
+
+      render(<AgentChat />);
+      await clickNewConversation();
+
+      expect(mockToastError).toHaveBeenCalledWith(
+        "Erro ao encerrar a conversa. Tente novamente."
+      );
+      // execucao segue viva no servidor -> a UI NAO pode fingir que acabou
+      expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
+      expect(mockResetBriefing).not.toHaveBeenCalled();
+    });
+
+    it("falha de REDE no PATCH: toast e nada limpo (AC5)", async () => {
+      setupDefaults({ executionId: "exec-123" });
+      (global.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("Network"));
+
+      render(<AgentChat />);
+      await clickNewConversation();
+
+      expect(mockToastError).toHaveBeenCalledWith(
+        "Erro ao encerrar a conversa. Tente novamente."
+      );
+      expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
+      expect(mockResetBriefing).not.toHaveBeenCalled();
+    });
+
+    it("PATCH 409 (execucao ja terminal no servidor): reseta o cliente e NAO trava (code review)", async () => {
+      setupDefaults({ executionId: "exec-123" });
+      // Ex.: autopilot completou dentro da sessao; o id ainda esta setado, o botao aparece,
+      // mas o PATCH cancel bate numa linha terminal -> 409. Antes do fix o cliente so dava
+      // toast e nao limpava nada -> usuario preso ao botao (todo retry 409) ate dar F5.
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        (url: string, options?: RequestInit) => {
+          if (typeof url === "string" && url === "/api/agent/executions") {
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
+          }
+          if (options?.method === "PATCH") {
+            return Promise.resolve({
+              ok: false,
+              status: 409,
+              json: () => Promise.resolve({ error: { code: "INVALID_TRANSITION" } }),
+            });
+          }
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+        }
+      );
+
+      render(<AgentChat />);
+      await clickNewConversation();
+
+      // 409 = ja encerrou no servidor -> seguro (e necessario) resetar o cliente
+      expect(mockSetCurrentExecutionId).toHaveBeenCalledWith(null);
+      expect(mockResetBriefing).toHaveBeenCalled();
+      // e SEM toast de erro: nao e falha real, a execucao ja estava encerrada
+      expect(mockToastError).not.toHaveBeenCalled();
+    });
+
+    it("execucao POS-CONFIRM (com steps): exige confirmacao no dialog antes de cancelar (AC5)", async () => {
+      setupDefaults({ executionId: "exec-123" });
+      // steps so existem apos o POST /confirm -> ja gastou
+      mockExecutionData = {
+        messages: [],
+        steps: [{ id: "s1", step_number: 1, status: "completed" }],
+      };
+      mockCancel(true);
+
+      render(<AgentChat />);
+      await clickNewConversation();
+
+      // NAO cancelou ainda — abriu o dialog
+      expect(global.fetch).not.toHaveBeenCalledWith(
+        "/api/agent/executions/exec-123",
+        expect.objectContaining({ method: "PATCH" })
+      );
+      const confirmButton = screen.getByTestId("agent-confirm-new-conversation");
+      expect(confirmButton).toBeInTheDocument();
+
+      // aviso explicito sobre o que se perde
+      expect(screen.getByText(/creditos ja consumidos nao sao revertidos/i)).toBeInTheDocument();
+
+      await act(async () => {
+        confirmButton.click();
+      });
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/agent/executions/exec-123",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ status: "cancelled" }),
+        })
+      );
+      expect(mockResetBriefing).toHaveBeenCalled();
+    });
+
+    it("execucao RUNNING reatachada: exige o dialog mesmo antes dos steps carregarem (AC5)", async () => {
+      setupDefaults({ executionId: "exec-run" });
+      mockUserState = { profile: { id: USER_ID } };
+      // validacao-no-mount devolve running; steps ainda vazios (fetch em voo)
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (typeof url === "string" && url === "/api/agent/executions") {
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                data: [{ id: "exec-run", user_id: USER_ID, status: "running" }],
+              }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+      });
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      await clickNewConversation();
+
+      // dialog aberto, nenhum PATCH disparado
+      expect(screen.getByTestId("agent-confirm-new-conversation")).toBeInTheDocument();
+      expect(global.fetch).not.toHaveBeenCalledWith(
+        "/api/agent/executions/exec-run",
+        expect.objectContaining({ method: "PATCH" })
+      );
+    });
+  });
+
+  // ==============================================
+  // Story 22.13 — Ajuste pos-rejeicao de etapa
+  // ==============================================
+
+  describe("ajuste pos-rejeicao (Story 22.13)", () => {
+    const EXEC = "exec-adj";
+
+    // Briefing PERSISTIDO na execucao (o que o servidor tem). Carrega a FORMA do
+    // pipeline (skipSteps/mode/productSlug/premiumIcebreakers/importedLeads) que o
+    // ajuste NUNCA pode alterar (AC4).
+    const PERSISTED_BRIEFING = {
+      technology: "Netskope",
+      jobTitles: ["CTO"],
+      location: "Sao Paulo",
+      companySize: "51-200",
+      industry: "fintech",
+      productSlug: "prod-1",
+      mode: "guided",
+      skipSteps: ["search_companies"],
+      premiumIcebreakers: true,
+      objective: "COLD_OUTREACH",
+      urgency: "MEDIUM",
+      campaignDescription: null,
+      emailCount: 3,
+    };
+
+    // Briefing devolvido pelo /parse apos o ajuste ("remove o filtro de tamanho e o de
+    // industria"). O parse re-deriva o briefing INTEIRO — inclusive a forma, que deve
+    // ser descartada pelo merge.
+    const PARSED_BRIEFING = {
+      technology: "Netskope",
+      jobTitles: ["CTO"],
+      location: "Sao Paulo",
+      companySize: null,
+      industry: null,
+      productSlug: null,
+      mode: "guided",
+      skipSteps: [],
+      objective: "COLD_OUTREACH",
+      urgency: "MEDIUM",
+      campaignDescription: null,
+      emailCount: 3,
+    };
+
+    /** URLs do /plan pedidas durante o ajuste (code review 22.14 — checagem do opt-in). */
+    let planRequests: string[] = [];
+
+    function mockAdjustmentFetch(opts?: {
+      persistedBriefing?: Record<string, unknown> | null;
+      planFails?: boolean;
+      patchOk?: boolean;
+      /** Contagem devolvida por `?viability=1`; `null` = fail-open (plano sem estimativa). */
+      viability?: { estimatedResults: number; isLow: boolean } | null;
+    }) {
+      planRequests = [];
+      const persisted = opts?.persistedBriefing ?? PERSISTED_BRIEFING;
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        (url: string, init?: { method?: string }) => {
+          if (url === "/api/agent/executions") {
+            return Promise.resolve({
+              ok: true,
+              json: () =>
+                Promise.resolve({
+                  data: [{ id: EXEC, user_id: "u1", status: "running", briefing: persisted }],
+                }),
+            });
+          }
+          if (url === `/api/agent/executions/${EXEC}/briefing`) {
+            return Promise.resolve({
+              ok: opts?.patchOk ?? true,
+              json: () => Promise.resolve({ data: {} }),
+            });
+          }
+          // startsWith, nao igualdade: a transicao para "confirm" pede `?viability=1`
+          // (code review 22.14). O `planRequests` guarda a URL exata para o teste do opt-in.
+          if (url.startsWith(`/api/agent/executions/${EXEC}/plan`)) {
+            planRequests.push(url);
+            if (opts?.planFails) {
+              return Promise.resolve({ ok: false, json: () => Promise.resolve({}) });
+            }
+            return Promise.resolve({
+              ok: true,
+              json: () =>
+                Promise.resolve({
+                  data: {
+                    steps: [
+                      { stepNumber: 1, stepType: "search_companies", estimatedCost: 5 },
+                      { stepNumber: 2, stepType: "search_leads", estimatedCost: 12.5 },
+                    ],
+                    viability: opts?.viability ?? null,
+                  },
+                }),
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ data: {} }),
+            method: init?.method,
+          });
+        }
+      );
+    }
+
+    function adjusting(phase: "describe" | "confirm") {
+      return { executionId: EXEC, stepNumber: 2, stepType: "search_leads", phase };
+    }
+
+    function patchCalls() {
+      return (global.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (c) => c[0] === `/api/agent/executions/${EXEC}/briefing`
+      );
+    }
+
+    function executeCalls() {
+      return (global.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (c) => c[0] === `/api/agent/executions/${EXEC}/steps/2/execute`
+      );
+    }
+
+    function agentMessages(): string[] {
+      return (global.fetch as ReturnType<typeof vi.fn>).mock.calls
+        .filter((c) => c[0] === `/api/agent/executions/${EXEC}/messages`)
+        .map((c) => JSON.parse((c[1] as { body: string }).body).content as string);
+    }
+
+    // --- AC2: descrever o ajuste -> parse + PATCH + resumo/custo + fase confirm ---
+
+    it("fase describe: parseia com a memoria da 22.3, aplica PATCH e pede confirmacao (AC2)", async () => {
+      setupDefaults({
+        executionId: EXEC,
+        briefingStatus: "confirmed",
+        adjustingStep: adjusting("describe"),
+      });
+      mockAdjustmentFetch();
+      mockParseAdjustment.mockResolvedValueOnce({
+        briefing: PARSED_BRIEFING,
+        missingFields: ["companySize", "industry"],
+        isComplete: false,
+        canProceed: true,
+        suggestions: {},
+        productMentioned: null,
+        nextAction: "confirm",
+        questionText: null,
+      });
+
+      render(<AgentChat />);
+      await act(async () => {
+        await capturedOnSendMessage!("remove o filtro de tamanho e o de industria");
+      });
+
+      // Mensagem do usuario persistida como hoje
+      expect(mockMutate).toHaveBeenCalledWith({
+        executionId: EXEC,
+        content: "remove o filtro de tamanho e o de industria",
+      });
+      // Roteada ao parse REUSANDO o seam do hook (memoria conversacional da 22.3)
+      expect(mockParseAdjustment).toHaveBeenCalledWith(
+        "remove o filtro de tamanho e o de industria",
+        EXEC
+      );
+
+      // PATCH com o briefing MESCLADO
+      expect(patchCalls()).toHaveLength(1);
+      const body = JSON.parse((patchCalls()[0][1] as { body: string }).body);
+      // filtros vem do parse
+      expect(body.companySize).toBeNull();
+      expect(body.industry).toBeNull();
+      expect(body.jobTitles).toEqual(["CTO"]);
+      // forma vem da execucao em andamento (AC4)
+      expect(body.skipSteps).toEqual(["search_companies"]);
+      expect(body.productSlug).toBe("prod-1");
+      expect(body.mode).toBe("guided");
+      expect(body.premiumIcebreakers).toBe(true);
+
+      // UMA mensagem do agente com resumo + custo + pergunta de confirmacao
+      const msgs = agentMessages();
+      expect(msgs).toHaveLength(1);
+      expect(msgs[0]).toContain("12,50");
+      expect(msgs[0]).toMatch(/confirma/i);
+      // ...e ela entra na memoria conversacional (Trap #2)
+      expect(mockRecordAgentTurn).toHaveBeenCalledWith(msgs[0]);
+
+      // Fase avanca para confirm; NADA foi executado
+      expect(mockSetAdjustingStep).toHaveBeenCalledWith({
+        executionId: EXEC,
+        stepNumber: 2,
+        stepType: "search_leads",
+        phase: "confirm",
+      });
+      expect(executeCalls()).toHaveLength(0);
+      expect(mockRefetchMessages).toHaveBeenCalledWith(EXEC);
+    });
+
+    it("custo indisponivel: resumo sem o numero, confirmacao continua obrigatoria (AC2 fail-open)", async () => {
+      setupDefaults({
+        executionId: EXEC,
+        briefingStatus: "confirmed",
+        adjustingStep: adjusting("describe"),
+      });
+      mockAdjustmentFetch({ planFails: true });
+      mockParseAdjustment.mockResolvedValueOnce({
+        briefing: PARSED_BRIEFING,
+        missingFields: [],
+        isComplete: true,
+        canProceed: true,
+        suggestions: {},
+        productMentioned: null,
+        nextAction: "confirm",
+        questionText: null,
+      });
+
+      render(<AgentChat />);
+      await act(async () => {
+        await capturedOnSendMessage!("tira o filtro de tamanho");
+      });
+
+      expect(patchCalls()).toHaveLength(1);
+      expect(agentMessages()[0]).toMatch(/confirma/i);
+      expect(mockSetAdjustingStep).toHaveBeenCalledWith(
+        expect.objectContaining({ phase: "confirm" })
+      );
+      expect(executeCalls()).toHaveLength(0);
+    });
+
+    it("parse falha: avisa, MANTEM o estado de ajuste e nao faz PATCH nem execute (AC2 fail-open)", async () => {
+      setupDefaults({
+        executionId: EXEC,
+        briefingStatus: "confirmed",
+        adjustingStep: adjusting("describe"),
+      });
+      mockAdjustmentFetch();
+      mockParseAdjustment.mockRejectedValueOnce(new Error("timeout"));
+
+      render(<AgentChat />);
+      await act(async () => {
+        await capturedOnSendMessage!("remove o filtro de tamanho");
+      });
+
+      expect(patchCalls()).toHaveLength(0);
+      expect(executeCalls()).toHaveLength(0);
+      expect(mockClearAdjustingStep).not.toHaveBeenCalled();
+      expect(mockSetAdjustingStep).not.toHaveBeenCalled();
+      expect(agentMessages()[0]).toMatch(/nao consegui/i);
+    });
+
+    it("parse sem cargo/localizacao (canProceed=false): nao aplica nada — fail-safe do merge (AC4)", async () => {
+      setupDefaults({
+        executionId: EXEC,
+        briefingStatus: "confirmed",
+        adjustingStep: adjusting("describe"),
+      });
+      mockAdjustmentFetch();
+      mockParseAdjustment.mockResolvedValueOnce({
+        briefing: { ...PARSED_BRIEFING, jobTitles: [], location: null },
+        missingFields: ["jobTitles", "location"],
+        isComplete: false,
+        canProceed: false,
+        suggestions: {},
+        productMentioned: null,
+        nextAction: "ask",
+        questionText: null,
+      });
+
+      render(<AgentChat />);
+      await act(async () => {
+        await capturedOnSendMessage!("de novo");
+      });
+
+      expect(patchCalls()).toHaveLength(0);
+      expect(executeCalls()).toHaveLength(0);
+      expect(mockSetAdjustingStep).not.toHaveBeenCalled();
+    });
+
+    // --- AC3: confirmacao deterministica -> re-execucao ---
+
+    it("fase confirm + confirmacao deterministica: re-executa o step e limpa o estado (AC3)", async () => {
+      setupDefaults({
+        executionId: EXEC,
+        briefingStatus: "confirmed",
+        adjustingStep: adjusting("confirm"),
+      });
+      mockAdjustmentFetch();
+
+      render(<AgentChat />);
+      await act(async () => {
+        await capturedOnSendMessage!("sim, pode buscar de novo");
+      });
+
+      expect(mockMutate).toHaveBeenCalledWith({
+        executionId: EXEC,
+        content: "sim, pode buscar de novo",
+      });
+      // Re-executa o step REJEITADO (nunca um "step corrente" — Trap #6)
+      expect(executeCalls()).toHaveLength(1);
+      expect(executeCalls()[0][1]).toEqual(expect.objectContaining({ method: "POST" }));
+      expect(mockClearAdjustingStep).toHaveBeenCalled();
+      // A decisao de executar NAO passa pelo LLM
+      expect(mockParseAdjustment).not.toHaveBeenCalled();
+      expect(patchCalls()).toHaveLength(0);
+    });
+
+    it("fase confirm + NAO-confirmacao: vira novo ajuste e NAO executa (AC3 fail-safe)", async () => {
+      setupDefaults({
+        executionId: EXEC,
+        briefingStatus: "confirmed",
+        adjustingStep: adjusting("confirm"),
+      });
+      mockAdjustmentFetch();
+      mockParseAdjustment.mockResolvedValueOnce({
+        briefing: { ...PARSED_BRIEFING, jobTitles: ["CFO"] },
+        missingFields: [],
+        isComplete: true,
+        canProceed: true,
+        suggestions: {},
+        productMentioned: null,
+        nextAction: "confirm",
+        questionText: null,
+      });
+
+      render(<AgentChat />);
+      await act(async () => {
+        await capturedOnSendMessage!("na verdade troca o cargo pra CFO");
+      });
+
+      expect(executeCalls()).toHaveLength(0);
+      expect(mockParseAdjustment).toHaveBeenCalled();
+      expect(patchCalls()).toHaveLength(1);
+      const body = JSON.parse((patchCalls()[0][1] as { body: string }).body);
+      expect(body.jobTitles).toEqual(["CFO"]);
+      expect(mockSetAdjustingStep).toHaveBeenCalledWith(
+        expect.objectContaining({ phase: "confirm" })
+      );
+    });
+
+    // --- AC6: sem regressao fora do estado de ajuste ---
+
+    // --- Code review 2026-07-24: confirmacao ESTRITA (P1) ---
+
+    it.each([
+      ["pode tirar o filtro de industria?", "pergunta com keyword 'pode'"],
+      ["assim nao da", "'assim' contem 'sim' + negacao"],
+      ["sim, mas troca o cargo pra CFO", "confirmacao com ressalva/correcao"],
+      ["isso nao esta certo", "'isso' + negacao"],
+      ["vamos mudar o tamanho antes", "'vamos' + verbo de ajuste"],
+    ])(
+      "fase confirm: %s NAO re-executa — vira novo ajuste (review P1: %s)",
+      async (message) => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          adjustingStep: adjusting("confirm"),
+        });
+        mockAdjustmentFetch();
+        mockParseAdjustment.mockResolvedValueOnce({
+          briefing: PARSED_BRIEFING,
+          missingFields: [],
+          isComplete: true,
+          canProceed: true,
+          suggestions: {},
+          productMentioned: null,
+          nextAction: "confirm",
+          questionText: null,
+        });
+
+        render(<AgentChat />);
+        await act(async () => {
+          await capturedOnSendMessage!(message);
+        });
+
+        // NENHUM credito gasto; a mensagem foi tratada como ajuste
+        expect(executeCalls()).toHaveLength(0);
+        expect(mockClearAdjustingStep).not.toHaveBeenCalled();
+        expect(mockParseAdjustment).toHaveBeenCalled();
+      }
+    );
+
+    it.each(["sim", "pode ir", "isso mesmo", "beleza, confirmo"])(
+      "fase confirm: '%s' e confirmacao limpa e re-executa (review P1)",
+      async (message) => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          adjustingStep: adjusting("confirm"),
+        });
+        mockAdjustmentFetch();
+
+        render(<AgentChat />);
+        await act(async () => {
+          await capturedOnSendMessage!(message);
+        });
+
+        expect(executeCalls()).toHaveLength(1);
+        expect(mockClearAdjustingStep).toHaveBeenCalled();
+        // o turno do usuario tambem entra na memoria (review P11)
+        expect(mockRecordUserTurn).toHaveBeenCalledWith(message);
+      }
+    );
+
+    // --- Code review 2026-07-24: falha do execute (P2) ---
+
+    it("execute falha: restaura a fase confirm e avisa em vez de silenciar (review P2)", async () => {
+      setupDefaults({
+        executionId: EXEC,
+        briefingStatus: "confirmed",
+        adjustingStep: adjusting("confirm"),
+      });
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (url === `/api/agent/executions/${EXEC}/steps/2/execute`) {
+          return Promise.resolve({
+            ok: false,
+            status: 409,
+            json: () => Promise.resolve({ error: { code: "EXECUTION_NOT_ACTIVE" } }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+      });
+
+      render(<AgentChat />);
+      await act(async () => {
+        await capturedOnSendMessage!("sim");
+      });
+
+      // O estado de ajuste VOLTA (o usuario pode confirmar de novo)
+      expect(mockSetAdjustingStep).toHaveBeenCalledWith(
+        expect.objectContaining({ stepNumber: 2, phase: "confirm" })
+      );
+      // ...e o usuario e avisado, em vez de ficar com a promessa e nenhum resultado
+      expect(agentMessages().some((m) => /nao consegui reexecutar/i.test(m))).toBe(true);
+    });
+
+    // --- Code review 2026-07-24: ajuste orfao de outra execucao (P6) ---
+
+    it("ajuste de OUTRA execucao e descartado, nao aplicado (review P6)", async () => {
+      setupDefaults({
+        executionId: EXEC,
+        briefingStatus: "confirmed",
+        adjustingStep: {
+          executionId: "exec-antiga",
+          stepNumber: 2,
+          stepType: "search_leads",
+          phase: "describe",
+        },
+      });
+      mockAdjustmentFetch();
+
+      render(<AgentChat />);
+      await act(async () => {
+        await capturedOnSendMessage!("remove o filtro de tamanho");
+      });
+
+      expect(mockClearAdjustingStep).toHaveBeenCalled();
+      expect(mockParseAdjustment).not.toHaveBeenCalled();
+      expect(patchCalls()).toHaveLength(0);
+      expect(executeCalls()).toHaveLength(0);
+    });
+
+    // --- Code review 2026-07-24: reentrada duravel (P3 / decisao 1) ---
+
+    it("reentra em ajuste no load quando o gate mais recente esta rejeitado (review P3)", async () => {
+      setupDefaults({ executionId: EXEC, briefingStatus: "confirmed", adjustingStep: null });
+      // O portao de attach da 22.8 so abre com o profile carregado — sem isto
+      // attachedExecutionId fica null e o efeito de reentrada nem chega a rodar.
+      mockUserState = { profile: { id: "u1" } };
+      mockExecutionData = {
+        messages: [
+          {
+            id: "gate-1",
+            execution_id: EXEC,
+            role: "agent",
+            content: "Revise os leads",
+            created_at: new Date().toISOString(),
+            metadata: {
+              messageType: "approval_gate",
+              stepNumber: 2,
+              rejected: true,
+              approvalData: { stepType: "search_leads", previewData: {} },
+            },
+          },
+        ],
+        steps: [{ id: "s2", step_number: 2, status: "awaiting_approval" }],
+      };
+      mockAdjustmentFetch();
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      expect(mockSetAdjustingStep).toHaveBeenCalledWith({
+        executionId: EXEC,
+        stepNumber: 2,
+        stepType: "search_leads",
+        phase: "describe",
+      });
+    });
+
+    it("NAO reentra quando o gate rejeitado ja foi superado por uma re-execucao (review P3)", async () => {
+      setupDefaults({ executionId: EXEC, briefingStatus: "confirmed", adjustingStep: null });
+      mockUserState = { profile: { id: "u1" } };
+      mockExecutionData = {
+        messages: [
+          {
+            id: "gate-1",
+            execution_id: EXEC,
+            role: "agent",
+            content: "Revise os leads",
+            created_at: "2026-07-24T10:00:00Z",
+            metadata: {
+              messageType: "approval_gate",
+              stepNumber: 2,
+              rejected: true,
+              approvalData: { stepType: "search_leads", previewData: {} },
+            },
+          },
+          {
+            id: "gate-2",
+            execution_id: EXEC,
+            role: "agent",
+            content: "Revise os leads (nova busca)",
+            created_at: "2026-07-24T10:05:00Z",
+            metadata: {
+              messageType: "approval_gate",
+              stepNumber: 2,
+              approvalData: { stepType: "search_leads", previewData: {} },
+            },
+          },
+        ],
+        steps: [{ id: "s2", step_number: 2, status: "awaiting_approval" }],
+      };
+      mockAdjustmentFetch();
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      expect(mockSetAdjustingStep).not.toHaveBeenCalled();
+    });
+
+    it("NAO reentra quando o step ja saiu de awaiting_approval (review P3)", async () => {
+      setupDefaults({ executionId: EXEC, briefingStatus: "confirmed", adjustingStep: null });
+      mockUserState = { profile: { id: "u1" } };
+      mockExecutionData = {
+        messages: [
+          {
+            id: "gate-1",
+            execution_id: EXEC,
+            role: "agent",
+            content: "Revise os leads",
+            created_at: new Date().toISOString(),
+            metadata: {
+              messageType: "approval_gate",
+              stepNumber: 2,
+              rejected: true,
+              approvalData: { stepType: "search_leads", previewData: {} },
+            },
+          },
+        ],
+        steps: [{ id: "s2", step_number: 2, status: "running" }],
+      };
+      mockAdjustmentFetch();
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+
+      expect(mockSetAdjustingStep).not.toHaveBeenCalled();
+    });
+
+    it("sem estado de ajuste: mensagem pos-briefing so persiste (AC6 — comportamento atual)", async () => {
+      setupDefaults({
+        executionId: EXEC,
+        briefingStatus: "confirmed",
+        adjustingStep: null,
+      });
+      mockAdjustmentFetch();
+
+      render(<AgentChat />);
+      await act(async () => {
+        await capturedOnSendMessage!("remove o filtro de tamanho");
+      });
+
+      expect(mockMutate).toHaveBeenCalledWith({
+        executionId: EXEC,
+        content: "remove o filtro de tamanho",
+      });
+      expect(mockParseAdjustment).not.toHaveBeenCalled();
+      expect(patchCalls()).toHaveLength(0);
+      expect(executeCalls()).toHaveLength(0);
+      expect(mockProcessMessage).not.toHaveBeenCalled();
+    });
+
+    // ==============================================
+    // Story 22.14 — chip de ajuste (delta sem /parse)
+    // ==============================================
+
+    describe("chip de ajuste da busca vazia (Story 22.14, AC #3, #4)", () => {
+      function pendingChip(overrides?: Record<string, unknown>) {
+        return {
+          executionId: EXEC,
+          stepNumber: 2,
+          stepType: "search_leads",
+          label: "Remover filtro de indústria",
+          delta: { industry: null },
+          ...overrides,
+        };
+      }
+
+      it("aplica o delta sobre o PERSISTIDO, PATCHa e para na fase confirm (AC3)", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch();
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        // O sinal e consumido UMA vez (vale por um gesto).
+        expect(mockClearPendingChipAdjustment).toHaveBeenCalled();
+
+        await waitFor(() => expect(patchCalls()).toHaveLength(1));
+
+        // Trap #3: o PATCH leva o objeto COMPLETO (persistido + delta), nao so o delta.
+        const body = JSON.parse((patchCalls()[0][1] as { body: string }).body);
+        expect(body.industry).toBeNull();
+        // A FORMA da execucao e preservada byte-a-byte (AC4 da 22.13).
+        expect(body.skipSteps).toEqual(["search_companies"]);
+        expect(body.premiumIcebreakers).toBe(true);
+        expect(body.productSlug).toBe("prod-1");
+        // Filtros nao tocados pelo chip continuam iguais.
+        expect(body.companySize).toBe("51-200");
+        expect(body.jobTitles).toEqual(["CTO"]);
+
+        expect(mockSetAdjustingStep).toHaveBeenCalledWith(adjusting("confirm"));
+      });
+
+      it("NAO chama o /parse — o chip ja conhece a mudanca (D2, sem LLM)", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch();
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(patchCalls()).toHaveLength(1));
+        expect(mockParseAdjustment).not.toHaveBeenCalled();
+      });
+
+      it("NUNCA executa direto — a re-execucao paga so sai da confirmacao (AC3, D3)", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch();
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(patchCalls()).toHaveLength(1));
+        expect(executeCalls()).toHaveLength(0);
+      });
+
+      it("resumo do chip traz o custo e avisa o filtro REMOVIDO antes do sim (AC3)", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch();
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(agentMessages().length).toBeGreaterThan(0));
+        const summary = agentMessages()[0];
+        expect(summary).toContain("Industria: sem filtro");
+        expect(summary).toContain("vou REMOVER");
+        expect(summary).toContain("12,50");
+        expect(summary).toContain("Confirma?");
+      });
+
+      it("os turnos do chip entram na memoria conversacional (AC3)", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch();
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(mockRecordUserTurn).toHaveBeenCalled());
+        // Sem isto, um ajuste por TEXTO logo em seguida seria parseado sem saber que a
+        // industria acabou de sair.
+        expect(mockRecordUserTurn).toHaveBeenCalledWith("Remover filtro de indústria");
+        expect(mockRecordAgentTurn).toHaveBeenCalled();
+      });
+
+      it("PATCH falhando: avisa, NAO promete re-execucao e nao vai para confirm", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch({ patchOk: false });
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(agentMessages().length).toBeGreaterThan(0));
+        expect(agentMessages()[0]).toContain("Nao consegui salvar o ajuste");
+        expect(mockSetAdjustingStep).not.toHaveBeenCalledWith(adjusting("confirm"));
+        expect(executeCalls()).toHaveLength(0);
+      });
+
+      it("briefing persistido ausente: avisa e nao PATCHa nada", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        // Execucao some da listagem E o estado local esta vazio (caso classico: execucao
+        // reatachada apos F5, em que o useBriefingFlow renasce em 'idle').
+        (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+          if (url === "/api/agent/executions") {
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
+          }
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+        });
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(agentMessages().length).toBeGreaterThan(0));
+        expect(agentMessages()[0]).toContain("Nao consegui recuperar o briefing");
+        expect(patchCalls()).toHaveLength(0);
+      });
+
+      /**
+       * P6 da review da 22.13, aplicado ao chip: um sinal de OUTRA execucao (descartada no
+       * mount, ou trocada pelo "Nova conversa") nao pode PATCHear o briefing da conversa atual.
+       */
+      it("sinal orfao de outra execucao e DESCARTADO, nunca aplicado", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip({ executionId: "outra-execucao" }),
+        });
+        mockAdjustmentFetch();
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        expect(mockClearPendingChipAdjustment).toHaveBeenCalled();
+        expect(patchCalls()).toHaveLength(0);
+        expect(executeCalls()).toHaveLength(0);
+        expect(mockSetAdjustingStep).not.toHaveBeenCalled();
+      });
+
+      it("sem chip clicado, nada acontece (NFR4 — fluxo de hoje intacto)", async () => {
+        setupDefaults({ executionId: EXEC, briefingStatus: "confirmed" });
+        mockAdjustmentFetch();
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        expect(patchCalls()).toHaveLength(0);
+        expect(mockClearPendingChipAdjustment).not.toHaveBeenCalled();
+      });
+
+      /**
+       * AC4: os dois caminhos convergem. Depois do chip a fase e "confirm" — e a
+       * confirmacao deterministica ja existente e quem dispara o execute.
+       */
+      it("apos o chip, o 'sim' do usuario usa o MESMO caminho de confirmacao da 22.13", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          adjustingStep: adjusting("confirm"),
+        });
+        mockAdjustmentFetch();
+
+        render(<AgentChat />);
+        await act(async () => {
+          await capturedOnSendMessage!("sim");
+        });
+
+        await waitFor(() => expect(executeCalls()).toHaveLength(1));
+        expect(mockClearAdjustingStep).toHaveBeenCalled();
+      });
+
+      // ==============================================
+      // Code review 2026-07-26 — patches da 22.14
+      // ==============================================
+
+      /**
+       * O turno do chip precisa existir no transcript DURAVEL, nao so na memoria em RAM.
+       * Sem isto o banco guardava o resumo de custo do agente sem o turno do usuario que o
+       * provocou — e apos um F5 a memoria que gerou aquele resumo era irreconstituivel.
+       * O caminho de TEXTO sempre persistiu (`sendMessageMutation.mutate`); o chip nao.
+       */
+      it("persiste o rotulo do chip como mensagem do usuario, igual ao caminho de texto", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch();
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(patchCalls()).toHaveLength(1));
+        expect(mockMutate).toHaveBeenCalledWith({
+          executionId: EXEC,
+          content: "Remover filtro de indústria",
+        });
+      });
+
+      /**
+       * O sinal e consumido ANTES dos awaits, entao o guard de entrada do efeito nao alcanca
+       * um "Nova conversa" que chega no MEIO da rede. Sem re-check pos-await, o
+       * `recordUserTurn` empurrava o rotulo do chip para dentro do `conversationRef` que o
+       * `reset()` acabara de esvaziar (envenenando o briefing da conversa NOVA) e o
+       * `setAdjustingStep` ressuscitava um ajuste de uma execucao ja descartada.
+       */
+      it("execucao trocada no MEIO do voo: nao grava turno nem ressuscita o ajuste", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch();
+
+        // "Nova conversa" chega enquanto o /plan esta no ar (depois do PATCH).
+        const realFetch = global.fetch as ReturnType<typeof vi.fn>;
+        const impl = realFetch.getMockImplementation() as (
+          url: string,
+          init?: { method?: string }
+        ) => Promise<unknown>;
+        realFetch.mockImplementation((url: string, init?: { method?: string }) => {
+          if (url.startsWith(`/api/agent/executions/${EXEC}/plan`)) {
+            mockStoreState.currentExecutionId = "outra-execucao";
+          }
+          return impl(url, init);
+        });
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(patchCalls()).toHaveLength(1));
+
+        expect(mockRecordUserTurn).not.toHaveBeenCalled();
+        expect(mockSetAdjustingStep).not.toHaveBeenCalledWith(adjusting("confirm"));
+        expect(executeCalls()).toHaveLength(0);
+      });
+
+      /**
+       * AC7 so contava resultados no plano INICIAL, entao o loop de recuperacao mandava o
+       * usuario pagar sem dizer se os filtros novos trariam algo. A contagem entra na
+       * transicao para "confirm" — um gesto unico, nao um por tecla digitada (Trap #7).
+       */
+      it("pede a contagem de viabilidade ao entrar em confirm e mostra o numero no resumo", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch({ viability: { estimatedResults: 138, isLow: false } });
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(agentMessages().length).toBeGreaterThan(0));
+        expect(planRequests.every((url) => url.includes("viability=1"))).toBe(true);
+        expect(agentMessages().join("\n")).toContain("~138 resultados");
+      });
+
+      it("estimativa ZERO nos filtros novos avisa ANTES do usuario gastar a re-execucao", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch({ viability: { estimatedResults: 0, isLow: true } });
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(agentMessages().length).toBeGreaterThan(0));
+        const summary = agentMessages().join("\n");
+        expect(summary).toContain("continua em 0 resultados");
+        // Continua sendo so um AVISO: nada executa, a confirmacao segue obrigatoria.
+        expect(executeCalls()).toHaveLength(0);
+        expect(mockSetAdjustingStep).toHaveBeenCalledWith(adjusting("confirm"));
+      });
+
+      it("sem contagem disponivel o resumo sai como antes (fail-open)", async () => {
+        setupDefaults({
+          executionId: EXEC,
+          briefingStatus: "confirmed",
+          pendingChipAdjustment: pendingChip(),
+        });
+        mockAdjustmentFetch({ viability: null });
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+
+        await waitFor(() => expect(agentMessages().length).toBeGreaterThan(0));
+        const summary = agentMessages().join("\n");
+        expect(summary).not.toContain("Estimativa com os filtros novos");
+        expect(mockSetAdjustingStep).toHaveBeenCalledWith(adjusting("confirm"));
+      });
     });
   });
 });

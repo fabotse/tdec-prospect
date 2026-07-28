@@ -4,6 +4,7 @@ import { LogOut, User } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/client";
 import { useUser, resetAuthState } from "@/hooks/use-user";
+import { clearPersistedAgentExecution } from "@/stores/use-agent-store";
 import { ThemeToggle } from "./ThemeToggle";
 import { NotificationBell } from "./NotificationBell";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,10 @@ export function Header({ sidebarWidth = 240 }: HeaderProps) {
 
     // 2. Reset shared auth state immediately
     resetAuthState();
+
+    // 2b. Story 22.8: descarta o id de execucao persistido para o proximo usuario
+    // deste browser nao reidratar a execucao do usuario que acabou de sair.
+    clearPersistedAgentExecution();
 
     // 3. Use window.location for full page reload to ensure middleware sees cleared cookies
     window.location.href = "/login";

@@ -1094,19 +1094,53 @@ describe("InstantlyService", () => {
   // addAccountsToCampaign (Story 7.5 AC: #1)
   // ==============================================
 
+  // Story 22.12: reescrito para o mecanismo canonico da v2 —
+  // GET /api/v2/campaigns/{id} (le email_list atual) -> merge -> PATCH email_list.
+  // O antigo POST /api/v2/account-campaign-mappings NAO EXISTE na v2 (404 real).
   describe("addAccountsToCampaign", () => {
-    it("adds accounts to campaign successfully", async () => {
-      const { calls } = createMockFetch([
+    // Rotas do novo contrato: GET campanha + PATCH campanha.
+    //
+    // Story 22.18 (AC5): o PATCH agora ECOA o estado resultante — e assim que a API v2
+    // responde (o Campaign object atualizado) e e esse corpo que a verificacao
+    // pos-escrita usa. `patchEmailList` deixa cada teste declarar o que o Instantly
+    // devolveu, inclusive os casos em que ele devolve MENOS do que foi pedido.
+    function campaignRoutes(
+      existingEmailList: string[] = [],
+      patchEmailList?: string[] | null
+    ) {
+      const patchBody: Record<string, unknown> = {
+        id: "camp-123",
+        name: "Camp",
+        status: 0,
+      };
+      // `null` = a resposta do PATCH NAO traz email_list (forca o GET de fallback).
+      if (patchEmailList !== null) {
+        patchBody.email_list = patchEmailList ?? existingEmailList;
+      }
+
+      return [
         {
-          url: /\/api\/v2\/account-campaign-mappings/,
-          method: "POST",
+          url: /\/api\/v2\/campaigns\/camp-123$/,
+          method: "GET",
           response: mockJsonResponse({
-            campaign_id: "camp-123",
-            email_account: "sender@example.com",
-            status: "active",
+            id: "camp-123",
+            name: "Camp",
+            status: 0,
+            email_list: existingEmailList,
           }),
         },
-      ]);
+        {
+          url: /\/api\/v2\/campaigns\/camp-123$/,
+          method: "PATCH",
+          response: mockJsonResponse(patchBody),
+        },
+      ];
+    }
+
+    it("PATCHes campaign email_list with the selected accounts", async () => {
+      const { calls } = createMockFetch(
+        campaignRoutes([], ["sender@example.com"])
+      );
 
       const result = await service.addAccountsToCampaign({
         apiKey: "test-key",
@@ -1117,12 +1151,68 @@ describe("InstantlyService", () => {
       expect(result.success).toBe(true);
       expect(result.accountsAdded).toBe(1);
 
-      const body = calls()[0].body as Record<string, unknown>;
-      expect(body.campaign_id).toBe("camp-123");
-      expect(body.email_account).toBe("sender@example.com");
+      const patchCall = calls().find((c) => c.method === "PATCH");
+      expect(patchCall).toBeDefined();
+      expect(patchCall!.url).toContain("/api/v2/campaigns/camp-123");
+      const body = patchCall!.body as Record<string, unknown>;
+      expect(body.email_list).toEqual(["sender@example.com"]);
     });
 
-    it("returns success with 0 accounts when empty array", async () => {
+    // RED contra o codigo antigo: nenhuma chamada pode tocar o endpoint morto.
+    it("does NOT call the dead account-campaign-mappings endpoint", async () => {
+      const { calls } = createMockFetch(campaignRoutes([], ["sender@example.com"]));
+
+      await service.addAccountsToCampaign({
+        apiKey: "test-key",
+        campaignId: "camp-123",
+        accountEmails: ["sender@example.com"],
+      });
+
+      const deadCalls = calls().filter((c) =>
+        c.url.includes("/account-campaign-mappings")
+      );
+      expect(deadCalls).toHaveLength(0);
+    });
+
+    // Defensivo: PATCH replace-safe — le a campanha e mescla o email_list existente
+    // (nao derruba contas que ja estavam anexadas, ex.: as do createCampaign autopilot).
+    it("merges new accounts with the campaign's existing email_list (dedup, replace-safe)", async () => {
+      const { calls } = createMockFetch(
+        campaignRoutes(["kept@existing.com"], ["kept@existing.com", "new@sender.com"])
+      );
+
+      await service.addAccountsToCampaign({
+        apiKey: "test-key",
+        campaignId: "camp-123",
+        accountEmails: ["kept@existing.com", "new@sender.com"],
+      });
+
+      const patchCall = calls().find((c) => c.method === "PATCH");
+      const body = patchCall!.body as { email_list: string[] };
+      expect(body.email_list).toContain("kept@existing.com");
+      expect(body.email_list).toContain("new@sender.com");
+      // dedup: "kept@existing.com" aparece uma unica vez
+      expect(body.email_list.filter((e) => e === "kept@existing.com")).toHaveLength(1);
+    });
+
+    it("reads existing email_list via GET before the PATCH", async () => {
+      const { calls } = createMockFetch(campaignRoutes([], ["sender@example.com"]));
+
+      await service.addAccountsToCampaign({
+        apiKey: "test-key",
+        campaignId: "camp-123",
+        accountEmails: ["sender@example.com"],
+      });
+
+      const getIndex = calls().findIndex((c) => c.method === "GET");
+      const patchIndex = calls().findIndex((c) => c.method === "PATCH");
+      expect(getIndex).toBeGreaterThanOrEqual(0);
+      expect(patchIndex).toBeGreaterThan(getIndex);
+    });
+
+    it("returns success with 0 accounts when empty array (no HTTP call)", async () => {
+      const { calls } = createMockFetch(campaignRoutes());
+
       const result = await service.addAccountsToCampaign({
         apiKey: "test-key",
         campaignId: "camp-123",
@@ -1131,48 +1221,14 @@ describe("InstantlyService", () => {
 
       expect(result.success).toBe(true);
       expect(result.accountsAdded).toBe(0);
-    });
-
-    it("adds multiple accounts with rate limiting", async () => {
-      vi.useFakeTimers();
-
-      const { mock } = createMockFetch([
-        {
-          url: /\/api\/v2\/account-campaign-mappings/,
-          method: "POST",
-          response: mockJsonResponse({
-            campaign_id: "camp-123",
-            email_account: "sender@example.com",
-            status: "active",
-          }),
-        },
-      ]);
-
-      const promise = service.addAccountsToCampaign({
-        apiKey: "test-key",
-        campaignId: "camp-123",
-        accountEmails: ["s1@test.com", "s2@test.com", "s3@test.com"],
-      });
-
-      await vi.advanceTimersByTimeAsync(500);
-      const result = await promise;
-
-      expect(result.success).toBe(true);
-      expect(result.accountsAdded).toBe(3);
-
-      const mappingCalls = mock.mock.calls.filter(
-        (c: [string]) => typeof c[0] === "string" && c[0].includes("/account-campaign-mappings")
-      );
-      expect(mappingCalls).toHaveLength(3);
-
-      vi.useRealTimers();
+      expect(calls()).toHaveLength(0);
     });
 
     it("throws ExternalServiceError on API failure", async () => {
       createMockFetch([
         {
-          url: /\/api\/v2\/account-campaign-mappings/,
-          method: "POST",
+          url: /\/api\/v2\/campaigns\/camp-123$/,
+          method: "GET",
           response: mockErrorResponse(401),
         },
       ]);
@@ -1186,18 +1242,8 @@ describe("InstantlyService", () => {
       ).rejects.toThrow(ExternalServiceError);
     });
 
-    it("sends Bearer token in requests", async () => {
-      const { calls } = createMockFetch([
-        {
-          url: /\/api\/v2\/account-campaign-mappings/,
-          method: "POST",
-          response: mockJsonResponse({
-            campaign_id: "camp-123",
-            email_account: "sender@test.com",
-            status: "active",
-          }),
-        },
-      ]);
+    it("sends Bearer token in the PATCH request", async () => {
+      const { calls } = createMockFetch(campaignRoutes([], ["sender@test.com"]));
 
       await service.addAccountsToCampaign({
         apiKey: "my-secret",
@@ -1205,7 +1251,264 @@ describe("InstantlyService", () => {
         accountEmails: ["sender@test.com"],
       });
 
-      expect(calls()[0].headers?.Authorization).toBe("Bearer my-secret");
+      const patchCall = calls().find((c) => c.method === "PATCH");
+      expect(patchCall!.headers?.Authorization).toBe("Bearer my-secret");
+    });
+
+    // ==============================================
+    // Story 22.18 (AC5): dedup normalizado + verificacao pos-escrita + retry unico
+    // ==============================================
+
+    describe("Story 22.18 (AC5) - dedup e lost update", () => {
+      it("deduplica ignorando espacos e caixa, mas PRESERVA a grafia original", async () => {
+        const { calls } = createMockFetch(
+          campaignRoutes(["Sender@Example.com"], ["Sender@Example.com"])
+        );
+
+        await service.addAccountsToCampaign({
+          apiKey: "test-key",
+          campaignId: "camp-123",
+          accountEmails: ["  sender@example.com  "],
+        });
+
+        const patchCall = calls().find((c) => c.method === "PATCH");
+        const body = patchCall!.body as { email_list: string[] };
+        // Nao assumimos que o Instantly e case-insensitive no e-mail da conta:
+        // comparamos normalizado, mas enviamos a grafia do primeiro ocorrido.
+        expect(body.email_list).toEqual(["Sender@Example.com"]);
+      });
+
+      it("deduplica repeticoes dentro do proprio accountEmails", async () => {
+        const { calls } = createMockFetch(campaignRoutes([], ["a@x.com"]));
+
+        await service.addAccountsToCampaign({
+          apiKey: "test-key",
+          campaignId: "camp-123",
+          accountEmails: ["a@x.com", "A@X.COM", " a@x.com "],
+        });
+
+        const patchCall = calls().find((c) => c.method === "PATCH");
+        const body = patchCall!.body as { email_list: string[] };
+        expect(body.email_list).toEqual(["a@x.com"]);
+      });
+
+      it("caminho feliz continua 1 GET + 1 PATCH (verificacao pelo corpo do PATCH)", async () => {
+        const { calls } = createMockFetch(
+          campaignRoutes([], ["sender@example.com"])
+        );
+
+        await service.addAccountsToCampaign({
+          apiKey: "test-key",
+          campaignId: "camp-123",
+          accountEmails: ["sender@example.com"],
+        });
+
+        expect(calls().filter((c) => c.method === "GET")).toHaveLength(1);
+        expect(calls().filter((c) => c.method === "PATCH")).toHaveLength(1);
+      });
+
+      it("cai para um GET extra SO quando o PATCH nao devolve email_list", async () => {
+        const { calls } = createMockFetch(campaignRoutes(["sender@example.com"], null));
+
+        await service.addAccountsToCampaign({
+          apiKey: "test-key",
+          campaignId: "camp-123",
+          accountEmails: ["sender@example.com"],
+        });
+
+        expect(calls().filter((c) => c.method === "GET")).toHaveLength(2);
+        expect(calls().filter((c) => c.method === "PATCH")).toHaveLength(1);
+      });
+
+      it("refaz o merge UMA vez quando a conta pedida nao aparece no resultado", async () => {
+        // 1o PATCH volta sem a conta nova (lost update); o 2o ja traz.
+        let patchCount = 0;
+        const routes = [
+          {
+            url: /\/api\/v2\/campaigns\/camp-123$/,
+            method: "GET",
+            response: mockJsonResponse({
+              id: "camp-123",
+              name: "Camp",
+              status: 0,
+              email_list: [],
+            }),
+          },
+          {
+            url: /\/api\/v2\/campaigns\/camp-123$/,
+            method: "PATCH",
+            response: {
+              ok: true,
+              status: 200,
+              json: () => {
+                patchCount += 1;
+                return Promise.resolve({
+                  id: "camp-123",
+                  email_list: patchCount === 1 ? [] : ["new@sender.com"],
+                });
+              },
+              text: () => Promise.resolve("{}"),
+            },
+          },
+        ];
+        const { calls } = createMockFetch(routes as never);
+
+        const result = await service.addAccountsToCampaign({
+          apiKey: "test-key",
+          campaignId: "camp-123",
+          accountEmails: ["new@sender.com"],
+        });
+
+        expect(result.success).toBe(true);
+        expect(calls().filter((c) => c.method === "PATCH")).toHaveLength(2);
+      });
+
+      it("guardrail invertido: LANCA quando a conta continua ausente depois do retry", async () => {
+        // Silenciar aqui devolveria { success: true } com a conta ausente — o fracasso
+        // silencioso que esta AC existe para matar.
+        const { calls } = createMockFetch(campaignRoutes([], []));
+
+        await expect(
+          service.addAccountsToCampaign({
+            apiKey: "test-key",
+            campaignId: "camp-123",
+            accountEmails: ["missing@sender.com"],
+          })
+        ).rejects.toThrow(ExternalServiceError);
+
+        expect(calls().filter((c) => c.method === "PATCH")).toHaveLength(2);
+      });
+
+      it("a mensagem do erro terminal nomeia a conta que ficou de fora", async () => {
+        createMockFetch(campaignRoutes([], []));
+
+        await expect(
+          service.addAccountsToCampaign({
+            apiKey: "test-key",
+            campaignId: "camp-123",
+            accountEmails: ["missing@sender.com"],
+          })
+        ).rejects.toThrow(/missing@sender\.com/);
+      });
+
+      it("nao considera ausente uma conta que voltou com caixa diferente", async () => {
+        const { calls } = createMockFetch(
+          campaignRoutes([], ["MISSING@Sender.com"])
+        );
+
+        const result = await service.addAccountsToCampaign({
+          apiKey: "test-key",
+          campaignId: "camp-123",
+          accountEmails: ["missing@sender.com"],
+        });
+
+        expect(result.success).toBe(true);
+        expect(calls().filter((c) => c.method === "PATCH")).toHaveLength(1);
+      });
+    });
+
+    // ==============================================
+    // Story 22.18 (code review): P7, P8, P9
+    // ==============================================
+
+    describe("code review 22.18 - higiene do payload e do erro terminal", () => {
+      // P7: "grafia original" na AC5 e CAIXA (o ponto que a 22.12 se recusou a assumir
+      // como insensivel). Espaco em branco nao e grafia — e sujeira de entrada, e ia
+      // literal para o `email_list`, criando um remetente que o Instantly nao reconhece.
+      // A verificacao pos-escrita nao pegava, porque ela compara normalizado.
+      it("P7: envia a conta com trim, preservando a CAIXA original", async () => {
+        const { calls } = createMockFetch(
+          campaignRoutes([], ["Sender@Example.com"])
+        );
+
+        await service.addAccountsToCampaign({
+          apiKey: "test-key",
+          campaignId: "camp-123",
+          accountEmails: ["  Sender@Example.com  "],
+        });
+
+        const patchCall = calls().find((c) => c.method === "PATCH");
+        const body = patchCall!.body as { email_list: string[] };
+        expect(body.email_list).toEqual(["Sender@Example.com"]);
+      });
+
+      // P7: o merge descartava a entrada vazia (logo ela nunca era enviada) mas a
+      // verificacao continuava EXIGINDO-a — 2o PATCH garantido seguido de erro terminal
+      // com nome vazio ("nao registrou as contas: "), bloqueando uma ativacao cujas
+      // contas reais foram anexadas sem problema.
+      it("P7: entrada vazia/whitespace e ignorada pelas DUAS pontas (sem 2o PATCH nem erro)", async () => {
+        const { calls } = createMockFetch(
+          campaignRoutes([], ["sender@example.com"])
+        );
+
+        const result = await service.addAccountsToCampaign({
+          apiKey: "test-key",
+          campaignId: "camp-123",
+          accountEmails: ["sender@example.com", "   ", ""],
+        });
+
+        expect(result.success).toBe(true);
+        expect(calls().filter((c) => c.method === "PATCH")).toHaveLength(1);
+      });
+
+      // P8: `isRetryableStatus` trata 502 como retryable, entao a UI oferecia "tentar
+      // novamente" numa condicao deterministica (conta fora do workspace) que ja tinha
+      // sido reexecutada uma vez internamente.
+      it("P8: conta ausente apos o retry lanca ExternalServiceError NAO-retryable (422)", async () => {
+        createMockFetch(campaignRoutes([], []));
+
+        await expect(
+          service.addAccountsToCampaign({
+            apiKey: "test-key",
+            campaignId: "camp-123",
+            accountEmails: ["missing@sender.com"],
+          })
+        ).rejects.toMatchObject({
+          statusCode: 422,
+        });
+      });
+
+      // P9: o PATCH foi aceito (2xx); foi a LEITURA de conferencia que caiu. Continuamos
+      // bloqueando (nao sabemos o estado), mas a mensagem antiga afirmava um fato FALSO —
+      // "o Instantly nao registrou as contas" — sobre contas muito provavelmente
+      // anexadas, mandando o usuario reanexa-las a mao.
+      it("P9: falha no GET de conferencia nao vira 'o Instantly nao registrou as contas'", async () => {
+        // O helper de rotas nao distingue a 1a da 2a chamada ao MESMO GET, e aqui a
+        // diferenca e justamente essa: o primeiro GET (ler o email_list atual) precisa
+        // funcionar, e o segundo (conferir o resultado da escrita) precisa cair.
+        let getCount = 0;
+        global.fetch = vi.fn().mockImplementation((_url: string, options?: RequestInit) => {
+          const method = (options?.method ?? "GET").toUpperCase();
+          if (method === "PATCH") {
+            // Sem `email_list` no corpo -> forca o GET de conferencia.
+            return Promise.resolve(
+              mockJsonResponse({ id: "camp-123", name: "Camp", status: 0 })
+            );
+          }
+          getCount += 1;
+          if (getCount === 1) {
+            return Promise.resolve(
+              mockJsonResponse({ id: "camp-123", name: "Camp", status: 0, email_list: [] })
+            );
+          }
+          return Promise.resolve({
+            ok: false,
+            status: 500,
+            json: () => Promise.resolve({ error: "boom" }),
+            text: () => Promise.resolve("boom"),
+          });
+        }) as unknown as typeof global.fetch;
+
+        await expect(
+          service.addAccountsToCampaign({
+            apiKey: "test-key",
+            campaignId: "camp-123",
+            accountEmails: ["sender@example.com"],
+          })
+        ).rejects.toMatchObject({
+          message: expect.stringContaining("Nao consegui confirmar"),
+        });
+      });
     });
   });
 
@@ -1291,18 +1594,20 @@ describe("InstantlyService", () => {
   // ==============================================
 
   describe("activateCampaign", () => {
-    it("activates campaign and returns success", async () => {
+    // Story 22.18 (AC7): a v2 responde o *Campaign object* — nao existe `success` na
+    // resposta. O contrato agora e "nao lancou = ativou"; nada e afirmado no retorno.
+    it("chama o endpoint de activate com Bearer e nao afirma nada no retorno", async () => {
       const { mock } = createMockFetch([
         {
           url: /\/api\/v2\/campaigns\/camp-123\/activate/,
           method: "POST",
-          response: mockJsonResponse({ success: true }),
+          response: mockJsonResponse({ id: "camp-123", name: "Camp", status: 1 }),
         },
       ]);
 
       const result = await service.activateCampaign({ apiKey: "api-key", campaignId: "camp-123" });
 
-      expect(result.success).toBe(true);
+      expect(result).toBeUndefined();
       expect(mock).toHaveBeenCalledWith(
         "https://api.instantly.ai/api/v2/campaigns/camp-123/activate",
         expect.objectContaining({

@@ -747,7 +747,9 @@ CONTEXTO DA EMPRESA:
 
 TOM DE VOZ:
 {{tone_style}}
-
+{{#if email_count}}
+QUANTIDADE SOLICITADA PELO USUARIO: gere EXATAMENTE {{email_count}} e-mails na sequencia. Esta quantidade SOBREPOE a heuristica por objetivo abaixo (use os intervalos/estrutura do objetivo como referencia, mas ajuste para totalizar exatamente {{email_count}} e-mails).
+{{/if}}
 REGRAS POR OBJETIVO:
 
 [COLD_OUTREACH]
@@ -813,7 +815,7 @@ REGRAS CRITICAS:
 3. Primeiro item sempre tipo "email" com position 0
 4. emailMode: "initial" para Cold Outreach, "follow-up" para demais (exceto primeiro)
 5. context deve ser descritivo para orientar a geracao de conteudo depois
-6. Minimo 3 emails, maximo 7 emails
+6. Minimo 3 emails, maximo 7 emails — EXCETO quando "QUANTIDADE SOLICITADA PELO USUARIO" estiver definida acima: nesse caso gere EXATAMENTE a quantidade pedida (entre 1 e 10), que prevalece sobre este limite
 7. Delays entre 1 e 14 dias
 
 Responda APENAS com o JSON.`,

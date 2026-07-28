@@ -9,6 +9,7 @@
 import { describe, it, expect } from "vitest";
 import {
   BriefingSuggestionService,
+  deriveSuggestionsFromICP,
   TECH_TO_TITLES,
   INDUSTRY_TO_TITLES,
   INDUSTRY_TO_TECH,
@@ -180,5 +181,103 @@ describe("BriefingSuggestionService", () => {
 
   it("normalizeKey deve retornar string vazia para input vazio", () => {
     expect(normalizeKey("")).toBe("");
+  });
+});
+
+// ==============================================
+// Story 22.7 — deriveSuggestionsFromICP (heuristica pura)
+// ==============================================
+
+describe("deriveSuggestionsFromICP (Story 22.7)", () => {
+  it("deriva jobTitles do ICP quando o briefing nao tem cargos (AC1)", () => {
+    const briefing = createBriefing();
+    const derived = deriveSuggestionsFromICP(
+      { jobTitles: ["Head de Growth", "VP de Marketing"], industries: [] },
+      briefing
+    );
+
+    expect(derived.jobTitles).toEqual(["Head de Growth", "VP de Marketing"]);
+  });
+
+  it("NAO deriva jobTitles quando o briefing ja tem cargos (D4)", () => {
+    const briefing = createBriefing({ jobTitles: ["CFO"] });
+    const derived = deriveSuggestionsFromICP(
+      { jobTitles: ["Head de Growth"], industries: [] },
+      briefing
+    );
+
+    expect(derived.jobTitles).toBeUndefined();
+  });
+
+  it("dedup + trim + cap 6 nos jobTitles do ICP", () => {
+    const briefing = createBriefing();
+    const derived = deriveSuggestionsFromICP(
+      {
+        jobTitles: [
+          "CTO",
+          " CTO ", // duplicata apos trim
+          "CFO",
+          "CMO",
+          "COO",
+          "CEO",
+          "CISO",
+          "CRO", // 7o distinto -> deve ser cortado pelo cap 6
+        ],
+        industries: [],
+      },
+      briefing
+    );
+
+    expect(derived.jobTitles).toEqual(["CTO", "CFO", "CMO", "COO", "CEO", "CISO"]);
+    expect(derived.jobTitles.length).toBe(6);
+  });
+
+  it("deriva technology dos setores do ICP reusando INDUSTRY_TO_TECH quando casa", () => {
+    const briefing = createBriefing();
+    const derived = deriveSuggestionsFromICP(
+      { jobTitles: [], industries: ["fintech"] },
+      briefing
+    );
+
+    expect(derived.technology).toEqual(INDUSTRY_TO_TECH["fintech"]);
+  });
+
+  it("usa o setor cru quando nao ha mapeamento em INDUSTRY_TO_TECH", () => {
+    const briefing = createBriefing();
+    const derived = deriveSuggestionsFromICP(
+      { jobTitles: [], industries: ["Mineracao"] },
+      briefing
+    );
+
+    expect(derived.technology).toEqual(["Mineracao"]);
+  });
+
+  it("NAO deriva technology quando o briefing ja tem technology", () => {
+    const briefing = createBriefing({ technology: "AWS" });
+    const derived = deriveSuggestionsFromICP(
+      { jobTitles: [], industries: ["fintech"] },
+      briefing
+    );
+
+    expect(derived.technology).toBeUndefined();
+  });
+
+  it("retorna objeto vazio quando o ICP nao tem material (fallback fica com o caller)", () => {
+    const briefing = createBriefing();
+    const derived = deriveSuggestionsFromICP({ jobTitles: [], industries: [] }, briefing);
+
+    expect(derived).toEqual({});
+  });
+
+  it("preenche so o campo com material do ICP (o outro cai no caller)", () => {
+    // ICP tem cargos mas nenhum setor -> deriva jobTitles, technology fica ausente
+    const briefing = createBriefing();
+    const derived = deriveSuggestionsFromICP(
+      { jobTitles: ["Head de Vendas"], industries: [] },
+      briefing
+    );
+
+    expect(derived.jobTitles).toEqual(["Head de Vendas"]);
+    expect(derived.technology).toBeUndefined();
   });
 });

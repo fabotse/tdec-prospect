@@ -6,9 +6,10 @@
  * Instantly API errors, confirmation message, cost calculation
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ActivateStep } from "@/lib/agent/steps/activate-step";
 import { createChainBuilder } from "../../../../helpers/mock-supabase";
+import { FakeDb, createFakeSupabase, FAKE_TENANT } from "../../../../helpers/fake-leads-db";
 import type { StepInput } from "@/types/agent";
 import { ExternalServiceError } from "@/lib/services/base-service";
 
@@ -18,11 +19,13 @@ import { ExternalServiceError } from "@/lib/services/base-service";
 
 const mockActivateCampaign = vi.fn();
 const mockAddAccountsToCampaign = vi.fn();
+const mockGetCampaignStatus = vi.fn();
 
 vi.mock("@/lib/services/instantly", () => ({
   InstantlyService: class MockInstantlyService {
     activateCampaign = mockActivateCampaign;
     addAccountsToCampaign = mockAddAccountsToCampaign;
+    getCampaignStatus = mockGetCampaignStatus;
   },
 }));
 
@@ -62,7 +65,12 @@ function createPreviousStepOutput() {
   };
 }
 
-function createMockSupabase(apiConfigData: unknown = { encrypted_key: "enc-key" }) {
+/**
+ * Story 22.16: `campaigns` servida pelo `FakeDb` — ele recusa um `status` fora do ENUM
+ * `campaign_status` (um chain-builder aceitaria "activated" em silencio e o badge da lista
+ * viraria o texto literal `undefined`).
+ */
+function createMockSupabase(apiConfigData: unknown = { encrypted_key: "enc-key" }, db?: FakeDb) {
   const apiConfigsChain = createChainBuilder({
     data: apiConfigData,
     error: null,
@@ -71,14 +79,18 @@ function createMockSupabase(apiConfigData: unknown = { encrypted_key: "enc-key" 
   const messagesChain = createChainBuilder({ data: { id: "msg-1" }, error: null });
   const stepsChain = createChainBuilder({ data: { id: "step-5" }, error: null });
 
+  const campaignsDb = db ?? new FakeDb();
+  const fakeFrom = createFakeSupabase(campaignsDb).from as (t: string) => unknown;
+
   const mockFrom = vi.fn().mockImplementation((table: string) => {
     if (table === "api_configs") return apiConfigsChain;
     if (table === "agent_messages") return messagesChain;
     if (table === "agent_steps") return stepsChain;
+    if (table === "campaigns" || table === "campaign_leads") return fakeFrom(table);
     return createChainBuilder();
   });
 
-  return { from: mockFrom, apiConfigsChain, messagesChain, stepsChain };
+  return { from: mockFrom, db: campaignsDb, apiConfigsChain, messagesChain, stepsChain };
 }
 
 function createDefaultInput(previousStepOutput?: Record<string, unknown>): StepInput {
@@ -99,8 +111,17 @@ describe("ActivateStep (Story 17.4 AC #3, #4)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSupabase = createMockSupabase();
-    mockActivateCampaign.mockResolvedValue({ success: true });
+    mockActivateCampaign.mockResolvedValue(undefined);
     mockAddAccountsToCampaign.mockResolvedValue({ success: true, accountsAdded: 2 });
+    // Story 22.18 (AC4b/AC6): pre-flight de status. Default = campanha em Rascunho COM
+    // conta de envio, ou seja, o caminho feliz de hoje.
+    mockGetCampaignStatus.mockResolvedValue({
+      campaignId: "instantly-camp-123",
+      name: "Campanha React Outbound",
+      status: 0,
+      statusLabel: "Rascunho",
+      emailList: ["sender1@company.com"],
+    });
   });
 
   // 5.14 - Happy path
@@ -244,6 +265,528 @@ describe("ActivateStep (Story 17.4 AC #3, #4)", () => {
     });
   });
 
+  // ==============================================
+  // Story 22.17
+  // ==============================================
+
+  describe("Story 22.17 - pluralizacao (AC4)", () => {
+    it("diz 'com 1 lead' no singular", async () => {
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const input = createDefaultInput({
+        ...(createPreviousStepOutput() as unknown as Record<string, unknown>),
+        leadsUploaded: 1,
+      });
+
+      await step.run(input);
+
+      const contents = mockSupabase.messagesChain.insert.mock.calls.map(
+        (call: unknown[]) => String((call[0] as Record<string, unknown>).content)
+      );
+      expect(contents).toContain(
+        "Campanha 'Campanha React Outbound' ativa no Instantly com 1 lead"
+      );
+    });
+
+    it("diz 'com N leads' no plural (e 0 leads)", async () => {
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+
+      await step.run(createDefaultInput());
+      const contents = mockSupabase.messagesChain.insert.mock.calls.map(
+        (call: unknown[]) => String((call[0] as Record<string, unknown>).content)
+      );
+      expect(contents).toContain(
+        "Campanha 'Campanha React Outbound' ativa no Instantly com 15 leads"
+      );
+
+      vi.clearAllMocks();
+      mockSupabase = createMockSupabase();
+      mockActivateCampaign.mockResolvedValue(undefined);
+      mockGetCampaignStatus.mockResolvedValue({
+        campaignId: "instantly-camp-123",
+        name: "Campanha React Outbound",
+        status: 0,
+        statusLabel: "Rascunho",
+        emailList: ["sender1@company.com"],
+      });
+      const zeroStep = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      await zeroStep.run(
+        createDefaultInput({
+          ...(createPreviousStepOutput() as unknown as Record<string, unknown>),
+          leadsUploaded: 0,
+          selectedAccounts: undefined,
+        })
+      );
+      const zeroContents = mockSupabase.messagesChain.insert.mock.calls.map(
+        (call: unknown[]) => String((call[0] as Record<string, unknown>).content)
+      );
+      expect(zeroContents).toContain(
+        "Campanha 'Campanha React Outbound' ativa no Instantly com 0 leads"
+      );
+    });
+  });
+
+  describe("Story 22.17 - aprovacao ex-ante (AC2)", () => {
+    it("nao exige post-approval (a aprovacao foi no gate de ativacao)", () => {
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      expect(step.requiresPostApproval()).toBe(false);
+    });
+
+    it("em modo guiado conclui o step e NAO abre um novo gate", async () => {
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const input = { ...createDefaultInput(), mode: "guided" as const };
+
+      await step.run(input);
+
+      const statuses = mockSupabase.stepsChain.update.mock.calls.map(
+        (call: unknown[]) => (call[0] as Record<string, unknown>).status
+      );
+      expect(statuses).toContain("completed");
+      expect(statuses).not.toContain("awaiting_approval");
+
+      const gateInsert = mockSupabase.messagesChain.insert.mock.calls
+        .map((call: unknown[]) => call[0] as Record<string, unknown>)
+        .find(
+          (arg) =>
+            (arg.metadata as Record<string, unknown> | undefined)?.messageType ===
+            "approval_gate"
+        );
+      expect(gateInsert).toBeUndefined();
+    });
+  });
+
+  // ==============================================
+  // Story 22.18 (AC3): carimbo DURAVEL do gate — quem carimba e QUANDO
+  // ==============================================
+
+  describe("Story 22.18 (AC3) - carimbo do gate de ativacao", () => {
+    /** Mock com um approval_gate de `export` disponivel para ser carimbado. */
+    function createSupabaseWithExportGate() {
+      const messagesChain = createChainBuilder({
+        data: [
+          {
+            id: "gate-msg-1",
+            metadata: {
+              messageType: "approval_gate",
+              stepNumber: 4,
+              approvalData: { stepType: "export" },
+            },
+          },
+        ],
+        error: null,
+      });
+      const stepsChain = createChainBuilder({ data: { id: "step-5" }, error: null });
+      const from = vi.fn().mockImplementation((table: string) => {
+        if (table === "agent_messages") return messagesChain;
+        if (table === "agent_steps") return stepsChain;
+        return createChainBuilder();
+      });
+      return { from, messagesChain, stepsChain };
+    }
+
+    it("carimba activationOutcome='activated' DEPOIS de a campanha ficar ativa", async () => {
+      const supabase = createSupabaseWithExportGate();
+      const step = new ActivateStep(5, supabase as never, TENANT_ID);
+
+      await step.run(createDefaultInput());
+
+      const stamped = supabase.messagesChain.update.mock.calls
+        .map((call: unknown[]) => call[0] as Record<string, unknown>)
+        .some(
+          (arg) =>
+            (arg.metadata as Record<string, unknown> | undefined)?.activationOutcome ===
+            "activated"
+        );
+      expect(stamped).toBe(true);
+    });
+
+    it("NAO carimba quando a ativacao FALHA (o card tem que voltar re-armado)", async () => {
+      mockActivateCampaign.mockRejectedValue(
+        new ExternalServiceError("instantly", 502, "Bad gateway")
+      );
+      const supabase = createSupabaseWithExportGate();
+      const step = new ActivateStep(5, supabase as never, TENANT_ID);
+
+      await expect(step.run(createDefaultInput())).rejects.toMatchObject({
+        code: "STEP_ACTIVATE_ERROR",
+      });
+
+      expect(supabase.messagesChain.update).not.toHaveBeenCalled();
+    });
+
+    it("falha no carimbo NAO derruba a ativacao (fail-open)", async () => {
+      const supabase = createSupabaseWithExportGate();
+      supabase.messagesChain.update = vi.fn().mockImplementation(() => {
+        throw new Error("boom");
+      });
+      const step = new ActivateStep(5, supabase as never, TENANT_ID);
+
+      const result = await step.run(createDefaultInput());
+
+      expect(result.success).toBe(true);
+      expect((result.data as Record<string, unknown>).activated).toBe(true);
+    });
+  });
+
+  // ==============================================
+  // Story 22.18 (AC4): ativacao IDEMPOTENTE do nosso lado
+  // ==============================================
+
+  describe("Story 22.18 (AC4) - idempotencia", () => {
+    /** Mock em que o SELECT de agent_steps devolve um output (e custo) ja gravado. */
+    function createSupabaseWithStepOutput(
+      output: Record<string, unknown> | null,
+      cost: Record<string, number> | null = null
+    ) {
+      const messagesChain = createChainBuilder({ data: { id: "msg-1" }, error: null });
+      const stepsChain = createChainBuilder({ data: { output, cost }, error: null });
+      const from = vi.fn().mockImplementation((table: string) => {
+        if (table === "agent_messages") return messagesChain;
+        if (table === "agent_steps") return stepsChain;
+        return createChainBuilder();
+      });
+      return { from, messagesChain, stepsChain };
+    }
+
+    // --- (4a) guarda barata, sem rede ---
+
+    it("(4a) NAO chama activateCampaign quando o output do proprio step ja tem activated:true", async () => {
+      const supabase = createSupabaseWithStepOutput(
+        {
+          externalCampaignId: "instantly-camp-123",
+          campaignName: "Campanha React Outbound",
+          activated: true,
+          activatedAt: "2026-07-20T10:00:00.000Z",
+        },
+        { instantly_activate: 1 }
+      );
+      const step = new ActivateStep(5, supabase as never, TENANT_ID);
+
+      const result = await step.run(createDefaultInput());
+
+      expect(mockActivateCampaign).not.toHaveBeenCalled();
+      const data = result.data as Record<string, unknown>;
+      expect(data.activated).toBe(true);
+      expect(data.activatedAt).toBe("2026-07-20T10:00:00.000Z");
+      // Story 22.18 (code review, P3): o custo JA gravado e preservado. Devolver
+      // `{ instantly_activate: 0 }` aqui fazia o `saveCheckpoint` APAGAR o registro da
+      // ativacao real que aconteceu na tentativa anterior.
+      expect(result.cost).toEqual({ instantly_activate: 1 });
+    });
+
+    // Story 22.18 (code review, P3): o atalho tambem carimba — senao, se o carimbo da
+    // primeira ativacao falhou (fail-open), o card ficaria re-armado para sempre.
+    it("(4a) o atalho CARIMBA o gate (durabilidade auto-curavel)", async () => {
+      // Gate do export presente (como na producao) + output ja com activated:true.
+      const messagesChain = createChainBuilder({
+        data: [
+          {
+            id: "gate-msg-1",
+            metadata: {
+              messageType: "approval_gate",
+              stepNumber: 4,
+              approvalData: { stepType: "export" },
+            },
+          },
+        ],
+        error: null,
+      });
+      const stepsChain = createChainBuilder({
+        data: {
+          output: {
+            externalCampaignId: "instantly-camp-123",
+            campaignName: "Campanha React Outbound",
+            activated: true,
+          },
+          cost: { instantly_activate: 1 },
+        },
+        error: null,
+      });
+      // Story 22.16: a campanha local ficou como RASCUNHO porque a escrita local da
+      // primeira tentativa falhou (ela e fail-open). O atalho tem que curar isso: sem
+      // marcar aqui, toda retentativa retorna antes do `markCampaignActive` do fim e a
+      // campanha fica "Rascunho" para sempre enquanto roda no Instantly — sem caminho de
+      // correcao pela UI, porque nenhuma rota do produto escreve `campaigns.status`.
+      const shortcutDb = new FakeDb();
+      const localCampaignId = shortcutDb.seedCampaign({
+        tenant_id: FAKE_TENANT,
+        name: "Campanha React Outbound",
+        external_campaign_id: "instantly-camp-123",
+      }).id;
+      const shortcutFrom = createFakeSupabase(shortcutDb).from as (t: string) => unknown;
+      const supabase = {
+        from: vi.fn().mockImplementation((table: string) => {
+          if (table === "agent_messages") return messagesChain;
+          if (table === "agent_steps") return stepsChain;
+          if (table === "campaigns") return shortcutFrom(table);
+          return createChainBuilder();
+        }),
+      };
+      const step = new ActivateStep(5, supabase as never, TENANT_ID);
+
+      await step.run(
+        createDefaultInput({
+          ...createPreviousStepOutput(),
+          campaignId: localCampaignId,
+        } as unknown as Record<string, unknown>)
+      );
+
+      expect(mockActivateCampaign).not.toHaveBeenCalled();
+      const stamped = messagesChain.update.mock.calls
+        .map((call: unknown[]) => call[0] as Record<string, unknown>)
+        .some(
+          (arg) =>
+            (arg.metadata as Record<string, unknown> | undefined)?.activationOutcome ===
+            "activated"
+        );
+      expect(stamped).toBe(true);
+      // O atalho tambem CURA a campanha local.
+      expect(shortcutDb.campaigns[0].status).toBe("active");
+    });
+
+    it("(4a) o atalho marca a campanha local mesmo com o campaignId so no output antigo", async () => {
+      // Retentativa em que o `previousStepOutput` perdeu o campaignId (export
+      // reexecutado com um output mais pobre): o proprio output do step ainda o tem.
+      const shortcutDb = new FakeDb();
+      const localCampaignId = shortcutDb.seedCampaign({
+        tenant_id: FAKE_TENANT,
+        name: "Campanha React Outbound",
+      }).id;
+      const stepsChain = createChainBuilder({
+        data: {
+          output: {
+            externalCampaignId: "instantly-camp-123",
+            campaignName: "Campanha React Outbound",
+            activated: true,
+            campaignId: localCampaignId,
+          },
+          cost: { instantly_activate: 1 },
+        },
+        error: null,
+      });
+      const shortcutFrom = createFakeSupabase(shortcutDb).from as (t: string) => unknown;
+      const supabase = {
+        from: vi.fn().mockImplementation((table: string) => {
+          if (table === "agent_steps") return stepsChain;
+          if (table === "campaigns") return shortcutFrom(table);
+          return createChainBuilder();
+        }),
+      };
+      const step = new ActivateStep(5, supabase as never, TENANT_ID);
+
+      await step.run(createDefaultInput());
+
+      expect(mockActivateCampaign).not.toHaveBeenCalled();
+      expect(shortcutDb.campaigns[0].status).toBe("active");
+    });
+
+    // Story 22.18 (code review, P4): guardrail invertido — `activated: true` de OUTRA
+    // campanha nao pode calar a ativacao da campanha atual.
+    it("(4a) NAO atalha quando o activated:true e de outra campanha", async () => {
+      const supabase = createSupabaseWithStepOutput({
+        externalCampaignId: "instantly-camp-ANTIGA",
+        campaignName: "Campanha antiga",
+        activated: true,
+      });
+      const step = new ActivateStep(5, supabase as never, TENANT_ID);
+
+      await step.run(createDefaultInput());
+
+      expect(mockActivateCampaign).toHaveBeenCalledWith(
+        expect.objectContaining({ campaignId: "instantly-camp-123" })
+      );
+    });
+
+    it("(4a) segue normalmente quando o output do step nao tem activated", async () => {
+      const supabase = createSupabaseWithStepOutput({ error: { code: "STEP_ACTIVATE_ERROR" } });
+      const step = new ActivateStep(5, supabase as never, TENANT_ID);
+
+      await step.run(createDefaultInput());
+
+      expect(mockActivateCampaign).toHaveBeenCalled();
+    });
+
+    // --- (4b) a que importa: erro parcial (o output foi sobrescrito por { error }) ---
+
+    it("(4b) NAO chama activateCampaign quando a campanha ja esta Active (1)", async () => {
+      mockGetCampaignStatus.mockResolvedValue({
+        campaignId: "instantly-camp-123",
+        name: "Campanha React Outbound",
+        status: 1,
+        statusLabel: "Ativa",
+        emailList: ["sender1@company.com"],
+      });
+
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const result = await step.run(createDefaultInput());
+
+      expect(mockActivateCampaign).not.toHaveBeenCalled();
+      expect((result.data as Record<string, unknown>).activated).toBe(true);
+      // Story 22.18 (code review, P5): nenhuma chamada foi feita — o custo tem que dizer
+      // isso. Contar 1 aqui registrava uma chamada ao Instantly que nunca existiu.
+      expect(result.cost).toEqual({ instantly_activate: 0 });
+    });
+
+    // Story 22.18 (code review, P1): Paused(2) e Completed(3) sao os estados em que
+    // "resume" e DESTRUTIVO — reenviar a sequencia inteira para quem ja recebeu tudo, ou
+    // anular uma pausa feita a mao dentro do Instantly. A versao original so barrava 1 e
+    // 4, deixando os dois casos perigosos cairem direto no POST /activate.
+    it.each([
+      [2, "Pausada"],
+      [3, "Concluida"],
+    ])(
+      "(4b/P1) NAO chama activateCampaign quando a campanha esta em status %i (%s)",
+      async (status, statusLabel) => {
+        mockGetCampaignStatus.mockResolvedValue({
+          campaignId: "instantly-camp-123",
+          name: "Campanha React Outbound",
+          status,
+          statusLabel,
+          emailList: ["sender1@company.com"],
+        });
+
+        const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+        const result = await step.run(createDefaultInput());
+
+        expect(mockActivateCampaign).not.toHaveBeenCalled();
+        expect(result.cost).toEqual({ instantly_activate: 0 });
+      }
+    );
+
+    // Guardrail invertido do P1: a guarda nova nao pode engolir a ativacao legitima.
+    it("(4b/P1) CHAMA activateCampaign quando a campanha esta em Draft (0)", async () => {
+      mockGetCampaignStatus.mockResolvedValue({
+        campaignId: "instantly-camp-123",
+        name: "Campanha React Outbound",
+        status: 0,
+        statusLabel: "Rascunho",
+        emailList: ["sender1@company.com"],
+      });
+
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const result = await step.run(createDefaultInput());
+
+      expect(mockActivateCampaign).toHaveBeenCalledTimes(1);
+      expect(result.cost).toEqual({ instantly_activate: 1 });
+    });
+
+    it("(4b) NAO chama activateCampaign quando a campanha esta RunningSubsequences (4)", async () => {
+      mockGetCampaignStatus.mockResolvedValue({
+        campaignId: "instantly-camp-123",
+        name: "Campanha React Outbound",
+        status: 4,
+        statusLabel: "Executando subsequencias",
+        emailList: ["sender1@company.com"],
+      });
+
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      await step.run(createDefaultInput());
+
+      expect(mockActivateCampaign).not.toHaveBeenCalled();
+    });
+
+    it("(4b) CHAMA activateCampaign quando a campanha esta Draft (0)", async () => {
+      mockGetCampaignStatus.mockResolvedValue({
+        campaignId: "instantly-camp-123",
+        name: "Campanha React Outbound",
+        status: 0,
+        statusLabel: "Rascunho",
+        emailList: ["sender1@company.com"],
+      });
+
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      await step.run(createDefaultInput());
+
+      expect(mockActivateCampaign).toHaveBeenCalled();
+    });
+
+    it("(4b) falha na leitura de status NAO bloqueia a ativacao (fail-open)", async () => {
+      mockGetCampaignStatus.mockRejectedValue(
+        new ExternalServiceError("instantly", 500, "Erro no GET")
+      );
+
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const result = await step.run(createDefaultInput());
+
+      expect(mockActivateCampaign).toHaveBeenCalled();
+      expect(result.success).toBe(true);
+    });
+
+    it("(4b) le o status DEPOIS do attach das contas selecionadas", async () => {
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const prevOutput = {
+        ...createPreviousStepOutput(),
+        selectedAccounts: ["sender1@company.com"],
+      };
+
+      await step.run(createDefaultInput(prevOutput as unknown as Record<string, unknown>));
+
+      const attachOrder = mockAddAccountsToCampaign.mock.invocationCallOrder[0];
+      const statusOrder = mockGetCampaignStatus.mock.invocationCallOrder[0];
+      expect(attachOrder).toBeLessThan(statusOrder);
+    });
+  });
+
+  // ==============================================
+  // Story 22.18 (AC6): zero contas de envio nao e sucesso — GUARDA DE SERVIDOR
+  // ==============================================
+
+  describe("Story 22.18 (AC6) - guarda de servidor: campanha sem remetente", () => {
+    it("RECUSA ativar quando o email_list da campanha esta vazio", async () => {
+      mockGetCampaignStatus.mockResolvedValue({
+        campaignId: "instantly-camp-123",
+        name: "Campanha React Outbound",
+        status: 0,
+        statusLabel: "Rascunho",
+        emailList: [],
+      });
+
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+
+      await expect(step.run(createDefaultInput())).rejects.toMatchObject({
+        code: "STEP_EXECUTION_ERROR",
+        isRetryable: false,
+      });
+      expect(mockActivateCampaign).not.toHaveBeenCalled();
+    });
+
+    it("a mensagem de erro explica o que fazer", async () => {
+      mockGetCampaignStatus.mockResolvedValue({
+        campaignId: "instantly-camp-123",
+        name: "Campanha React Outbound",
+        status: 0,
+        statusLabel: "Rascunho",
+        emailList: [],
+      });
+
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+
+      await expect(step.run(createDefaultInput())).rejects.toMatchObject({
+        message: expect.stringContaining("conta de envio"),
+      });
+    });
+
+    it("ativa normalmente quando ha pelo menos uma conta de envio", async () => {
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+
+      const result = await step.run(createDefaultInput());
+
+      expect(mockActivateCampaign).toHaveBeenCalled();
+      expect(result.success).toBe(true);
+    });
+
+    it("guardrail invertido: leitura de status indisponivel NAO inventa bloqueio", async () => {
+      mockGetCampaignStatus.mockRejectedValue(
+        new ExternalServiceError("instantly", 503, "indisponivel")
+      );
+
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const result = await step.run(createDefaultInput());
+
+      expect(result.success).toBe(true);
+      expect(mockActivateCampaign).toHaveBeenCalled();
+    });
+  });
+
   // 5.19 - Cost calculated correctly
   describe("cost calculation", () => {
     it("calculates cost correctly", async () => {
@@ -305,6 +848,215 @@ describe("ActivateStep (Story 17.4 AC #3, #4)", () => {
       await step.run(input);
 
       expect(mockAddAccountsToCampaign).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==============================================
+  // Story 22.12: attach de contas na ativacao real FALHA-RAPIDO com msg especifica
+  // ==============================================
+
+  describe("Story 22.12 - attach failure on real activation (AC #4, #5)", () => {
+    it("blocks activation with a SPECIFIC message when attach fails (not 'Erro interno')", async () => {
+      mockAddAccountsToCampaign.mockRejectedValue(
+        new ExternalServiceError("instantly", 404, "Erro interno. Tente novamente.")
+      );
+
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const prevOutput = {
+        ...createPreviousStepOutput(),
+        selectedAccounts: ["sender1@company.com"],
+      };
+      const input = createDefaultInput(prevOutput as unknown as Record<string, unknown>);
+
+      await expect(step.run(input)).rejects.toMatchObject({
+        message: expect.stringContaining("anexar as contas de envio"),
+      });
+
+      // fail-fast: ativar sem conta = campanha inerte -> NAO ativa
+      expect(mockActivateCampaign).not.toHaveBeenCalled();
+    });
+
+    it("does not leak the generic 'Erro interno. Tente novamente.' message on attach failure", async () => {
+      mockAddAccountsToCampaign.mockRejectedValue(
+        new ExternalServiceError("instantly", 404, "Erro interno. Tente novamente.")
+      );
+
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const prevOutput = {
+        ...createPreviousStepOutput(),
+        selectedAccounts: ["sender1@company.com"],
+      };
+      const input = createDefaultInput(prevOutput as unknown as Record<string, unknown>);
+
+      let caught: unknown;
+      try {
+        await step.run(input);
+      } catch (e) {
+        caught = e;
+      }
+      const message = (caught as { message: string }).message;
+      expect(message).not.toContain("Erro interno");
+    });
+
+    it("preserves retryability of the underlying attach error (502 -> retryable)", async () => {
+      mockAddAccountsToCampaign.mockRejectedValue(
+        new ExternalServiceError("instantly", 502, "Bad gateway")
+      );
+
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const prevOutput = {
+        ...createPreviousStepOutput(),
+        selectedAccounts: ["sender1@company.com"],
+      };
+      const input = createDefaultInput(prevOutput as unknown as Record<string, unknown>);
+
+      await expect(step.run(input)).rejects.toMatchObject({
+        code: "STEP_ACTIVATE_ERROR",
+        isRetryable: true,
+        externalService: "instantly",
+        message: expect.stringContaining("anexar as contas de envio"),
+      });
+    });
+  });
+
+  // ==============================================
+  // Story 22.16: status da campanha local
+  // ==============================================
+
+  describe("status da campanha local (Story 22.16)", () => {
+    let db: FakeDb;
+    let campaignId: string;
+
+    const LIFECYCLE_MESSAGE_TYPES = ["progress", "step_complete", "summary", "approval_gate"];
+
+    function noticeMessages(): string[] {
+      return mockSupabase.messagesChain.insert.mock.calls
+        .map((call: unknown[]) => call[0] as { content?: string; metadata?: { messageType?: string } })
+        .filter((row) => !LIFECYCLE_MESSAGE_TYPES.includes(row?.metadata?.messageType ?? ""))
+        .map((row) => row?.content ?? "");
+    }
+
+    beforeEach(() => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      db = new FakeDb();
+      campaignId = db.seedCampaign({
+        tenant_id: FAKE_TENANT,
+        name: "Campanha React Outbound",
+        external_campaign_id: "instantly-camp-123",
+        export_platform: "instantly",
+        export_status: "success",
+        exported_at: new Date().toISOString(),
+      }).id;
+      mockSupabase = createMockSupabase({ encrypted_key: "enc-key" }, db);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    function inputWithCampaign(): StepInput {
+      return createDefaultInput({
+        ...createPreviousStepOutput(),
+        campaignId,
+      } as unknown as Record<string, unknown>);
+    }
+
+    it("marca status active SO apos a ativacao confirmada no Instantly", async () => {
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+
+      const result = await step.run(inputWithCampaign());
+
+      expect(result.success).toBe(true);
+      expect(mockActivateCampaign).toHaveBeenCalled();
+      expect(db.campaigns[0].status).toBe("active");
+      // Os campos de export gravados no step anterior continuam intactos.
+      expect(db.campaigns[0].external_campaign_id).toBe("instantly-camp-123");
+      expect(noticeMessages()).toHaveLength(0);
+    });
+
+    it("propaga o campaignId no output", async () => {
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+
+      const result = await step.run(inputWithCampaign());
+
+      expect((result.data as Record<string, unknown>).campaignId).toBe(campaignId);
+    });
+
+    it("ativacao que NAO acontece (campanha ja ativa no Instantly) nao inventa escrita nova", async () => {
+      // Guarda da 22.18: a campanha ja esta Ativa no Instantly, o activate NAO dispara.
+      // A linha local, porem, tem que refletir a realidade — que e "ativa".
+      mockGetCampaignStatus.mockResolvedValue({
+        campaignId: "instantly-camp-123",
+        name: "Campanha React Outbound",
+        status: 1,
+        statusLabel: "Ativa",
+        emailList: ["sender1@company.com"],
+      });
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+
+      const result = await step.run(inputWithCampaign());
+
+      expect(result.success).toBe(true);
+      expect(mockActivateCampaign).not.toHaveBeenCalled();
+      expect(db.campaigns[0].status).toBe("active");
+    });
+
+    it("erro na ativacao: a campanha local NAO vira ativa", async () => {
+      mockActivateCampaign.mockRejectedValue(
+        new ExternalServiceError("instantly", 500, "Erro ao ativar")
+      );
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+
+      await expect(step.run(inputWithCampaign())).rejects.toBeDefined();
+
+      expect(db.campaigns[0].status).toBe("draft");
+    });
+
+    it("sem campaignId: nenhuma escrita, nenhuma bolha, nenhum erro", async () => {
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+
+      const result = await step.run(createDefaultInput());
+
+      expect(result.success).toBe(true);
+      expect(db.log.some((entry) => entry.table === "campaigns")).toBe(false);
+      expect(db.campaigns[0].status).toBe("draft");
+      expect((result.data as Record<string, unknown>).campaignId).toBeNull();
+      expect(noticeMessages()).toHaveLength(0);
+    });
+
+    it("falha da escrita local NAO derruba uma ativacao ja feita no Instantly", async () => {
+      db.fail("campaigns", "update", { code: "42501", message: "permission denied" });
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+
+      const result = await step.run(inputWithCampaign());
+
+      expect(result.success).toBe(true);
+      expect((result.data as Record<string, unknown>).activated).toBe(true);
+      expect(db.campaigns[0].status).toBe("draft");
+
+      const messages = noticeMessages();
+      expect(messages).toHaveLength(1);
+      // A bolha nao pode negar a ativacao: ela ACONTECEU no Instantly.
+      expect(messages[0]).toMatch(/ativada no instantly/i);
+      expect(messages[0]).toMatch(/rascunho/i);
+    });
+
+    it("campanha local apagada no meio: ZERO linhas nao passa por sucesso silencioso", async () => {
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const input = createDefaultInput({
+        ...createPreviousStepOutput(),
+        campaignId: "campaign-que-o-usuario-apagou",
+      } as unknown as Record<string, unknown>);
+
+      const result = await step.run(input);
+
+      expect(result.success).toBe(true);
+      // O PostgREST devolveria `{ error: null }` aqui; sem a checagem de linhas afetadas,
+      // o usuario nunca saberia que o badge ficou errado.
+      const messages = noticeMessages();
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatch(/rascunho/i);
+      expect(db.campaigns[0].status).toBe("draft");
     });
   });
 });

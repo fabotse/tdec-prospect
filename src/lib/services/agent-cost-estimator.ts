@@ -97,10 +97,27 @@ export class CostEstimatorService {
     const apollo = costModels.get("apollo") ?? DEFAULT_COSTS.apollo.unitPrice;
     const openai = costModels.get("openai") ?? DEFAULT_COSTS.openai.unitPrice;
     const instantly = costModels.get("instantly") ?? DEFAULT_COSTS.instantly.unitPrice;
+    const apify = costModels.get("apify") ?? DEFAULT_COSTS.apify.unitPrice;
 
     const skipSet = new Set(briefing.skipSteps ?? []);
 
     const totalLeads = DEFAULT_VOLUMES.ESTIMATED_COMPANIES * DEFAULT_VOLUMES.ESTIMATED_LEADS_PER_COMPANY;
+
+    // Story 22.2: quando o toggle de icebreaker premium esta ligado, cada lead pode gerar 1 consulta Apify.
+    // Somamos o custo Apify ao step create_campaign. Toggle desligado/ausente = comportamento atual (AC5).
+    const usePremiumIcebreakers = briefing.premiumIcebreakers === true;
+    const apifyCost = usePremiumIcebreakers && !skipSet.has("create_campaign")
+      ? totalLeads * apify
+      : 0;
+    // Story 22.5: quando o usuario pediu uma quantidade de e-mails, a sequencia gerada escala
+    // com ela (cada lead recebe a sequencia inteira) — a estimativa acompanha para nao subprecificar
+    // (custo nao pode errar; cliente precifica em cima). Sem emailCount, mantem a heuristica de 3.
+    const emailsPerLead = briefing.emailCount ?? DEFAULT_VOLUMES.ESTIMATED_EMAILS_PER_LEAD;
+    const createCampaignAiCost =
+      (totalLeads * emailsPerLead * openai) +
+      (totalLeads * DEFAULT_VOLUMES.ESTIMATED_ICEBREAKER_RATIO * openai);
+    const createCampaignPromptCount =
+      totalLeads * emailsPerLead + totalLeads * DEFAULT_VOLUMES.ESTIMATED_ICEBREAKER_RATIO;
 
     const stepCosts: Record<string, { estimated: number; description: string }> = {
       search_companies: {
@@ -114,9 +131,10 @@ export class CostEstimatorService {
       create_campaign: {
         estimated: skipSet.has("create_campaign")
           ? 0
-          : (totalLeads * DEFAULT_VOLUMES.ESTIMATED_EMAILS_PER_LEAD * openai) +
-            (totalLeads * DEFAULT_VOLUMES.ESTIMATED_ICEBREAKER_RATIO * openai),
-        description: `${totalLeads * DEFAULT_VOLUMES.ESTIMATED_EMAILS_PER_LEAD + totalLeads * DEFAULT_VOLUMES.ESTIMATED_ICEBREAKER_RATIO} prompts × ${CostEstimatorService.formatBRL(openai)}`,
+          : createCampaignAiCost + apifyCost,
+        description: usePremiumIcebreakers
+          ? `${createCampaignPromptCount} prompts × ${CostEstimatorService.formatBRL(openai)} + ${totalLeads} perfis LinkedIn × ${CostEstimatorService.formatBRL(apify)} (icebreakers premium)`
+          : `${createCampaignPromptCount} prompts × ${CostEstimatorService.formatBRL(openai)}`,
       },
       export: {
         estimated: skipSet.has("export") ? 0 : 1 * instantly,

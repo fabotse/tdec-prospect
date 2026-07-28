@@ -103,9 +103,33 @@ test-results/
 # quebram o Turbopack se não estiverem ignorados — o Tailwind v4 auto-detecta conteúdo
 # respeitando o .gitignore, segue o symlink e entra em panic ("leaves the filesystem root").
 .agents/
-.claude/skills/vercel-react-best-practices/
-.claude/skills/skill-builder/
-.claude/skills/epic-recap/
+# Sem barra final: no Windows sao diretorios, mas vistos do WSL (/mnt/c) os symlinks
+# aparecem como nao-diretorio e o padrao com "/" nao casava -> untracked (quebrava o
+# preflight do bmad-loop rodando no WSL). Sem a barra, casa symlink/arquivo/dir em ambos.
+.claude/skills/vercel-react-best-practices
+.claude/skills/skill-builder
+.claude/skills/epic-recap
+.claude/skills/verify
 
 # Roteiro de demo/teste local da Story 21.7 (contém IDs de tenant/lead + passos operacionais — não versionar)
 docs/roteiro-demo-notificacoes-21-7.md
+
+# Recap do Epic 22 (documento vivo, épico ainda em andamento — versionar só ao fechar, como o do Epic 21)
+_bmad-output/epic-22-agente-tdec-2.0.html
+.bmad-loop/runs/
+.bmad-loop/cache/
+
+# Settings LOCAIS/pessoais do Claude Code (por-usuário, nunca versionar).
+# Estava coberto só pelo XDG ignore global (~/.config/git/ignore), que é HOME-dependente:
+# o git do msys2 (HOME diferente) via este arquivo como untracked e o preflight do
+# bmad-loop (que roda no tmux/msys2) quebrava com "git worktree is not clean". Ignorar
+# no repo torna a checagem consistente em qualquer ambiente/HOME.
+.claude/settings.local.json
+.bmad-loop/policy.toml
+
+# Harnesses ad-hoc de verificacao manual (`.verify-2215/`, `.verify-2216/`, ...): dirigem
+# os helpers REAIS contra o Postgres real e escrevem/limpam dados no tenant de teste.
+# Ficam locais — uteis para reverificar, mas nao sao suite; a suite versionada roda no fake.
+.verify-*/
+playwright.verify*.config.ts
+vitest.verify*.config.mts

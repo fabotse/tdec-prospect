@@ -91,10 +91,16 @@ export class ApolloService extends ExternalService {
   /**
    * Create a new ApolloService instance
    * @param tenantId - Optional tenant ID for API key retrieval
+   * @param apiKey - Optional pre-resolved (already decrypted) API key.
+   *   Story 22.9: o runtime do agente injeta a chave lida via SERVICE-ROLE aqui,
+   *   porque a leitura interna abaixo usa o client de SESSAO e a RLS admin-only de
+   *   `api_configs` devolve zero linhas para um papel `sdr`. Quando `undefined`, o
+   *   comportamento e byte-a-byte o de hoje (leitura pela sessao).
    */
-  constructor(tenantId?: string) {
+  constructor(tenantId?: string, apiKey?: string) {
     super();
     this.tenantId = tenantId ?? null;
+    this.apiKey = apiKey ?? null;
   }
 
   /**
@@ -267,8 +273,11 @@ export class ApolloService extends ExternalService {
       );
     }
 
+    // Local narrowed apos a guarda acima (evita non-null assertion — o hook de
+    // pre-commit linta o arquivo inteiro com --max-warnings=0).
+    const tenantId = this.tenantId;
     const leads = response.people.map((person) =>
-      transformApolloToLeadRow(person, this.tenantId!)
+      transformApolloToLeadRow(person, tenantId)
     );
 
     // Story 3.8: Calculate pagination metadata
@@ -566,9 +575,10 @@ export class ApolloService extends ExternalService {
     );
 
     // Filter out null/undefined results and return only enriched persons
-    return response.matches
-      .filter((match) => match?.person != null)
-      .map((match) => match.person!);
+    // (flatMap em vez de filter+map com `!`: mesma semantica, sem non-null assertion)
+    return response.matches.flatMap((match) =>
+      match?.person != null ? [match.person] : []
+    );
   }
 }
 

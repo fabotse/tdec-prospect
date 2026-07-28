@@ -24,6 +24,65 @@ function createMessage(overrides: Partial<AgentMessage> = {}): AgentMessage {
 }
 
 describe("AgentMessageBubble (AC: #3)", () => {
+  // Story 22.13 (AC5): a marcacao de rejeicao vem do metadata DURAVEL da mensagem,
+  // nao de estado local que morre no remount/refresh.
+  it("repassa metadata.rejected ao gate renderizado (22.13 AC5)", () => {
+    render(
+      <AgentMessageBubble
+        message={createMessage({
+          role: "agent",
+          content: "Revise as empresas",
+          metadata: {
+            messageType: "approval_gate",
+            stepNumber: 1,
+            rejected: true,
+            approvalData: {
+              stepType: "search_companies",
+              previewData: { totalFound: 1, companies: [], filtersApplied: {} },
+            },
+          },
+        })}
+      />
+    );
+
+    expect(screen.getByText("❌ Rejeitado")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /aprovar/i })).toBeDisabled();
+  });
+
+  // Story 22.18 (AC3): o gate de ATIVACAO tambem precisa do sinal durável — ate aqui
+  // ele era o unico dos quatro gates sem nenhum estado que sobrevivesse ao F5.
+  it("repassa metadata.activationOutcome ao gate de ativacao (22.18 AC3)", () => {
+    render(
+      <AgentMessageBubble
+        message={createMessage({
+          role: "agent",
+          content: "Campanha exportada",
+          metadata: {
+            messageType: "approval_gate",
+            stepNumber: 4,
+            activationOutcome: "activated",
+            approvalData: {
+              stepType: "export",
+              previewData: {
+                externalCampaignId: "camp-1",
+                campaignName: "Campanha X",
+                totalEmails: 3,
+                leadsUploaded: 10,
+                accountsAdded: 1,
+                platform: "instantly",
+                accounts: [{ email: "sender@x.com" }],
+              },
+            },
+          },
+        })}
+      />
+    );
+
+    expect(screen.getByText(/Campanha ativada/)).toBeInTheDocument();
+    expect(screen.getByTestId("activation-activate-btn")).toBeDisabled();
+    expect(screen.getByTestId("activation-defer-btn")).toBeDisabled();
+  });
+
   it("renders message content", () => {
     render(<AgentMessageBubble message={createMessage()} />);
     expect(screen.getByText("Buscar leads de tecnologia")).toBeInTheDocument();
@@ -101,6 +160,63 @@ describe("AgentMessageBubble (AC: #3)", () => {
       />
     );
     expect(screen.getByText("Processando...")).toBeInTheDocument();
+  });
+
+  // ==============================================
+  // Story 22.17 (AC3): conclusao nao "processa"
+  // ==============================================
+
+  describe("Story 22.17 - messageType step_complete (AC3)", () => {
+    it("renderiza label 'Concluido' sem spinner", () => {
+      const { container } = render(
+        <AgentMessageBubble
+          message={createMessage({
+            role: "agent",
+            content: "Step 5 (activate) concluido com sucesso",
+            metadata: { messageType: "step_complete", stepNumber: 5 },
+          })}
+        />
+      );
+      expect(screen.getByText("Concluido")).toBeInTheDocument();
+      // O bug: a conclusao era gravada como `progress` e girava um Loader2 eterno.
+      expect(container.querySelector(".animate-spin")).toBeNull();
+    });
+
+    it("mensagens progress legitimas mantem o visual atual (spinner + 'Processando...')", () => {
+      const { container } = render(
+        <AgentMessageBubble
+          message={createMessage({
+            role: "agent",
+            content: "Etapa 5/5: Ativando campanha no Instantly...",
+            metadata: { messageType: "progress", stepNumber: 5 },
+          })}
+        />
+      );
+      expect(screen.getByText("Processando...")).toBeInTheDocument();
+      expect(container.querySelector(".animate-spin")).not.toBeNull();
+    });
+
+    /**
+     * Story 22.17 (code review): a cadeia de `messageType === "x" && "..."` nao tinha
+     * default. Um tipo FORA da union (exatamente o que `step_complete` era para um cliente
+     * anterior a esta story) passava no guard `!== "text"`, nao casava label nenhum e caia
+     * no `default: null` do icone — renderizando uma faixa de cabecalho VAZIA sobre o texto.
+     */
+    it("tipo desconhecido cai num label neutro em vez de faixa vazia", () => {
+      render(
+        <AgentMessageBubble
+          message={createMessage({
+            role: "agent",
+            content: "Mensagem de um tipo que este cliente ainda nao conhece",
+            metadata: { messageType: "tipo_do_futuro" as never, stepNumber: 1 },
+          })}
+        />
+      );
+      expect(screen.getByText("Atualizacao")).toBeInTheDocument();
+      expect(
+        screen.getByText("Mensagem de um tipo que este cliente ainda nao conhece")
+      ).toBeInTheDocument();
+    });
   });
 
   it("renders error message type with label", () => {

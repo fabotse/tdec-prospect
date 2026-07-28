@@ -27,16 +27,43 @@ vi.mock("@/lib/supabase/server", () => ({
   })),
 }));
 
+const mockDecryptApiKey = vi.fn();
+
 vi.mock("@/lib/crypto/encryption", () => ({
-  decryptApiKey: vi.fn((key: string) => `decrypted-${key}`),
+  decryptApiKey: (...args: unknown[]) => mockDecryptApiKey(...args),
 }));
 
+// Story 22.9: a chave OpenAI passa a ser lida via SERVICE-ROLE (helper
+// `service-keys` -> `createAdminClient`), nunca pelo client de sessao. O
+// `defaultMockFrom` abaixo simula a RLS admin-only de `api_configs` para um papel
+// `sdr`: a leitura de SESSAO devolve SEMPRE zero linhas. Se a rota regredir para o
+// client de sessao, todo caso feliz deste arquivo volta a dar 422 (RED).
+const mockCreateAdminClient = vi.fn();
+
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => mockCreateAdminClient(),
+}));
+
+/** Client admin encadeavel: from().select().eq().eq().single() -> mockAdminSingle. */
+const mockAdminSingle = vi.fn();
+
+function buildAdminClient() {
+  const chain = {
+    select: vi.fn(() => chain),
+    eq: vi.fn(() => chain),
+    single: mockAdminSingle,
+  };
+  return { from: vi.fn(() => chain) };
+}
+
+// Story 22.7: a rota resolve as sugestoes via helper server-only KB-first
+// (resolveContextualSuggestions), que internamente deriva do ICP com fallback
+// fail-open pro estatico. Mockamos o helper e mantemos `mockGenerateSuggestions`
+// como fonte do retorno — as assercoes de `suggestions` seguem inalteradas.
 const mockGenerateSuggestions = vi.fn();
 
-vi.mock("@/lib/agent/briefing-suggestion-service", () => ({
-  BriefingSuggestionService: {
-    generateSuggestions: (...args: unknown[]) => mockGenerateSuggestions(...args),
-  },
+vi.mock("@/lib/agent/contextual-suggestions", () => ({
+  resolveContextualSuggestions: (...args: unknown[]) => mockGenerateSuggestions(...args),
 }));
 
 const mockParse = vi.fn();
@@ -114,10 +141,9 @@ describe("POST /api/agent/briefing/parse", () => {
       });
     }
     if (table === "api_configs") {
-      return createChainBuilder({
-        data: { encrypted_key: "enc-key-123" },
-        error: null,
-      });
+      // Story 22.9: RLS admin-only de api_configs vista por um `sdr` — zero linhas,
+      // sem erro (o filtro e silencioso). A chave real vem do client admin.
+      return createChainBuilder({ data: null, error: null });
     }
     if (table === "products") {
       return createChainBuilder({ data: [], error: null });
@@ -129,6 +155,12 @@ describe("POST /api/agent/briefing/parse", () => {
     vi.clearAllMocks();
     mockFrom.mockImplementation(defaultMockFrom);
     mockGenerateSuggestions.mockReturnValue({});
+    mockDecryptApiKey.mockImplementation((key: string) => `decrypted-${key}`);
+    mockCreateAdminClient.mockImplementation(() => buildAdminClient());
+    mockAdminSingle.mockResolvedValue({
+      data: { encrypted_key: "enc-key-123" },
+      error: null,
+    });
   });
 
   it("deve retornar 401 quando nao autenticado (AC: #2)", async () => {
@@ -163,21 +195,78 @@ describe("POST /api/agent/briefing/parse", () => {
 
   it("deve retornar 422 quando API key OpenAI nao configurada", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-    mockFrom.mockImplementation((table: string) => {
-      if (table === "agent_executions") {
-        return createChainBuilder({ data: { id: VALID_BODY.executionId }, error: null });
-      }
-      if (table === "api_configs") {
-        return createChainBuilder({ data: null, error: null });
-      }
-      return createChainBuilder();
-    });
+    // Story 22.9: "nao configurada" = ausencia REAL da linha, vista pelo client admin.
+    mockAdminSingle.mockResolvedValue({ data: null, error: null });
 
     const response = await POST(createRequest(VALID_BODY));
     expect(response.status).toBe(422);
 
     const json = await response.json();
     expect(json.error.code).toBe("API_KEY_MISSING");
+  });
+
+  // ==============================================
+  // Story 22.9 - Chave via service-role (AC1, AC4)
+  // ==============================================
+
+  it("NUCLEO AC1: SDR (client de sessao mockado com zero linhas, simulando a RLS) recebe 200 — a chave vem do service-role", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue({ ...mockProfile, role: "sdr" });
+    mockParse.mockResolvedValue(FULL_PARSE_RESULT);
+
+    // Sessao: zero linhas em api_configs (RLS admin-only, papel sdr) — ver defaultMockFrom.
+    // Admin: a linha existe e e decriptada normalmente.
+    const response = await POST(createRequest(VALID_BODY));
+
+    expect(response.status).toBe(200);
+    expect(mockParse).toHaveBeenCalledWith(
+      [{ role: "user", content: VALID_BODY.message }],
+      "decrypted-enc-key-123"
+    );
+  });
+
+  it("AC4: leitura da chave filtra por tenant_id e service_name (unica barreira de isolamento)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue({ ...mockProfile, role: "sdr" });
+    mockParse.mockResolvedValue(FULL_PARSE_RESULT);
+
+    const adminClient = buildAdminClient();
+    mockCreateAdminClient.mockReturnValue(adminClient);
+
+    await POST(createRequest(VALID_BODY));
+
+    expect(adminClient.from).toHaveBeenCalledWith("api_configs");
+    const chain = adminClient.from.mock.results[0]?.value;
+    expect(chain.eq).toHaveBeenCalledWith("tenant_id", mockProfile.tenant_id);
+    expect(chain.eq).toHaveBeenCalledWith("service_name", "openai");
+  });
+
+  it("AC4: service-role key ausente no ambiente vira 422 'nao configurada' (nunca 500 novo)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue({ ...mockProfile, role: "sdr" });
+    mockCreateAdminClient.mockImplementation(() => {
+      throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set.");
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(422);
+    expect(json.error.code).toBe("API_KEY_MISSING");
+    vi.mocked(console.error).mockRestore();
+  });
+
+  it("AC4: falha de decriptacao mantem o contrato 500/API_KEY_ERROR", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockDecryptApiKey.mockImplementation(() => {
+      throw new Error("Formato de chave criptografada invalido");
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(json.error.code).toBe("API_KEY_ERROR");
+    vi.mocked(console.error).mockRestore();
   });
 
   it("deve parsear briefing completo com sucesso (AC: #2)", async () => {
@@ -196,6 +285,36 @@ describe("POST /api/agent/briefing/parse", () => {
     // Story 17.8: new fields
     expect(json.canProceed).toBe(true);
     expect(json.suggestions).toEqual({});
+  });
+
+  it("deve fazer passthrough dos campos de campanha e NAO alterar canProceed (Story 22.5 AC3)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      briefing: {
+        ...FULL_PARSE_RESULT.briefing,
+        objective: "REENGAGEMENT",
+        urgency: "HIGH",
+        campaignDescription: "Black Friday",
+        emailCount: 3,
+      },
+      rawResponse: FULL_PARSE_RESULT.rawResponse,
+      nextAction: "confirm",
+      questionText: null,
+    });
+
+    const response = await POST(createRequest(VALID_BODY));
+    expect(response.status).toBe(200);
+
+    const json = await response.json();
+    // passthrough: os 4 campos chegam intactos na resposta (spread ...briefing)
+    expect(json.briefing.objective).toBe("REENGAGEMENT");
+    expect(json.briefing.urgency).toBe("HIGH");
+    expect(json.briefing.campaignDescription).toBe("Black Friday");
+    expect(json.briefing.emailCount).toBe(3);
+    // AC3 nao-bloqueante: campos de campanha NAO entram em missingFields nem no gate
+    expect(json.missingFields).not.toContain("objective");
+    expect(json.missingFields).not.toContain("emailCount");
+    expect(json.canProceed).toBe(true); // cargo + localizacao continuam decidindo
   });
 
   it("deve retornar isComplete false quando campos obrigatorios faltam", async () => {
@@ -252,9 +371,6 @@ describe("POST /api/agent/briefing/parse", () => {
       if (table === "agent_executions") {
         return createChainBuilder({ data: { id: VALID_BODY.executionId }, error: null });
       }
-      if (table === "api_configs") {
-        return createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null });
-      }
       if (table === "products") {
         return createChainBuilder({
           data: [
@@ -273,13 +389,17 @@ describe("POST /api/agent/briefing/parse", () => {
     expect(json.briefing.productSlug).toBe("prod-001");
   });
 
-  it("deve chamar BriefingParserService.parse com mensagem e apiKey", async () => {
+  it("deve chamar BriefingParserService.parse com historico (message legado vira 1 turno) e apiKey", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
     mockParse.mockResolvedValue(FULL_PARSE_RESULT);
 
     await POST(createRequest(VALID_BODY));
 
-    expect(mockParse).toHaveBeenCalledWith(VALID_BODY.message, "decrypted-enc-key-123");
+    // Story 22.3: body legado { message } vira historico [{ role: "user", content }]
+    expect(mockParse).toHaveBeenCalledWith(
+      [{ role: "user", content: VALID_BODY.message }],
+      "decrypted-enc-key-123"
+    );
   });
 
   it("deve retornar 404 quando execucao nao encontrada (M4 fix)", async () => {
@@ -309,9 +429,6 @@ describe("POST /api/agent/briefing/parse", () => {
       if (table === "agent_executions") {
         return createChainBuilder({ data: { id: VALID_BODY.executionId }, error: null });
       }
-      if (table === "api_configs") {
-        return createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null });
-      }
       if (table === "products") {
         return createChainBuilder({
           data: [
@@ -340,9 +457,6 @@ describe("POST /api/agent/briefing/parse", () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === "agent_executions") {
         return createChainBuilder({ data: { id: VALID_BODY.executionId }, error: null });
-      }
-      if (table === "api_configs") {
-        return createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null });
       }
       if (table === "products") {
         return createChainBuilder({ data: [], error: null });
@@ -377,9 +491,6 @@ describe("POST /api/agent/briefing/parse", () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === "agent_executions") {
         return createChainBuilder({ data: { id: VALID_BODY.executionId }, error: null });
-      }
-      if (table === "api_configs") {
-        return createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null });
       }
       if (table === "products") {
         return createChainBuilder({
@@ -588,6 +699,54 @@ describe("POST /api/agent/briefing/parse", () => {
     expect(json.briefing.skipSteps).not.toContain("search_companies");
   });
 
+  it("deve remover search_companies inconsistente quando technology esta presente (22.1 AC5)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      briefing: {
+        ...FULL_PARSE_RESULT.briefing,
+        skipSteps: ["search_companies"],
+      },
+      rawResponse: {
+        ...FULL_PARSE_RESULT.rawResponse,
+        skipSteps: ["search_companies"],
+      },
+    });
+    mockGenerateSuggestions.mockReturnValue({});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.briefing.technology).toBe("Netskope");
+    expect(json.briefing.skipSteps).not.toContain("search_companies");
+  });
+
+  it("deve preservar ambos os skips para leads importados mesmo com technology presente", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      briefing: {
+        ...FULL_PARSE_RESULT.briefing,
+        jobTitles: [],
+        location: null,
+        skipSteps: ["search_companies", "search_leads"],
+      },
+      rawResponse: {
+        ...FULL_PARSE_RESULT.rawResponse,
+        jobTitles: [],
+        location: null,
+        skipSteps: ["search_companies", "search_leads"],
+      },
+    });
+    mockGenerateSuggestions.mockReturnValue({});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.canProceed).toBe(true);
+    expect(json.briefing.skipSteps).toEqual(["search_companies", "search_leads"]);
+  });
+
   it("deve NAO duplicar search_companies se LLM ja adicionou corretamente", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
     mockParse.mockResolvedValue({
@@ -655,5 +814,246 @@ describe("POST /api/agent/briefing/parse", () => {
     expect(response.status).toBe(200);
     expect(json.canProceed).toBe(true);
     expect(json.briefing.skipSteps).toEqual(["search_companies", "search_leads"]);
+  });
+
+  // ==============================================
+  // Story 22.1: Localizacao obrigatoria, tecnologia opcional
+  // ==============================================
+
+  it("deve retornar canProceed=false quando technology presente mas location ausente (NUCLEO 22.1)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      briefing: {
+        technology: "Netskope",
+        jobTitles: ["CTO"],
+        location: null,
+        companySize: null,
+        industry: null,
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: [],
+      },
+      rawResponse: {
+        technology: "Netskope",
+        jobTitles: ["CTO"],
+        location: null,
+        companySize: null,
+        industry: null,
+        productMentioned: null,
+        mode: "guided" as const,
+        skipSteps: [],
+      },
+    });
+    mockGenerateSuggestions.mockReturnValue({});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    // Regra ANTIGA daria true (tech contava como search param). Regra NOVA (22.1):
+    // canProceed = hasJobTitles && hasLocation -> sem location, nao avanca.
+    expect(json.canProceed).toBe(false);
+    expect(json.missingFields).toContain("location");
+  });
+
+  it("deve normalizar location composta so por espacos e impedir avanco (22.1)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      briefing: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: "   ",
+        companySize: null,
+        industry: null,
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies"],
+      },
+      rawResponse: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: "   ",
+        companySize: null,
+        industry: null,
+        productMentioned: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies"],
+      },
+    });
+    mockGenerateSuggestions.mockReturnValue({});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.briefing.location).toBeNull();
+    expect(json.canProceed).toBe(false);
+    expect(json.missingFields).toContain("location");
+  });
+
+  it("deve retornar canProceed=false quando industry presente mas location ausente (22.1)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      briefing: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: null,
+        companySize: null,
+        industry: "fintech",
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies"],
+      },
+      rawResponse: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: null,
+        companySize: null,
+        industry: "fintech",
+        productMentioned: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies"],
+      },
+    });
+    mockGenerateSuggestions.mockReturnValue({});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    // Setor tambem nao basta mais para avancar — so location destrava.
+    expect(json.canProceed).toBe(false);
+    expect(json.missingFields).toContain("location");
+  });
+
+  it("deve retornar canProceed=true com cargo e localizacao sem tech nem setor (22.1)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      briefing: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: "Sao Paulo",
+        companySize: null,
+        industry: null,
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies"],
+      },
+      rawResponse: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: "Sao Paulo",
+        companySize: null,
+        industry: null,
+        productMentioned: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies"],
+      },
+    });
+    mockGenerateSuggestions.mockReturnValue({});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    // Caso feliz da story: cargo + localizacao bastam, sem TheirStack.
+    expect(json.canProceed).toBe(true);
+    expect(json.briefing.skipSteps).toContain("search_companies");
+  });
+
+  // ==============================================
+  // Story 22.3: historico estruturado + nextAction/questionText
+  // ==============================================
+
+  it("deve aceitar body { messages: [...] } e chamar parse com o array (22.3)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      ...FULL_PARSE_RESULT,
+      nextAction: "confirm",
+      questionText: "Confirma: CTO em Sao Paulo?",
+    });
+
+    const messages = [
+      { role: "user", content: "Quero prospectar CTOs" },
+      { role: "agent", content: "Em qual localizacao?" },
+      { role: "user", content: "Sao Paulo" },
+    ];
+
+    const response = await POST(
+      createRequest({ executionId: VALID_BODY.executionId, messages })
+    );
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockParse).toHaveBeenCalledWith(messages, "decrypted-enc-key-123");
+    // resposta expoe os campos de conversa
+    expect(json.nextAction).toBe("confirm");
+    expect(json.questionText).toBe("Confirma: CTO em Sao Paulo?");
+  });
+
+  it("deve devolver defaults nextAction='ask'/questionText=null quando parser nao os retorna (22.3)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue(FULL_PARSE_RESULT); // sem nextAction/questionText
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.nextAction).toBe("ask");
+    expect(json.questionText).toBeNull();
+  });
+
+  it("deve retornar 400 quando body nao tem messages nem message (22.3)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const response = await POST(
+      createRequest({ executionId: VALID_BODY.executionId })
+    );
+    expect(response.status).toBe(400);
+
+    const json = await response.json();
+    expect(json.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("deve manter skipSteps/canProceed deterministicos independentemente do nextAction do LLM (NFR1, 22.3)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    // LLM sugere "proceed" mas o briefing NAO tem location -> canProceed deve ser false;
+    // e technology null -> search_companies deve ser adicionado deterministicamente.
+    mockParse.mockResolvedValue({
+      briefing: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: null,
+        companySize: null,
+        industry: null,
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: [],
+      },
+      rawResponse: {
+        technology: null,
+        jobTitles: ["CTO"],
+        location: null,
+        companySize: null,
+        industry: null,
+        productMentioned: null,
+        mode: "guided" as const,
+        skipSteps: [],
+      },
+      nextAction: "proceed",
+      questionText: null,
+    });
+    mockGenerateSuggestions.mockReturnValue({});
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    // nextAction do LLM ecoa na resposta...
+    expect(json.nextAction).toBe("proceed");
+    // ...mas NAO altera o gating deterministico:
+    expect(json.canProceed).toBe(false);
+    expect(json.missingFields).toContain("location");
+    expect(json.briefing.skipSteps).toContain("search_companies");
   });
 });

@@ -20,6 +20,7 @@ interface UseAutoTriggerOptions {
 
 export function useAutoTrigger({ executionId, steps, mode }: UseAutoTriggerOptions) {
   const lastTriggeredRef = useRef<number>(0);
+  const prevExecutionIdRef = useRef<string | null>(executionId);
 
   const triggerStep = useCallback(
     async (stepNumber: number) => {
@@ -33,6 +34,19 @@ export function useAutoTrigger({ executionId, steps, mode }: UseAutoTriggerOptio
   );
 
   useEffect(() => {
+    // Story 22.10: re-arme do guard na TROCA de execucao.
+    // `lastTriggeredRef` protege contra dispatch duplicado DENTRO de uma execucao, mas
+    // sobrevivia a troca de execucao na mesma montagem. Ate a 22.10 isso quase nunca
+    // acontecia (trocar de execucao exigia refresh, que remonta o componente e zera o
+    // ref); o botao "Nova conversa" tornou a troca um caminho comum. Sem o re-arme, o
+    // valor herdado da execucao anterior (ex.: 4) bloquearia os primeiros steps da
+    // execucao nova (`nextStepNumber <= lastTriggered`) e o autopilot travaria EM SILENCIO.
+    // Fica ANTES dos guards para valer inclusive quando a execucao nova ainda nao tem steps.
+    if (prevExecutionIdRef.current !== executionId) {
+      prevExecutionIdRef.current = executionId;
+      lastTriggeredRef.current = 0;
+    }
+
     if (!executionId || steps.length === 0) return;
 
     // Guard: guided mode only auto-triggers after skipped steps (approval gates handle the rest)

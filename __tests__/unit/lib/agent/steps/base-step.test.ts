@@ -21,7 +21,7 @@ class TestStep extends BaseStep {
   public shouldThrow: Error | null = null;
   public callCount = 0;
 
-  protected async executeInternal(_input: StepInput): Promise<StepOutput> {
+  protected async executeInternal(): Promise<StepOutput> {
     this.callCount++;
     if (this.shouldThrow) throw this.shouldThrow;
     return this.executeResult;
@@ -298,6 +298,63 @@ describe("BaseStep (AC #4)", () => {
         started_at: expect.any(String),
       });
     });
+
+    // ==============================================
+    // Story 22.18 (code review, D2): CAS de posse do step
+    // ==============================================
+    //
+    // A retomada da AC2 tornou alcancavel um segundo `POST .../execute` sobre um step que
+    // ainda esta rodando (o 409 do approve so fala do step do GATE, nao do step
+    // disparado). Sem lock, dois `ActivateStep` concorrentes disparavam dois
+    // `POST /activate` num endpoint que e "activate (start), **or resume**".
+    describe("CAS de posse ao entrar em running (D2)", () => {
+      it("a transicao para running usa .neq('status','running')", async () => {
+        await step.run(mockInput);
+
+        expect(mockSupabase.stepsChain.neq).toHaveBeenCalledWith("status", "running");
+      });
+
+      it("perder o CAS (zero linhas) lanca STEP_ALREADY_RUNNING e NAO roda o step", async () => {
+        // Array VAZIO = ninguem foi atualizado, ou seja, a linha ja estava `running`.
+        mockSupabase.stepsChain.select = vi.fn().mockResolvedValue({
+          data: [],
+          error: null,
+        });
+
+        await expect(step.run(mockInput)).rejects.toMatchObject({
+          code: "STEP_ALREADY_RUNNING",
+          isRetryable: false,
+        });
+
+        // O ponto inteiro da guarda: nenhuma chamada externa acontece.
+        expect(step.callCount).toBe(0);
+      });
+
+      it("ganhar o CAS (linha devolvida) roda o step normalmente", async () => {
+        mockSupabase.stepsChain.select = vi.fn().mockResolvedValue({
+          data: [{ step_number: 1 }],
+          error: null,
+        });
+
+        await step.run(mockInput);
+
+        expect(step.callCount).toBe(1);
+      });
+
+      // Guardrail invertido: a guarda nova nao pode inventar bloqueio quando o driver
+      // simplesmente nao devolve linhas (fail-open, como todas as leituras auxiliares
+      // desta story).
+      it("resposta sem array de linhas NAO inventa bloqueio (fail-open)", async () => {
+        mockSupabase.stepsChain.select = vi.fn().mockResolvedValue({
+          data: null,
+          error: null,
+        });
+
+        await step.run(mockInput);
+
+        expect(step.callCount).toBe(1);
+      });
+    });
   });
 
   describe("logStep() (2.7)", () => {
@@ -311,7 +368,10 @@ describe("BaseStep (AC #4)", () => {
           role: "system",
           metadata: expect.objectContaining({
             stepNumber: 1,
-            messageType: "progress",
+            // Story 22.17 (AC3): o log de CONCLUSAO do step deixou de ser "progress"
+            // (que a bolha renderiza como "Processando..." + spinner) e virou um tipo
+            // proprio de conclusao.
+            messageType: "step_complete",
           }),
         })
       );

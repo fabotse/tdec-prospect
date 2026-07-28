@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { triggerNextStep } from "@/lib/agent/client-utils";
+import { useAgentStore } from "@/stores/use-agent-store";
 
 // === Types ===
 
@@ -39,6 +40,8 @@ interface CampaignPreviewData {
   leadsWithIcebreakers: LeadIcebreaker[];
   icebreakerStats: {
     generated: number;
+    premium?: number; // Story 22.2: gerados via posts reais do LinkedIn
+    standard?: number; // Story 22.2: gerados via caminho standard/fallback
     failed: number;
     skipped: number;
   };
@@ -51,6 +54,8 @@ interface AgentCampaignPreviewProps {
   stepNumber: number;
   totalSteps: number;
   onAction?: () => void;
+  /** Story 22.13 (AC5): rejeicao DURAVEL vinda de `message.metadata.rejected`. */
+  rejected?: boolean;
 }
 
 // === Constants ===
@@ -65,6 +70,7 @@ export function AgentCampaignPreview({
   stepNumber,
   totalSteps,
   onAction,
+  rejected,
 }: AgentCampaignPreviewProps) {
   const [editedBlocks, setEditedBlocks] = useState<EmailBlock[]>(
     () => data.emailBlocks.map((b) => ({ ...b }))
@@ -72,11 +78,17 @@ export function AgentCampaignPreview({
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingField, setEditingField] = useState<"subject" | "body" | null>(null);
   const [loading, setLoading] = useState<"approve" | "reject" | null>(null);
-  const [actionTaken, setActionTaken] = useState<"approved" | "rejected" | null>(null);
+  const [localActionTaken, setLocalActionTaken] = useState<"approved" | "rejected" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [icebreakerExpanded, setIcebreakerExpanded] = useState(
     data.leadsWithIcebreakers.length <= ICEBREAKER_COLLAPSE_THRESHOLD
   );
+  const setAdjustingStep = useAgentStore((s) => s.setAdjustingStep);
+
+  // Story 22.13: o sinal durável (servidor) vence o local (some no remount).
+  const actionTaken: "approved" | "rejected" | null = rejected
+    ? "rejected"
+    : localActionTaken;
 
   const isDisabled = loading !== null || actionTaken !== null;
 
@@ -115,7 +127,7 @@ export function AgentCampaignPreview({
         const errorData = await response.json();
         throw new Error(errorData?.error?.message ?? "Erro ao aprovar");
       }
-      setActionTaken("approved");
+      setLocalActionTaken("approved");
       onAction?.();
       // Story 17.7 - AC #6: Auto-advance to next step after approval
       // Fire-and-forget: approval already saved, don't let trigger failure affect UI
@@ -138,7 +150,16 @@ export function AgentCampaignPreview({
         const errorData = await response.json();
         throw new Error(errorData?.error?.message ?? "Erro ao rejeitar");
       }
-      setActionTaken("rejected");
+      setLocalActionTaken("rejected");
+      // Story 22.13 (AC1): o estado de ajuste e GENERICO por step — vale para a campanha
+      // tanto quanto para as buscas. Spinner tambem para no sucesso.
+      setAdjustingStep({
+        executionId,
+        stepNumber,
+        stepType: "create_campaign",
+        phase: "describe",
+      });
+      setLoading(null);
       onAction?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao rejeitar");
@@ -226,6 +247,11 @@ export function AgentCampaignPreview({
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium">
               Icebreakers ({data.icebreakerStats.generated} gerados)
+              {(data.icebreakerStats.premium ?? 0) > 0 && (
+                <span className="text-muted-foreground font-normal">
+                  {" "}— {data.icebreakerStats.premium} premium (LinkedIn), {data.icebreakerStats.standard ?? 0} standard
+                </span>
+              )}
             </p>
             {data.leadsWithIcebreakers.length > ICEBREAKER_COLLAPSE_THRESHOLD && (
               <Button

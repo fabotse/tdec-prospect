@@ -43,6 +43,7 @@ import {
   AddLeadsDialog,
   CampaignPreviewPanel,
   ExportDialog,
+  AgentCampaignNotice,
 } from "@/components/builder";
 import { DeleteCampaignDialog } from "@/components/campaigns";
 import { useCampaignExport } from "@/hooks/use-campaign-export";
@@ -558,6 +559,18 @@ export default function CampaignBuilderPage({ params }: PageProps) {
           onDelete={handleDeleteClick}
           onExport={handleExport}
           externalCampaignId={campaign.externalCampaignId}
+        />
+        {/*
+          Story 22.16: a campanha do Agente TDEC chega aqui com `external_campaign_id`
+          preenchido e ZERO blocos locais. A regra de visibilidade mora no proprio
+          componente — inclusive a derivacao "sem blocos" vs "ainda nao sei" — para ser
+          testavel sem montar o builder inteiro E para que este call site nao tenha
+          nenhuma decisao para errar.
+        */}
+        <AgentCampaignNotice
+          externalCampaignId={campaign.externalCampaignId}
+          storeHasBlocks={hasBlocks}
+          initialBlocks={initialBlocks}
         />
         <div className="flex-1 flex overflow-hidden">
           <BuilderSidebar />

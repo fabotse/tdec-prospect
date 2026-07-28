@@ -9,20 +9,32 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
-import { decryptApiKey } from "@/lib/crypto/encryption";
+import { readServiceApiKey } from "@/lib/agent/service-keys";
 import { BriefingParserService } from "@/lib/agent/briefing-parser-service";
-import type { ParsedBriefing } from "@/types/agent";
+import type { ChatTurn, NextAction, ParsedBriefing } from "@/types/agent";
 import { AGENT_ERROR_CODES } from "@/types/agent";
-import { BriefingSuggestionService } from "@/lib/agent/briefing-suggestion-service";
+import { resolveContextualSuggestions } from "@/lib/agent/contextual-suggestions";
 
 // ==============================================
 // REQUEST VALIDATION
 // ==============================================
 
-const parseRequestSchema = z.object({
-  executionId: z.string().uuid(),
-  message: z.string().min(1),
+// Story 22.3: aceita historico estruturado (messages[], preferido) OU o body
+// legado { message: string } (back-compat / fail-open).
+const chatTurnSchema = z.object({
+  role: z.enum(["user", "agent", "system"]),
+  content: z.string().min(1),
 });
+
+const parseRequestSchema = z
+  .object({
+    executionId: z.string().uuid(),
+    messages: z.array(chatTurnSchema).min(1).optional(),
+    message: z.string().min(1).optional(),
+  })
+  .refine((d) => (d.messages?.length ?? 0) > 0 || Boolean(d.message), {
+    message: "Forneca messages[] ou message",
+  });
 
 // ==============================================
 // RESPONSE TYPE (Story 17.8: expanded with suggestions + canProceed)
@@ -35,6 +47,11 @@ export interface BriefingParseResponse {
   canProceed: boolean;
   suggestions: Record<string, string[]>;
   productMentioned: string | null;
+  // Story 22.3: intencao de conversa via LLM. NAO altera canProceed/skipSteps/missingFields
+  // (esses seguem 100% deterministicos — NFR1). O cliente reage ao nextAction, mas o
+  // gating deterministico (canProceed) SEMPRE prevalece.
+  nextAction: NextAction;
+  questionText: string | null;
 }
 
 // ==============================================
@@ -71,19 +88,20 @@ function analyzeBriefingCompleteness(
     missingFields.push("companySize");
   }
 
-  // canProceed logic:
+  // canProceed logic (Story 22.1 — localizacao obrigatoria, tecnologia opcional):
   // - jobTitles must be present (required for lead search)
-  // - At least one search parameter (technology OR industry OR location) must be present
-  // - Story 17.11: imported leads flow doesn't need jobTitles or search params
+  // - location must be present (parametro primario; technology/industry sao filtros OPCIONAIS
+  //   e nao contam mais como criterio para avancar)
+  // - Story 17.11: imported leads flow doesn't need jobTitles or location
   const hasJobTitles = briefing.jobTitles && briefing.jobTitles.length > 0;
-  const hasSearchParam = Boolean(briefing.technology || briefing.industry || briefing.location);
+  const hasLocation = Boolean(briefing.location);
 
   const isImportedLeadsFlow =
     briefing.skipSteps?.includes("search_companies") &&
     briefing.skipSteps?.includes("search_leads");
 
   const canProceed = Boolean(
-    (hasJobTitles && hasSearchParam) || isImportedLeadsFlow
+    (hasJobTitles && hasLocation) || isImportedLeadsFlow
   );
 
   return { missingFields, canProceed };
@@ -146,14 +164,21 @@ export async function POST(request: Request) {
       {
         error: {
           code: "VALIDATION_ERROR",
-          message: "Campos obrigatorios: executionId (UUID) e message (string)",
+          message: "Campos obrigatorios: executionId (UUID) e messages[] ou message (string)",
         },
       },
       { status: 400 }
     );
   }
 
-  const { executionId, message } = validation.data;
+  const { executionId } = validation.data;
+
+  // Story 22.3: monta o historico do parser. messages[] preferido; message legado
+  // vira um unico turno de usuario. O `.refine` garante que ao menos um existe —
+  // usamos `?? ""` guardado para evitar no-non-null-assertion (Project Memory).
+  const history: ChatTurn[] = validation.data.messages ?? [
+    { role: "user", content: validation.data.message ?? "" },
+  ];
 
   // Get OpenAI API key
   const supabase = await createClient();
@@ -177,14 +202,14 @@ export async function POST(request: Request) {
       { status: 404 }
     );
   }
-  const { data: apiConfig } = await supabase
-    .from("api_configs")
-    .select("encrypted_key")
-    .eq("tenant_id", profile.tenant_id)
-    .eq("service_name", "openai")
-    .single();
+  // Story 22.9: a chave e lida via SERVICE-ROLE (helper central), nunca pelo client
+  // de sessao. A RLS admin-only de api_configs (00005:14-20) devolve ZERO linhas em
+  // silencio para um papel `sdr` — o usuario primario do agente — e a rota respondia
+  // 422 mesmo com a chave configurada pelo gestor. O contrato de erro nao muda: so a
+  // FONTE da leitura. O `supabase` de sessao segue para o resto (RLS por tenant).
+  const keyLookup = await readServiceApiKey(profile.tenant_id, "openai");
 
-  if (!apiConfig?.encrypted_key) {
+  if (keyLookup.status === "missing") {
     return NextResponse.json(
       {
         error: {
@@ -196,10 +221,7 @@ export async function POST(request: Request) {
     );
   }
 
-  let apiKey: string;
-  try {
-    apiKey = decryptApiKey(apiConfig.encrypted_key);
-  } catch {
+  if (keyLookup.status === "decrypt_error") {
     return NextResponse.json(
       {
         error: {
@@ -211,9 +233,12 @@ export async function POST(request: Request) {
     );
   }
 
+  const apiKey = keyLookup.apiKey;
+
   // Parse briefing
   try {
-    const { briefing, rawResponse } = await BriefingParserService.parse(message, apiKey);
+    const { briefing, rawResponse, nextAction, questionText } =
+      await BriefingParserService.parse(history, apiKey);
 
     // Resolve product slug via KB (no mutation of original object)
     const resolvedProductSlug = await resolveProduct(
@@ -222,24 +247,42 @@ export async function POST(request: Request) {
       supabase
     );
 
-    // Ensure skipSteps consistency: if technology is null and LLM didn't add
-    // search_companies to skipSteps, add it deterministically (LLM is non-deterministic)
-    const skipSteps = [...(briefing.skipSteps ?? [])];
-    if (!briefing.technology && !skipSteps.includes("search_companies")) {
+    // Canonicalize LLM output so pipeline decisions remain deterministic.
+    // Imported leads always skip both search steps. Otherwise, search_companies
+    // runs only when the user selected a technology.
+    let skipSteps = [...new Set(briefing.skipSteps ?? [])];
+    const isImportedLeadsFlow = skipSteps.includes("search_leads");
+
+    if (isImportedLeadsFlow) {
+      if (!skipSteps.includes("search_companies")) {
+        skipSteps.push("search_companies");
+      }
+    } else if (briefing.technology) {
+      skipSteps = skipSteps.filter((step) => step !== "search_companies");
+    } else if (!skipSteps.includes("search_companies")) {
       skipSteps.push("search_companies");
     }
 
     const resolvedBriefing: ParsedBriefing = {
       ...briefing,
+      location: briefing.location?.trim() || null,
       productSlug: resolvedProductSlug,
       skipSteps,
     };
 
-    // Analyze briefing completeness with contextual suggestions
-    const suggestions = BriefingSuggestionService.generateSuggestions(resolvedBriefing);
+    // Story 22.7: sugestoes KB-first — derivam do ICP do tenant quando disponivel,
+    // com fallback fail-open pros mapas estaticos. NAO altera canProceed/missingFields/
+    // skipSteps (NFR1) — sugestao e conteudo de conversa, nao gate.
+    const suggestions = await resolveContextualSuggestions(
+      resolvedBriefing,
+      profile.tenant_id
+    );
     const { missingFields, canProceed } = analyzeBriefingCompleteness(resolvedBriefing);
     const isComplete = missingFields.length === 0;
 
+    // NFR1: canProceed/skipSteps/missingFields acima sao 100% deterministicos.
+    // nextAction/questionText sao de CONVERSA — o cliente reage a eles, mas canProceed
+    // (cargo + localizacao, Story 22.1) sempre prevalece sobre o nextAction do LLM.
     const response: BriefingParseResponse = {
       briefing: resolvedBriefing,
       missingFields,
@@ -247,6 +290,8 @@ export async function POST(request: Request) {
       canProceed,
       suggestions,
       productMentioned: rawResponse.productMentioned,
+      nextAction: nextAction ?? "ask",
+      questionText: questionText ?? null,
     };
 
     return NextResponse.json(response);

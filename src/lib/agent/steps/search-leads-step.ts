@@ -8,11 +8,16 @@
 
 import { BaseStep } from "./base-step";
 import { ApolloService } from "@/lib/services/apollo";
+import { getInjectableServiceApiKey } from "@/lib/agent/service-keys";
+import { buildDirectSearchFilters } from "@/lib/agent/search-defaults";
+import { diagnoseEmptySearch } from "@/lib/agent/empty-search-diagnosis";
 import type {
   StepInput,
   StepOutput,
   StepType,
   SearchLeadResult,
+  ExecutionMode,
+  ParsedBriefing,
 } from "@/types/agent";
 import type { LeadRow } from "@/types/lead";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -23,6 +28,20 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 const CREDITS_PER_LEAD = 1;
 const LEADS_PER_PAGE = 25;
+
+/**
+ * Story 22.14 (AC6): mensagem do autopilot quando a busca volta vazia.
+ *
+ * No autopilot nao existe gate — nao ha onde mostrar o empty-state. Antes desta story o
+ * step devolvia sucesso com `leads: []`, o `useAutoTrigger` disparava `create_campaign` e
+ * a execucao morria com "Lista de leads do step anterior e obrigatoria...", um erro de
+ * plumbing que nao dizia NADA ao usuario. Falhar aqui, com o motivo real, e o menor
+ * movimento honesto: o orchestrator ja converte a excecao em `paused` + mensagem de erro.
+ *
+ * Sem acentos por convencao das strings do agente (ver 22.6).
+ */
+export const EMPTY_LEAD_SEARCH_MESSAGE =
+  "A busca nao encontrou nenhum lead com esses filtros. Ajuste o briefing e tente novamente.";
 
 // ==============================================
 // UTILITY: Lead row mapping (exported for reuse in fetch-leads endpoint)
@@ -93,22 +112,26 @@ export class SearchLeadsStep extends BaseStep {
       });
     }
 
-    const service = new ApolloService(this.tenantId);
+    // Story 22.9: a chave do Apollo e lida via SERVICE-ROLE e injetada no service.
+    // A leitura interna do ApolloService usa o client de sessao (RLS admin-only) —
+    // sem isso, o step morre com "API key nao configurada" para um `sdr`. Chave
+    // ausente -> `undefined` -> o service cai na leitura de hoje (mesmo erro de hoje);
+    // chave presente mas nao decriptavel -> LANCA (nao vira "nao configurada").
+    const apolloApiKey = await getInjectableServiceApiKey(this.tenantId, "apollo", "Apollo");
+    const service = new ApolloService(this.tenantId, apolloApiKey);
     let domains: string[] = [];
 
     if (isDirectEntry) {
-      // Story 17.10: Direct entry — search open market by briefing filters
-      const filters = {
-        titles: jobTitles,
-        perPage: LEADS_PER_PAGE,
-        page: 1,
-        ...(briefing.location ? { locations: [briefing.location] } : {}),
-        ...(briefing.industry ? { industries: [briefing.industry] } : {}),
-        ...(briefing.companySize ? { companySizes: [briefing.companySize] } : {}),
-      };
+      // Story 17.10: Direct entry — search open market by briefing filters.
+      // Story 22.6 (FR12): aplica o piso de qualidade de tamanho de empresa quando o
+      // usuario nao informou tamanho (companySizes SEMPRE presente na busca direta);
+      // se informou, o valor dele sobrescreve totalmente (AC2). Fonte unica: search-defaults.
+      // Story 22.14: os filtros vem do SSOT `buildDirectSearchFilters` — a contagem de
+      // viabilidade pre-execucao (AC7) usa a MESMA funcao, so mudando o `perPage`.
+      const filters = buildDirectSearchFilters(briefing, LEADS_PER_PAGE);
 
       const result = await service.searchPeople(filters);
-      return this.buildSearchOutput(result, jobTitles, [], filters);
+      return this.buildSearchOutput(result, jobTitles, [], filters, briefing, input.mode);
     }
 
     // Normal flow: extract domains from previous step companies
@@ -135,29 +158,61 @@ export class SearchLeadsStep extends BaseStep {
     const filters = {
       domains,
       titles: jobTitles,
+      ...(briefing.location ? { locations: [briefing.location] } : {}),
       perPage: LEADS_PER_PAGE,
       page: 1,
     };
 
     const result = await service.searchPeople(filters);
-    return this.buildSearchOutput(result, jobTitles, domains, filters);
+    return this.buildSearchOutput(result, jobTitles, domains, filters, briefing, input.mode);
   }
 
   /**
    * Map Apollo result to StepOutput format.
    * Shared between normal flow and direct entry (Story 17.10).
+   * Story 22.14 - AC #1, #6: 0 leads deixa de ser um sucesso silencioso.
    */
   private buildSearchOutput(
     result: { leads: LeadRow[]; pagination: { totalEntries: number } },
     jobTitles: string[],
     domainsSearched: string[],
-    filters: Record<string, unknown>
+    filters: Record<string, unknown>,
+    briefing: ParsedBriefing,
+    mode: ExecutionMode | undefined
   ): StepOutput {
     const leads: SearchLeadResult[] = result.leads.map((lead: LeadRow) => mapLeadRowToSearchLeadResult(lead));
+    const totalFound = result.pagination.totalEntries;
+
+    // Story 22.14 (Trap #5): o gatilho e SEMPRE a lista vazia, nunca `totalFound === 0`.
+    // `totalFound` vem de `pagination.totalEntries` e uma pagina alem do fim devolve
+    // `leads: []` com total > 0 — o usuario continua sem nada na tela.
+    if (leads.length === 0) {
+      // Espelha a decisao de `BaseStep.run`: so o modo "guided" abre approval gate. Sem
+      // gate nao existe empty-state para renderizar, entao a unica saida honesta e falhar.
+      if (mode !== "guided") {
+        throw new Error(EMPTY_LEAD_SEARCH_MESSAGE);
+      }
+
+      return {
+        success: true,
+        data: {
+          leads,
+          totalFound,
+          jobTitles,
+          domainsSearched,
+          searchFilters: filters,
+          // Consumidos pela BaseStep (mensagens honestas) e pelo card do chat
+          // (empty-state + chips). JSONB no output do step: zero migration (NFR5).
+          emptyResult: true,
+          emptyDiagnosis: diagnoseEmptySearch(briefing, filters),
+        },
+        cost: { apollo_search: 0 },
+      };
+    }
 
     return {
       success: true,
-      data: { leads, totalFound: result.pagination.totalEntries, jobTitles, domainsSearched, searchFilters: filters },
+      data: { leads, totalFound, jobTitles, domainsSearched, searchFilters: filters },
       cost: { apollo_search: leads.length * CREDITS_PER_LEAD },
     };
   }

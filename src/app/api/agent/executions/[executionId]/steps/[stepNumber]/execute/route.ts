@@ -8,7 +8,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
-import { decryptApiKey } from "@/lib/crypto/encryption";
+import { readServiceApiKey } from "@/lib/agent/service-keys";
+import { isTerminalExecutionStatus } from "@/types/agent";
 import {
   DeterministicOrchestrator,
   isPipelineError,
@@ -77,15 +78,31 @@ export async function POST(
     );
   }
 
-  // 5.4 - Fetch API key
-  const { data: config } = await supabase
-    .from("api_configs")
-    .select("encrypted_key")
-    .eq("tenant_id", profile.tenant_id)
-    .eq("service_name", "theirstack")
-    .single();
+  // Story 22.10: guarda anti-race. Esta rota e chamada por caminhos fire-and-forget
+  // (o POST /confirm dispara o step 1; o useAutoTrigger dispara os seguintes, possivelmente
+  // de outra aba) — sem esta checagem, um step novo rodaria E GASTARIA em execucao ja
+  // cancelada/encerrada. O select acima ja traz o status: zero query extra.
+  // `paused` (parada por ERRO — o unico caminho que escreve paused) NAO entra aqui: o
+  // retry legitimo continua funcionando.
+  if (isTerminalExecutionStatus(execution.status)) {
+    return NextResponse.json(
+      {
+        error: {
+          code: "EXECUTION_NOT_ACTIVE",
+          message: `Execucao encerrada (status: ${execution.status}). Nenhum step novo pode rodar.`,
+        },
+      },
+      { status: 409 }
+    );
+  }
 
-  if (!config) {
+  // 5.4 - Fetch API key
+  // Story 22.9: leitura via SERVICE-ROLE (helper central). A RLS admin-only de
+  // api_configs devolvia ZERO linhas para um `sdr` e derrubava o pipeline inteiro
+  // aqui, antes do primeiro step rodar.
+  const keyLookup = await readServiceApiKey(profile.tenant_id, "theirstack");
+
+  if (keyLookup.status === "missing") {
     return NextResponse.json(
       {
         error: {
@@ -97,9 +114,24 @@ export async function POST(
     );
   }
 
-  const apiKey = decryptApiKey(config.encrypted_key);
+  if (keyLookup.status === "decrypt_error") {
+    return NextResponse.json(
+      {
+        error: {
+          code: "API_KEY_ERROR",
+          message: "Erro ao decriptar a API key do TheirStack",
+        },
+      },
+      { status: 500 }
+    );
+  }
+
+  const apiKey = keyLookup.apiKey;
 
   // 5.5 - Execute step
+  // Trap #1: o orchestrator segue com o client de SESSAO — so a leitura da chave
+  // migrou para service-role. As demais queries do pipeline (agent_executions,
+  // agent_steps, leads...) devem continuar sob RLS por tenant.
   try {
     const orchestrator = new DeterministicOrchestrator(supabase, apiKey);
     const result = await orchestrator.executeStep(executionId, stepNumber);
@@ -110,7 +142,11 @@ export async function POST(
     // 5.7 - PipelineError
     if (isPipelineError(error)) {
       console.error(`[Execute Step] PipelineError step=${stepNumber}:`, JSON.stringify(error));
-      const status = error.isRetryable ? 503 : 500;
+      // Story 22.18 (code review, D2): perder o CAS de posse do step nao e erro de
+      // servidor — e conflito de concorrencia. 409 diz isso, e nada foi escrito no
+      // banco por esta chamada.
+      const status =
+        error.code === "STEP_ALREADY_RUNNING" ? 409 : error.isRetryable ? 503 : 500;
       return NextResponse.json(
         {
           error: {
@@ -120,6 +156,9 @@ export async function POST(
             stepType: error.stepType,
             isRetryable: error.isRetryable,
             externalService: error.externalService,
+            // Story 22.18 (code review, P2): fato, nao inferencia — so vem `true` quando
+            // `sendErrorMessage` ja escreveu a bolha no chat.
+            reportedInChat: error.reportedInChat === true,
           },
         },
         { status }

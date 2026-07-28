@@ -187,14 +187,16 @@ describe("ProductParserService", () => {
     ).rejects.toThrow(AGENT_ERROR_CODES.PRODUCT_PARSE_ERROR);
   });
 
-  it("deve usar model gpt-4o-mini e temperature 0.1", async () => {
+  // Story 22.11 (Frente B, AC7): parser de produto alinhado ao mesmo modelo do briefing via
+  // parser-config SSOT (sem drift). Compat gpt-5: sem temperature custom.
+  it("deve usar model gpt-5.4-mini, sem temperature, com json_object (AC7 / 22.11 AC6)", async () => {
     mockCreate.mockResolvedValue(mockCompletionResponse(VALID_PRODUCT));
 
     await ProductParserService.parse("produto", "TDEC", "key");
 
     const callArgs = mockCreate.mock.calls[0][0];
-    expect(callArgs.model).toBe("gpt-4o-mini");
-    expect(callArgs.temperature).toBe(0.1);
+    expect(callArgs.model).toBe("gpt-5.4-mini");
+    expect(callArgs).not.toHaveProperty("temperature");
     expect(callArgs.response_format).toEqual({ type: "json_object" });
   });
 });

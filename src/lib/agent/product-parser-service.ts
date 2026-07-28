@@ -9,14 +9,9 @@ import OpenAI from "openai";
 import { z } from "zod";
 import type { ExtractedProduct } from "@/types/agent";
 import { AGENT_ERROR_CODES } from "@/types/agent";
-
-// ==============================================
-// CONSTANTS
-// ==============================================
-
-const PARSER_MODEL = "gpt-4o-mini";
-const PARSER_TEMPERATURE = 0.1;
-const PARSER_TIMEOUT_MS = 5000;
+// Story 22.11 (Frente B, AC7): mesmo modelo/compat do parser de briefing via SSOT
+// (parser-config) — evita drift de modelo entre os dois parsers de intencao.
+import { PARSER_TIMEOUT_MS, buildParserRequest } from "./parser-config";
 
 // ==============================================
 // ZOD SCHEMA — Validates OpenAI response
@@ -67,18 +62,13 @@ export class ProductParserService {
 
     try {
       const completion = await client.chat.completions.create(
-        {
-          model: PARSER_MODEL,
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            {
-              role: "user",
-              content: `Produto: ${productName}\n\nDescricao do usuario: ${message}`,
-            },
-          ],
-          response_format: { type: "json_object" },
-          temperature: PARSER_TEMPERATURE,
-        },
+        buildParserRequest([
+          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: `Produto: ${productName}\n\nDescricao do usuario: ${message}`,
+          },
+        ]),
         { signal: controller.signal }
       );
 

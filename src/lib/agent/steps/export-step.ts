@@ -14,6 +14,7 @@
 import { BaseStep } from "./base-step";
 import { InstantlyService } from "@/lib/services/instantly";
 import { getServiceApiKey } from "./step-utils";
+import { markCampaignExported } from "@/lib/agent/campaign-persistence";
 import type {
   StepInput,
   StepOutput,
@@ -105,6 +106,9 @@ export class ExportStep extends BaseStep {
     const emailBlocks = previousStepOutput.emailBlocks as EmailBlock[] | undefined;
     const delayBlocks = previousStepOutput.delayBlocks as DelayBlock[] | undefined;
     const leadsWithIcebreakers = previousStepOutput.leadsWithIcebreakers as LeadWithIcebreaker[] | undefined;
+    // Story 22.16: a linha local que o create_campaign gravou. Ausente = a persistencia
+    // local falhou la atras (fail-open) — nao e falha aqui, so nao ha o que carimbar.
+    const campaignId = previousStepOutput.campaignId as string | undefined;
 
     if (!campaignName) {
       throw new Error("campaignName e obrigatorio no output do step anterior");
@@ -128,7 +132,7 @@ export class ExportStep extends BaseStep {
     });
 
     // 2.5 - Sub-step A: Buscar API key do Instantly
-    const apiKey = await getServiceApiKey(this.supabase, this.tenantId, "instantly");
+    const apiKey = await getServiceApiKey(this.tenantId, "instantly");
 
     // 2.6 - Sub-step B: Converter emailBlocks + delayBlocks para sequences
     const sequences = convertToInstantlySequences(emailBlocks, delayBlocks ?? []);
@@ -184,6 +188,31 @@ export class ExportStep extends BaseStep {
       leads: mappedLeads,
     });
 
+    // Story 22.16: carimba os quatro campos de export na linha local, pelo caminho
+    // canonico do builder (`updateExportStatus`). SO AQUI o `external_campaign_id` existe.
+    //
+    // Fail-open TOTAL: o export ja gastou credito no Instantly e a campanha ja esta la
+    // com os leads dentro — uma falha de RLS/rede nesta escrita local nao pode transformar
+    // isso numa execucao falha. Falha => bolha + log, e o export segue como sucesso.
+    if (campaignId) {
+      try {
+        await markCampaignExported({
+          supabase: this.supabase,
+          campaignId,
+          externalCampaignId,
+        });
+      } catch (persistError) {
+        console.error(
+          "[ExportStep] Falha ao registrar o export na campanha local:",
+          persistError
+        );
+        await this.sendCampaignNotice(
+          input.executionId,
+          "A campanha foi exportada para o Instantly, mas nao consegui registrar isso na sua lista de Campanhas — as metricas dela podem nao aparecer por aqui."
+        );
+      }
+    }
+
     // 2.10 - Sub-step F: Montar output
     const data: ExportStepOutput = {
       externalCampaignId,
@@ -199,6 +228,9 @@ export class ExportStep extends BaseStep {
         first_name: a.first_name,
         last_name: a.last_name,
       })),
+      // Sem propagar, o activate perde a referencia da linha local e nunca marcaria
+      // `status: "active"`.
+      campaignId: campaignId ?? null,
     };
 
     // 2.11 - Calcular custo
@@ -215,4 +247,24 @@ export class ExportStep extends BaseStep {
     };
   }
 
+  /**
+   * Story 22.16: bolha de aviso sobre a campanha local. NUNCA lanca e checa o `{ error }`
+   * que o supabase-js RETORNA em vez de lancar — sem isso o aviso sumiria em silencio, ou
+   * pior, derrubaria um export que ja aconteceu.
+   */
+  private async sendCampaignNotice(executionId: string, content: string): Promise<void> {
+    try {
+      const { error } = await this.supabase.from("agent_messages").insert({
+        execution_id: executionId,
+        role: "system",
+        content,
+        metadata: { stepNumber: this.stepNumber, messageType: "text" },
+      });
+      if (error) {
+        console.error("[ExportStep] Falha ao avisar sobre a campanha local:", error);
+      }
+    } catch (messageError) {
+      console.error("[ExportStep] Falha ao avisar sobre a campanha local:", messageError);
+    }
+  }
 }

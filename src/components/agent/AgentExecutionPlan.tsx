@@ -11,14 +11,21 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Building2, Users, Mail, Upload, Play, Loader2, AlertCircle, RotateCcw } from "lucide-react";
+import { Building2, Users, Mail, Upload, Play, Loader2, AlertCircle, RotateCcw, Linkedin } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import type { PlannedStep, CostEstimate } from "@/types/agent";
 
+// Story 22.2: custo Apify estimado por lead (espelha DEFAULT_COSTS.apify no cost estimator).
+// Valor autoritativo e recomputado no confirm; aqui e apenas a estimativa exibida ao usuario.
+const APIFY_COST_PER_LEAD = 0.15;
+// Story 22.2: volume estimado de leads (espelha ESTIMATED_COMPANIES × ESTIMATED_LEADS_PER_COMPANY do cost estimator).
+const ESTIMATED_LEADS = 60;
+
 interface AgentExecutionPlanProps {
   executionId: string;
-  onConfirm: () => void;
+  onConfirm: (premiumIcebreakers: boolean) => void;
   onCancel: () => void;
   isSubmitting?: boolean;
 }
@@ -27,6 +34,12 @@ interface PlanData {
   steps: PlannedStep[];
   costEstimate: CostEstimate;
   totalActiveSteps: number;
+  /**
+   * Story 22.14 (AC7): quantos leads a busca direta encontraria, contados ANTES de gastar.
+   * `null` quando não se aplica (fluxo com tecnologia / leads importados) ou quando a
+   * contagem falhou — o plano continua idêntico ao de hoje nesses casos.
+   */
+  viability?: { estimatedResults: number; isLow: boolean } | null;
 }
 
 const STEP_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -53,13 +66,18 @@ export function AgentExecutionPlan({
   const [plan, setPlan] = useState<PlanData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Story 22.2: toggle de icebreaker premium (LinkedIn), default DESLIGADO.
+  const [premiumIcebreakers, setPremiumIcebreakers] = useState(false);
 
   const fetchPlan = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
+      // Story 22.14 (AC7): `viability=1` é o opt-in da contagem pré-busca. Só ESTE
+      // chamador pede — o `fetchStepEstimatedCost` do AgentChat (22.13) bate no mesmo
+      // endpoint a cada turno de ajuste e não pode disparar chamada externa (Trap #7).
       const response = await fetch(
-        `/api/agent/executions/${executionId}/plan`
+        `/api/agent/executions/${executionId}/plan?viability=1`
       );
       if (!response.ok) {
         throw new Error("Erro ao gerar plano");
@@ -74,6 +92,9 @@ export function AgentExecutionPlan({
   }, [executionId]);
 
   useEffect(() => {
+    // Fetch-on-mount intencional: o plano e carregado do servidor ao abrir o componente.
+    // (A diretiva eslint que ficava aqui virou "unused directive" numa atualizacao do
+    // plugin e quebrava o pre-commit `--max-warnings=0` de quem tocasse o arquivo.)
     fetchPlan();
   }, [fetchPlan]);
 
@@ -118,6 +139,11 @@ export function AgentExecutionPlan({
 
   if (!plan) return null;
 
+  // Story 22.2: total exibido inclui a estimativa Apify quando o toggle esta ligado.
+  // Este numero e uma ESTIMATIVA client-side; o valor autoritativo e recomputado no confirm (route).
+  const estimatedApifyCost = premiumIcebreakers ? ESTIMATED_LEADS * APIFY_COST_PER_LEAD : 0;
+  const displayedTotal = plan.costEstimate.total + estimatedApifyCost;
+
   return (
     <div
       className="border-t border-border px-6 py-4"
@@ -126,6 +152,54 @@ export function AgentExecutionPlan({
       <p className="text-body-small font-medium text-foreground mb-3">
         Plano de Execucao
       </p>
+
+      {/* Story 22.14 (AC7): viabilidade contada ANTES de gastar. Informa, nunca bloqueia —
+          o usuario continua livre para iniciar (a contagem e uma estimativa da base). */}
+      {plan.viability && (
+        <div
+          className={cn(
+            "flex items-start gap-2 rounded-md border px-3 py-2 mb-3",
+            plan.viability.isLow
+              ? "border-destructive/50 bg-destructive/5"
+              : "border-border bg-muted/50"
+          )}
+          data-testid="plan-viability"
+        >
+          <AlertCircle
+            className={cn(
+              "h-4 w-4 shrink-0 mt-0.5",
+              plan.viability.isLow ? "text-destructive" : "text-muted-foreground"
+            )}
+          />
+          <p className="text-caption text-muted-foreground">
+            {plan.viability.estimatedResults === 0 ? (
+              <>
+                <span className="font-medium text-foreground">
+                  Estimativa: 0 resultados com esses filtros.
+                </span>{" "}
+                Vale ajustar o briefing antes de iniciar — do jeito que esta, a busca deve
+                voltar vazia.
+              </>
+            ) : plan.viability.isLow ? (
+              <>
+                <span className="font-medium text-foreground">
+                  Estimativa: ~{plan.viability.estimatedResults} resultados com esses filtros.
+                </span>{" "}
+                E pouco para uma campanha. Considere ampliar localizacao ou remover o filtro
+                de industria.
+              </>
+            ) : (
+              <>
+                Estimativa:{" "}
+                <span className="font-medium text-foreground">
+                  ~{plan.viability.estimatedResults} leads
+                </span>{" "}
+                disponiveis com esses filtros.
+              </>
+            )}
+          </p>
+        </div>
+      )}
 
       {/* Steps list */}
       <div className="flex flex-col gap-2 mb-4">
@@ -169,6 +243,32 @@ export function AgentExecutionPlan({
         })}
       </div>
 
+      {/* Story 22.2: Toggle de icebreaker premium (LinkedIn) — default desligado */}
+      <div
+        className="flex items-start justify-between gap-3 rounded-md border border-border px-3 py-3 mb-4"
+        data-testid="plan-premium-toggle"
+      >
+        <div className="flex flex-col gap-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <Linkedin className="h-4 w-4 text-muted-foreground shrink-0" />
+            <span className="text-body-small font-medium text-foreground">
+              Icebreakers premium (LinkedIn)
+            </span>
+          </div>
+          <p className="text-caption text-muted-foreground">
+            Consulta posts reais do LinkedIn via Apify para personalizar a abertura de
+            cada email — custo extra de aproximadamente R$ 0,15 por lead.
+          </p>
+        </div>
+        <Switch
+          checked={premiumIcebreakers}
+          onCheckedChange={setPremiumIcebreakers}
+          disabled={isSubmitting}
+          aria-label="Ativar icebreakers premium com LinkedIn"
+          data-testid="plan-premium-switch"
+        />
+      </div>
+
       {/* Total cost */}
       <div
         className="flex items-center justify-between border-t border-border pt-3 mb-4"
@@ -178,7 +278,7 @@ export function AgentExecutionPlan({
           Custo estimado
         </span>
         <span className="text-body-small font-medium text-foreground">
-          {formatCurrency(plan.costEstimate.total)}
+          {formatCurrency(displayedTotal)}
         </span>
       </div>
 
@@ -193,7 +293,7 @@ export function AgentExecutionPlan({
           Cancelar
         </Button>
         <Button
-          onClick={onConfirm}
+          onClick={() => onConfirm(premiumIcebreakers)}
           disabled={isSubmitting}
           data-testid="plan-confirm-btn"
         >
