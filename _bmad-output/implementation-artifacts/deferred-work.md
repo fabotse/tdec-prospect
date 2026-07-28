@@ -369,3 +369,42 @@ source_spec: `22-15-leads-do-agente-em-meus-leads-com-segmento.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260727-144127-3277; this entry preserves the lingering recommendation for a deliberate later review.
 status: open
+
+## 2026-07-28 — Story 22.16 (campanha do agente em `campaigns`), review pass
+
+> Review adversarial 4 camadas, baseline `c6244f4`. 10 patches aplicados (0 high). Os 2 defers abaixo são exposições estruturais fora do diff da story.
+
+- source_spec: `_bmad-output/implementation-artifacts/22-16-campanha-do-agente-visivel-em-campanhas.md`
+  summary: `BaseStep.saveFailure` substitui `agent_steps.output` inteiro por `{ error }`, então qualquer throw DEPOIS de um `executeInternal` bem-sucedido apaga as chaves de idempotência que os steps guardam ali (`campaignId` da 22.16, `activated` da 22.18).
+  evidence: `src/lib/agent/steps/base-step.ts` grava `output: { error }` sem merge; `run()` envolve também `saveAwaitingApproval` e `sendApprovalGateMessage`, então uma falha de rede na bolha do gate — depois de a campanha já estar inserida — faz a retentativa criar uma segunda campanha em rascunho. Não é causado pela 22.16 (a 22.18 já dependia do mesmo output sobreviver), e o fix é uma mudança na BaseStep que afeta todos os steps: merece atenção própria. Severidade: LOW (uma campanha extra em rascunho, num caminho raro). Fonte: code review 22.16 (Blind Hunter).
+
+- source_spec: `_bmad-output/implementation-artifacts/22-16-campanha-do-agente-visivel-em-campanhas.md`
+  summary: O `FakeDb` de testes não simula foreign keys: `campaign_leads` aceita `campaign_id`/`lead_id` inexistentes, e nenhum teste consegue exercitar o `23503` que o Postgres levantaria.
+  evidence: `__tests__/helpers/fake-leads-db.ts` reproduz uniques (`23505`), NOT NULL (`23502`), CHECK de enum e limite de VARCHAR, mas não FKs. Consequência: o caminho em que um `lead_id` sumiu entre a persistência e o upsert (chunk inteiro rejeitado, até 99 associações válidas perdidas por um id ruim) é inalcançável em teste, e o ramo "update falhou, seguimos com o `existingCampaignId` não confirmado" assere uma associação que o Postgres poderia recusar. Mesma classe do achado que a 22.15 pagou caro: o fake é fixture e oráculo ao mesmo tempo. Severidade: LOW (janela curta e improvável). Fonte: code review 22.16 (Edge Case Hunter).
+
+## 2026-07-28 — Story 22.16, follow-up review pass
+
+> Segundo review adversarial 4 camadas sobre o mesmo baseline `c6244f4`, com a story já `done`. 7 patches aplicados (0 high, 3 medium, 4 low), todos de fidelidade do oráculo de teste e do call site do aviso. Os 2 defers abaixo são pré-existentes ao diff da story. O achado do `saveFailure` reapareceu nesta rodada e já está registrado na seção anterior — não foi reaberto.
+
+- source_spec: `_bmad-output/implementation-artifacts/22-16-campanha-do-agente-visivel-em-campanhas.md`
+  summary: Re-executar um step deixa a campanha ANTERIOR do Instantly rodando sem nenhum vínculo local — nada a pausa, nada a registra, e o `ExportStep` não tem guarda de idempotência própria.
+  evidence: `src/lib/agent/steps/export-step.ts` chama `service.createCampaign(...)` sem ler o próprio `agent_steps.output` antes (ao contrário do `readOwnRow` do `ActivateStep`, 22.18), então toda re-execução cria uma campanha NOVA no Instantly enquanto a antiga segue enviando. A 22.16 tornou isso visível — a Fase 1 de `persistAgentCampaign` zera `external_campaign_id` ao re-executar, que é a decisão certa para a linha local (senão analytics/reply-sweep leriam a campanha supersedida), mas a campanha órfã do Instantly continua sem dono em qualquer das duas escolhas. `reply-sweep` e o webhook só acham campanha por `external_campaign_id`: as respostas da órfã viram `skipped` silencioso. Pré-existente ao diff (o `ExportStep` nunca teve a guarda); o fix é pausar/arquivar a campanha supersedida no Instantly, decisão de produto. Severidade: MEDIUM. Fonte: code review 22.16 follow-up (Blind Hunter + Edge Case Hunter).
+
+- source_spec: `_bmad-output/implementation-artifacts/22-16-campanha-do-agente-visivel-em-campanhas.md`
+  summary: O store zustand do builder mantém os blocos da campanha anterior ao navegar entre páginas `/campaigns/[id]/edit` pelo client-side router, então o canvas pode renderizar a sequência de OUTRA campanha.
+  evidence: `src/app/(dashboard)/campaigns/[campaignId]/edit/page.tsx` só reseta o store quando o `campaignId` muda DENTRO do mesmo mount, e o ramo de banco vazio preserva os blocos do store de propósito. Efeito colateral para a 22.16: `builderHasSequence` fica `true` com blocos alheios e o aviso do Agente é suprimido justamente na campanha em que ele mais importa — mas a causa raiz (canvas mostrando a sequência errada) é um defeito do builder anterior a esta story e mais grave que o aviso. Severidade: MEDIUM. Fonte: code review 22.16 follow-up (Edge Case Hunter).
+
+## 2026-07-28 — Story 22.16, terceiro review pass
+
+> Terceiro review adversarial 4 camadas sobre o baseline `c6244f4`, story já `done`. 6 patches aplicados (0 high, 2 medium, 4 low). Os achados de campanha órfã no Instantly e de store zustand com blocos alheios reapareceram nesta rodada e já estão registrados na seção anterior — não foram reabertos. O achado sobre FKs no `FakeDb` (seção de 2026-07-28, primeira rodada) foi resolvido por patch nesta passada.
+
+- source_spec: `_bmad-output/implementation-artifacts/22-16-campanha-do-agente-visivel-em-campanhas.md`
+  summary: O builder nunca mostra erro quando a query de blocos falha: o canvas fica permanentemente vazio, sem toast e sem estado de erro, e o usuário não tem como distinguir "campanha sem sequência" de "não consegui carregar".
+  evidence: `src/app/(dashboard)/campaigns/[campaignId]/edit/page.tsx` desestrutura apenas `data` e `isLoading` de `useCampaignBlocks`; o gate `if (isError)` cobre só `useCampaign`. Com a query de blocos em erro, a página passa do gate de loading e renderiza um canvas vazio indefinidamente. Pré-existente ao diff desta story (a página já ignorava esse `isError` antes). A 22.16 apenas o tornou visível: `builderHasSequence` suprime o aviso do Agente nesse estado de propósito (na dúvida, não afirmar) — a supressão está certa, o que falta é a página dizer que a carga falhou. Severidade: MEDIUM. Fonte: code review 22.16 terceiro pass (Blind Hunter).
+
+### DW-2: Follow-up review still recommended for 22-16-campanha-do-agente-visivel-em-campanhas after the damping cap was spent
+origin: review-budget-followup
+source_spec: `22-16-campanha-do-agente-visivel-em-campanhas.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260727-230325-92d3; this entry preserves the lingering recommendation for a deliberate later review.
+status: open

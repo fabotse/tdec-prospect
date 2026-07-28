@@ -84,6 +84,13 @@ export interface PersistApprovedLeadsResult {
   /** Leads sem apollo_id E sem email — impossiveis de identificar, nao persistidos. */
   skipped: number;
   /**
+   * Story 22.16: os `leads.id` que ESTAO na base ao fim desta chamada (inseridos agora +
+   * reusados), sem repeticao. Ja eram calculados aqui (`persistedIds`) e eram
+   * DESCARTADOS no return; a campanha do agente precisa exatamente deste conjunto para
+   * associar `campaign_leads` sem uma segunda consulta ao banco.
+   */
+  leadIds: string[];
+  /**
    * Algo ja estava salvo e uma parte posterior falhou. O step usa isto para dizer a
    * VERDADE PARCIAL em vez da bolha de falha total.
    */
@@ -591,6 +598,7 @@ export async function persistApprovedLeads(
       reused: 0,
       associated: 0,
       skipped,
+      leadIds: [],
       degraded: false,
     };
   }
@@ -877,5 +885,7 @@ export async function persistApprovedLeads(
     }
   }
 
-  return { segmentId, segmentName, inserted, reused, associated, skipped, degraded };
+  // Story 22.16: `persistedIds` sai daqui em vez de morrer na funcao. E o unico ponto do
+  // fluxo que sabe quais linhas de `leads` respondem pelos leads aprovados.
+  return { segmentId, segmentName, inserted, reused, associated, skipped, leadIds: persistedIds, degraded };
 }

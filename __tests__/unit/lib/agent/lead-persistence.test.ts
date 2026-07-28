@@ -171,6 +171,11 @@ describe("persistApprovedLeads (Story 22.15)", () => {
     expect(db.leads).toHaveLength(1);
     expect(db.leads[0].icebreaker).toBe("Icebreaker novo");
     expect(db.associations).toEqual([{ segment_id: result.segmentId, lead_id: seeded.id }]);
+    // Story 22.16: `leadIds` inclui os REUSADOS. Devolver so os recem-inseridos deixa a
+    // campanha do agente com "0 leads" no caso MAIS comum em producao — leads que ja
+    // estavam em Meus Leads de uma run anterior, de CSV ou de um Apollo sobreposto —,
+    // que e exatamente a invisibilidade que a 22.16 existe para remover.
+    expect(result.leadIds).toEqual([seeded.id]);
   });
 
   it("dedupe por email e case-insensitive contra o valor ARMAZENADO em caixa mista", async () => {
@@ -341,6 +346,8 @@ describe("persistApprovedLeads (Story 22.15)", () => {
     expect(db.associations).toEqual([{ segment_id: result.segmentId, lead_id: seeded.id }]);
     // e um unico UPDATE de icebreaker para a linha
     expect(db.log.filter((e) => e.table === "leads" && e.op === "update")).toHaveLength(1);
+    // Story 22.16: o mesmo id, UMA vez — `campaign_leads` tem unique (campaign_id, lead_id).
+    expect(result.leadIds).toEqual([seeded.id]);
   });
 
   it("escapa os metacaracteres do LIKE no email (um `%` de CSV nao vira varredura da tabela)", async () => {
@@ -581,6 +588,9 @@ describe("persistApprovedLeads (Story 22.15)", () => {
     expect(second.reused).toBe(2);
     expect(second.associated).toBe(0);
     expect(second.segmentId).toBe(first.segmentId);
+    // Story 22.16: na re-execucao NADA e inserido, mas os dois leads continuam sendo os
+    // da campanha. `leadIds` vazio aqui zeraria a contagem da campanha do agente.
+    expect(second.leadIds.sort()).toEqual(db.leads.map((l) => l.id).sort());
     expect(db.leads).toHaveLength(2);
     expect(db.segments).toHaveLength(1);
     expect(db.associations).toHaveLength(2);

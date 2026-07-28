@@ -14,6 +14,7 @@ import { InstantlyService } from "@/lib/services/instantly";
 import { ExternalServiceError } from "@/lib/services/base-service";
 import { getServiceApiKey } from "./step-utils";
 import { stampLatestApprovalGate } from "@/lib/agent/gate-metadata";
+import { markCampaignActive } from "@/lib/agent/campaign-persistence";
 import type {
   StepInput,
   StepOutput,
@@ -83,6 +84,9 @@ export class ActivateStep extends BaseStep {
     const externalCampaignId = previousStepOutput.externalCampaignId as string | undefined;
     const campaignName = previousStepOutput.campaignName as string | undefined;
     const totalLeads = previousStepOutput.leadsUploaded as number | undefined;
+    // Story 22.16: a linha local propagada desde o create_campaign. Ausente = a
+    // persistencia local falhou la atras (fail-open) — nao ha o que marcar como ativa.
+    const campaignId = previousStepOutput.campaignId as string | undefined;
 
     if (!externalCampaignId) {
       throw new Error("externalCampaignId e obrigatorio no output do step anterior");
@@ -123,6 +127,19 @@ export class ActivateStep extends BaseStep {
         { activationOutcome: "activated" },
         { stepType: "export" as StepType }
       );
+
+      // Story 22.16: o atalho tambem precisa MARCAR A CAMPANHA LOCAL, pelo mesmo
+      // argumento de auto-cura do carimbo acima.
+      //
+      // A escrita local e fail-open: o caminho "ativou no Instantly, escrita local
+      // falhou" e real, e sem esta linha TODA retentativa cairia aqui e retornaria antes
+      // do `markCampaignActive` la embaixo. A campanha ficaria "Rascunho" para sempre
+      // enquanto roda no Instantly, e nao ha caminho de correcao pela UI (nenhuma rota
+      // do produto escreve `campaigns.status`).
+      const shortcutCampaignId =
+        campaignId ??
+        (typeof existingOutput.campaignId === "string" ? existingOutput.campaignId : undefined);
+      await this.markLocalCampaignActive(input.executionId, shortcutCampaignId);
 
       return {
         success: true,
@@ -257,12 +274,21 @@ export class ActivateStep extends BaseStep {
       { stepType: "export" as StepType }
     );
 
+    // Story 22.16: `campaigns.status = 'active'` — SO AQUI "ativa" e verdade (mesmo
+    // raciocinio do carimbo de gate acima). Escrever antes deixaria a lista mentindo
+    // sobre uma campanha que ainda esta em rascunho no Instantly.
+    //
+    // Fail-open TOTAL: a campanha JA esta ativa no Instantly quando chegamos aqui; uma
+    // falha de RLS/rede nesta escrita local nao pode derrubar a ativacao.
+    await this.markLocalCampaignActive(input.executionId, campaignId);
+
     // 3.8 - Sub-step D: Montar output
     const data: ActivateStepOutput = {
       externalCampaignId,
       campaignName,
       activated: true,
       activatedAt: new Date().toISOString(),
+      campaignId: campaignId ?? null,
     };
 
     // 3.9 - Calcular custo
@@ -279,6 +305,58 @@ export class ActivateStep extends BaseStep {
       data: data as unknown as Record<string, unknown>,
       cost,
     };
+  }
+
+  /**
+   * Story 22.16: marca a campanha local como ativa. NUNCA lanca.
+   *
+   * Chamada nos DOIS caminhos em que "ativa" e verdade — a ativacao que acabou de
+   * acontecer e o atalho de idempotencia da 22.18 —, porque a escrita e fail-open e
+   * precisa de uma segunda chance. Sem `campaignId` (persistencia local falhou no
+   * create_campaign) nao ha o que marcar: nenhuma escrita, nenhuma bolha.
+   */
+  private async markLocalCampaignActive(
+    executionId: string,
+    campaignId: string | undefined
+  ): Promise<void> {
+    if (!campaignId) return;
+
+    try {
+      await markCampaignActive({
+        supabase: this.supabase,
+        tenantId: this.tenantId,
+        campaignId,
+      });
+    } catch (persistError) {
+      console.error(
+        "[ActivateStep] Falha ao marcar a campanha local como ativa:",
+        persistError
+      );
+      await this.sendCampaignNotice(
+        executionId,
+        "A campanha foi ativada no Instantly, mas nao consegui atualizar o status dela na sua lista de Campanhas — ela pode continuar aparecendo como Rascunho por aqui."
+      );
+    }
+  }
+
+  /**
+   * Story 22.16: bolha de aviso sobre a campanha local. NUNCA lanca e checa o `{ error }`
+   * que o supabase-js RETORNA em vez de lancar.
+   */
+  private async sendCampaignNotice(executionId: string, content: string): Promise<void> {
+    try {
+      const { error } = await this.supabase.from("agent_messages").insert({
+        execution_id: executionId,
+        role: "system",
+        content,
+        metadata: { stepNumber: this.stepNumber, messageType: "text" },
+      });
+      if (error) {
+        console.error("[ActivateStep] Falha ao avisar sobre a campanha local:", error);
+      }
+    } catch (messageError) {
+      console.error("[ActivateStep] Falha ao avisar sobre a campanha local:", messageError);
+    }
   }
 
   /**

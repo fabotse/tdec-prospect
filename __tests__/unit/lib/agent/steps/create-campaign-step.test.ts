@@ -190,11 +190,123 @@ function createStatefulApiConfigs(byService: Record<string, { encrypted_key: str
 }
 
 /**
+ * Story 22.16: `agent_steps` com MEMORIA.
+ *
+ * A idempotencia do `create_campaign` (re-execucao pos-rejeicao, 22.13) mora no `output`
+ * ja gravado do PROPRIO step: sem um fake que LEMBRE o que o `saveCheckpoint` escreveu,
+ * a segunda execucao ve output vazio e cria uma segunda campanha — exatamente o defeito
+ * que a guarda existe para impedir, e um chain-builder sem estado o certificaria verde.
+ *
+ * O formato do retorno do SELECT nao-`single` e o mesmo do chain-builder de antes
+ * (objeto, nao array): e o que mantem a contagem "Etapa 3/5" da mensagem de progresso.
+ *
+ * As linhas sao indexadas por (`execution_id`, `step_number`) e o SELECT HONRA esses
+ * filtros. Um fake que ignorasse os `.eq()` (o de antes ignorava) deixaria passar duas
+ * mutacoes graves: sem `execution_id` o step adotaria o `campaignId` de OUTRA execucao e
+ * o Fase 1 zeraria os campos de export de uma campanha viva; sem `step_number` o
+ * `.single()` casaria varias linhas e voltaria PGRST116 em toda re-execucao.
+ */
+function createStatefulAgentSteps() {
+  type StepRow = {
+    execution_id: string;
+    step_number: number;
+    output: Record<string, unknown> | null;
+  };
+  const rows: StepRow[] = [];
+
+  /** Semeia (ou substitui) a linha de um step — usado para montar o cenario multi-linha. */
+  const setRow = (
+    executionId: string,
+    stepNumber: number,
+    output: Record<string, unknown> | null
+  ) => {
+    const existing = rows.find(
+      (r) => r.execution_id === executionId && r.step_number === stepNumber
+    );
+    if (existing) existing.output = output;
+    else rows.push({ execution_id: executionId, step_number: stepNumber, output });
+  };
+
+  const notSingle = {
+    data: null,
+    error: { code: "PGRST116", message: "JSON object requested, multiple (or no) rows returned" },
+  };
+
+  const make = () => {
+    let op: "select" | "update" = "select";
+    let payload: Record<string, unknown> = {};
+    let single = false;
+    const eq: Array<[string, unknown]> = [];
+    const chain: Record<string, unknown> = {};
+
+    for (const m of ["select", "neq", "in", "is", "order", "limit"]) {
+      chain[m] = vi.fn(() => chain);
+    }
+    chain.eq = vi.fn((column: string, value: unknown) => {
+      eq.push([column, value]);
+      return chain;
+    });
+    for (const m of ["single", "maybeSingle"]) {
+      chain[m] = vi.fn(() => {
+        single = true;
+        return chain;
+      });
+    }
+    chain.update = vi.fn((value: Record<string, unknown>) => {
+      op = "update";
+      payload = value ?? {};
+      return chain;
+    });
+    chain.insert = vi.fn(() => chain);
+    chain.then = (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
+      Promise.resolve()
+        .then(() => {
+          const filters = Object.fromEntries(eq);
+
+          if (op === "update") {
+            if ("output" in payload) {
+              setRow(
+                String(filters.execution_id),
+                Number(filters.step_number),
+                (payload.output ?? null) as Record<string, unknown> | null
+              );
+            }
+            // `data: null` = o driver nao disse quantas linhas mudaram; e o mesmo
+            // fail-open do chain-builder anterior no CAS de `updateStepStatus`.
+            return { data: null, error: null };
+          }
+
+          // SELECT sem `.single()` = a contagem de etapas do progresso.
+          if (!single) return { data: { id: "step-1", output: null, cost: null }, error: null };
+
+          // Os `.eq()` sao aplicados de VERDADE: e o que faz um filtro que sobra ou que
+          // falta mudar o resultado. `.single()` que casa 0 ou N linhas volta PGRST116.
+          const matched = rows.filter((row) =>
+            eq.every(([column, value]) => (row as Record<string, unknown>)[column] === value)
+          );
+          if (matched.length !== 1) return notSingle;
+
+          return { data: { id: "step-1", output: matched[0].output, cost: null }, error: null };
+        })
+        .then(resolve, reject);
+
+    return chain;
+  };
+
+  return { rows, setRow, make };
+}
+
+/**
  * Story 22.15: com `leadsDb`, as tabelas de Meus Leads (`leads`/`segments`/
  * `lead_segments`) passam a ser servidas pelo banco fake — e a costura step -> helper
  * roda de verdade. Sem ele, o comportamento e exatamente o de antes.
+ *
+ * Story 22.16: `campaigns`/`campaign_leads` sao SEMPRE servidas pelo banco fake (o `db`
+ * devolvido), porque a persistencia da campanha e chamada em TODA execucao do step. Com
+ * um chain-builder generico o insert nao devolveria id e todo teste ganharia uma bolha de
+ * falha — o oposto do comportamento real.
  */
-function createMockSupabase(leadsDb?: FakeDb) {
+function createMockSupabase(leadsDb?: FakeDb, agentSteps?: { make: () => unknown }) {
   const stepsChain = createChainBuilder({ data: { id: "step-1" }, error: null });
   const messagesChain = createChainBuilder({ data: { id: "msg-1" }, error: null });
   const kbChain = createChainBuilder({ data: null, error: null });
@@ -204,13 +316,15 @@ function createMockSupabase(leadsDb?: FakeDb) {
   const apiConfigsChain = createChainBuilder({ data: null, error: null });
   const icebreakerExamplesChain = createChainBuilder({ data: [], error: null });
 
-  const leadsFrom = leadsDb ? (createFakeSupabase(leadsDb).from as (t: string) => unknown) : null;
+  const db = leadsDb ?? new FakeDb();
+  const fakeFrom = createFakeSupabase(db).from as (t: string) => unknown;
 
   const mockFrom = vi.fn().mockImplementation((table: string) => {
-    if (leadsFrom && (table === "leads" || table === "segments" || table === "lead_segments")) {
-      return leadsFrom(table);
+    if (leadsDb && (table === "leads" || table === "segments" || table === "lead_segments")) {
+      return fakeFrom(table);
     }
-    if (table === "agent_steps") return stepsChain;
+    if (table === "campaigns" || table === "campaign_leads") return fakeFrom(table);
+    if (table === "agent_steps") return agentSteps ? agentSteps.make() : stepsChain;
     if (table === "agent_messages") return messagesChain;
     if (table === "knowledge_base") return kbChain;
     if (table === "products") return productsChain;
@@ -219,7 +333,7 @@ function createMockSupabase(leadsDb?: FakeDb) {
     return createChainBuilder();
   });
 
-  return { from: mockFrom, stepsChain, messagesChain, kbChain, productsChain, apiConfigsChain, icebreakerExamplesChain };
+  return { from: mockFrom, db, stepsChain, messagesChain, kbChain, productsChain, apiConfigsChain, icebreakerExamplesChain };
 }
 
 function createInput(
@@ -258,6 +372,8 @@ function setupDefaultMocks() {
     reused: 0,
     associated: 2,
     skipped: 0,
+    // Story 22.16: os ids que a campanha associa em `campaign_leads`.
+    leadIds: ["lead-1", "lead-2"],
     degraded: false,
   });
   mockBuildAIVariables.mockReturnValue(DEFAULT_AI_VARS);
@@ -297,6 +413,12 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSupabase = createMockSupabase();
+    // `campaign_leads.lead_id` e FOREIGN KEY e o fake a aplica (23503): os ids que o mock
+    // padrao de `persistApprovedLeads` devolve precisam existir na base do fake, senao
+    // toda associacao degrada e o step escreve uma bolha em cima de um problema de
+    // fixture. Onde o helper REAL roda, quem insere os leads e ele.
+    mockSupabase.db.seedLead({ id: "lead-1" });
+    mockSupabase.db.seedLead({ id: "lead-2" });
     step = new CreateCampaignStep(3, mockSupabase as never, TENANT_ID);
     setupDefaultMocks();
   });
@@ -1568,6 +1690,307 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
         expect(messages).toHaveLength(1);
         expect(messages[0]).toMatch(/nao consegui salvar/i);
       });
+    });
+  });
+
+  // ==============================================
+  // Story 22.16: a campanha do agente em `campaigns`
+  // ==============================================
+
+  describe("persistencia da campanha em Campanhas (Story 22.16)", () => {
+    // A costura roda contra o `persistAgentCampaign` REAL (ele NUNCA e mockado neste
+    // arquivo) e contra o `FakeDb`. Um mock do helper aqui repetiria o erro que a 22.15
+    // pagou caro: 7457 testes verdes certificando uma premissa errada sobre o PostgREST.
+    let db: FakeDb;
+    let agentSteps: ReturnType<typeof createStatefulAgentSteps>;
+
+    beforeEach(() => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      db = new FakeDb();
+      // `campaign_leads.lead_id` e FOREIGN KEY e o fake a aplica (23503). Nos casos com
+      // `persistApprovedLeads` MOCKADO os ids do mock nao existem na base do fake, entao
+      // eles sao semeados aqui — do contrario o teste mediria a FK, nao a associacao.
+      // Na costura completa (helper REAL) os leads sao inseridos pelo proprio helper.
+      db.seedLead({ id: "lead-1" });
+      db.seedLead({ id: "lead-2" });
+      agentSteps = createStatefulAgentSteps();
+      mockSupabase = createMockSupabase(db, agentSteps);
+      step = new CreateCampaignStep(3, mockSupabase as never, TENANT_ID);
+      setupDefaultMocks();
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    function setupStructureThenContent() {
+      let callCount = 0;
+      mockGenerateText.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ text: VALID_STRUCTURE_JSON, model: "gpt-4o", usage: {} });
+        }
+        return Promise.resolve({ text: `Icebreaker/email ${callCount}`, model: "gpt-4o", usage: {} });
+      });
+    }
+
+    const LIFECYCLE_MESSAGE_TYPES = ["progress", "step_complete"];
+
+    /** Filtro ESTRUTURAL (nao por frase): qualquer bolha nova aparece aqui. */
+    function noticeMessages(): string[] {
+      return mockSupabase.messagesChain.insert.mock.calls
+        .map((call: unknown[]) => call[0] as { content?: string; metadata?: { messageType?: string } })
+        .filter((row) => !LIFECYCLE_MESSAGE_TYPES.includes(row?.metadata?.messageType ?? ""))
+        .map((row) => row?.content ?? "");
+    }
+
+    it("grava a campanha e devolve o campaignId no output do step", async () => {
+      setupStructureThenContent();
+
+      const result = await step.run(createInput());
+
+      expect(result.success).toBe(true);
+      expect(db.campaigns).toHaveLength(1);
+
+      const campaign = db.campaigns[0];
+      expect(campaign.tenant_id).toBe(TENANT_ID);
+      expect(campaign.name).toContain("Campanha React");
+      expect(campaign.status).toBe("draft");
+
+      // Sem o campaignId no output, o export nao teria como carimbar o
+      // external_campaign_id — e a campanha ficaria fora do analytics/reply-sweep.
+      const data = result.data as Record<string, unknown>;
+      expect(data.campaignId).toBe(campaign.id);
+
+      // Sucesso limpo: nenhuma bolha (a campanha aparecer na lista e a confirmacao).
+      expect(noticeMessages()).toHaveLength(0);
+    });
+
+    it("os leads que a 22.15 persistiu chegam associados a campanha", async () => {
+      setupStructureThenContent();
+
+      await step.run(createInput());
+
+      expect(db.campaignLeads).toHaveLength(2);
+      expect(db.campaignLeads.map((cl) => cl.lead_id).sort()).toEqual(["lead-1", "lead-2"]);
+      expect(db.campaignLeads.every((cl) => cl.campaign_id === db.campaigns[0].id)).toBe(true);
+    });
+
+    it("re-executar o step (ajuste pos-rejeicao) atualiza a MESMA campanha, sem duplicar nada", async () => {
+      setupStructureThenContent();
+      const first = await step.run(createInput({ campaignDescription: "versao rejeitada" }));
+      const firstId = (first.data as Record<string, unknown>).campaignId;
+
+      setupStructureThenContent();
+      const second = await step.run(createInput({ campaignDescription: "briefing ajustado" }));
+
+      expect(second.success).toBe(true);
+      // UMA campanha na lista, com o nome novo e sem lead duplicado.
+      expect(db.campaigns).toHaveLength(1);
+      expect(db.campaigns[0].name).toBe("Campanha - briefing ajustado");
+      expect((second.data as Record<string, unknown>).campaignId).toBe(firstId);
+      expect(db.campaignLeads).toHaveLength(2);
+      expect(noticeMessages()).toHaveLength(0);
+    });
+
+    it("o campaignId de OUTRA execucao nao e adotado (a leitura filtra por execution_id)", async () => {
+      // Sem o `.eq("execution_id", ...)` o `.single()` acharia a linha de qualquer
+      // execucao e a Fase 1 zeraria `external_campaign_id`/`export_*`/`status` de uma
+      // campanha VIVA de outro run — tirando-a do analytics, do reply-sweep e do webhook.
+      const alheia = db.seedCampaign({
+        tenant_id: TENANT_ID,
+        name: "Campanha de outra execucao",
+        status: "active",
+        external_campaign_id: "instantly-viva-999",
+      });
+      agentSteps.setRow("exec-OUTRA", 3, { campaignId: alheia.id });
+
+      setupStructureThenContent();
+      const result = await step.run(createInput());
+
+      // A campanha alheia continua intacta...
+      const intacta = db.campaigns.find((c) => c.id === alheia.id);
+      expect(intacta?.status).toBe("active");
+      expect(intacta?.external_campaign_id).toBe("instantly-viva-999");
+      // ...e esta execucao gravou a SUA propria linha.
+      expect(db.campaigns).toHaveLength(2);
+      expect((result.data as Record<string, unknown>).campaignId).not.toBe(alheia.id);
+    });
+
+    it("o campaignId de OUTRO step da MESMA execucao nao e adotado (filtra por step_number)", async () => {
+      const alheia = db.seedCampaign({
+        tenant_id: TENANT_ID,
+        name: "Campanha de outro step",
+        status: "active",
+      });
+      agentSteps.setRow("exec-001", 4, { campaignId: alheia.id });
+
+      setupStructureThenContent();
+      const result = await step.run(createInput());
+
+      expect(db.campaigns.find((c) => c.id === alheia.id)?.status).toBe("active");
+      expect(db.campaigns).toHaveLength(2);
+      expect((result.data as Record<string, unknown>).campaignId).not.toBe(alheia.id);
+    });
+
+    it("sem memoria do output anterior, a re-execucao cria outra (documenta o fail-open da leitura)", async () => {
+      // `agent_steps` sem estado = o `readOwnCampaignId` nao acha nada. A story aceita
+      // explicitamente esse trade-off: uma campanha extra em rascunho e preferivel a
+      // nenhuma. O teste existe para o comportamento ser uma DECISAO, nao um acidente.
+      mockSupabase = createMockSupabase(db);
+      step = new CreateCampaignStep(3, mockSupabase as never, TENANT_ID);
+      setupDefaultMocks();
+
+      setupStructureThenContent();
+      await step.run(createInput());
+      setupStructureThenContent();
+      await step.run(createInput());
+
+      expect(db.campaigns).toHaveLength(2);
+    });
+
+    it("falha ao gravar a campanha NAO derruba o step e produz a bolha honesta", async () => {
+      setupStructureThenContent();
+      db.fail("campaigns", "insert", {
+        code: "42501",
+        message: "permission denied for table campaigns",
+      });
+
+      const result = await step.run(createInput());
+
+      expect(result.success).toBe(true);
+      expect(db.campaigns).toHaveLength(0);
+      // Sem campanha nao ha campaignId: o export tem que saber que nao ha o que carimbar.
+      expect((result.data as Record<string, unknown>).campaignId).toBeNull();
+
+      const messages = noticeMessages();
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatch(/nao consegui registrar a campanha/i);
+      // A rota real e `/campaigns`: mandar o usuario para `/campanhas` o joga num 404
+      // justamente no estado em que ele ja perdeu alguma coisa.
+      expect(messages[0]).not.toMatch(/\/campanhas/);
+    });
+
+    it("falha SO no rename da re-execucao: a bolha fala do NOME, nao da contagem de leads", async () => {
+      setupStructureThenContent();
+      await step.run(createInput({ campaignDescription: "versao rejeitada" }));
+
+      // Segunda rodada: o UPDATE do nome falha, mas a campanha existe e os leads sao
+      // associados normalmente.
+      db.fail("campaigns", "update", { code: "42501", message: "permission denied" });
+      setupStructureThenContent();
+      const second = await step.run(createInput({ campaignDescription: "briefing ajustado" }));
+
+      expect(second.success).toBe(true);
+      expect(db.campaigns).toHaveLength(1);
+      expect(db.campaigns[0].name).toBe("Campanha - versao rejeitada");
+
+      const messages = noticeMessages();
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatch(/nome da versao anterior/i);
+      // Avisar sobre contagem de leads aqui inventaria um problema que nao existe.
+      expect(messages[0]).not.toMatch(/contagem/i);
+    });
+
+    it("falha SO na associacao: a campanha sobrevive e a bolha nao nega a gravacao", async () => {
+      setupStructureThenContent();
+      // Falha DEPOIS do insert da campanha — o caso que prova que ela sobrevive.
+      db.fail("campaign_leads", "upsert", {
+        code: "42501",
+        message: "permission denied for table campaign_leads",
+      });
+
+      const result = await step.run(createInput());
+
+      expect(result.success).toBe(true);
+      expect(db.campaigns).toHaveLength(1);
+      expect(db.campaignLeads).toHaveLength(0);
+      expect((result.data as Record<string, unknown>).campaignId).toBe(db.campaigns[0].id);
+
+      const messages = noticeMessages();
+      expect(messages).toHaveLength(1);
+      // A campanha ESTA gravada: a bolha nao pode dizer o contrario.
+      expect(messages[0]).toMatch(/registrei a campanha/i);
+      expect(messages[0]).toMatch(/contagem/i);
+      expect(messages[0]).not.toMatch(/nao consegui registrar/i);
+      // Ramo do rename nao foi acionado: nao mencionar nome desatualizado.
+      expect(messages[0]).not.toMatch(/nome da versao anterior/i);
+    });
+
+    it("persistencia de leads falhando ainda grava a campanha, com 0 leads", async () => {
+      setupStructureThenContent();
+      mockPersistApprovedLeads.mockRejectedValue(new Error("permission denied for table leads"));
+
+      const result = await step.run(createInput());
+
+      expect(result.success).toBe(true);
+      // Duas persistencias INDEPENDENTES: uma falha nunca pode custar as duas escritas.
+      expect(db.campaigns).toHaveLength(1);
+      expect(db.campaignLeads).toHaveLength(0);
+      expect((result.data as Record<string, unknown>).campaignId).toBe(db.campaigns[0].id);
+
+      // Bolha de Meus Leads apenas — a campanha foi gravada, nada a avisar sobre ela.
+      const messages = noticeMessages();
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatch(/nao consegui salvar os leads/i);
+    });
+
+    it("nome longo demais e truncado ANTES do insert (senao o Postgres rejeita a linha)", async () => {
+      setupStructureThenContent();
+      // `campaignDescription` ja aceita 200 caracteres e o nome vira
+      // `Campanha - ${descricao}` => estoura o VARCHAR(200) de `campaigns.name`.
+      const description = "á".repeat(200);
+
+      const result = await step.run(createInput({ campaignDescription: description }));
+
+      expect(result.success).toBe(true);
+      expect(db.campaigns).toHaveLength(1);
+      expect([...db.campaigns[0].name]).toHaveLength(200);
+      expect(db.campaigns[0].name.startsWith("Campanha - ")).toBe(true);
+      expect(noticeMessages()).toHaveLength(0);
+    });
+
+    it("costura completa: leads REAIS da 22.15 (inseridos E reusados) viram as associacoes", async () => {
+      // Nem a persistencia de leads nem a da campanha sao mockadas: os `leads.id` que
+      // saem de `persistApprovedLeads` sao os mesmos que entram em `campaign_leads`.
+      //
+      // Um dos dois leads JA esta em Meus Leads — o caso mais comum em producao (run
+      // anterior, CSV, Apollo sobreposto). Se `leadIds` devolvesse so os recem-inseridos,
+      // a campanha apareceria com 1 lead em vez de 2, e com os dois pre-existentes
+      // apareceria com ZERO: a invisibilidade que a story existe para remover.
+      //
+      // Aqui quem manda na tabela `leads` e o helper REAL, entao os ids de mentira que o
+      // beforeEach semeia (para satisfazer a FK nos testes com o helper mockado) saem de
+      // cena: o que este teste mede e a igualdade entre o que a 22.15 gravou e o que a
+      // 22.16 associou.
+      db.leads.length = 0;
+      db.seedLead({
+        tenant_id: TENANT_ID,
+        apollo_id: "apollo-john",
+        email: "john@acme.com",
+        first_name: "John",
+        last_name: "Doe",
+      });
+
+      const actual = await vi.importActual<typeof import("@/lib/agent/lead-persistence")>(
+        "@/lib/agent/lead-persistence"
+      );
+      mockPersistApprovedLeads.mockImplementation(actual.persistApprovedLeads);
+      mockSupabase = createMockSupabase(db, agentSteps);
+      step = new CreateCampaignStep(3, mockSupabase as never, TENANT_ID);
+
+      setupStructureThenContent();
+      const result = await step.run(createInput());
+
+      expect(result.success).toBe(true);
+      // 1 reusado + 1 inserido.
+      expect(db.leads).toHaveLength(2);
+      expect(db.campaigns).toHaveLength(1);
+      expect(db.campaignLeads).toHaveLength(2);
+      expect(db.campaignLeads.map((cl) => cl.lead_id).sort()).toEqual(
+        db.leads.map((l) => l.id).sort()
+      );
+      expect(noticeMessages()).toHaveLength(0);
     });
   });
 });

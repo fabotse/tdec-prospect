@@ -26,6 +26,7 @@ import {
   requireServiceApiKey,
 } from "@/lib/agent/service-keys";
 import { normalizeSegmentName, persistApprovedLeads } from "@/lib/agent/lead-persistence";
+import { persistAgentCampaign } from "@/lib/agent/campaign-persistence";
 import { transformProductRow, type ProductRow } from "@/types/product";
 import { ICEBREAKER_CATEGORY_INSTRUCTIONS } from "@/types/ai-prompt";
 import type { IcebreakerCategory } from "@/types/ai-prompt";
@@ -51,6 +52,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 const ICEBREAKER_BATCH_SIZE = 5;
 const MAX_IB_EXAMPLES_IN_PROMPT = 3;
+
+/**
+ * Story 22.16: bolha de falha TOTAL da persistencia da campanha.
+ *
+ * Sem caminho de URL na frase de proposito: a rota real e `/campaigns`, e mandar o
+ * usuario para `/campanhas` (que nao existe) o faz bater num 404 e concluir que o recurso
+ * inteiro quebrou — justamente no estado em que ele ja perdeu algo.
+ */
+const CAMPAIGN_NOT_SAVED_NOTICE =
+  "Nao consegui registrar a campanha na sua lista de Campanhas — ela continua nesta conversa e sera exportada normalmente, mas pode nao aparecer na lista.";
 
 // ==============================================
 // CREATE CAMPAIGN STEP
@@ -263,7 +274,23 @@ export class CreateCampaignStep extends BaseStep {
     // derivacao do nome do segmento fica DENTRO do try de proposito — `briefing` vem de um
     // JSONB com mais de um escritor, e um `segmentName` nao-string nao pode escapar do
     // fail-open.
-    await this.persistLeadsToMyLeads(input.executionId, leadsWithIcebreakers, briefing, campaignName);
+    const persistedLeadIds = await this.persistLeadsToMyLeads(
+      input.executionId,
+      leadsWithIcebreakers,
+      briefing,
+      campaignName
+    );
+
+    // Story 22.16: grava a campanha em `campaigns` para ela existir em /campaigns como
+    // qualquer outra. Bloco fail-open SEPARADO do de cima e nessa ordem de proposito: a
+    // campanha precisa dos `leadIds` que so a persistencia de leads produz, mas a
+    // reciproca nao vale — leads falhando ainda deixa a campanha gravada com 0 leads.
+    // Uma unica falha nunca pode custar as duas escritas.
+    data.campaignId = await this.persistCampaignRow(
+      input.executionId,
+      campaignName,
+      persistedLeadIds
+    );
 
     return {
       success: true,
@@ -287,20 +314,27 @@ export class CreateCampaignStep extends BaseStep {
    * - falha total (nada salvo)  -> "nao consegui salvar ... importe manualmente";
    * - sucesso parcial/`skipped` -> bolha INFORMATIVA. Mandar reimportar leads que ESTAO
    *   salvos e o que duplica a base que esta story existe para organizar.
+   *
+   * Story 22.16: devolve os `leads.id` efetivamente persistidos — a persistencia da
+   * campanha precisa deles para associar `campaign_leads` sem reconsultar o banco.
+   * Devolve `[]` quando a persistencia de leads nao chegou a rodar (nome inutilizavel) ou
+   * lancou; depois que `persistApprovedLeads` RETORNOU, os ids sobrevivem ao catch de
+   * proposito — os leads estao na base e a campanha tem que sair associada a eles.
    */
   private async persistLeadsToMyLeads(
     executionId: string,
     leadsWithIcebreakers: LeadWithIcebreaker[],
     briefing: ParsedBriefing,
     campaignName: string
-  ): Promise<void> {
+  ): Promise<string[]> {
     let persisted = false;
+    let leadIds: string[] = [];
 
     try {
       const segmentName =
         normalizeSegmentName(briefing.segmentName) ?? normalizeSegmentName(campaignName);
 
-      if (!segmentName) return; // nome inutilizavel dos dois lados: nao ha o que fazer
+      if (!segmentName) return leadIds; // nome inutilizavel dos dois lados: nao ha o que fazer
 
       const result = await persistApprovedLeads({
         supabase: this.supabase,
@@ -312,6 +346,9 @@ export class CreateCampaignStep extends BaseStep {
       // A partir daqui a persistencia JA rodou: nada mais pode levar a bolha de falha
       // total ("importe-os manualmente") — ela mandaria reimportar leads que estao salvos.
       persisted = true;
+      // Story 22.16: defensivo contra um `leadIds` nao-array (o helper e mockado em
+      // varios testes e o valor atravessa direto para o upsert de `campaign_leads`).
+      leadIds = Array.isArray(result.leadIds) ? result.leadIds : [];
 
       const saved = result.inserted + result.reused;
       const savedLabel = `${saved} ${saved === 1 ? "lead" : "leads"}`;
@@ -360,7 +397,7 @@ export class CreateCampaignStep extends BaseStep {
         );
       }
 
-      if (lines.length === 0) return;
+      if (lines.length === 0) return leadIds;
 
       await this.sendMyLeadsNotice(executionId, lines.join("\n"));
     } catch (error) {
@@ -374,6 +411,129 @@ export class CreateCampaignStep extends BaseStep {
           "Nao consegui salvar os leads em Meus Leads — a campanha foi criada normalmente. Se quiser te-los na base, importe-os manualmente."
         );
       }
+    }
+
+    return leadIds;
+  }
+
+  /**
+   * Story 22.16: grava a campanha em `campaigns` (a linha que faz ela aparecer em
+   * /campaigns) e associa os leads que a 22.15 acabou de persistir.
+   *
+   * Contrato desta funcao: NUNCA lanca. Devolve o `campaigns.id` para o output do step —
+   * e por ele que o `export` sabe qual linha carimbar com o `external_campaign_id`, a
+   * chave de que analytics (Epic 10/14), `reply-sweep` e webhook (Epic 21) dependem.
+   *
+   * IDEMPOTENCIA: le o `campaignId` do `output` JA gravado DESTE mesmo step. Uma
+   * re-execucao (ajuste pos-rejeicao, 22.13) atualiza a linha existente em vez de criar
+   * uma segunda campanha. Se a leitura falhar, seguimos como 1a vez — uma campanha extra
+   * em rascunho e preferivel a nenhuma.
+   */
+  private async persistCampaignRow(
+    executionId: string,
+    campaignName: string,
+    leadIds: string[]
+  ): Promise<string | null> {
+    try {
+      const existingCampaignId = await this.readOwnCampaignId(executionId);
+
+      const result = await persistAgentCampaign({
+        supabase: this.supabase,
+        tenantId: this.tenantId,
+        existingCampaignId,
+        name: campaignName,
+        leadIds,
+      });
+
+      if (!result.campaignId) {
+        await this.sendCampaignNotice(executionId, CAMPAIGN_NOT_SAVED_NOTICE);
+        return null;
+      }
+
+      // Os dois sinais sao INDEPENDENTES e a bolha tem que dizer qual aconteceu: com um
+      // booleano so, uma falha do rename avisava sobre contagem de leads (problema que
+      // nao existia) e nunca contava que a campanha carrega o nome da versao rejeitada.
+      const lines: string[] = [];
+      if (result.nameStale) {
+        lines.push(
+          "A campanha ja estava na sua lista de Campanhas, mas nao consegui atualizar o registro dela — pode aparecer por la com o nome da versao anterior."
+        );
+      }
+      if (result.associationDegraded) {
+        // A campanha ESTA gravada: a bolha nao pode sugerir o contrario.
+        lines.push(
+          "Registrei a campanha na sua lista de Campanhas, mas nao consegui associar todos os leads — a contagem dela pode aparecer menor do que a real."
+        );
+      }
+
+      if (lines.length > 0) {
+        await this.sendCampaignNotice(executionId, lines.join("\n"));
+      }
+
+      return result.campaignId;
+    } catch (error) {
+      // `persistAgentCampaign` ja e fail-open; este catch existe para o imprevisto.
+      console.error("[CreateCampaignStep] Falha ao registrar a campanha em Campanhas:", error);
+      await this.sendCampaignNotice(executionId, CAMPAIGN_NOT_SAVED_NOTICE);
+      return null;
+    }
+  }
+
+  /**
+   * Story 22.16: le o `campaignId` do `output` ja gravado DESTE step.
+   *
+   * O `StepInput` so carrega o output do step ANTERIOR — a propria linha nunca chega ao
+   * step, dai o select explicito. `updateStepStatus("running")` so troca `status`, entao o
+   * output da execucao anterior sobrevive ate o `saveCheckpoint`/`saveAwaitingApproval`
+   * seguinte.
+   *
+   * Mecanismo espelhado do `readOwnRow` do ActivateStep (22.18) — reescrito aqui de
+   * proposito: aquele e a guarda de idempotencia da ativacao e nao pode ganhar um segundo
+   * dono.
+   */
+  private async readOwnCampaignId(executionId: string): Promise<string | null> {
+    try {
+      const { data } = await this.supabase
+        .from("agent_steps")
+        .select("output")
+        .eq("execution_id", executionId)
+        .eq("step_number", this.stepNumber)
+        .single();
+
+      const row = data as { output?: unknown } | null;
+      const output =
+        row?.output && typeof row.output === "object"
+          ? (row.output as Record<string, unknown>)
+          : null;
+
+      const campaignId = output?.campaignId;
+      return typeof campaignId === "string" && campaignId !== "" ? campaignId : null;
+    } catch (error) {
+      console.error(
+        "[CreateCampaignStep] Nao consegui ler o campaignId da execucao anterior; seguindo como primeira vez:",
+        error
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Bolha de aviso sobre a campanha em /campanhas. Mesma regra da bolha de Meus Leads:
+   * NUNCA lanca e checa o `{ error }` que o supabase-js RETORNA em vez de lancar.
+   */
+  private async sendCampaignNotice(executionId: string, content: string): Promise<void> {
+    try {
+      const { error } = await this.supabase.from("agent_messages").insert({
+        execution_id: executionId,
+        role: "system",
+        content,
+        metadata: { stepNumber: this.stepNumber, messageType: "text" },
+      });
+      if (error) {
+        console.error("[CreateCampaignStep] Falha ao avisar sobre a campanha:", error);
+      }
+    } catch (messageError) {
+      console.error("[CreateCampaignStep] Falha ao avisar sobre a campanha:", messageError);
     }
   }
 

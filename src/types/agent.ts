@@ -304,6 +304,15 @@ export interface CreateCampaignOutput {
     skipped: number;
   };
   totalLeads: number;
+  /**
+   * Story 22.16: `campaigns.id` da linha local gravada por este step.
+   *
+   * O `agent_steps.output` e o UNICO canal entre um step e o seguinte — sem este campo o
+   * export nao teria como saber qual linha carimbar com o `external_campaign_id`.
+   * `null`/ausente = a persistencia local falhou (fail-open); o export simplesmente nao
+   * escreve nada.
+   */
+  campaignId?: string | null;
 }
 
 // === Export Step Output (Story 17.4 AC #1, #2) ===
@@ -318,6 +327,8 @@ export interface ExportStepOutput {
   accountsAdded: number;
   platform: 'instantly';
   accounts: Array<{ email: string; first_name?: string; last_name?: string }>;
+  /** Story 22.16: propagado do create_campaign para o activate. */
+  campaignId?: string | null;
 }
 
 // === Activate Step Output (Story 17.4 AC #3, #4) ===
@@ -327,6 +338,8 @@ export interface ActivateStepOutput {
   campaignName: string;
   activated: boolean;
   activatedAt: string;
+  /** Story 22.16: propagado do export; a linha local que virou `status: "active"`. */
+  campaignId?: string | null;
 }
 
 // === Execution lifecycle (Story 22.10) ===

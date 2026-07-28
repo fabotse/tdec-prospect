@@ -25,6 +25,8 @@ export { PreviewEmailStep } from "./PreviewEmailStep";
 export { PreviewDelayStep } from "./PreviewDelayStep";
 export { PreviewNavigation } from "./PreviewNavigation";
 export { ExportDialog } from "./ExportDialog";
+// Story 22.16: aviso da campanha criada pelo Agente TDEC (sequencia vive no Instantly)
+export { AgentCampaignNotice, builderHasSequence } from "./AgentCampaignNotice";
 export { ExportPreview } from "./ExportPreview";
 export { SendingAccountSelector } from "./SendingAccountSelector";
 export { VariableReference } from "./VariableReference";

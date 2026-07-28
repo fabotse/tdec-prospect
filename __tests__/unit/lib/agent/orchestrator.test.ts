@@ -1164,6 +1164,61 @@ describe("DeterministicOrchestrator (AC #5)", () => {
       expect(result.data).toMatchObject({ skipped: true, reason: "activation_deferred" });
     });
 
+    // Story 22.16: o defer NAO escreve na campanha local.
+    //
+    // "Adiar" e a ausencia de ativacao, entao a linha em `campaigns` tem que ficar como o
+    // export a deixou: `status: 'draft'` (Rascunho no card) com os campos de export ja
+    // preenchidos. Um `status: 'active'` aqui seria a UI afirmando uma ativacao que o
+    // usuario explicitamente recusou — e nao ha caminho de volta pela UI para desfazer.
+    it("Story 22.16: defer NAO toca a tabela `campaigns` (status continua rascunho)", async () => {
+      const prevStepChain = createChainBuilder({
+        data: {
+          output: {
+            externalCampaignId: "camp-123",
+            campaignName: "Test Campaign",
+            campaignId: "local-campaign-001",
+            activationDeferred: true,
+          },
+          status: "approved",
+        },
+        error: null,
+      });
+
+      const stepsChain = createChainBuilder({
+        data: {
+          id: "step-5",
+          execution_id: "exec-001",
+          step_number: 5,
+          step_type: "activate",
+          status: "pending",
+        },
+        error: null,
+      });
+
+      const campaignsChain = createChainBuilder({ data: null, error: null });
+
+      let stepsCallCount = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return mockSupabase.executionsChain;
+        if (table === "campaigns") return campaignsChain;
+        if (table === "agent_steps") {
+          stepsCallCount++;
+          if (stepsCallCount === 1) return stepsChain;
+          if (stepsCallCount === 2) return prevStepChain;
+          return createChainBuilder({ data: [], error: null });
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      const result = await orchestrator.executeStep("exec-001", 5);
+
+      expect(result.data).toMatchObject({ skipped: true, reason: "activation_deferred" });
+      // Nenhuma leitura e, sobretudo, nenhuma escrita em `campaigns`.
+      expect(mockSupabase.from).not.toHaveBeenCalledWith("campaigns");
+      expect(campaignsChain.update).not.toHaveBeenCalled();
+    });
+
     // ==============================================
     // Story 22.18 (code review, D1): carimbo `deferred` mora AQUI, nao no approve
     // ==============================================
