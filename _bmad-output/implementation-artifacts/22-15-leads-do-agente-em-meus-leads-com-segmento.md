@@ -232,6 +232,20 @@ warnings: [oversized]
 **Manual checks (if no CLI):**
 - Rodar uma campanha pequena pelo agente (modo guiado, 2 leads) e conferir em Meus Leads: os 2 leads aprovados presentes, com nome completo, email, icebreaker, data em "Importado em" e o segmento da campanha selecionavel no filtro. Rodar o mesmo fluxo uma segunda vez com o mesmo segmento e confirmar que nada duplicou.
 
+### 2026-07-28 — SMOKE REAL EXECUTADO (autorizado pelo Fabossi). Debito quitado.
+
+Execucao real do agente pela interface (`f4704dd7-6067-4fa0-a09b-fe7c659deab3`), via ENTRADA DIRETA (Story 17.11) com um unico lead: o proprio Fabossi. Detalhes completos na secao equivalente da 22.16.
+
+**O caso mais forte possivel para o dedupe caiu no colo:** `fabotse@gmail.com` ja existia no tenant (`a3948045-a5e4-4b5c-b5d6-8ec4cb553ca0`) com **`apollo_id: null`** — exatamente a linha legada que a regra "identidade em OR (`apollo_id` OU email)" existe para nao duplicar. Resultado no Postgres real:
+- o lead foi **REUSADO**, nao inserido: total do tenant permaneceu **875** (baseline intacto);
+- segmento `Verify 2216 Smoke` criado e associado, com exatamente 1 lead;
+- icebreaker do lead reusado atualizado pela Fase 5 (`icebreaker_generated_at` 2026-07-28T05:34:57), como o helper promete;
+- `status` do lead preservado (`oportunidade`) — a Fase 5 nao toca status de reusado.
+
+**Na interface:** Meus Leads -> filtro de segmento mostra `Verify 2216 Smoke (1)` e, aplicado, reduz para "1 lead importado" com a linha Felipe Fabossi / Omega Invest / Desenvolvedor / Sao Paulo, icebreaker novo e "Importado em".
+
+**O que este smoke NAO cobre:** o caso de 2+ leads (dedupe entre eles) e a segunda rodada com o mesmo segmento — ambos cobertos apenas pelo harness `.verify-2215/` contra o Postgres real, nao pela interface.
+
 
 ## Auto Run Result
 

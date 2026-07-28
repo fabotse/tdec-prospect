@@ -127,9 +127,9 @@ _bmad-output/epic-22-agente-tdec-2.0.html
 .claude/settings.local.json
 .bmad-loop/policy.toml
 
-# Harness ad-hoc de verificacao manual da Story 22.15 (dirige o persistApprovedLeads
-# REAL contra o Postgres real e escreve/limpa dados no tenant de teste). Fica local:
-# util para reverificar a 22.16, mas nao e suite — a suite versionada roda no fake.
-.verify-2215/
-playwright.verify.config.ts
-vitest.verify.config.mts
+# Harnesses ad-hoc de verificacao manual (`.verify-2215/`, `.verify-2216/`, ...): dirigem
+# os helpers REAIS contra o Postgres real e escrevem/limpam dados no tenant de teste.
+# Ficam locais — uteis para reverificar, mas nao sao suite; a suite versionada roda no fake.
+.verify-*/
+playwright.verify*.config.ts
+vitest.verify*.config.mts

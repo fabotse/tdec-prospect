@@ -183,11 +183,33 @@ warnings: [oversized]
 - Rodar uma campanha pequena pelo agente (modo guiado, 2 leads) e conferir: /campaigns lista a campanha com 2 leads; o clique abre o builder com o aviso do Agente e sem erro; a pagina de analytics carrega em vez do EmptyState "ainda nao foi exportada"; o badge mostra "Ativa" apos a ativacao (ou "Rascunho" se a ativacao foi adiada).
 - Rodar o mesmo fluxo com rejeicao + ajuste da etapa de campanha e confirmar que continua UMA campanha na lista, com o nome novo.
 - Verificacao contra o Postgres real (NAO executada em nenhuma das duas runs): existe um harness local gitignored (`.verify-2215/`, `vitest.verify.config.mts`, `playwright.verify.config.ts`) que roda os helpers de producao com client de sessao sob RLS, sem tocar Apollo/Instantly. Clonar o padrao para `campaign-persistence` e o unico jeito de nao repetir o bug que o fake escondeu na 22.15. ATENCAO: o tenant de teste tem 875 leads reais do cliente — esta verificacao exige OK explicito do Fabossi antes de qualquer escrita e nao pode rodar sozinha nesta execucao nao assistida.
-</content>
-</invoke>
 
+### 2026-07-28 — SMOKE REAL EXECUTADO (autorizado pelo Fabossi). Debito acima QUITADO.
 
+Harness clonado em `.verify-2216/` + `vitest.verify2216.config.mts` + `playwright.verify2216.config.ts` (gitignored via `.verify-*/`).
 
+**Baseline (N1):** `npm run test:run` 406 arquivos / 7532 passed / 2 skipped / 0 fail. `tsc --noEmit` 183 erros (== baseline declarado). `lint` 19 erros / 131 warnings, NENHUM em arquivo tocado pelas stories.
+
+**Postgres real (N2)** — `persist.test.ts`, client de sessao sob RLS, 8/8:
+insert com `tenant_id` e `status: draft`; re-execucao mantem UMA campanha e 0 associacoes novas (`unique_lead_per_campaign` real); `markCampaignExported` carimba os 4 campos mantendo `draft`; `markCampaignActive` marca `active`; **leitores reais** (`transformCampaignRowWithCount` + `getCampaignStatusConfig`) devolvem badge `"Ativa"` — nunca `undefined` —, `leadCount` 2 e `external_campaign_id` preenchido; re-execucao POS-export zera o carimbo e volta a `draft`; `leadIds: []` nao degrada; nome truncado em 200 code points com emoji intacto. Cleanup restaurou o baseline de 875 leads. **Diferente da 22.15, o fake nao escondia nada — o real confirmou o fake.**
+
+**Ponta-a-ponta real (N4)** — via ENTRADA DIRETA (Story 17.11) com o proprio Fabossi (`fabotse@gmail.com`) como unico destinatario, entao `search_companies`/`search_leads` PULADOS e **zero credito de Apollo**; custo confirmado no plano: R$ 3,00. Execucao `f4704dd7-6067-4fa0-a09b-fe7c659deab3`:
+- step 3 `create_campaign` -> `approved`, `campaignId=4a40d2bc-1d9c-4b8f-a6a8-3018591758ac`
+- step 4 `export` -> `approved`, `externalCampaignId=0f119c0b-3b2c-4ced-860a-0956bc33f46d`
+- step 5 `activate` -> `completed`, campanha `status: "active"`
+- `campaignId` propagado nos tres steps, como a spec exige.
+
+**Telas (N3)** — 4/4:
+- AC1: /campaigns lista `Campanha Outbound - 28/07/2026` com badge **Ativa** (unica ativa entre 9) e `1 lead`.
+- AC2: builder abre sem erro de runtime, com o aviso "Campanha criada pelo Agente TDEC" + corpo sobre o Instantly.
+- AC3: analytics carrega ("Analytics: Campanha Outbound…", metricas zeradas) em vez do EmptyState "ainda nao foi exportada".
+- 22.15: Meus Leads filtrado pelo segmento `Verify 2216 Smoke (1)` -> "1 lead importado", linha Felipe Fabossi / Omega Invest / Desenvolvedor.
+
+**AC4 (rejeicao + re-execucao) NAO foi exercitado ao vivo** — coberto pelos casos [2] e [6] do harness contra o Postgres real (mesma linha reusada, nome atualizado, carimbo de export zerado), nao pela interface.
+
+**Observacao de UX registrada (nao viola AC, nao tratada):** no ramo de import direto, uma mensagem com varios comandos ("Confirmo esses leads. O objetivo e X. Urgencia Y. Descricao Z. 2 emails. Segmento W.") e consumida como confirmacao dos leads e TODOS os demais campos sao descartados em silencio — o resumo volta com `- Segmento: nome da campanha` (default) e o agente repergunta objetivo/n. de emails. Com uma informacao por mensagem, tudo e capturado corretamente.
+
+**Notas de harness (custaram tempo, nao sao defeito do produto):** o reattach da 22.8 depende do `currentExecutionId` em localStorage (chave `tdec-agent-ui`, zustand persist) — contexto novo do Playwright nasce sem ele e cai no onboarding limpo, entao um teste de reattach precisa semear a chave; `waitForLoadState('networkidle')` NAO cobre o React Query (a tabela de Meus Leads fica em skeleton depois dele); e o email do lead nao e texto na tabela de Meus Leads (a coluna "Contato" e so icones), entao a ancora de assert tem que ser o nome.
 
 ## Auto Run Result
 
