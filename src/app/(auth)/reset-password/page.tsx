@@ -50,38 +50,38 @@ export default function ResetPasswordPage() {
   // Process code (PKCE) or hash fragment tokens on mount
   useEffect(() => {
     async function processAuth() {
-      const supabase = createClient();
-
-      // Check for PKCE code in query params (Supabase default flow)
-      const urlParams = new URLSearchParams(window.location.search);
-      const code = urlParams.get("code");
-
-      if (code) {
-        try {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
-
-          if (error) {
-            console.error("Code exchange error:", error);
-            setStatus("error");
-            setServerError("Link expirado. Solicite um novo.");
-            return;
-          }
-
-          setStatus("ready");
-          // Clean URL
-          window.history.replaceState({}, "", "/reset-password");
-          return;
-        } catch (err) {
-          console.error("Code processing error:", err);
-          setStatus("error");
-          setServerError("Erro ao processar link.");
-          return;
-        }
-      }
-
-      // Fallback: Check for hash fragment tokens (legacy flow)
+      // Lê a URL ANTES de criar o client: a inicialização do client
+      // (detectSessionInUrl) consome o `?code` / `#access_token` e limpa a URL.
+      const code = new URLSearchParams(window.location.search).get("code");
       const hash = window.location.hash;
 
+      const supabase = createClient();
+
+      // PKCE (fluxo padrão do resetPasswordForEmail): o client já troca o
+      // `?code` pela sessão na própria inicialização. Trocar de novo aqui
+      // falha (código já usado) — então só aguardamos e lemos a sessão.
+      // getSession() espera a inicialização terminar.
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session) {
+        setStatus("ready");
+        window.history.replaceState({}, "", "/reset-password");
+        return;
+      }
+
+      if (code) {
+        // Sem sessão com `?code` na URL: o code verifier do PKCE não está neste
+        // navegador (link aberto em outro navegador/app) ou o link já foi usado.
+        setStatus("error");
+        setServerError(
+          "Link expirado ou aberto em outro navegador. Abra o link no mesmo navegador em que você pediu a recuperação, ou solicite um novo."
+        );
+        return;
+      }
+
+      // Fallback: hash fragment tokens (links gerados pelo admin / fluxo implícito)
       if (hash) {
         const params = new URLSearchParams(hash.substring(1));
         const accessToken = params.get("access_token");
