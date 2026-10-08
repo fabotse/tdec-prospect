@@ -10,26 +10,21 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { POST, GET } from "@/app/api/snovio/lists/route";
-import { createChainBuilder } from "../../helpers/mock-supabase";
 import { ExternalServiceError } from "@/lib/services/base-service";
 
 // Mock dependencies
 const mockGetCurrentUserProfile = vi.fn();
 const mockCreateProspectList = vi.fn();
 const mockGetUserLists = vi.fn();
-const mockDecryptApiKey = vi.fn();
-const mockFrom = vi.fn();
+const mockGetInjectableServiceApiKey = vi.fn();
 
 vi.mock("@/lib/supabase/tenant", () => ({
   getCurrentUserProfile: (...args: unknown[]) => mockGetCurrentUserProfile(...args),
 }));
 
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: vi.fn(() => ({ from: mockFrom })),
-}));
-
-vi.mock("@/lib/crypto/encryption", () => ({
-  decryptApiKey: (...args: unknown[]) => mockDecryptApiKey(...args),
+vi.mock("@/lib/agent/service-keys", () => ({
+  getInjectableServiceApiKey: (...args: unknown[]) =>
+    mockGetInjectableServiceApiKey(...args),
 }));
 
 vi.mock("@/lib/services/snovio", () => ({
@@ -49,18 +44,12 @@ function createPostRequest(body: unknown) {
   });
 }
 
-function createGetRequest() {
-  return new NextRequest("http://localhost/api/snovio/lists", {
-    method: "GET",
-  });
-}
-
 describe("/api/snovio/lists", () => {
   const mockProfile = { id: "user-123", tenant_id: "tenant-456", role: "admin" };
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFrom.mockImplementation(() => createChainBuilder());
+    mockGetInjectableServiceApiKey.mockResolvedValue(undefined);
   });
 
   // ==============================================
@@ -90,9 +79,7 @@ describe("/api/snovio/lists", () => {
 
     it("returns 404 when credentials not configured", async () => {
       mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-      mockFrom.mockImplementation(() =>
-        createChainBuilder({ data: null, error: null })
-      );
+      mockGetInjectableServiceApiKey.mockResolvedValue(undefined);
 
       const response = await POST(createPostRequest({ name: "Test" }));
       const data = await response.json();
@@ -103,10 +90,7 @@ describe("/api/snovio/lists", () => {
 
     it("returns 201 with list data on success", async () => {
       mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-      mockFrom.mockImplementation(() =>
-        createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-      );
-      mockDecryptApiKey.mockReturnValue("client_id:client_secret");
+      mockGetInjectableServiceApiKey.mockResolvedValue("client_id:client_secret");
       mockCreateProspectList.mockResolvedValue({ listId: 12345, name: "Prospects Q1" });
 
       const response = await POST(createPostRequest({ name: "Prospects Q1" }));
@@ -119,10 +103,7 @@ describe("/api/snovio/lists", () => {
 
     it("passes correct params to createProspectList", async () => {
       mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-      mockFrom.mockImplementation(() =>
-        createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-      );
-      mockDecryptApiKey.mockReturnValue("my-creds");
+      mockGetInjectableServiceApiKey.mockResolvedValue("my-creds");
       mockCreateProspectList.mockResolvedValue({ listId: 1, name: "Test" });
 
       await POST(createPostRequest({ name: "Test" }));
@@ -131,14 +112,16 @@ describe("/api/snovio/lists", () => {
         credentials: "my-creds",
         name: "Test",
       });
+      expect(mockGetInjectableServiceApiKey).toHaveBeenCalledWith(
+        "tenant-456",
+        "snovio",
+        "Snov.io"
+      );
     });
 
     it("returns service error on ExternalServiceError", async () => {
       mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-      mockFrom.mockImplementation(() =>
-        createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-      );
-      mockDecryptApiKey.mockReturnValue("creds");
+      mockGetInjectableServiceApiKey.mockResolvedValue("creds");
       mockCreateProspectList.mockRejectedValue(
         new ExternalServiceError("snovio", 401, "API key inválida ou expirada.")
       );
@@ -152,10 +135,7 @@ describe("/api/snovio/lists", () => {
 
     it("returns 500 on unexpected error", async () => {
       mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-      mockFrom.mockImplementation(() =>
-        createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-      );
-      mockDecryptApiKey.mockReturnValue("creds");
+      mockGetInjectableServiceApiKey.mockResolvedValue("creds");
       mockCreateProspectList.mockRejectedValue(new Error("Unexpected"));
 
       const response = await POST(createPostRequest({ name: "Test" }));
@@ -183,9 +163,7 @@ describe("/api/snovio/lists", () => {
 
     it("returns 404 when credentials not configured", async () => {
       mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-      mockFrom.mockImplementation(() =>
-        createChainBuilder({ data: null, error: null })
-      );
+      mockGetInjectableServiceApiKey.mockResolvedValue(undefined);
 
       const response = await GET();
       const data = await response.json();
@@ -196,10 +174,7 @@ describe("/api/snovio/lists", () => {
 
     it("returns lists on success", async () => {
       mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-      mockFrom.mockImplementation(() =>
-        createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-      );
-      mockDecryptApiKey.mockReturnValue("creds");
+      mockGetInjectableServiceApiKey.mockResolvedValue("creds");
       mockGetUserLists.mockResolvedValue({
         lists: [
           { id: 1, name: "Lista A", contacts: 100 },
@@ -217,10 +192,7 @@ describe("/api/snovio/lists", () => {
 
     it("returns service error on ExternalServiceError", async () => {
       mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-      mockFrom.mockImplementation(() =>
-        createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-      );
-      mockDecryptApiKey.mockReturnValue("creds");
+      mockGetInjectableServiceApiKey.mockResolvedValue("creds");
       mockGetUserLists.mockRejectedValue(
         new ExternalServiceError("snovio", 429, "Limite de requisições atingido.")
       );
@@ -234,10 +206,7 @@ describe("/api/snovio/lists", () => {
 
     it("returns 500 on unexpected error", async () => {
       mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-      mockFrom.mockImplementation(() =>
-        createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-      );
-      mockDecryptApiKey.mockReturnValue("creds");
+      mockGetInjectableServiceApiKey.mockResolvedValue("creds");
       mockGetUserLists.mockRejectedValue(new Error("Unexpected"));
 
       const response = await GET();

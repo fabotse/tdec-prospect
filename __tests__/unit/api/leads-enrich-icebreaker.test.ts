@@ -23,14 +23,14 @@ const {
   mockRenderPrompt,
   mockGenerateText,
   mockFetchLinkedInPosts,
-  mockDecryptApiKey,
+  mockGetServiceApiKeyOrNull,
 } = vi.hoisted(() => ({
   mockGetCurrentUserProfile: vi.fn(),
   mockFrom: vi.fn(),
   mockRenderPrompt: vi.fn(),
   mockGenerateText: vi.fn(),
   mockFetchLinkedInPosts: vi.fn(),
-  mockDecryptApiKey: vi.fn(),
+  mockGetServiceApiKeyOrNull: vi.fn(),
 }));
 
 // Mock getCurrentUserProfile
@@ -43,9 +43,9 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(() => Promise.resolve({ from: mockFrom })),
 }));
 
-// Mock decryptApiKey
-vi.mock("@/lib/crypto/encryption", () => ({
-  decryptApiKey: (encrypted: string) => mockDecryptApiKey(encrypted),
+// API keys are read via service-role helper (api_configs RLS is admin-only)
+vi.mock("@/lib/agent/service-keys", () => ({
+  getServiceApiKeyOrNull: (...args: unknown[]) => mockGetServiceApiKeyOrNull(...args),
 }));
 
 // Mock ApifyService
@@ -126,25 +126,11 @@ describe("POST /api/leads/enrich-icebreaker", () => {
       role: "user",
     });
 
-    mockDecryptApiKey.mockImplementation((encrypted: string) => `decrypted-${encrypted}`);
+    mockGetServiceApiKeyOrNull.mockResolvedValue("decrypted-encrypted-key");
 
     const leadsToReturn = options?.leads ?? [mockLead];
 
     mockFrom.mockImplementation((table: string) => {
-      if (table === "api_configs") {
-        return {
-          select: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                single: vi.fn().mockResolvedValue({
-                  data: { encrypted_key: "encrypted-key" },
-                  error: null,
-                }),
-              }),
-            }),
-          }),
-        };
-      }
       if (table === "leads") {
         return {
           select: vi.fn().mockReturnValue({
@@ -549,29 +535,11 @@ describe("POST /api/leads/enrich-icebreaker", () => {
 
     it("falls back gracefully when Apify key missing for post category", async () => {
       // Story 9.1: Missing Apify key triggers fallback to Lead, not an error
-      // Override api_configs to return OpenAI key but NOT Apify key
+      // Return OpenAI key but NOT Apify key
+      mockGetServiceApiKeyOrNull.mockImplementation(async (_tenantId: string, service: string) =>
+        service === "openai" ? "decrypted-encrypted-key" : null
+      );
       mockFrom.mockImplementation((table: string) => {
-        if (table === "api_configs") {
-          return {
-            select: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                eq: vi.fn().mockImplementation((_field: string, value: string) => {
-                  if (value === "openai") {
-                    return {
-                      single: vi.fn().mockResolvedValue({
-                        data: { encrypted_key: "encrypted-key" },
-                        error: null,
-                      }),
-                    };
-                  }
-                  return {
-                    single: vi.fn().mockResolvedValue({ data: null, error: new Error("Not found") }),
-                  };
-                }),
-              }),
-            }),
-          };
-        }
         if (table === "leads") {
           return {
             select: vi.fn().mockReturnValue({
@@ -629,22 +597,9 @@ describe("POST /api/leads/enrich-icebreaker", () => {
 
   describe("API Key Configuration", () => {
     it("returns error when Apify API key not configured", async () => {
-      // Reset mock to return null for apify
+      // No api_configs row for any service
+      mockGetServiceApiKeyOrNull.mockResolvedValue(null);
       mockFrom.mockImplementation((table: string) => {
-        if (table === "api_configs") {
-          return {
-            select: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                eq: vi.fn().mockReturnValue({
-                  single: vi.fn().mockResolvedValue({
-                    data: null,
-                    error: new Error("Not found"),
-                  }),
-                }),
-              }),
-            }),
-          };
-        }
         if (table === "icebreaker_examples") {
           return {
             select: vi.fn().mockReturnValue({
@@ -669,36 +624,11 @@ describe("POST /api/leads/enrich-icebreaker", () => {
     });
 
     it("returns error when OpenAI API key not configured", async () => {
-      // Mock returns apify key but not openai key
-      let apifyCallCount = 0;
+      // Helper returns apify key but not openai key
+      mockGetServiceApiKeyOrNull.mockImplementation(async (_tenantId: string, service: string) =>
+        service === "apify" ? "decrypted-apify-key" : null
+      );
       mockFrom.mockImplementation((table: string) => {
-        if (table === "api_configs") {
-          return {
-            select: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                eq: vi.fn().mockImplementation((field: string, value: string) => {
-                  // First call is for apify, second for openai
-                  if (value === "apify") {
-                    apifyCallCount++;
-                    return {
-                      single: vi.fn().mockResolvedValue({
-                        data: { encrypted_key: "apify-key" },
-                        error: null,
-                      }),
-                    };
-                  }
-                  // openai returns null
-                  return {
-                    single: vi.fn().mockResolvedValue({
-                      data: null,
-                      error: new Error("Not found"),
-                    }),
-                  };
-                }),
-              }),
-            }),
-          };
-        }
         if (table === "icebreaker_examples") {
           return {
             select: vi.fn().mockReturnValue({
@@ -721,6 +651,7 @@ describe("POST /api/leads/enrich-icebreaker", () => {
       expect(response.status).toBe(400);
       expect(data.error.code).toBe("API_KEY_ERROR");
       expect(data.error.message).toContain("OpenAI");
+      expect(mockGetServiceApiKeyOrNull).toHaveBeenCalledWith(tenantId, "openai");
     });
   });
 

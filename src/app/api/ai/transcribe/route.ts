@@ -11,8 +11,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
-import { createClient } from "@/lib/supabase/server";
-import { decryptApiKey } from "@/lib/crypto/encryption";
+import { getInjectableServiceApiKey } from "@/lib/agent/service-keys";
 import { AIService, AI_ERROR_MESSAGES } from "@/lib/ai";
 import type { APISuccessResponse, APIErrorResponse } from "@/types/api";
 import type { TranscriptionResponse } from "@/types/ai-search";
@@ -37,21 +36,15 @@ const ALLOWED_AUDIO_TYPES = [
 // ==============================================
 
 async function getOpenAIApiKey(tenantId: string): Promise<string> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("api_configs")
-    .select("encrypted_key")
-    .eq("tenant_id", tenantId)
-    .eq("service_name", "openai")
-    .single();
-
-  if (error || !data) {
+  // Service-role: a RLS de api_configs e admin-only e devolveria zero linhas para SDR.
+  const apiKey = await getInjectableServiceApiKey(tenantId, "openai", "OpenAI");
+  if (!apiKey) {
     throw new Error(
       "API key do OpenAI não configurada. Configure em Configurações > Integrações."
     );
   }
 
-  return decryptApiKey(data.encrypted_key);
+  return apiKey;
 }
 
 // ==============================================

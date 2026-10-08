@@ -52,11 +52,6 @@ const mockLookupRow: {
 
 // Mock Supabase with more complete chain
 const mockSupabaseFrom = vi.fn();
-const mockSupabaseSelect = vi.fn();
-const mockSupabaseInsert = vi.fn();
-const mockSupabaseUpdate = vi.fn();
-const mockSupabaseEq = vi.fn();
-const mockSupabaseSingle = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(() =>
@@ -66,9 +61,11 @@ vi.mock("@/lib/supabase/server", () => ({
   ),
 }));
 
-// Mock encryption
-vi.mock("@/lib/crypto/encryption", () => ({
-  decryptApiKey: vi.fn(() => "decrypted-api-key"),
+// Mock service-role key reader (api_configs is read via service-role, not session RLS)
+const mockReadServiceApiKey = vi.fn();
+
+vi.mock("@/lib/agent/service-keys", () => ({
+  readServiceApiKey: (...args: unknown[]) => mockReadServiceApiKey(...args),
 }));
 
 // Setup Supabase mock chain
@@ -85,23 +82,13 @@ function setupSupabaseMock(options: {
     selectData = mockLookupRow,
   } = options;
 
-  mockSupabaseFrom.mockImplementation((table: string) => {
-    if (table === "api_configs") {
-      return {
-        select: () => ({
-          eq: () => ({
-            eq: () => ({
-              single: () =>
-                Promise.resolve({
-                  data: apiKeyExists ? { encrypted_key: "enc-key" } : null,
-                  error: apiKeyExists ? null : { message: "Not found" },
-                }),
-            }),
-          }),
-        }),
-      };
-    }
+  mockReadServiceApiKey.mockResolvedValue(
+    apiKeyExists
+      ? { status: "ok", apiKey: "decrypted-api-key" }
+      : { status: "missing" }
+  );
 
+  mockSupabaseFrom.mockImplementation((table: string) => {
     if (table === "signalhire_lookups") {
       return {
         insert: () => ({
@@ -146,6 +133,11 @@ describe("SignalHireService", () => {
   let service: SignalHireService;
 
   beforeEach(() => {
+    mockReadServiceApiKey.mockReset();
+    mockReadServiceApiKey.mockResolvedValue({
+      status: "ok",
+      apiKey: "decrypted-api-key",
+    });
     service = new SignalHireService();
     vi.stubEnv("SIGNALHIRE_CALLBACK_URL", "https://test.supabase.co/functions/v1/signalhire-callback");
   });

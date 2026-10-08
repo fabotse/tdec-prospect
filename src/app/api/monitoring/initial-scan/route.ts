@@ -13,13 +13,13 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getServiceApiKeyOrNull } from "@/lib/agent/service-keys";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { ApifyService } from "@/lib/services/apify";
 import { z } from "zod";
 import {
   BATCH_SIZE,
   processLead,
-  getApiKey,
   loadKBContext,
   loadToneContext,
   logMonitoringUsage,
@@ -115,8 +115,9 @@ export async function POST(request: NextRequest) {
     // Create client for queries (RLS filters by tenant automatically)
     const supabase = await createClient();
 
+    // Chaves via service-role: a RLS de api_configs e admin-only (SDR leria zero linhas).
     // Check Apify key before processing (AC #10)
-    const apifyKey = await getApiKey(supabase, tenantId, "apify");
+    const apifyKey = await getServiceApiKeyOrNull(tenantId, "apify");
     if (!apifyKey) {
       return NextResponse.json(
         { error: { code: "APIFY_KEY_MISSING", message: "Chave da Apify não configurada" } },
@@ -145,7 +146,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Load shared context once
-    const openaiKey = await getApiKey(supabase, tenantId, "openai");
+    const openaiKey = await getServiceApiKeyOrNull(tenantId, "openai");
     const kbContext = await loadKBContext(supabase, tenantId);
     const toneContext = await loadToneContext(supabase, tenantId);
     const apifyService = new ApifyService();

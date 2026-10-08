@@ -22,9 +22,12 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(() => Promise.resolve({ from: mockFrom })),
 }));
 
-// Mock decryptApiKey
-vi.mock("@/lib/crypto/encryption", () => ({
-  decryptApiKey: vi.fn((key: string) => `decrypted-${key}`),
+// Mock da chave do Instantly (lida por service-role, nao pelo client de sessao)
+const mockGetInjectableServiceApiKey = vi.fn();
+
+vi.mock("@/lib/agent/service-keys", () => ({
+  getInjectableServiceApiKey: (...args: unknown[]) =>
+    mockGetInjectableServiceApiKey(...args),
 }));
 
 // Mock fetch for Instantly API fallback
@@ -67,6 +70,7 @@ const mockProfile = {
 describe("GET /api/campaigns/[campaignId]/steps", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetInjectableServiceApiKey.mockResolvedValue("decrypted-enc-key-123");
   });
 
   it("returns 401 when not authenticated", async () => {
@@ -152,18 +156,11 @@ describe("GET /api/campaigns/[campaignId]/steps", () => {
       error: null,
     });
 
-    // api_configs returns encrypted key
-    const apiConfigChain = createChainBuilder({
-      data: { encrypted_key: "enc-key-123" },
-      error: null,
-    });
-
     let fromCallCount = 0;
     mockFrom.mockImplementation(() => {
       fromCallCount++;
       if (fromCallCount === 1) return emptyBlocksChain;
-      if (fromCallCount === 2) return campaignChain;
-      return apiConfigChain;
+      return campaignChain;
     });
 
     // Mock Instantly API response
@@ -202,6 +199,11 @@ describe("GET /api/campaigns/[campaignId]/steps", () => {
         }),
       })
     );
+    expect(mockGetInjectableServiceApiKey).toHaveBeenCalledWith(
+      TENANT_ID,
+      "instantly",
+      "Instantly"
+    );
   });
 
   it("returns empty array when Instantly API fails", async () => {
@@ -212,17 +214,12 @@ describe("GET /api/campaigns/[campaignId]/steps", () => {
       data: { id: CAMPAIGN_ID, external_campaign_id: EXTERNAL_CAMPAIGN_ID },
       error: null,
     });
-    const apiConfigChain = createChainBuilder({
-      data: { encrypted_key: "enc-key-123" },
-      error: null,
-    });
 
     let fromCallCount = 0;
     mockFrom.mockImplementation(() => {
       fromCallCount++;
       if (fromCallCount === 1) return emptyBlocksChain;
-      if (fromCallCount === 2) return campaignChain;
-      return apiConfigChain;
+      return campaignChain;
     });
 
     vi.mocked(fetch).mockResolvedValueOnce({
@@ -245,14 +242,13 @@ describe("GET /api/campaigns/[campaignId]/steps", () => {
       data: { id: CAMPAIGN_ID, external_campaign_id: EXTERNAL_CAMPAIGN_ID },
       error: null,
     });
-    const noConfigChain = createChainBuilder({ data: null, error: null });
+    mockGetInjectableServiceApiKey.mockResolvedValue(undefined);
 
     let fromCallCount = 0;
     mockFrom.mockImplementation(() => {
       fromCallCount++;
       if (fromCallCount === 1) return emptyBlocksChain;
-      if (fromCallCount === 2) return campaignChain;
-      return noConfigChain;
+      return campaignChain;
     });
 
     const response = await GET(createRequest(), createParams());
@@ -260,6 +256,7 @@ describe("GET /api/campaigns/[campaignId]/steps", () => {
 
     expect(response.status).toBe(200);
     expect(body.data).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("returns 500 when email_blocks query fails", async () => {

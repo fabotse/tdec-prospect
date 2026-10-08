@@ -9,25 +9,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { POST } from "@/app/api/snovio/prospects/route";
-import { createChainBuilder } from "../../helpers/mock-supabase";
 import { ExternalServiceError } from "@/lib/services/base-service";
 
 // Mock dependencies
 const mockGetCurrentUserProfile = vi.fn();
 const mockAddProspectsToList = vi.fn();
-const mockDecryptApiKey = vi.fn();
-const mockFrom = vi.fn();
+const mockGetInjectableServiceApiKey = vi.fn();
 
 vi.mock("@/lib/supabase/tenant", () => ({
   getCurrentUserProfile: (...args: unknown[]) => mockGetCurrentUserProfile(...args),
 }));
 
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: vi.fn(() => ({ from: mockFrom })),
-}));
-
-vi.mock("@/lib/crypto/encryption", () => ({
-  decryptApiKey: (...args: unknown[]) => mockDecryptApiKey(...args),
+vi.mock("@/lib/agent/service-keys", () => ({
+  getInjectableServiceApiKey: (...args: unknown[]) =>
+    mockGetInjectableServiceApiKey(...args),
 }));
 
 vi.mock("@/lib/services/snovio", () => ({
@@ -62,7 +57,7 @@ describe("POST /api/snovio/prospects", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFrom.mockImplementation(() => createChainBuilder());
+    mockGetInjectableServiceApiKey.mockResolvedValue(undefined);
   });
 
   it("returns 401 when user is not authenticated", async () => {
@@ -97,9 +92,7 @@ describe("POST /api/snovio/prospects", () => {
 
   it("returns 404 when credentials not configured", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-    mockFrom.mockImplementation(() =>
-      createChainBuilder({ data: null, error: null })
-    );
+    mockGetInjectableServiceApiKey.mockResolvedValue(undefined);
 
     const response = await POST(createRequest(validBody));
     const data = await response.json();
@@ -110,10 +103,7 @@ describe("POST /api/snovio/prospects", () => {
 
   it("returns aggregated results on success", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-    mockFrom.mockImplementation(() =>
-      createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-    );
-    mockDecryptApiKey.mockReturnValue("client_id:client_secret");
+    mockGetInjectableServiceApiKey.mockResolvedValue("client_id:client_secret");
     mockAddProspectsToList.mockResolvedValue({
       added: 1,
       updated: 0,
@@ -131,10 +121,7 @@ describe("POST /api/snovio/prospects", () => {
 
   it("passes correct params to addProspectsToList", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-    mockFrom.mockImplementation(() =>
-      createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-    );
-    mockDecryptApiKey.mockReturnValue("my-creds");
+    mockGetInjectableServiceApiKey.mockResolvedValue("my-creds");
     mockAddProspectsToList.mockResolvedValue({
       added: 1, updated: 0, errors: 0, totalProcessed: 1,
     });
@@ -146,14 +133,16 @@ describe("POST /api/snovio/prospects", () => {
       listId: 12345,
       leads: validBody.leads,
     });
+    expect(mockGetInjectableServiceApiKey).toHaveBeenCalledWith(
+      "tenant-456",
+      "snovio",
+      "Snov.io"
+    );
   });
 
   it("returns service error on ExternalServiceError", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-    mockFrom.mockImplementation(() =>
-      createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-    );
-    mockDecryptApiKey.mockReturnValue("creds");
+    mockGetInjectableServiceApiKey.mockResolvedValue("creds");
     mockAddProspectsToList.mockRejectedValue(
       new ExternalServiceError("snovio", 429, "Limite de requisições atingido.")
     );
@@ -167,10 +156,7 @@ describe("POST /api/snovio/prospects", () => {
 
   it("returns 500 on unexpected error", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-    mockFrom.mockImplementation(() =>
-      createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-    );
-    mockDecryptApiKey.mockReturnValue("creds");
+    mockGetInjectableServiceApiKey.mockResolvedValue("creds");
     mockAddProspectsToList.mockRejectedValue(new Error("Unexpected"));
 
     const response = await POST(createRequest(validBody));

@@ -122,9 +122,10 @@ describe("Contrato: chaves de servico no runtime do agente (Story 22.9)", () => 
       expect(stepUtils).toContain("requireServiceApiKey");
     });
 
-    it("o runtime do agente injeta a chave do Apollo (o service le api_configs pela sessao)", () => {
-      // ApolloService.getApiKey() cria o proprio client de SESSAO: sem a chave
-      // injetada, o step morre com "API key nao configurada" para um `sdr`.
+    it("o runtime do agente injeta a chave do Apollo", () => {
+      // Historico: ApolloService.getApiKey() lia pela SESSAO e, sem a chave injetada,
+      // o step morria com "API key nao configurada" para um `sdr`. Desde o hotfix SDR
+      // o fallback interno tambem usa o helper; a injecao segue como contrato.
       //
       // A assercao anterior era `snippet.toContain(",")` — provava ARIDADE, nao
       // origem: `new ApolloService(tenantId, undefined)` passava. Aqui exigimos que
@@ -145,23 +146,55 @@ describe("Contrato: chaves de servico no runtime do agente (Story 22.9)", () => 
     });
   });
 
-  describe("AC5 - a guarda cobre tambem os services que leem api_configs por conta propria", () => {
-    // POR QUE: o "ponto silencioso" que quase escapou (ApolloService) NAO vive em
-    // `src/lib/agent` nem em `src/app/api/agent` — vive em `src/lib/services`, fora
-    // do scan acima. Um step futuro fazendo `new SignalHireService(tenantId)`
-    // reintroduziria o bug do SDR com a suite inteira verde.
+  describe("Hotfix SDR - nenhuma superficie SDR-allowed le api_configs pela sessao", () => {
+    // POR QUE: a 22.9 corrigiu so o runtime do agente. Os fluxos manuais (export p/
+    // Instantly, analytics, IA do builder, Apollo/SignalHire, Snov.io, WhatsApp,
+    // icebreaker, scan de monitoramento) continuaram lendo pela SESSAO e o SDR recebia
+    // "API key nao configurada" com a chave la. Agora TODO `src/` e varrido.
     //
-    // Esta lista e um INVENTARIO CONGELADO: services que ainda leem `api_configs`
-    // com o client de SESSAO. Quem adicionar um novo tem que vir aqui e decidir
-    // conscientemente (injetar a chave pelo helper ou aceitar admin-only).
-    const KNOWN_SESSION_READERS = ["src/lib/services/apollo.ts", "src/lib/services/signalhire.ts"];
+    // INVENTARIO CONGELADO de quem pode ler `api_configs` diretamente. Qualquer arquivo
+    // novo aqui exige decisao consciente: superficie admin-only (RLS serve) ou
+    // client service-role recebido por parametro (cron) — senao, usar o helper.
+    const ALLOWED_DIRECT_READERS = [
+      HELPER_PATH,
+      // Admin-only (Settings -> Integracoes / Technographic): a RLS admin-only E o gate.
+      "src/actions/integrations.ts",
+      "src/app/api/integrations/apollo/test/route.ts",
+      "src/app/api/integrations/theirstack/credits/route.ts",
+      "src/app/api/integrations/theirstack/search/companies/route.ts",
+      "src/app/api/integrations/theirstack/search/technologies/route.ts",
+      "src/app/api/integrations/theirstack/test/route.ts",
+      "src/app/api/settings/integrations/[service]/test/route.ts",
+      "src/app/api/settings/integrations/route.ts",
+      // Recebem o client do caller (crons com service-role / rotas que passam admin).
+      "src/lib/utils/engagement-processor.ts",
+      "src/lib/utils/monitoring-processor.ts",
+      "src/lib/utils/reply-sweep.ts",
+    ];
 
-    it("nenhum service novo passa a ler api_configs pela sessao sem revisao", () => {
-      const readers = walk("src/lib/services").filter((file) =>
+    it("so o inventario revisado le api_configs diretamente", () => {
+      const readers = walk("src").filter((file) =>
         /from\(\s*["']api_configs["']\s*\)/.test(read(file))
       );
 
-      expect(readers.sort()).toEqual([...KNOWN_SESSION_READERS].sort());
+      expect(readers.sort()).toEqual([...ALLOWED_DIRECT_READERS].sort());
+    });
+
+    it("o builder de campanha nao depende do status de integracoes admin-only", () => {
+      // `useIntegrationConfig` -> `getApiConfigs` e admin-only (chaves mascaradas p/
+      // Settings). No builder, um `sdr` via Instantly/Snov.io como "Nao configurado".
+      const editPage = read("src/app/(dashboard)/campaigns/[campaignId]/edit/page.tsx");
+
+      expect(editPage).not.toContain("useIntegrationConfig");
+      expect(editPage).toContain("useConfiguredIntegrations");
+    });
+
+    it("Apollo e SignalHire leem a chave pelo helper service-role (nao pela sessao)", () => {
+      for (const file of ["src/lib/services/apollo.ts", "src/lib/services/signalhire.ts"]) {
+        const source = read(file);
+        expect(source).toContain("readServiceApiKey");
+        expect(source).not.toMatch(/from\(\s*["']api_configs["']\s*\)/);
+      }
     });
 
     it("o unico service do inventario usado pelo agente (Apollo) aceita a chave por injecao", () => {

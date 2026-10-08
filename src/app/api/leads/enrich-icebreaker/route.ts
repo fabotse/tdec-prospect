@@ -18,7 +18,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
-import { decryptApiKey } from "@/lib/crypto/encryption";
+import { getServiceApiKeyOrNull } from "@/lib/agent/service-keys";
 import { ApifyService } from "@/lib/services/apify";
 import { createAIProvider, promptManager } from "@/lib/ai";
 import { logApifySuccess, logApifyFailure } from "@/lib/services/usage-logger";
@@ -118,23 +118,8 @@ async function getApiKey(
   tenantId: string,
   serviceName: "openai" | "apify"
 ): Promise<string | null> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("api_configs")
-    .select("encrypted_key")
-    .eq("tenant_id", tenantId)
-    .eq("service_name", serviceName)
-    .single();
-
-  if (error || !data) {
-    return null;
-  }
-
-  try {
-    return decryptApiKey(data.encrypted_key);
-  } catch {
-    return null;
-  }
+  // Service-role: a RLS de api_configs e admin-only e devolveria zero linhas para SDR.
+  return getServiceApiKeyOrNull(tenantId, serviceName);
 }
 
 // ==============================================

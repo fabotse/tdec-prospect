@@ -9,8 +9,8 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { readServiceApiKey } from "@/lib/agent/service-keys";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
-import { decryptApiKey } from "@/lib/crypto/encryption";
 import { ZApiService } from "@/lib/services/zapi";
 import type { WhatsAppMessage } from "@/types/database";
 import { z } from "zod";
@@ -53,32 +53,26 @@ type ActionResult<T> =
 // ==============================================
 
 async function getZApiCredentials(
-  supabase: Awaited<ReturnType<typeof createClient>>,
   tenantId: string
 ): Promise<ActionResult<string>> {
-  const { data: apiConfig, error: configError } = await supabase
-    .from("api_configs")
-    .select("encrypted_key")
-    .eq("tenant_id", tenantId)
-    .eq("service_name", "zapi")
-    .single();
+  // Service-role: a RLS de api_configs e admin-only e devolveria zero linhas para SDR.
+  const lookup = await readServiceApiKey(tenantId, "zapi");
 
-  if (configError || !apiConfig) {
+  if (lookup.status === "missing") {
     return {
       success: false,
       error: "Z-API não configurado. Configure a integração em Configurações.",
     };
   }
 
-  try {
-    const apiKey = decryptApiKey(apiConfig.encrypted_key);
-    return { success: true, data: apiKey };
-  } catch {
+  if (lookup.status === "decrypt_error") {
     return {
       success: false,
       error: "Erro ao descriptografar credenciais Z-API. Reconfigure a integração.",
     };
   }
+
+  return { success: true, data: lookup.apiKey };
 }
 
 // ==============================================
@@ -114,7 +108,7 @@ export async function sendWhatsAppMessage(
   const supabase = await createClient();
 
   // 3-4. Fetch and decrypt Z-API credentials
-  const credentialsResult = await getZApiCredentials(supabase, profile.tenant_id);
+  const credentialsResult = await getZApiCredentials(profile.tenant_id);
   if (!credentialsResult.success) return credentialsResult;
   const apiKey = credentialsResult.data;
 
@@ -256,7 +250,7 @@ export async function sendWhatsAppFromInsight(
   const supabase = await createClient();
 
   // 3-4. Fetch and decrypt Z-API credentials
-  const credentialsResult = await getZApiCredentials(supabase, profile.tenant_id);
+  const credentialsResult = await getZApiCredentials(profile.tenant_id);
   if (!credentialsResult.success) return credentialsResult;
   const apiKey = credentialsResult.data;
 
@@ -423,7 +417,7 @@ export async function sendWhatsAppFromOpportunity(
   const supabase = await createClient();
 
   // 3. Credenciais Z-API
-  const credentialsResult = await getZApiCredentials(supabase, profile.tenant_id);
+  const credentialsResult = await getZApiCredentials(profile.tenant_id);
   if (!credentialsResult.success) return credentialsResult;
   const apiKey = credentialsResult.data;
 

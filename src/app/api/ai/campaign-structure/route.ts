@@ -13,8 +13,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
+import { readServiceApiKey } from "@/lib/agent/service-keys";
 import { createClient } from "@/lib/supabase/server";
-import { decryptApiKey } from "@/lib/crypto/encryption";
 import { createAIProvider, promptManager, AIProviderError } from "@/lib/ai";
 import type { ProductRow } from "@/types/product";
 import { transformProductRow } from "@/types/product";
@@ -75,23 +75,15 @@ const ERROR_MESSAGES = {
  * Get OpenAI API key for tenant
  */
 async function getOpenAIApiKey(tenantId: string): Promise<string> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("api_configs")
-    .select("encrypted_key")
-    .eq("tenant_id", tenantId)
-    .eq("service_name", "openai")
-    .single();
-
-  if (error || !data) {
+  // Service-role: a RLS de api_configs e admin-only e devolveria zero linhas para SDR.
+  const lookup = await readServiceApiKey(tenantId, "openai");
+  if (lookup.status === "missing") {
     throw new Error(ERROR_MESSAGES.API_KEY_NOT_CONFIGURED);
   }
-
-  try {
-    return decryptApiKey(data.encrypted_key);
-  } catch {
+  if (lookup.status === "decrypt_error") {
     throw new Error(ERROR_MESSAGES.DECRYPT_ERROR);
   }
+  return lookup.apiKey;
 }
 
 /**

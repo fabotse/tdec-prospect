@@ -21,14 +21,14 @@ const {
   mockRenderPrompt,
   mockGenerateText,
   mockFetchLinkedInPosts,
-  mockDecryptApiKey,
+  mockGetServiceApiKeyOrNull,
 } = vi.hoisted(() => ({
   mockGetCurrentUserProfile: vi.fn(),
   mockFrom: vi.fn(),
   mockRenderPrompt: vi.fn(),
   mockGenerateText: vi.fn(),
   mockFetchLinkedInPosts: vi.fn(),
-  mockDecryptApiKey: vi.fn(),
+  mockGetServiceApiKeyOrNull: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/tenant", () => ({
@@ -39,8 +39,9 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(() => Promise.resolve({ from: mockFrom })),
 }));
 
-vi.mock("@/lib/crypto/encryption", () => ({
-  decryptApiKey: (encrypted: string) => mockDecryptApiKey(encrypted),
+// API keys are read via service-role helper (api_configs RLS is admin-only)
+vi.mock("@/lib/agent/service-keys", () => ({
+  getServiceApiKeyOrNull: (...args: unknown[]) => mockGetServiceApiKeyOrNull(...args),
 }));
 
 vi.mock("@/lib/services/apify", () => ({
@@ -136,23 +137,9 @@ describe("Story 9.2: Icebreaker Examples in Generation", () => {
       role: "user",
     });
 
-    mockDecryptApiKey.mockImplementation((encrypted: string) => `decrypted-${encrypted}`);
+    mockGetServiceApiKeyOrNull.mockResolvedValue("decrypted-encrypted-key");
 
     mockFrom.mockImplementation((table: string) => {
-      if (table === "api_configs") {
-        return {
-          select: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                single: vi.fn().mockResolvedValue({
-                  data: { encrypted_key: "encrypted-key" },
-                  error: null,
-                }),
-              }),
-            }),
-          }),
-        };
-      }
       if (table === "leads") {
         return {
           select: vi.fn().mockReturnValue({
