@@ -9,25 +9,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { POST } from "@/app/api/instantly/leads/route";
-import { createChainBuilder } from "../../helpers/mock-supabase";
 import { ExternalServiceError } from "@/lib/services/base-service";
 
 // Mock dependencies
 const mockGetCurrentUserProfile = vi.fn();
 const mockAddLeadsToCampaign = vi.fn();
-const mockDecryptApiKey = vi.fn();
-const mockFrom = vi.fn();
+const mockGetInjectableServiceApiKey = vi.fn();
 
 vi.mock("@/lib/supabase/tenant", () => ({
   getCurrentUserProfile: (...args: unknown[]) => mockGetCurrentUserProfile(...args),
 }));
 
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: vi.fn(() => ({ from: mockFrom })),
-}));
-
-vi.mock("@/lib/crypto/encryption", () => ({
-  decryptApiKey: (...args: unknown[]) => mockDecryptApiKey(...args),
+vi.mock("@/lib/agent/service-keys", () => ({
+  getInjectableServiceApiKey: (...args: unknown[]) =>
+    mockGetInjectableServiceApiKey(...args),
 }));
 
 vi.mock("@/lib/services/instantly", () => ({
@@ -62,7 +57,7 @@ describe("POST /api/instantly/leads", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFrom.mockImplementation(() => createChainBuilder());
+    mockGetInjectableServiceApiKey.mockResolvedValue(undefined);
   });
 
   it("returns 401 when user is not authenticated", async () => {
@@ -97,9 +92,7 @@ describe("POST /api/instantly/leads", () => {
 
   it("returns 404 when API key is not configured", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-    mockFrom.mockImplementation(() =>
-      createChainBuilder({ data: null, error: null })
-    );
+    mockGetInjectableServiceApiKey.mockResolvedValue(undefined);
 
     const response = await POST(createRequest(validBody));
     const data = await response.json();
@@ -110,10 +103,7 @@ describe("POST /api/instantly/leads", () => {
 
   it("returns aggregated lead results on success", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-    mockFrom.mockImplementation(() =>
-      createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-    );
-    mockDecryptApiKey.mockReturnValue("api-key");
+    mockGetInjectableServiceApiKey.mockResolvedValue("api-key");
     mockAddLeadsToCampaign.mockResolvedValue({
       leadsUploaded: 1,
       duplicatedLeads: 0,
@@ -131,10 +121,7 @@ describe("POST /api/instantly/leads", () => {
 
   it("passes correct params to addLeadsToCampaign", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-    mockFrom.mockImplementation(() =>
-      createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-    );
-    mockDecryptApiKey.mockReturnValue("my-key");
+    mockGetInjectableServiceApiKey.mockResolvedValue("my-key");
     mockAddLeadsToCampaign.mockResolvedValue({
       leadsUploaded: 1,
       duplicatedLeads: 0,
@@ -149,14 +136,16 @@ describe("POST /api/instantly/leads", () => {
       campaignId: "camp-123",
       leads: validBody.leads,
     });
+    expect(mockGetInjectableServiceApiKey).toHaveBeenCalledWith(
+      "tenant-456",
+      "instantly",
+      "Instantly"
+    );
   });
 
   it("returns service error on ExternalServiceError", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-    mockFrom.mockImplementation(() =>
-      createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-    );
-    mockDecryptApiKey.mockReturnValue("key");
+    mockGetInjectableServiceApiKey.mockResolvedValue("key");
     mockAddLeadsToCampaign.mockRejectedValue(
       new ExternalServiceError("instantly", 429, "Limite de requisições atingido.")
     );
@@ -170,10 +159,7 @@ describe("POST /api/instantly/leads", () => {
 
   it("returns 500 on unexpected error", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-    mockFrom.mockImplementation(() =>
-      createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-    );
-    mockDecryptApiKey.mockReturnValue("key");
+    mockGetInjectableServiceApiKey.mockResolvedValue("key");
     mockAddLeadsToCampaign.mockRejectedValue(new Error("Unexpected"));
 
     const response = await POST(createRequest(validBody));

@@ -26,37 +26,22 @@ import {
   restoreFetch,
 } from "../../../helpers/mock-fetch";
 
-// Mock Supabase
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: vi.fn(() =>
-    Promise.resolve({
-      from: vi.fn(() => ({
-        select: vi.fn(() => ({
-          eq: vi.fn(() => ({
-            eq: vi.fn(() => ({
-              single: vi.fn(() =>
-                Promise.resolve({
-                  data: { encrypted_key: "encrypted-api-key" },
-                  error: null,
-                })
-              ),
-            })),
-          })),
-        })),
-      })),
-    })
-  ),
-}));
+// Mock service-role key reader (api_configs is read via service-role, not session RLS)
+const mockReadServiceApiKey = vi.fn();
 
-// Mock encryption
-vi.mock("@/lib/crypto/encryption", () => ({
-  decryptApiKey: vi.fn(() => "decrypted-api-key"),
+vi.mock("@/lib/agent/service-keys", () => ({
+  readServiceApiKey: (...args: unknown[]) => mockReadServiceApiKey(...args),
 }));
 
 describe("ApolloService", () => {
   let service: ApolloService;
 
   beforeEach(() => {
+    mockReadServiceApiKey.mockReset();
+    mockReadServiceApiKey.mockResolvedValue({
+      status: "ok",
+      apiKey: "decrypted-api-key",
+    });
     service = new ApolloService();
   });
 

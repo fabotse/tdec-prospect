@@ -9,8 +9,8 @@
 
 import { NextResponse } from "next/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
+import { getInjectableServiceApiKey } from "@/lib/agent/service-keys";
 import { createClient } from "@/lib/supabase/server";
-import { decryptApiKey } from "@/lib/crypto/encryption";
 import { TrackingService } from "@/lib/services/tracking";
 import { ExternalServiceError } from "@/lib/services/base-service";
 
@@ -63,21 +63,18 @@ export async function POST(_request: Request, { params }: RouteParams) {
     }
 
     // Fetch API key
-    const { data: config } = await supabase
-      .from("api_configs")
-      .select("encrypted_key")
-      .eq("tenant_id", profile.tenant_id)
-      .eq("service_name", "instantly")
-      .single();
+    const apiKey = await getInjectableServiceApiKey(
+      profile.tenant_id,
+      "instantly",
+      "Instantly"
+    );
 
-    if (!config) {
+    if (!apiKey) {
       return NextResponse.json(
         { error: "API key do Instantly não configurada" },
         { status: 404 }
       );
     }
-
-    const apiKey = decryptApiKey(config.encrypted_key);
     const service = new TrackingService();
     const syncResult = await service.syncAnalytics({
       apiKey,

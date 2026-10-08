@@ -169,3 +169,33 @@ export async function requireServiceApiKey(
   }
   throw new Error(`API key do ${name} nao configurada`);
 }
+
+/**
+ * Lista os `service_name` com chave configurada no tenant, SEMPRE via service-role.
+ * Hotfix SDR: o builder precisa saber "Instantly esta configurado?" para habilitar o
+ * export, e a leitura pela sessao devolvia zero linhas para `sdr` (RLS admin-only).
+ * Devolve SO os nomes — nunca chave, sufixo ou `encrypted_key`.
+ * Fail-safe: tenant ausente, service-role indisponivel ou erro de leitura -> `[]`.
+ *
+ * @param tenantId - `tenant_id` do profile autenticado (OBRIGATORIO, AC4).
+ */
+export async function listConfiguredServices(tenantId: string): Promise<string[]> {
+  if (!tenantId) {
+    console.error("[service-keys] tenantId ausente ao listar servicos configurados");
+    return [];
+  }
+
+  try {
+    const admin = createAdminClient();
+    const { data, error } = await admin
+      .from("api_configs")
+      .select("service_name")
+      .eq("tenant_id", tenantId);
+
+    if (error || !data) return [];
+    return data.map((row: { service_name: string }) => row.service_name);
+  } catch (error) {
+    console.error(`[service-keys] falha ao listar servicos configurados: ${errorMessage(error)}`);
+    return [];
+  }
+}

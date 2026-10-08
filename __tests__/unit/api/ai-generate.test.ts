@@ -10,9 +10,10 @@ import { NextRequest } from "next/server";
 import { POST } from "@/app/api/ai/generate/route";
 
 // Use vi.hoisted for mocks that need to be used in vi.mock factories
-const { mockGetCurrentUserProfile, mockSingle, mockRenderPrompt, mockGenerateText, mockGenerateStream } = vi.hoisted(() => ({
+const { mockGetCurrentUserProfile, mockSingle, mockReadServiceApiKey, mockRenderPrompt, mockGenerateText, mockGenerateStream } = vi.hoisted(() => ({
   mockGetCurrentUserProfile: vi.fn(),
   mockSingle: vi.fn(),
+  mockReadServiceApiKey: vi.fn(),
   mockRenderPrompt: vi.fn(),
   mockGenerateText: vi.fn(),
   mockGenerateStream: vi.fn(),
@@ -23,7 +24,7 @@ vi.mock("@/lib/supabase/tenant", () => ({
   getCurrentUserProfile: () => mockGetCurrentUserProfile(),
 }));
 
-// Mock createClient for API key retrieval
+// Mock createClient (route still uses it for product lookup)
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(() => {
     const mockEq = vi.fn(() => ({ eq: mockEq, single: mockSingle }));
@@ -35,9 +36,9 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
-// Mock decryptApiKey
-vi.mock("@/lib/crypto/encryption", () => ({
-  decryptApiKey: vi.fn((encrypted: string) => `decrypted-${encrypted}`),
+// API key is read via service-role helper (api_configs RLS is admin-only)
+vi.mock("@/lib/agent/service-keys", () => ({
+  readServiceApiKey: (...args: unknown[]) => mockReadServiceApiKey(...args),
 }));
 
 // Mock PromptManager
@@ -86,9 +87,9 @@ describe("POST /api/ai/generate", () => {
       role: "user",
     });
 
-    mockSingle.mockResolvedValue({
-      data: { encrypted_key: "encrypted-api-key" },
-      error: null,
+    mockReadServiceApiKey.mockResolvedValue({
+      status: "ok",
+      apiKey: "decrypted-encrypted-api-key",
     });
 
     mockRenderPrompt.mockResolvedValue({
@@ -249,10 +250,7 @@ describe("POST /api/ai/generate", () => {
 
   describe("API Key Retrieval", () => {
     it("returns 401 if API key not configured", async () => {
-      mockSingle.mockResolvedValue({
-        data: null,
-        error: new Error("Not found"),
-      });
+      mockReadServiceApiKey.mockResolvedValue({ status: "missing" });
 
       const request = createRequest({
         promptKey: "email_subject_generation",
@@ -264,6 +262,7 @@ describe("POST /api/ai/generate", () => {
 
       expect(response.status).toBe(401);
       expect(data.error.code).toBe("API_KEY_ERROR");
+      expect(mockReadServiceApiKey).toHaveBeenCalledWith("tenant-123", "openai");
     });
   });
 

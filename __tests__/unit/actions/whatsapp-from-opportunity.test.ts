@@ -25,8 +25,10 @@ vi.mock("@/lib/supabase/tenant", () => ({
   getCurrentUserProfile: vi.fn(),
 }));
 
-vi.mock("@/lib/crypto/encryption", () => ({
-  decryptApiKey: vi.fn((encrypted: string) => encrypted.replace("encrypted:", "")),
+// Z-API credentials are read via service-role (api_configs RLS is admin-only).
+const mockReadServiceApiKey = vi.fn();
+vi.mock("@/lib/agent/service-keys", () => ({
+  readServiceApiKey: (...args: unknown[]) => mockReadServiceApiKey(...args),
 }));
 
 const mockSendText = vi.fn();
@@ -122,10 +124,8 @@ function setupMockClient(options: SetupOptions = {}) {
 
   const client = createMockSupabaseClient();
 
-  const apiConfigsChain = createChainBuilder(
-    zapiConfigured
-      ? { data: { encrypted_key: "encrypted:zapi-credentials" }, error: null }
-      : { data: null, error: { code: "PGRST116" } }
+  mockReadServiceApiKey.mockResolvedValue(
+    zapiConfigured ? { status: "ok", apiKey: "zapi-credentials" } : { status: "missing" }
   );
   const leadsChain = createChainBuilder(
     leadFound
@@ -159,7 +159,6 @@ function setupMockClient(options: SetupOptions = {}) {
   let opportunityCallCount = 0;
 
   client.from.mockImplementation((table: string) => {
-    if (table === "api_configs") return apiConfigsChain;
     if (table === "leads") return leadsChain;
     if (table === "campaigns") return campaignsChain;
     if (table === "opportunities") {
@@ -177,7 +176,6 @@ function setupMockClient(options: SetupOptions = {}) {
 
   return {
     client,
-    apiConfigsChain,
     leadsChain,
     campaignsChain,
     opportunityLoadChain,
@@ -194,6 +192,8 @@ function setupMockClient(options: SetupOptions = {}) {
 describe("sendWhatsAppFromOpportunity", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockReadServiceApiKey.mockReset();
+    mockReadServiceApiKey.mockResolvedValue({ status: "ok", apiKey: "zapi-credentials" });
     vi.mocked(getCurrentUserProfile).mockResolvedValue(mockProfile);
     mockSendText.mockResolvedValue({ zaapId: "ZAAP-123", messageId: "MSG-456" });
   });
@@ -265,6 +265,7 @@ describe("sendWhatsAppFromOpportunity", () => {
       expect(result.success).toBe(false);
       if (!result.success) expect(result.error).toContain("Z-API");
       expect(mockSendText).not.toHaveBeenCalled();
+      expect(mockReadServiceApiKey).toHaveBeenCalledWith("tenant-1", "zapi");
     });
 
     it("rejeita lead de outro tenant (isolamento)", async () => {

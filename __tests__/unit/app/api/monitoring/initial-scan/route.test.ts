@@ -32,9 +32,10 @@ vi.mock("@/lib/services/apify", () => ({
   },
 }));
 
-const mockDecryptApiKey = vi.fn(() => "decrypted-apify-key");
-vi.mock("@/lib/crypto/encryption", () => ({
-  decryptApiKey: (...args: unknown[]) => mockDecryptApiKey(...args),
+// API keys are read via service-role helper (api_configs RLS is admin-only)
+const mockGetServiceApiKeyOrNull = vi.fn();
+vi.mock("@/lib/agent/service-keys", () => ({
+  getServiceApiKeyOrNull: (...args: unknown[]) => mockGetServiceApiKeyOrNull(...args),
 }));
 
 const mockClassifyPostRelevance = vi.fn();
@@ -118,14 +119,6 @@ function setupDefaultApifyResponse() {
 }
 
 function setupFullMocks(leads: ReturnType<typeof createMockLead>[]) {
-  const apifyConfigChain = createChainBuilder({
-    data: { encrypted_key: "enc-apify" },
-    error: null,
-  });
-  const openaiConfigChain = createChainBuilder({
-    data: { encrypted_key: "enc-openai" },
-    error: null,
-  });
   const leadsQueryChain = createChainBuilder({
     data: leads,
     error: null,
@@ -154,13 +147,8 @@ function setupFullMocks(leads: ReturnType<typeof createMockLead>[]) {
   const insightsChain = createChainBuilder({ data: null, error: null });
   const usageChain = createChainBuilder({ data: null, error: null });
 
-  let apiConfigCallCount = 0;
   let kbCallCount = 0;
   mockFrom.mockImplementation((table: string) => {
-    if (table === "api_configs") {
-      apiConfigCallCount++;
-      return apiConfigCallCount === 1 ? apifyConfigChain : openaiConfigChain;
-    }
     if (table === "leads") return leadsQueryChain;
     if (table === "knowledge_base") {
       kbCallCount++;
@@ -178,7 +166,9 @@ function setupFullMocks(leads: ReturnType<typeof createMockLead>[]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockDecryptApiKey.mockReturnValue("decrypted-apify-key");
+  mockGetServiceApiKeyOrNull.mockImplementation(async (_tenantId: string, service: string) =>
+    service === "apify" ? "decrypted-apify-key" : "decrypted-openai-key"
+  );
   mockClassifyPostRelevance.mockResolvedValue({
     isRelevant: true,
     reasoning: "Post relevante",
@@ -291,11 +281,8 @@ describe("POST /api/monitoring/initial-scan", () => {
   describe("Apify key check", () => {
     it("should return 400 with APIFY_KEY_MISSING when no Apify key configured", async () => {
       mockAuthenticatedUser();
-      const apiConfigsChain = createChainBuilder({ data: null, error: { message: "Not found" } });
-      mockFrom.mockImplementation((table: string) => {
-        if (table === "api_configs") return apiConfigsChain;
-        return createChainBuilder();
-      });
+      mockGetServiceApiKeyOrNull.mockResolvedValue(null);
+      mockFrom.mockImplementation(() => createChainBuilder());
 
       const req = createRequest({ leadIds: [LEAD_ID_1] });
       const response = await POST(req);
@@ -304,6 +291,7 @@ describe("POST /api/monitoring/initial-scan", () => {
       const json = await response.json();
       expect(json.error.code).toBe("APIFY_KEY_MISSING");
       expect(json.error.message).toBe("Chave da Apify não configurada");
+      expect(mockGetServiceApiKeyOrNull).toHaveBeenCalledWith(TENANT_ID, "apify");
     });
   });
 
@@ -343,6 +331,8 @@ describe("POST /api/monitoring/initial-scan", () => {
       expect(json.newPostsFound).toBe(2);
       expect(json.insightsGenerated).toBe(2);
       expect(json.errors).toEqual([]);
+      expect(mockGetServiceApiKeyOrNull).toHaveBeenCalledWith(TENANT_ID, "apify");
+      expect(mockGetServiceApiKeyOrNull).toHaveBeenCalledWith(TENANT_ID, "openai");
     });
 
     it("should process in batches of BATCH_SIZE (AC #3)", async () => {
@@ -416,7 +406,7 @@ describe("POST /api/monitoring/initial-scan", () => {
   describe("Error handling", () => {
     it("should return 500 with sanitized error on unexpected errors", async () => {
       mockAuthenticatedUser();
-      // mockFrom throws after validation passes (getApiKey call)
+      // mockFrom throws after validation + key check pass (first DB query)
       mockFrom.mockImplementation(() => {
         throw new Error("Unexpected DB error");
       });

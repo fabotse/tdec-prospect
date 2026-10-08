@@ -49,7 +49,7 @@ import { DeleteCampaignDialog } from "@/components/campaigns";
 import { useCampaignExport } from "@/hooks/use-campaign-export";
 import { useInstantlyExport } from "@/hooks/use-instantly-export";
 import { useCsvClipboardExport } from "@/hooks/use-csv-clipboard-export";
-import { useIntegrationConfig } from "@/hooks/use-integration-config";
+import { useConfiguredIntegrations } from "@/hooks/use-configured-integrations";
 import { mapExportError } from "@/lib/export/error-messages";
 import type { ExportConfig } from "@/types/export";
 
@@ -168,7 +168,7 @@ export default function CampaignBuilderPage({ params }: PageProps) {
   const { exportToInstantly, isExporting, steps: exportSteps } = useInstantlyExport();
   const { exportToCsv, exportToCsvWithVariables, exportToClipboard } = useCsvClipboardExport();
   const exportToastIdRef = useRef<string | number | undefined>(undefined);
-  const { configs: integrationConfigs } = useIntegrationConfig();
+  const { configs: integrationConfigs } = useConfiguredIntegrations();
   const exportLeadInfos = useMemo(
     () => (campaignLeadsForExport ?? []).map((cl) => cl.lead),
     [campaignLeadsForExport]

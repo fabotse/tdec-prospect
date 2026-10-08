@@ -30,8 +30,12 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(() => Promise.resolve(mockSupabase)),
 }));
 
-vi.mock("@/lib/crypto/encryption", () => ({
-  decryptApiKey: vi.fn(() => "decrypted-key"),
+// Chave do Instantly lida por service-role (nao pelo client de sessao, cuja RLS
+// em api_configs e admin-only).
+const mockGetInjectableServiceApiKey = vi.fn();
+vi.mock("@/lib/agent/service-keys", () => ({
+  getInjectableServiceApiKey: (...args: unknown[]) =>
+    mockGetInjectableServiceApiKey(...args),
 }));
 
 const mockGetLeadTracking = vi.fn();
@@ -67,8 +71,6 @@ const mockCampaign = {
   id: CAMPAIGN_ID,
   external_campaign_id: EXTERNAL_CAMPAIGN_ID,
 };
-
-const mockApiConfig = { encrypted_key: "encrypted-key-value" };
 
 function makeTrackingLead(overrides: Partial<LeadTracking> = {}): LeadTracking {
   return {
@@ -112,11 +114,8 @@ function setupHappyPath(
   });
   campaignsChain.single.mockReturnValue(campaignsChain);
 
-  // api_configs table
-  const configChain = mockTableResponse(mockSupabase, "api_configs", {
-    data: mockApiConfig,
-  });
-  configChain.single.mockReturnValue(configChain);
+  // Instantly API key (service-role helper)
+  mockGetInjectableServiceApiKey.mockResolvedValue("decrypted-key");
 
   // leads table (phone enrichment + id for sentLeadEmails)
   mockTableResponse(mockSupabase, "leads", { data: dbLeads });
@@ -373,6 +372,14 @@ describe("GET /api/campaigns/[campaignId]/leads/tracking", () => {
       const body = await response.json();
 
       expect(body.data[0].campaignId).toBe(CAMPAIGN_ID);
+      expect(mockGetInjectableServiceApiKey).toHaveBeenCalledWith(
+        TENANT_ID,
+        "instantly",
+        "Instantly"
+      );
+      expect(mockGetLeadTracking).toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: "decrypted-key" })
+      );
     });
   });
 

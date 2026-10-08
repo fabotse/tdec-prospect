@@ -9,8 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
-import { createClient } from "@/lib/supabase/server";
-import { decryptApiKey } from "@/lib/crypto/encryption";
+import { getInjectableServiceApiKey } from "@/lib/agent/service-keys";
 import { SnovioService } from "@/lib/services/snovio";
 import { ExternalServiceError } from "@/lib/services/base-service";
 
@@ -47,22 +46,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = await createClient();
-    const { data: config } = await supabase
-      .from("api_configs")
-      .select("encrypted_key")
-      .eq("tenant_id", profile.tenant_id)
-      .eq("service_name", "snovio")
-      .single();
+    const credentials = await getInjectableServiceApiKey(
+      profile.tenant_id,
+      "snovio",
+      "Snov.io"
+    );
 
-    if (!config) {
+    if (!credentials) {
       return NextResponse.json(
         { error: "Credenciais do Snov.io não configuradas" },
         { status: 404 }
       );
     }
-
-    const credentials = decryptApiKey(config.encrypted_key);
     const service = new SnovioService();
     const result = await service.addProspectsToList({
       credentials,

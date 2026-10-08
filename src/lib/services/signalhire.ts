@@ -22,8 +22,8 @@ import {
   ExternalServiceError,
   type TestConnectionResult,
 } from "./base-service";
+import { readServiceApiKey } from "@/lib/agent/service-keys";
 import { createClient } from "@/lib/supabase/server";
-import { decryptApiKey } from "@/lib/crypto/encryption";
 import type {
   SignalHirePersonRequest,
   SignalHireLookupInitResponse,
@@ -128,15 +128,11 @@ export class SignalHireService extends ExternalService {
       );
     }
 
-    const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("api_configs")
-      .select("encrypted_key")
-      .eq("tenant_id", this.tenantId)
-      .eq("service_name", "signalhire")
-      .single();
+    // Service-role: a RLS de api_configs e admin-only e devolveria zero linhas
+    // para SDR. `this.tenantId` vem sempre do profile autenticado (callers).
+    const lookup = await readServiceApiKey(this.tenantId, "signalhire");
 
-    if (error || !data) {
+    if (lookup.status === "missing") {
       throw new ExternalServiceError(
         this.name,
         401,
@@ -144,16 +140,16 @@ export class SignalHireService extends ExternalService {
       );
     }
 
-    try {
-      this.apiKey = decryptApiKey(data.encrypted_key);
-      return this.apiKey;
-    } catch {
+    if (lookup.status === "decrypt_error") {
       throw new ExternalServiceError(
         this.name,
         500,
         SIGNALHIRE_ERROR_MESSAGES.DECRYPT_ERROR
       );
     }
+
+    this.apiKey = lookup.apiKey;
+    return this.apiKey;
   }
 
   /**

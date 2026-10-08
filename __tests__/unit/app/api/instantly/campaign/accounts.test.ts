@@ -10,25 +10,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { POST } from "@/app/api/instantly/campaign/[id]/accounts/route";
-import { createChainBuilder } from "../../../../../helpers/mock-supabase";
 
 // Mock dependencies
 const mockGetCurrentUserProfile = vi.fn();
 const mockAddAccountsToCampaign = vi.fn();
-const mockDecryptApiKey = vi.fn();
-const mockFrom = vi.fn();
+const mockGetInjectableServiceApiKey = vi.fn();
 
 vi.mock("@/lib/supabase/tenant", () => ({
   getCurrentUserProfile: (...args: unknown[]) =>
     mockGetCurrentUserProfile(...args),
 }));
 
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: vi.fn(() => ({ from: mockFrom })),
-}));
-
-vi.mock("@/lib/crypto/encryption", () => ({
-  decryptApiKey: (...args: unknown[]) => mockDecryptApiKey(...args),
+vi.mock("@/lib/agent/service-keys", () => ({
+  getInjectableServiceApiKey: (...args: unknown[]) =>
+    mockGetInjectableServiceApiKey(...args),
 }));
 
 vi.mock("@/lib/services/instantly", () => ({
@@ -46,7 +41,7 @@ describe("POST /api/instantly/campaign/[id]/accounts", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFrom.mockImplementation(() => createChainBuilder());
+    mockGetInjectableServiceApiKey.mockResolvedValue(undefined);
   });
 
   function makeRequest(body: unknown) {
@@ -62,10 +57,7 @@ describe("POST /api/instantly/campaign/[id]/accounts", () => {
 
   it("associates accounts and returns success", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-    mockFrom.mockImplementation(() =>
-      createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-    );
-    mockDecryptApiKey.mockReturnValue("api-key-decrypted");
+    mockGetInjectableServiceApiKey.mockResolvedValue("api-key-decrypted");
     mockAddAccountsToCampaign.mockResolvedValue({
       success: true,
       accountsAdded: 2,
@@ -87,6 +79,11 @@ describe("POST /api/instantly/campaign/[id]/accounts", () => {
       campaignId: "camp-123",
       accountEmails: ["sender1@example.com", "sender2@example.com"],
     });
+    expect(mockGetInjectableServiceApiKey).toHaveBeenCalledWith(
+      "tenant-456",
+      "instantly",
+      "Instantly"
+    );
   });
 
   it("returns 401 when user is not authenticated", async () => {
@@ -104,9 +101,7 @@ describe("POST /api/instantly/campaign/[id]/accounts", () => {
 
   it("returns 404 when API key is not configured", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-    mockFrom.mockImplementation(() =>
-      createChainBuilder({ data: null, error: null })
-    );
+    mockGetInjectableServiceApiKey.mockResolvedValue(undefined);
 
     const request = makeRequest({ accountEmails: ["a@b.com"] });
     const response = await POST(request, {

@@ -8,8 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
-import { createClient } from "@/lib/supabase/server";
-import { decryptApiKey } from "@/lib/crypto/encryption";
+import { getInjectableServiceApiKey } from "@/lib/agent/service-keys";
 import { InstantlyService } from "@/lib/services/instantly";
 import { ExternalServiceError } from "@/lib/services/base-service";
 
@@ -39,22 +38,18 @@ export async function POST(
       );
     }
 
-    const supabase = await createClient();
-    const { data: config } = await supabase
-      .from("api_configs")
-      .select("encrypted_key")
-      .eq("tenant_id", profile.tenant_id)
-      .eq("service_name", "instantly")
-      .single();
+    const apiKey = await getInjectableServiceApiKey(
+      profile.tenant_id,
+      "instantly",
+      "Instantly"
+    );
 
-    if (!config) {
+    if (!apiKey) {
       return NextResponse.json(
         { error: "API key do Instantly não configurada" },
         { status: 404 }
       );
     }
-
-    const apiKey = decryptApiKey(config.encrypted_key);
     const service = new InstantlyService();
     const result = await service.addAccountsToCampaign({
       apiKey,

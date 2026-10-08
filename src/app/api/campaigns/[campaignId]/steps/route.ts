@@ -11,8 +11,8 @@
 
 import { NextResponse } from "next/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
+import { getInjectableServiceApiKey } from "@/lib/agent/service-keys";
 import { createClient } from "@/lib/supabase/server";
-import { decryptApiKey } from "@/lib/crypto/encryption";
 import type { CampaignStep } from "@/types/tracking";
 
 const UUID_RE =
@@ -80,18 +80,15 @@ export async function GET(_request: Request, { params }: RouteParams) {
       return NextResponse.json({ data: [] });
     }
 
-    const { data: config } = await supabase
-      .from("api_configs")
-      .select("encrypted_key")
-      .eq("tenant_id", profile.tenant_id)
-      .eq("service_name", "instantly")
-      .single();
+    const apiKey = await getInjectableServiceApiKey(
+      profile.tenant_id,
+      "instantly",
+      "Instantly"
+    );
 
-    if (!config) {
+    if (!apiKey) {
       return NextResponse.json({ data: [] });
     }
-
-    const apiKey = decryptApiKey(config.encrypted_key);
 
     const response = await fetch(
       `https://api.instantly.ai/api/v2/campaigns/${campaign.external_campaign_id}`,

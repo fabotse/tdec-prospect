@@ -32,27 +32,11 @@ vi.mock("@/lib/supabase/tenant", () => ({
   ),
 }));
 
-// Mock Supabase client for api_configs and leads queries
+// Mock Supabase client for leads queries
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(() =>
     Promise.resolve({
       from: vi.fn((tableName: string) => {
-        if (tableName === "api_configs") {
-          return {
-            select: vi.fn(() => ({
-              eq: vi.fn(() => ({
-                eq: vi.fn(() => ({
-                  single: vi.fn(() =>
-                    Promise.resolve({
-                      data: { encrypted_key: "encrypted-api-key" },
-                      error: null,
-                    })
-                  ),
-                })),
-              })),
-            })),
-          };
-        }
         // Handle leads table query for import status check
         if (tableName === "leads") {
           return {
@@ -82,9 +66,11 @@ vi.mock("@/lib/supabase/server", () => ({
   ),
 }));
 
-// Mock encryption
-vi.mock("@/lib/crypto/encryption", () => ({
-  decryptApiKey: vi.fn(() => "decrypted-api-key"),
+// Mock service-role key reader (api_configs is read via service-role, not session RLS)
+const mockReadServiceApiKey = vi.fn();
+
+vi.mock("@/lib/agent/service-keys", () => ({
+  readServiceApiKey: (...args: unknown[]) => mockReadServiceApiKey(...args),
 }));
 
 // ==============================================
@@ -94,6 +80,11 @@ vi.mock("@/lib/crypto/encryption", () => ({
 describe("Apollo API Route Integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockReadServiceApiKey.mockReset();
+    mockReadServiceApiKey.mockResolvedValue({
+      status: "ok",
+      apiKey: "decrypted-api-key",
+    });
   });
 
   afterEach(() => {

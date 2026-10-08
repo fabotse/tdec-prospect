@@ -9,7 +9,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   createMockSupabaseClient,
-  mockTableResponse,
   createChainBuilder,
 } from "../../helpers/mock-supabase";
 
@@ -25,8 +24,10 @@ vi.mock("@/lib/supabase/tenant", () => ({
   getCurrentUserProfile: vi.fn(),
 }));
 
-vi.mock("@/lib/crypto/encryption", () => ({
-  decryptApiKey: vi.fn((encrypted: string) => encrypted.replace("encrypted:", "")),
+// Z-API credentials are read via service-role (api_configs RLS is admin-only).
+const mockReadServiceApiKey = vi.fn();
+vi.mock("@/lib/agent/service-keys", () => ({
+  readServiceApiKey: (...args: unknown[]) => mockReadServiceApiKey(...args),
 }));
 
 const mockSendText = vi.fn();
@@ -93,10 +94,6 @@ const mockSentMessage = {
 function setupMockClient() {
   const client = createMockSupabaseClient();
 
-  const apiConfigsChain = createChainBuilder({
-    data: { encrypted_key: "encrypted:zapi-credentials" },
-    error: null,
-  });
   const insertChain = createChainBuilder({
     data: mockInsertedMessage,
     error: null,
@@ -117,7 +114,6 @@ function setupMockClient() {
   let whatsappCallCount = 0;
 
   client.from.mockImplementation((table: string) => {
-    if (table === "api_configs") return apiConfigsChain;
     if (table === "whatsapp_messages") {
       whatsappCallCount++;
       if (whatsappCallCount === 1) return insertChain;
@@ -130,7 +126,7 @@ function setupMockClient() {
 
   vi.mocked(createClient).mockResolvedValue(client as never);
 
-  return { client, apiConfigsChain, leadsChain, insertChain, updateChain, insightUpdateChain };
+  return { client, leadsChain, insertChain, updateChain, insightUpdateChain };
 }
 
 // ==============================================
@@ -140,6 +136,8 @@ function setupMockClient() {
 describe("sendWhatsAppFromInsight", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockReadServiceApiKey.mockReset();
+    mockReadServiceApiKey.mockResolvedValue({ status: "ok", apiKey: "zapi-credentials" });
     vi.mocked(getCurrentUserProfile).mockResolvedValue(mockProfile);
     mockSendText.mockResolvedValue({ zaapId: "ZAAP-123", messageId: "MSG-456" });
   });
@@ -288,9 +286,9 @@ describe("sendWhatsAppFromInsight", () => {
   });
 
   describe("Z-API not configured", () => {
-    it("returns error when api_configs has no zapi entry", async () => {
+    it("returns error when Z-API key is not configured (no api_configs zapi entry)", async () => {
       const client = createMockSupabaseClient();
-      mockTableResponse(client, "api_configs", { data: null, error: { message: "not found" } });
+      mockReadServiceApiKey.mockResolvedValue({ status: "missing" });
       vi.mocked(createClient).mockResolvedValue(client as never);
 
       const result = await sendWhatsAppFromInsight(validInput);
@@ -299,6 +297,8 @@ describe("sendWhatsAppFromInsight", () => {
       if (!result.success) {
         expect(result.error).toContain("Z-API não configurado");
       }
+      expect(mockReadServiceApiKey).toHaveBeenCalledWith(mockProfile.tenant_id, "zapi");
+      expect(mockSendText).not.toHaveBeenCalled();
     });
   });
 
@@ -373,15 +373,10 @@ describe("sendWhatsAppFromInsight", () => {
   describe("insert failure", () => {
     it("returns error when whatsapp_messages insert fails", async () => {
       const client = createMockSupabaseClient();
-      const apiConfigsChain = createChainBuilder({
-        data: { encrypted_key: "encrypted:key" },
-        error: null,
-      });
       const leadsChain = createChainBuilder({ data: { id: validInput.leadId }, error: null });
       const insertChain = createChainBuilder({ data: null, error: { message: "insert failed" } });
 
       client.from.mockImplementation((table: string) => {
-        if (table === "api_configs") return apiConfigsChain;
         if (table === "leads") return leadsChain;
         if (table === "whatsapp_messages") return insertChain;
         return createChainBuilder();
@@ -404,10 +399,6 @@ describe("sendWhatsAppFromInsight", () => {
     it("13.11 AC#4: logs the real Postgres error while keeping the pt-BR message", async () => {
       const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       const client = createMockSupabaseClient();
-      const apiConfigsChain = createChainBuilder({
-        data: { encrypted_key: "encrypted:key" },
-        error: null,
-      });
       const leadsChain = createChainBuilder({ data: { id: validInput.leadId }, error: null });
       const insertChain = createChainBuilder({
         data: null,
@@ -421,7 +412,6 @@ describe("sendWhatsAppFromInsight", () => {
       });
 
       client.from.mockImplementation((table: string) => {
-        if (table === "api_configs") return apiConfigsChain;
         if (table === "leads") return leadsChain;
         if (table === "whatsapp_messages") return insertChain;
         return createChainBuilder();
@@ -459,17 +449,12 @@ describe("sendWhatsAppFromInsight", () => {
   describe("lead ownership validation", () => {
     it("returns error when lead does not belong to tenant", async () => {
       const client = createMockSupabaseClient();
-      const apiConfigsChain = createChainBuilder({
-        data: { encrypted_key: "encrypted:key" },
-        error: null,
-      });
       const leadsChain = createChainBuilder({
         data: null,
         error: { message: "not found" },
       });
 
       client.from.mockImplementation((table: string) => {
-        if (table === "api_configs") return apiConfigsChain;
         if (table === "leads") return leadsChain;
         return createChainBuilder();
       });
@@ -496,10 +481,6 @@ describe("sendWhatsAppFromInsight", () => {
   describe("insight auto-mark resilience", () => {
     it("returns success even when insight auto-mark fails", async () => {
       const client = createMockSupabaseClient();
-      const apiConfigsChain = createChainBuilder({
-        data: { encrypted_key: "encrypted:zapi-credentials" },
-        error: null,
-      });
       const leadsChain = createChainBuilder({
         data: { id: validInput.leadId },
         error: null,
@@ -519,7 +500,6 @@ describe("sendWhatsAppFromInsight", () => {
 
       let whatsappCallCount = 0;
       client.from.mockImplementation((table: string) => {
-        if (table === "api_configs") return apiConfigsChain;
         if (table === "leads") return leadsChain;
         if (table === "whatsapp_messages") {
           whatsappCallCount++;

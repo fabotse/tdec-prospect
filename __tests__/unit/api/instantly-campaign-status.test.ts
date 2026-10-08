@@ -9,25 +9,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/instantly/campaign/[id]/route";
-import { createChainBuilder } from "../../helpers/mock-supabase";
 import { ExternalServiceError } from "@/lib/services/base-service";
 
 // Mock dependencies
 const mockGetCurrentUserProfile = vi.fn();
 const mockGetCampaignStatus = vi.fn();
-const mockDecryptApiKey = vi.fn();
-const mockFrom = vi.fn();
+const mockGetInjectableServiceApiKey = vi.fn();
 
 vi.mock("@/lib/supabase/tenant", () => ({
   getCurrentUserProfile: (...args: unknown[]) => mockGetCurrentUserProfile(...args),
 }));
 
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: vi.fn(() => ({ from: mockFrom })),
-}));
-
-vi.mock("@/lib/crypto/encryption", () => ({
-  decryptApiKey: (...args: unknown[]) => mockDecryptApiKey(...args),
+vi.mock("@/lib/agent/service-keys", () => ({
+  getInjectableServiceApiKey: (...args: unknown[]) =>
+    mockGetInjectableServiceApiKey(...args),
 }));
 
 vi.mock("@/lib/services/instantly", () => ({
@@ -41,7 +36,7 @@ describe("GET /api/instantly/campaign/[id]", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFrom.mockImplementation(() => createChainBuilder());
+    mockGetInjectableServiceApiKey.mockResolvedValue(undefined);
   });
 
   it("returns 401 when user is not authenticated", async () => {
@@ -57,9 +52,7 @@ describe("GET /api/instantly/campaign/[id]", () => {
 
   it("returns 404 when API key is not configured", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-    mockFrom.mockImplementation(() =>
-      createChainBuilder({ data: null, error: null })
-    );
+    mockGetInjectableServiceApiKey.mockResolvedValue(undefined);
 
     const request = new NextRequest("http://localhost/api/instantly/campaign/camp-123");
     const response = await GET(request, { params: Promise.resolve({ id: "camp-123" }) });
@@ -71,10 +64,7 @@ describe("GET /api/instantly/campaign/[id]", () => {
 
   it("returns campaign status on success", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-    mockFrom.mockImplementation(() =>
-      createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-    );
-    mockDecryptApiKey.mockReturnValue("api-key");
+    mockGetInjectableServiceApiKey.mockResolvedValue("api-key");
     mockGetCampaignStatus.mockResolvedValue({
       campaignId: "camp-123",
       name: "Minha Campanha",
@@ -93,10 +83,7 @@ describe("GET /api/instantly/campaign/[id]", () => {
 
   it("passes campaign ID from URL params to service", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-    mockFrom.mockImplementation(() =>
-      createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-    );
-    mockDecryptApiKey.mockReturnValue("api-key");
+    mockGetInjectableServiceApiKey.mockResolvedValue("api-key");
     mockGetCampaignStatus.mockResolvedValue({
       campaignId: "camp-xyz",
       name: "Test",
@@ -108,14 +95,16 @@ describe("GET /api/instantly/campaign/[id]", () => {
     await GET(request, { params: Promise.resolve({ id: "camp-xyz" }) });
 
     expect(mockGetCampaignStatus).toHaveBeenCalledWith({ apiKey: "api-key", campaignId: "camp-xyz" });
+    expect(mockGetInjectableServiceApiKey).toHaveBeenCalledWith(
+      "tenant-456",
+      "instantly",
+      "Instantly"
+    );
   });
 
   it("returns service error on ExternalServiceError", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-    mockFrom.mockImplementation(() =>
-      createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-    );
-    mockDecryptApiKey.mockReturnValue("key");
+    mockGetInjectableServiceApiKey.mockResolvedValue("key");
     mockGetCampaignStatus.mockRejectedValue(
       new ExternalServiceError("instantly", 401, "API key inválida ou expirada.")
     );
@@ -130,10 +119,7 @@ describe("GET /api/instantly/campaign/[id]", () => {
 
   it("returns 500 on unexpected error", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
-    mockFrom.mockImplementation(() =>
-      createChainBuilder({ data: { encrypted_key: "enc-key" }, error: null })
-    );
-    mockDecryptApiKey.mockReturnValue("key");
+    mockGetInjectableServiceApiKey.mockResolvedValue("key");
     mockGetCampaignStatus.mockRejectedValue(new Error("Unexpected"));
 
     const request = new NextRequest("http://localhost/api/instantly/campaign/camp-123");
