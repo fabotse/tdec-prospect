@@ -79,5 +79,12 @@
     "typescript": "^5",
     "vitest": "^4.0.18",
     "vitest-axe": "^0.1.0"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "fsevents@2.3.3": true,
+    "fsevents@2.3.2": true,
+    "sharp@0.34.5": true,
+    "unrs-resolver@1.11.1": true
   }
 }
