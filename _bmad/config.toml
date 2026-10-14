@@ -11,9 +11,9 @@
 # ─────────────────────────────────────────────────────────────────
 
 [core]
+project_name = "tdec-prospect"
 document_output_language = "Portuguese"
 output_folder = "{project-root}/_bmad-output"
-project_name = "tdec-prospect"
 
 [modules.bmm]
 planning_artifacts = "{project-root}/_bmad-output/planning-artifacts"
@@ -30,11 +30,6 @@ visual_tools = "intermediate"
 [modules.tea]
 test_artifacts = "{project-root}/_bmad-output/test-artifacts"
 tea_use_playwright_utils = true
-test_framework = "playwright"
-risk_threshold = "p1"
-test_design_output = "_bmad-output/test-artifacts/test-design"
-test_review_output = "_bmad-output/test-artifacts/test-reviews"
-trace_output = "_bmad-output/test-artifacts/traceability"
 tea_use_pactjs_utils = false
 tea_pact_mcp = "none"
 tea_browser_automation = "auto"
@@ -42,6 +37,11 @@ tea_execution_mode = "auto"
 tea_capability_probe = true
 test_stack_type = "auto"
 ci_platform = "auto"
+test_framework = "playwright"
+risk_threshold = "p1"
+test_design_output = "_bmad-output/test-artifacts/test-design"
+test_review_output = "_bmad-output/test-artifacts/test-reviews"
+trace_output = "_bmad-output/test-artifacts/traceability"
 
 [agents.bmad-agent-analyst]
 module = "bmm"
@@ -50,14 +50,6 @@ name = "Mary"
 title = "Business Analyst"
 icon = "📊"
 description = "Channels Porter's strategic rigor and Minto's Pyramid Principle, grounds every finding in verifiable evidence, represents every stakeholder voice. Speaks like a treasure hunter narrating the find: thrilled by every clue, precise once the pattern emerges."
-
-[agents.bmad-agent-tech-writer]
-module = "bmm"
-team = "software-development"
-name = "Paige"
-title = "Technical Writer"
-icon = "📚"
-description = "Master of CommonMark, DITA, and OpenAPI; turns complex concepts into accessible structured docs, favors diagrams over walls of text, every word earning its place. Speaks like the patient teacher you wish you'd had, using analogies that make complex things feel simple."
 
 [agents.bmad-agent-pm]
 module = "bmm"
