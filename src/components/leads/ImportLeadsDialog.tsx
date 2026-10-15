@@ -245,10 +245,10 @@ Pedro,Oliveira,,,Gerente Comercial,,11988776655`;
 
       if (isExcel) {
         const reader = new FileReader();
-        reader.onload = (event) => {
+        reader.onload = async (event) => {
           try {
             const buffer = event.target?.result as ArrayBuffer;
-            processDataFromParsed(parseXlsxData(buffer));
+            processDataFromParsed(await parseXlsxData(buffer));
           } catch {
             setError("Erro ao processar arquivo Excel. Verifique se o arquivo não está corrompido.");
           }

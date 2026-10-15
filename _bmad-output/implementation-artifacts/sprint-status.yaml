@@ -570,7 +570,7 @@ development_status:
   epic-23: backlog
   23-0-banco-de-teste-espelhando-producao: backlog  # ADIADA 2026-10-15 (Fabossi): risco operacional; story escrita fica como referencia. Regra de verificacao pos-etapa em CLAUDE.md/AGENTS.md
   23-1-webhook-e-crons-autenticados: backlog
-  23-2-dependencias-sem-vulnerabilidades-criticas: backlog
+  23-2-dependencias-sem-vulnerabilidades-criticas: awaiting-operator
   23-3-saude-dos-jobs-e-registro-de-erros-com-a-infraestrutura-atual: backlog
   23-4-ci-no-github-e-base-verde: done
   23-5-lista-de-supressao-cadastro-e-import: backlog

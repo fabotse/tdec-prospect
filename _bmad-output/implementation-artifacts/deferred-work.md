@@ -438,3 +438,18 @@ source_spec: `spec-23-4-ci-no-github-e-base-verde.md`
 severity: low
 reason: tsconfig.json exclui supabase/functions desde antes da story; o caminho do webhook e do reply-sweep fica fora do CI. Pré-existente.
 status: open
+
+### DW-6: O CI e o [verify] do bmad-loop não rodam `next build`; um upgrade de framework pode quebrar o build com os 3 gates verdes.
+origin: spec-deferred 94cec952e9f7
+location: .github/workflows/ci.yml
+source_spec: `spec-23-2-dependencias-sem-vulnerabilidades-criticas.md`
+severity: medium
+reason: .github/workflows/ci.yml e .bmad-loop/policy.toml [verify] rodam só lint, typecheck e test:run. Nesta story o build foi rodado à mão (exit 0). Lacuna anterior à story (vem da 23.4); exige env de placeholder no CI.
+status: open
+
+### DW-7: Planilha cuja tabela não começa em A1 (linhas/colunas vazias antes do cabeçalho) pode virar cabeçalho vazio no parser novo.
+origin: spec-deferred 5f793c0cfcbb
+location: src/lib/utils/xlsx-parser.ts
+source_spec: `spec-23-2-dependencias-sem-vulnerabilidades-criticas.md`
+reason: read-excel-file devolve as linhas/colunas vazias iniciais como null. O SheetJS antigo usava o range `!ref` da planilha: com arquivo gerado pelo próprio SheetJS (ref A1:E4) os dois parsers dão o mesmo resultado (testado no scratchpad). Falta testar um .xlsx salvo pelo Excel com dados a partir de C3, cuja tag dimension pode começar em C3 — isso decide se há divergência.
+status: open

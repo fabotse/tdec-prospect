@@ -532,7 +532,7 @@ describe("ImportLeadsDialog", () => {
     }
 
     it("should accept .xlsx file upload and parse via parseXlsxData (AC #1, #2)", async () => {
-      mockParseXlsxData.mockReturnValue(PARSED_CSV);
+      mockParseXlsxData.mockResolvedValue(PARSED_CSV);
       mockDetectLeadColumnMappings.mockReturnValue(AUTO_MAPPINGS);
 
       renderDialog();
@@ -564,9 +564,7 @@ describe("ImportLeadsDialog", () => {
     });
 
     it("should show error for corrupt .xlsx file", async () => {
-      mockParseXlsxData.mockImplementation(() => {
-        throw new Error("Invalid file format");
-      });
+      mockParseXlsxData.mockRejectedValue(new Error("Doesn't look like an `.xlsx` file"));
 
       renderDialog();
       const fileInput = screen.getByTestId("file-input");
@@ -580,6 +578,28 @@ describe("ImportLeadsDialog", () => {
 
       await waitFor(() => {
         expect(screen.getByText(/Erro ao processar arquivo Excel/)).toBeInTheDocument();
+      });
+    });
+
+    it("should show no-data message for header-only .xlsx (Story 23.2)", async () => {
+      mockParseXlsxData.mockResolvedValue({ headers: ["Nome", "Email"], rows: [] });
+
+      renderDialog();
+      const fileInput = screen.getByTestId("file-input");
+
+      fireEvent.change(fileInput, {
+        target: {
+          files: [
+            createFile(
+              "header-only.xlsx",
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+          ],
+        },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText(/Nenhuma linha de dados/)).toBeInTheDocument();
       });
     });
 

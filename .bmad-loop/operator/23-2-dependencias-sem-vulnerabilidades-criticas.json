@@ -1,0 +1,11 @@
+{
+  "actions": [
+    "Com login real de gestor, abrir login, Leads, Campanhas, Agente e Oportunidades no app rodando com esta branch e confirmar que as telas carregam sem erro (n\u00e3o ativar campanha nem enviar WhatsApp).",
+    "Importar em Leads um .xlsx real do cliente (de prefer\u00eancia com telefone/CEP como n\u00famero formatado) at\u00e9 a tela de mapeamento e conferir os valores; n\u00e3o concluir o import se n\u00e3o quiser gravar leads.",
+    "Antes do merge/deploy, conferir o preview da Vercel com next 16.4.1 (build e as rotas de webhook, busca de leads e export ao Instantly respondendo) e dar o OK do upgrade."
+  ],
+  "parked_at": "2026-10-15",
+  "run_id": "20261015-181210-2f53",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-23-2-dependencias-sem-vulnerabilidades-criticas.md",
+  "story_key": "23-2-dependencias-sem-vulnerabilidades-criticas"
+}
