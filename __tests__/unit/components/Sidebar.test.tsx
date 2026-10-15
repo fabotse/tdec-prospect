@@ -383,6 +383,17 @@ describe('Sidebar', () => {
         })
       })
 
+      it('should render collapsed like the server until hydrated (React #418)', () => {
+        localStorage.setItem('sidebar-expanded', JSON.stringify(['/leads']))
+
+        const { rerender } = render(<Sidebar {...defaultProps} isHydrated={false} />)
+        expect(screen.getByRole('button', { name: 'Leads' })).toHaveAttribute('aria-expanded', 'false')
+        expect(screen.queryByRole('menuitem', { name: /buscar/i })).not.toBeInTheDocument()
+
+        rerender(<Sidebar {...defaultProps} isHydrated={true} />)
+        expect(screen.getByRole('menuitem', { name: /buscar/i })).toBeInTheDocument()
+      })
+
       it('should handle invalid JSON in localStorage gracefully', () => {
         // Set invalid JSON in localStorage
         localStorage.setItem('sidebar-expanded', 'not-valid-json{[}')

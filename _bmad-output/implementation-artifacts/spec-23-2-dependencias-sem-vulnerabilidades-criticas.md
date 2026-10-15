@@ -22,7 +22,7 @@ deferred:
       .github/workflows/ci.yml
     severity: medium
   - summary: >-
-      Planilha cuja tabela não começa em A1 (linhas/colunas vazias antes do cabeçalho) pode virar cabeçalho vazio no parser novo.
+      Planilha cuja tabela não começa em A1 (linhas/colunas vazias antes do cabeçalho) pode virar cabeçalho vazio no parser novo. Resolvido na própria 23.2 (DW-7), ver Completion Notes.
     evidence: |-
       read-excel-file devolve as linhas/colunas vazias iniciais como null. O SheetJS antigo usava o range `!ref` da planilha: com arquivo gerado pelo próprio SheetJS (ref A1:E4) os dois parsers dão o mesmo resultado (testado no scratchpad). Falta testar um .xlsx salvo pelo Excel com dados a partir de C3, cuja tag dimension pode começar em C3 — isso decide se há divergência.
     location: >-
@@ -162,6 +162,13 @@ Datas: o `xlsx` com `raw:false` devolvia o texto formatado ("1/15/24"); o import
 
 **Pendente:** o smoke humano logado (login, leads, campanhas, agente, oportunidades) e o teste de importação de um `.xlsx` real do cliente ficam com o operador. Recomendado antes do deploy, por causa do salto de versão do `next`.
 
+
+**Smoke do operador e ajustes pós-smoke (2026-10-15):**
+- Smoke real, só leitura, contra produção: o build da branch e o da `main` rodando localmente, e o preview da Vercel (next 16.4.1). Feito com o spec versionado `__tests__/e2e/smoke-23-2.spec.ts`, que bloqueia escritas. Todas as telas carregam. O editor e o diálogo de export abrem, com o Instantly conectado, e não foi exportado nada. O import do `.xlsx` sintético foi até o mapeamento, sem importar. Houve 1 busca real no Apollo: status 200, 25 leads. O webhook e os crons não foram chamados.
+- Os 3 pontos: (1) campanhas rodando, webhook e `reply-sweep` por análise do diff, porque o código não mudou; (2) busca de leads por smoke real; (3) export ao Instantly por smoke parcial (o diálogo abre e a integração aparece conectada; não houve export nem ativação, conforme as regras).
+- Correção 1, o parser de `.xlsx` com tabela fora de A1 (título acima, colunas vazias à esquerda). Nenhuma coluna era detectada, no parser antigo e no novo. Agora a linha de cabeçalho é a que mais casa com colunas de lead, e linhas e colunas vazias são descartadas. Muda só o import de leads por `.xlsx`; o CSV e o import de resultados de campanha não mudam.
+- Correção 2, o erro de hidratação do React (#418), anterior à story. O `Sidebar` lia `sidebar-expanded` do `localStorage` no `useState`, e o HTML do servidor sai sempre com o menu fechado. Agora o estado expandido só vale depois da hidratação. Medido no `next dev`: 7 erros em 16 navegações antes da correção e 0 depois. Muda só o menu lateral (com o "Leads" salvo como aberto, ele abre um instante depois do primeiro paint).
+- Também foi observado que o `next dev` do 16.4 acrescenta um bloco "nextjs-agent-rules" ao `AGENTS.md` (`generate-agent-files.js`). Revertido; por decisão do Fabossi, desligado com `agentRules: false` no `next.config.ts` (só afeta o `next dev`).
 
 ## Auto Run Result
 

@@ -452,4 +452,5 @@ origin: spec-deferred 5f793c0cfcbb
 location: src/lib/utils/xlsx-parser.ts
 source_spec: `spec-23-2-dependencias-sem-vulnerabilidades-criticas.md`
 reason: read-excel-file devolve as linhas/colunas vazias iniciais como null. O SheetJS antigo usava o range `!ref` da planilha: com arquivo gerado pelo próprio SheetJS (ref A1:E4) os dois parsers dão o mesmo resultado (testado no scratchpad). Falta testar um .xlsx salvo pelo Excel com dados a partir de C3, cuja tag dimension pode começar em C3 — isso decide se há divergência.
-status: open
+status: resolved
+resolution: 2026-10-15, ainda na 23.2. O smoke mostrou que nenhuma coluna era detectada, no parser antigo e no novo. Agora o `xlsx-parser.ts` procura a linha de cabeçalho (a que mais casa com colunas de lead entre as 20 primeiras) e descarta linhas e colunas vazias. Teste TITULO com a fixture `import-leads-titulo.xlsx`.

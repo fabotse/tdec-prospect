@@ -75,6 +75,22 @@ describe("parseXlsxData", () => {
     });
   });
 
+  /**
+   * Table that does not start at A1: title in B1, empty row 2, header in C3,
+   * column A/B empty. Both the old parser and the first 23.2 version took the
+   * title as the header, so no column was detected.
+   */
+  it("finds the header row below a title and drops empty columns (TITULO)", async () => {
+    const result = await parseXlsxData(loadFixture("import-leads-titulo.xlsx"));
+    expect(result).toEqual<ParsedCSVData>({
+      headers: ["Nome", "Email", "Empresa"],
+      rows: [
+        ["Diego", "diego@delta.com", "Delta"],
+        ["Eva", "eva@epsilon.com", "Epsilon"],
+      ],
+    });
+  });
+
   it("rejects when the buffer is not a valid .xlsx (CORROMPIDO)", async () => {
     const buffer = new TextEncoder().encode("isto nao e um xlsx").buffer as ArrayBuffer;
     await expect(parseXlsxData(buffer)).rejects.toThrow();

@@ -10,7 +10,7 @@
  */
 
 import { readSheet } from "read-excel-file/universal";
-import type { ParsedCSVData } from "@/lib/utils/csv-parser";
+import { detectLeadColumnMappings, type ParsedCSVData } from "@/lib/utils/csv-parser";
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -56,5 +56,49 @@ export async function parseXlsxData(buffer: ArrayBuffer): Promise<ParsedCSVData>
     Array.from({ length: width }, (_, i) => cellToString(row[i]))
   );
 
-  return { headers: normalized[0], rows: normalized.slice(1) };
+  return locateTable(normalized);
+}
+
+// How many rows from the top are scanned when looking for the header row.
+const HEADER_SCAN_ROWS = 20;
+
+function isEmptyRow(row: string[]): boolean {
+  return row.every((cell) => cell === "");
+}
+
+function countLeadColumns(row: string[]): number {
+  return Object.values(detectLeadColumnMappings(row)).filter((col) => col !== null).length;
+}
+
+/**
+ * Find the table inside the sheet when it does not start at A1
+ * (e.g. a title row above it, or empty columns to its left).
+ * - Header row: among the first HEADER_SCAN_ROWS non-empty rows, the one that
+ *   matches the most lead columns (ties keep the topmost). When none matches,
+ *   the first non-empty row, as before.
+ * - Empty rows are dropped, and so are columns that are empty in every row.
+ */
+function locateTable(normalized: string[][]): ParsedCSVData {
+  const nonEmpty = normalized.filter((row) => !isEmptyRow(row));
+  if (nonEmpty.length === 0) {
+    return { headers: [], rows: [] };
+  }
+
+  let headerIndex = 0;
+  let bestScore = 0;
+  nonEmpty.slice(0, HEADER_SCAN_ROWS).forEach((row, i) => {
+    const score = countLeadColumns(row);
+    if (score > bestScore) {
+      bestScore = score;
+      headerIndex = i;
+    }
+  });
+
+  const table = nonEmpty.slice(headerIndex);
+  const keep = table[0]
+    .map((_, col) => col)
+    .filter((col) => table.some((row) => row[col] !== ""));
+  const [headers, ...rows] = table.map((row) => keep.map((col) => row[col]));
+
+  return { headers, rows };
 }
