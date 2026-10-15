@@ -335,6 +335,7 @@ describe("Agent Types (AC: #3)", () => {
             companyName: "Acme Corp",
             email: null,
             linkedinUrl: "https://linkedin.com/in/johndoe",
+            apolloId: null,
           },
         ],
         totalFound: 1,
@@ -357,6 +358,7 @@ describe("Agent Types (AC: #3)", () => {
         companyName: null,
         email: null,
         linkedinUrl: null,
+        apolloId: null,
       };
 
       expect(lead.name).toBe("Jane");
@@ -372,6 +374,7 @@ describe("Agent Types (AC: #3)", () => {
         companyName: "Beta Inc",
         email: "john@beta.io",
         linkedinUrl: "https://linkedin.com/in/john",
+        apolloId: null,
       };
 
       expect(lead.name).toBe("John Doe");
@@ -387,11 +390,13 @@ describe("Agent Types (AC: #3)", () => {
       const output: ExportStepOutput = {
         externalCampaignId: "camp-123",
         campaignName: "Campanha React",
+        totalEmails: 2,
         leadsUploaded: 50,
         duplicatedLeads: 2,
         invalidEmails: 1,
         accountsAdded: 3,
         platform: "instantly",
+        accounts: [],
       };
 
       expect(output.externalCampaignId).toBe("camp-123");

@@ -109,7 +109,7 @@ describe("stampLatestApprovalGate (Story 22.18 AC3)", () => {
   it("fail-open: erro devolvido pelo update vira false, nao excecao", async () => {
     const messagesChain = createChainBuilder({ data: null, error: null });
     let call = 0;
-    messagesChain.then = (resolve: (v: unknown) => unknown) => {
+    messagesChain.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) => {
       call += 1;
       return Promise.resolve(
         call === 1

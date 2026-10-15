@@ -143,25 +143,25 @@ describe("Migration 00042: whatsapp_messages", () => {
 
     it("should create SELECT policy using get_current_tenant_id()", () => {
       expect(sql).toMatch(
-        /CREATE POLICY.*FOR SELECT\s+USING \(tenant_id = public\.get_current_tenant_id\(\)\)/s
+        /CREATE POLICY[\s\S]*FOR SELECT\s+USING \(tenant_id = public\.get_current_tenant_id\(\)\)/
       );
     });
 
     it("should create INSERT policy with WITH CHECK", () => {
       expect(sql).toMatch(
-        /CREATE POLICY.*FOR INSERT\s+WITH CHECK \(tenant_id = public\.get_current_tenant_id\(\)\)/s
+        /CREATE POLICY[\s\S]*FOR INSERT\s+WITH CHECK \(tenant_id = public\.get_current_tenant_id\(\)\)/
       );
     });
 
     it("should create UPDATE policy with USING + WITH CHECK", () => {
       expect(sql).toMatch(
-        /CREATE POLICY.*FOR UPDATE\s+USING \(tenant_id = public\.get_current_tenant_id\(\)\)\s+WITH CHECK \(tenant_id = public\.get_current_tenant_id\(\)\)/s
+        /CREATE POLICY[\s\S]*FOR UPDATE\s+USING \(tenant_id = public\.get_current_tenant_id\(\)\)\s+WITH CHECK \(tenant_id = public\.get_current_tenant_id\(\)\)/
       );
     });
 
     it("should create DELETE policy with USING", () => {
       expect(sql).toMatch(
-        /CREATE POLICY.*FOR DELETE\s+USING \(tenant_id = public\.get_current_tenant_id\(\)\)/s
+        /CREATE POLICY[\s\S]*FOR DELETE\s+USING \(tenant_id = public\.get_current_tenant_id\(\)\)/
       );
     });
 

@@ -126,12 +126,12 @@ describe("BaseStep Approval Gate (Story 17.5)", () => {
           (call[0] as Record<string, unknown>).status === "awaiting_approval"
       );
       expect(awaitingCall).toBeDefined();
-      expect(awaitingCall[0]).toMatchObject({
+      expect(awaitingCall![0]).toMatchObject({
         output: { companies: [{ name: "Acme" }], totalFound: 1 },
         status: "awaiting_approval",
       });
       // No completed_at
-      expect(awaitingCall[0]).not.toHaveProperty("completed_at");
+      expect(awaitingCall![0]).not.toHaveProperty("completed_at");
 
       // sendApprovalGateMessage: inserts agent message
       expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
@@ -178,7 +178,7 @@ describe("BaseStep Approval Gate (Story 17.5)", () => {
           (call[0] as Record<string, unknown>).status === "completed"
       );
       expect(completedCall).toBeDefined();
-      expect(completedCall[0]).toMatchObject({
+      expect(completedCall![0]).toMatchObject({
         output: { companies: [{ name: "Acme" }], totalFound: 1 },
         status: "completed",
         completed_at: expect.any(String),
@@ -292,7 +292,7 @@ describe("BaseStep Approval Gate (Story 17.5)", () => {
           (call[0] as Record<string, unknown>).status === "completed"
       );
       expect(completedCall).toBeDefined();
-      expect(completedCall[0]).toMatchObject({
+      expect(completedCall![0]).toMatchObject({
         status: "completed",
         completed_at: expect.any(String),
       });

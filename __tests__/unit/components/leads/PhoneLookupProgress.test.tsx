@@ -100,7 +100,7 @@ describe("PhoneLookupProgress", () => {
   // AC #5.2 - Progress bar with X/Y counter
   describe("progress display", () => {
     it("shows progress percentage", async () => {
-      let progressCallback: Function;
+      let progressCallback: NonNullable<Parameters<typeof batchPhoneLookup>[1]>;
       const mockBatchLookup = vi.mocked(batchPhoneLookup);
       mockBatchLookup.mockImplementation(async (leads, onProgress) => {
         progressCallback = onProgress!;

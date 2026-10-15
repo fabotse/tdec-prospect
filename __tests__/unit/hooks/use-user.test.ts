@@ -52,9 +52,9 @@ describe("useUser", () => {
     });
 
     // Re-import module to reset singleton
-    const module = await import("@/hooks/use-user");
-    useUser = module.useUser;
-    resetAuthState = module.resetAuthState;
+    const userModule = await import("@/hooks/use-user");
+    useUser = userModule.useUser;
+    resetAuthState = userModule.resetAuthState;
   });
 
   afterEach(() => {

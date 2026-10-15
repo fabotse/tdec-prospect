@@ -49,10 +49,10 @@ vi.mock("@/hooks/use-lead-interactions", () => ({
 }));
 
 // Mock useWhatsAppMessages hook (Story 11.7)
-const mockUseWhatsAppMessages = vi.fn(() => ({
-  messages: [],
+const mockUseWhatsAppMessages = vi.fn((..._args: unknown[]) => ({
+  messages: [] as Record<string, unknown>[],
   isLoading: false,
-  error: null,
+  error: null as string | null,
   refetch: vi.fn(),
 }));
 vi.mock("@/hooks/use-whatsapp-messages", () => ({

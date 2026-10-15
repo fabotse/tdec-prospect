@@ -188,7 +188,10 @@ describe("BaseStep (AC #4)", () => {
       let attempt = 0;
 
       // Override executeInternal to succeed on 2nd attempt
-      vi.spyOn(step as never, "executeInternal" as never).mockImplementation(
+      vi.spyOn(
+        step as unknown as { executeInternal: () => Promise<unknown> },
+        "executeInternal"
+      ).mockImplementation(
         async () => {
           attempt++;
           if (attempt === 1) {
@@ -258,7 +261,7 @@ describe("BaseStep (AC #4)", () => {
         (call: unknown[]) => (call[0] as Record<string, unknown>).status === "completed"
       );
       expect(checkpointCall).toBeDefined();
-      expect(checkpointCall[0]).toMatchObject({
+      expect(checkpointCall![0]).toMatchObject({
         output: { test: true },
         status: "completed",
         completed_at: expect.any(String),
@@ -277,7 +280,7 @@ describe("BaseStep (AC #4)", () => {
         (call: unknown[]) => (call[0] as Record<string, unknown>).status === "failed"
       );
       expect(failureCall).toBeDefined();
-      expect(failureCall[0]).toMatchObject({
+      expect(failureCall![0]).toMatchObject({
         status: "failed",
         error_message: expect.any(String),
       });
@@ -293,7 +296,7 @@ describe("BaseStep (AC #4)", () => {
         (call: unknown[]) => (call[0] as Record<string, unknown>).status === "running"
       );
       expect(runningCall).toBeDefined();
-      expect(runningCall[0]).toMatchObject({
+      expect(runningCall![0]).toMatchObject({
         status: "running",
         started_at: expect.any(String),
       });

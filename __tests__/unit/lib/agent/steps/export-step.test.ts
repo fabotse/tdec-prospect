@@ -56,7 +56,20 @@ const defaultBriefing = {
   skipSteps: [],
 };
 
+type PreviousStepLead = {
+  name: string;
+  title: string | null;
+  companyName: string | null;
+  email: string | null;
+  linkedinUrl: string | null;
+  icebreaker: string | null;
+};
+
 function createPreviousStepOutput() {
+  const leadsWithIcebreakers: PreviousStepLead[] = [
+    { name: "Joao Silva", title: "CTO", companyName: "Acme", email: "joao@acme.com", linkedinUrl: "https://linkedin.com/in/joao", icebreaker: "Vi seu post sobre React" },
+    { name: "Maria Santos", title: "VP Eng", companyName: "Beta", email: "maria@beta.io", linkedinUrl: null, icebreaker: null },
+  ];
   return {
     campaignName: "Campanha React Outbound",
     emailBlocks: [
@@ -66,10 +79,7 @@ function createPreviousStepOutput() {
     delayBlocks: [
       { position: 1, delayDays: 3 },
     ],
-    leadsWithIcebreakers: [
-      { name: "Joao Silva", title: "CTO", companyName: "Acme", email: "joao@acme.com", linkedinUrl: "https://linkedin.com/in/joao", icebreaker: "Vi seu post sobre React" },
-      { name: "Maria Santos", title: "VP Eng", companyName: "Beta", email: "maria@beta.io", linkedinUrl: null, icebreaker: null },
-    ],
+    leadsWithIcebreakers,
     totalLeads: 2,
   };
 }

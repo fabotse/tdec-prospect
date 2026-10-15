@@ -77,6 +77,8 @@ export function PhoneLookupProgress({
 
     // Validate leads array before processing
     if (leads.length === 0) {
+      // Validacao ao abrir: refatorar p/ estado derivado mudaria quando o dialogo dispara o processamento (story 23.4)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setHasError(true);
       setErrorMessage("Nenhum lead selecionado para buscar telefone. Selecione leads na tabela primeiro.");
       return;
@@ -149,6 +151,8 @@ export function PhoneLookupProgress({
   // Reset state when dialog closes
   useEffect(() => {
     if (!open) {
+      // Reset ao fechar: mantido no efeito para nao mudar quando o processamento reinicia (story 23.4)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCurrent(0);
       setResults([]);
       setIsProcessing(false);

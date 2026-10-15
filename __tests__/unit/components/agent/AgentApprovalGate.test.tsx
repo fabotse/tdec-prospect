@@ -52,6 +52,7 @@ describe("AgentApprovalGate (AC: #1)", () => {
         data={defaultData}
         executionId="exec-001"
         stepNumber={1}
+        totalSteps={5}
       />
     );
 
@@ -68,6 +69,7 @@ describe("AgentApprovalGate (AC: #1)", () => {
         data={defaultData}
         executionId="exec-001"
         stepNumber={1}
+        totalSteps={5}
       />
     );
 
@@ -77,7 +79,7 @@ describe("AgentApprovalGate (AC: #1)", () => {
   it("does not show remaining count when totalFound equals companies.length", () => {
     const data = { ...defaultData, totalFound: 3 };
     render(
-      <AgentApprovalGate data={data} executionId="exec-001" stepNumber={1} />
+      <AgentApprovalGate data={data} executionId="exec-001" stepNumber={1} totalSteps={5} />
     );
 
     expect(screen.queryByText(/mais empresas/)).toBeNull();
@@ -89,6 +91,7 @@ describe("AgentApprovalGate (AC: #1)", () => {
         data={defaultData}
         executionId="exec-001"
         stepNumber={1}
+        totalSteps={5}
       />
     );
 
@@ -103,6 +106,7 @@ describe("AgentApprovalGate (AC: #1)", () => {
         data={defaultData}
         executionId="exec-001"
         stepNumber={1}
+        totalSteps={5}
       />
     );
 
@@ -128,6 +132,7 @@ describe("AgentApprovalGate (AC: #1)", () => {
         data={defaultData}
         executionId="exec-001"
         stepNumber={1}
+        totalSteps={5}
       />
     );
 
@@ -154,7 +159,7 @@ describe("AgentApprovalGate (AC: #1)", () => {
       json: () => Promise.resolve({ data: { stepNumber: 1, status: "awaiting_approval" } }),
     });
 
-    render(<AgentApprovalGate data={defaultData} executionId="exec-001" stepNumber={1} />);
+    render(<AgentApprovalGate data={defaultData} executionId="exec-001" stepNumber={1} totalSteps={5} />);
 
     fireEvent.click(screen.getByRole("button", { name: /rejeitar/i }));
 
@@ -196,6 +201,7 @@ describe("AgentApprovalGate (AC: #1)", () => {
         data={defaultData}
         executionId="exec-001"
         stepNumber={1}
+        totalSteps={5}
       />
     );
 
@@ -215,6 +221,7 @@ describe("AgentApprovalGate (AC: #1)", () => {
         data={defaultData}
         executionId="exec-001"
         stepNumber={1}
+        totalSteps={5}
         onAction={onAction}
       />
     );

@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Scripts de apresentacao (.cjs), nao sao codigo do app
+    "docs/**",
   ]),
   // Custom rules to prevent debug code in production
   {

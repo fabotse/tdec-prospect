@@ -4,15 +4,15 @@
  * AC: #1, #2 - Download de arquivo CSV
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { downloadCsvFile, sanitizeFileName } from "@/lib/export/download-csv";
 
 describe("downloadCsvFile", () => {
-  let createObjectURLMock: ReturnType<typeof vi.fn>;
-  let revokeObjectURLMock: ReturnType<typeof vi.fn>;
-  let appendChildMock: ReturnType<typeof vi.fn>;
-  let removeChildMock: ReturnType<typeof vi.fn>;
-  let clickMock: ReturnType<typeof vi.fn>;
+  let createObjectURLMock: Mock;
+  let revokeObjectURLMock: Mock;
+  let appendChildMock: Mock;
+  let removeChildMock: Mock;
+  let clickMock: Mock;
   let createdAnchor: Record<string, unknown>;
 
   beforeEach(() => {

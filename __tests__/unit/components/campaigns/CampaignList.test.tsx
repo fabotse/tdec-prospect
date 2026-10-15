@@ -47,6 +47,10 @@ describe("CampaignList", () => {
       productId: null,
       createdAt: "2026-02-01T10:00:00Z",
       updatedAt: "2026-02-01T10:00:00Z",
+      externalCampaignId: null,
+      exportPlatform: null,
+      exportedAt: null,
+      exportStatus: null,
       leadCount: 25,
     },
     {
@@ -57,6 +61,10 @@ describe("CampaignList", () => {
       productId: null,
       createdAt: "2026-01-30T10:00:00Z",
       updatedAt: "2026-01-30T10:00:00Z",
+      externalCampaignId: null,
+      exportPlatform: null,
+      exportedAt: null,
+      exportStatus: null,
       leadCount: 0,
     },
     {
@@ -67,6 +75,10 @@ describe("CampaignList", () => {
       productId: null,
       createdAt: "2026-01-28T10:00:00Z",
       updatedAt: "2026-01-29T10:00:00Z",
+      externalCampaignId: null,
+      exportPlatform: null,
+      exportedAt: null,
+      exportStatus: null,
       leadCount: 150,
     },
   ];

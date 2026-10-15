@@ -29,13 +29,13 @@ vi.mock("@/lib/services/apify", () => ({
   },
 }));
 
-const mockDecryptApiKey = vi.fn(() => "decrypted-apify-key");
+const mockDecryptApiKey = vi.fn<(...args: unknown[]) => string>(() => "decrypted-apify-key");
 vi.mock("@/lib/crypto/encryption", () => ({
   decryptApiKey: (...args: unknown[]) => mockDecryptApiKey(...args),
 }));
 
 const mockClassifyPostRelevance = vi.fn();
-const mockCalculateClassificationCost = vi.fn(() => 0.00005);
+const mockCalculateClassificationCost = vi.fn<(...args: unknown[]) => number>(() => 0.00005);
 vi.mock("@/lib/utils/relevance-classifier", () => ({
   classifyPostRelevance: (...args: unknown[]) =>
     mockClassifyPostRelevance(...args),
@@ -44,7 +44,7 @@ vi.mock("@/lib/utils/relevance-classifier", () => ({
 }));
 
 const mockGenerateApproachSuggestion = vi.fn();
-const mockCalculateSuggestionCost = vi.fn(() => 0.000195);
+const mockCalculateSuggestionCost = vi.fn<(...args: unknown[]) => number>(() => 0.000195);
 vi.mock("@/lib/utils/approach-suggestion", () => ({
   generateApproachSuggestion: (...args: unknown[]) =>
     mockGenerateApproachSuggestion(...args),

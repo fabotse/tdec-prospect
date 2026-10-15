@@ -752,7 +752,7 @@ describe("InstantlyService", () => {
 
       // Only 1 fetch call for leads endpoint
       const leadsCalls = mock.mock.calls.filter(
-        (c: [string]) => typeof c[0] === "string" && c[0].includes("/leads/add")
+        (c: unknown[]) => typeof c[0] === "string" && c[0].includes("/leads/add")
       );
       expect(leadsCalls).toHaveLength(1);
     });
@@ -777,7 +777,7 @@ describe("InstantlyService", () => {
       });
 
       const leadsCalls = mock.mock.calls.filter(
-        (c: [string]) => typeof c[0] === "string" && c[0].includes("/leads/add")
+        (c: unknown[]) => typeof c[0] === "string" && c[0].includes("/leads/add")
       );
       expect(leadsCalls).toHaveLength(1);
     });
@@ -813,7 +813,7 @@ describe("InstantlyService", () => {
       await promise;
 
       const leadsCalls = mock.mock.calls.filter(
-        (c: [string]) => typeof c[0] === "string" && c[0].includes("/leads/add")
+        (c: unknown[]) => typeof c[0] === "string" && c[0].includes("/leads/add")
       );
       expect(leadsCalls).toHaveLength(2);
 
@@ -856,7 +856,7 @@ describe("InstantlyService", () => {
       await promise;
 
       const leadsCalls = mock.mock.calls.filter(
-        (c: [string]) => typeof c[0] === "string" && c[0].includes("/leads/add")
+        (c: unknown[]) => typeof c[0] === "string" && c[0].includes("/leads/add")
       );
       expect(leadsCalls).toHaveLength(3);
 

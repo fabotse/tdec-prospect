@@ -153,6 +153,35 @@ carlos@empresa.com,unsubscribed`;
     setIsDragOver(false);
   }, []);
 
+  // Process CSV/TSV data
+  const processData = useCallback((text: string) => {
+    try {
+      const data = parseCSVData(text);
+
+      if (data.headers.length === 0) {
+        setError("Nenhum dado encontrado");
+        return;
+      }
+
+      if (data.rows.length === 0) {
+        setError("Nenhuma linha de dados encontrada (apenas cabecalho?)");
+        return;
+      }
+
+      setParsedData(data);
+
+      // Auto-detect columns
+      const mappings = detectColumnMappings(data.headers);
+      setEmailColumn(mappings.emailColumn ?? -1);
+      setResponseColumn(mappings.responseColumn ?? -1);
+
+      setStep("mapping");
+    } catch (err) {
+      console.error("[ImportCampaignResultsDialog] Error parsing data:", err);
+      setError("Erro ao processar dados. Verifique o formato.");
+    }
+  }, []);
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -230,35 +259,6 @@ carlos@empresa.com,unsubscribed`;
     setError(null);
     processData(pasteText);
   }, [pasteText]);
-
-  // Process CSV/TSV data
-  const processData = useCallback((text: string) => {
-    try {
-      const data = parseCSVData(text);
-
-      if (data.headers.length === 0) {
-        setError("Nenhum dado encontrado");
-        return;
-      }
-
-      if (data.rows.length === 0) {
-        setError("Nenhuma linha de dados encontrada (apenas cabecalho?)");
-        return;
-      }
-
-      setParsedData(data);
-
-      // Auto-detect columns
-      const mappings = detectColumnMappings(data.headers);
-      setEmailColumn(mappings.emailColumn ?? -1);
-      setResponseColumn(mappings.responseColumn ?? -1);
-
-      setStep("mapping");
-    } catch (err) {
-      console.error("[ImportCampaignResultsDialog] Error parsing data:", err);
-      setError("Erro ao processar dados. Verifique o formato.");
-    }
-  }, []);
 
   // Handle import
   const handleImport = useCallback(async () => {
