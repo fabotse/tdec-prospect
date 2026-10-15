@@ -34,7 +34,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-25
-last_updated: 2026-10-15  # sprint-planning: Epics 23-25 adicionados (backlog) + faxina de status (Epics 4/12/14/19/20 -> done)
+last_updated: 2026-10-15  # 23.0 adiada (story escrita, volta a backlog); epic-23 volta a backlog
 project: tdec-prospect
 project_key: NOKEY
 tracking_system: file-system
@@ -555,10 +555,20 @@ development_status:
   # Branch: um por epico (epic/23-plataforma-higiene ja criado a partir da main).
   #
   # EPIC 23: Plataforma — Higiene & Protecao de Envio
-  # 23.0 primeiro (banco de teste espelhando producao) — vale para os 3 epicos. ~1 semana.
+  #
+  # >>> ORDEM DE EXECUCAO (Fabossi, 2026-10-15) — substitui a ordem do arquivo <<<
+  # 23.0 ADIADA (dev local segue no banco de producao). Regra pos-etapa em CLAUDE.md/AGENTS.md:
+  # campanhas rodando, busca de leads e criacao/envio ao Instantly nao podem quebrar nem ganhar trava.
+  #   1. 23.4 CI + base verde          (risco zero)
+  #   2. 23.2 dependencias             (sem migration)
+  #   3. 23.8 falso positivo ESG       (sem migration)
+  #   4. 24.2 -> 24.6 agente Marco 1   (so codigo do agente)
+  #   DEPOIS, em janela de deploy combinada: 23.1, 23.3, 24.1, 24.7 (mexem em prod: webhook/cron/tabela)
+  #   SO COM DECISAO DO FABOSSI: 23.5-23.7 (travam envio), 23.0 (banco de teste)
+  # bmad-loop roda na ordem do ARQUIVO -> rodar uma por vez: bmad-loop run --story 23-4 (depois 23-2, 23-8, 24-2...)
   #
   epic-23: backlog
-  23-0-banco-de-teste-espelhando-producao: backlog
+  23-0-banco-de-teste-espelhando-producao: backlog  # ADIADA 2026-10-15 (Fabossi): risco operacional; story escrita fica como referencia. Regra de verificacao pos-etapa em CLAUDE.md/AGENTS.md
   23-1-webhook-e-crons-autenticados: backlog
   23-2-dependencias-sem-vulnerabilidades-criticas: backlog
   23-3-saude-dos-jobs-e-registro-de-erros-com-a-infraestrutura-atual: backlog
