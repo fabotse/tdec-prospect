@@ -67,6 +67,14 @@ interface ImportCampaignResultsDialogProps {
  * Dialog for importing campaign results
  * Multi-step flow: input -> mapping -> processing -> summary
  */
+// Allowed MIME types for CSV files
+const ALLOWED_MIME_TYPES = [
+  "text/csv",
+  "text/plain",
+  "application/csv",
+  "application/vnd.ms-excel",
+];
+
 export function ImportCampaignResultsDialog({
   open,
   onOpenChange,
@@ -85,14 +93,6 @@ export function ImportCampaignResultsDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importMutation = useImportCampaignResults();
   const [isDragOver, setIsDragOver] = useState(false);
-
-  // Allowed MIME types for CSV files
-  const ALLOWED_MIME_TYPES = [
-    "text/csv",
-    "text/plain",
-    "application/csv",
-    "application/vnd.ms-excel",
-  ];
 
   // Check if file is valid CSV
   const isValidCSVFile = useCallback((file: File): boolean => {
@@ -214,7 +214,7 @@ carlos@empresa.com,unsubscribed`;
       setError("Erro ao ler arquivo");
     };
     reader.readAsText(file);
-  }, [isValidCSVFile]);
+  }, [isValidCSVFile, processData]);
 
   // Handle file selection
   const handleFileChange = useCallback(
@@ -247,7 +247,7 @@ carlos@empresa.com,unsubscribed`;
       };
       reader.readAsText(file);
     },
-    [isValidCSVFile]
+    [isValidCSVFile, processData]
   );
 
   // Handle paste data
@@ -258,7 +258,7 @@ carlos@empresa.com,unsubscribed`;
     }
     setError(null);
     processData(pasteText);
-  }, [pasteText]);
+  }, [pasteText, processData]);
 
   // Handle import
   const handleImport = useCallback(async () => {
