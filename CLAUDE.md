@@ -23,3 +23,8 @@ Antes de dar a etapa por concluída, verificar e registrar nas Completion Notes 
 - Migrations: só **aditivas** (tabela, coluna nullable, índice). Nada de `DROP`, `ALTER` destrutivo, `UPDATE`/`DELETE` em dados existentes. Aplicar só com o OK do Fabossi.
 - Não criar, alterar nem reagendar jobs `pg_cron`, não publicar Edge Functions e não mudar secrets/variáveis sem pedido explícito.
 - Smokes: nunca ativar campanhas de teste no Instantly, não mexer em campanhas reais do cliente e não enviar WhatsApp para leads.
+
+## Commits e gates
+
+- Nunca commitar com `--no-verify`. Se o pre-commit falhar, corrigir o que ele apontou. O bmad-loop refaz o commit com o hook ligado, e o que foi pulado vira escalada.
+- O pre-commit (lint-staged) e o CI usam a mesma régua: erro de ESLint bloqueia, warning não. `npm run lint`, `npm run typecheck` e `npm run test:run` precisam passar (são também os `[verify]` do `.bmad-loop/policy.toml`).

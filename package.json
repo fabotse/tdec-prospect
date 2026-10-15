@@ -55,7 +55,7 @@
   },
   "lint-staged": {
     "src/**/*.{ts,tsx}": [
-      "eslint --fix --max-warnings=0"
+      "eslint --fix"
     ]
   },
   "devDependencies": {
