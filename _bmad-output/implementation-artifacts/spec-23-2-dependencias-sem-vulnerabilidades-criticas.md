@@ -2,7 +2,7 @@
 title: 'Story 23.2 — Dependências sem vulnerabilidades críticas'
 type: 'chore'
 created: '2026-10-15'
-status: 'awaiting-operator'
+status: done
 baseline_revision: 'fe743edeb4de7a89a48875b087c814911a0aeb96'
 review_loop_iteration: 0
 followup_review_recommended: true
@@ -197,3 +197,13 @@ Status: awaiting-operator
 **Os 3 pontos do cliente:** por análise do diff — nenhum código de campanhas/webhook/reply-sweep, busca de leads ou export/ativação no Instantly mudou. O risco indireto é o upgrade do `next` e das transitivas (`axios`, `ws`), que afeta o app todo; por isso o smoke logado e o preview da Vercel estão em `operator_actions` antes do deploy.
 
 **Devido pelo operador:** ver `operator_actions` no frontmatter.
+
+## Operator Confirmation
+
+Confirmed 2026-10-15: the external actions this story owed were carried out.
+
+- Com login real de gestor, abrir login, Leads, Campanhas, Agente e Oportunidades no app rodando com esta branch e confirmar que as telas carregam sem erro (não ativar campanha nem enviar WhatsApp).
+- Importar em Leads um .xlsx real do cliente (de preferência com telefone/CEP como número formatado) até a tela de mapeamento e conferir os valores; não concluir o import se não quiser gravar leads.
+- Antes do merge/deploy, conferir o preview da Vercel com next 16.4.1 (build e as rotas de webhook, busca de leads e export ao Instantly respondendo) e dar o OK do upgrade.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
