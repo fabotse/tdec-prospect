@@ -134,7 +134,6 @@ _bmad-output/epic-22-agente-tdec-2.0.html
 playwright.verify*.config.ts
 vitest.verify*.config.mts
 _bmad/render/
-_bmad/config.user.yaml
 
 # Supabase CLI (cache local)
 supabase/.temp/
