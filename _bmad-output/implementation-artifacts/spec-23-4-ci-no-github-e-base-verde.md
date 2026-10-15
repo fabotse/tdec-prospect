@@ -2,7 +2,7 @@
 title: 'Story 23.4 — CI no GitHub e base verde'
 type: 'chore'
 created: '2026-10-15'
-status: 'awaiting-operator'
+status: done
 baseline_revision: '35a830af148bef181b09a1306ae1eb6e2e68410d'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -186,3 +186,13 @@ Status: awaiting-operator
 **Pendente (operador):** ver `operator_actions` no frontmatter — push da branch, conferir os 3 checks no PR para `main`, branch protection opcional.
 
 **Riscos residuais:** primeiro run real no GitHub pode revelar diferença de ambiente (ex.: `npm ci` com `allowScripts`), embora o worktree limpo tenha passado.
+
+## Operator Confirmation
+
+Confirmed 2026-10-15: the external actions this story owed were carried out.
+
+- Fazer push da branch epic/23-plataforma-higiene para o GitHub e confirmar em Actions que os jobs Lint, Typecheck e Tests do workflow CI terminam verdes.
+- Abrir um PR de epic/23-plataforma-higiene para main e confirmar que o PR mostra os três checks Lint, Typecheck e Tests.
+- Opcional: em GitHub > Settings > Branches, criar uma regra de proteção da main que exija os checks Lint, Typecheck e Tests antes do merge.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
