@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { POST } from "@/app/api/agent/executions/[executionId]/steps/[stepNumber]/execute/route";
+import { POST, maxDuration } from "@/app/api/agent/executions/[executionId]/steps/[stepNumber]/execute/route";
 import { createChainBuilder } from "../../../helpers/mock-supabase";
 
 // ==============================================
@@ -562,5 +562,12 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/execute", 
     expect(response.status).toBe(500);
     expect(json.error.code).toBe("INTERNAL_ERROR");
     expect(json.error.isRetryable).toBe(false);
+  });
+});
+
+// Story 24.3 (AC1): step longo nao pode morrer no limite padrao da function.
+describe("execute route config (Story 24.3)", () => {
+  it("exporta maxDuration = 300", () => {
+    expect(maxDuration).toBe(300);
   });
 });

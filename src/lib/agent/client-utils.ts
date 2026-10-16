@@ -29,18 +29,40 @@ export async function triggerNextStep(
  * rejeicao de REDE. Resultado no gate de ativacao: "✅ Campanha ativada" exibido
  * por cima de um step de ativacao que nunca rodou.
  *
- * Funcao NOVA de proposito — `triggerNextStep` tem 4 callers e mudar a assinatura
- * dele mexeria em todos. Aqui so o gate de ativacao (a etapa cara e irreversivel)
- * passa a verificar.
+ * Story 24.3: os 3 gates de aprovacao (empresas, leads, campanha), o auto-trigger, os
+ * botoes "Tentar novamente" e o disparo do step 1 apos o confirm verificam a resposta via
+ * `executeStepChecked` e passam pela regra unica `reportTriggerFailure`. O gate de
+ * ativacao mantem o tratamento inline da 22.18 (sem `reportTriggerFailure`).
+ * `triggerNextStep` (crua) fica so por compatibilidade.
  */
-export type TriggerNextStepOutcome =
-  | { status: "skipped" }
-  | { status: "ok" }
-  | { status: "failed"; message: string; alreadyReported: boolean };
+export type StepTriggerFailedOutcome = {
+  status: "failed";
+  message: string;
+  alreadyReported: boolean;
+  /** Story 24.3: `error.code` do servidor, quando houver resposta. */
+  code?: string;
+  /**
+   * Story 24.3: faz sentido oferecer "Tentar novamente"? `false` quando o servidor diz
+   * `isRetryable: false` ou a execucao ja encerrou (`EXECUTION_NOT_ACTIVE`). `true` na
+   * falha de rede e quando o campo nao vem.
+   */
+  retryable: boolean;
+  /**
+   * Story 24.3: 409 `STEP_ALREADY_RUNNING` / `STEP_NOT_EXECUTABLE` — outro executor
+   * (outra aba, clique duplo, auto-trigger) ja cuidou do step. Nao e falha para o usuario.
+   */
+  superseded: boolean;
+};
+
+export type StepExecuteOutcome = { status: "ok" } | StepTriggerFailedOutcome;
+
+export type TriggerNextStepOutcome = { status: "skipped" } | StepExecuteOutcome;
+
+const SUPERSEDED_CODES = new Set(["STEP_ALREADY_RUNNING", "STEP_NOT_EXECUTABLE"]);
 
 /** Fallback quando o corpo do erro nao traz mensagem. */
 const TRIGGER_FALLBACK_MESSAGE =
-  "Nao consegui iniciar a etapa seguinte. Tente novamente.";
+  "Nao consegui iniciar a etapa. Tente novamente.";
 
 /**
  * Dispara o proximo step e CLASSIFICA o resultado.
@@ -66,20 +88,37 @@ export async function triggerNextStepChecked(
   currentStepNumber: number,
   totalSteps: number
 ): Promise<TriggerNextStepOutcome> {
-  let response: Response | null;
+  // Guard de ultimo step: nao ha proximo step para disparar — nao e falha.
+  if (currentStepNumber >= totalSteps) return { status: "skipped" };
+  return executeStepChecked(executionId, currentStepNumber + 1);
+}
+
+/**
+ * Story 24.3: dispara UM step (`POST .../execute`) e classifica a resposta. Fonte unica
+ * da classificacao — usada pelos gates (via `triggerNextStepChecked`), pelo auto-trigger
+ * e pelos botoes "Tentar novamente". Nunca rejeita.
+ */
+export async function executeStepChecked(
+  executionId: string,
+  stepNumber: number
+): Promise<StepExecuteOutcome> {
+  let response: Response;
   try {
-    response = await triggerNextStep(executionId, currentStepNumber, totalSteps);
+    response = await fetch(
+      `/api/agent/executions/${executionId}/steps/${stepNumber}/execute`,
+      { method: "POST" }
+    );
   } catch {
     // Rejeicao de rede — nao houve resposta, logo nao ha bolha no chat.
     return {
       status: "failed",
-      message: "Erro de conexao ao iniciar a etapa seguinte. Tente novamente.",
+      message: "Erro de conexao ao iniciar a etapa. Tente novamente.",
       alreadyReported: false,
+      retryable: true,
+      superseded: false,
     };
   }
 
-  // Guard de ultimo step: nao ha proximo step para disparar — nao e falha.
-  if (!response) return { status: "skipped" };
   if (response.ok) return { status: "ok" };
 
   let payload: unknown = null;
@@ -94,10 +133,14 @@ export async function triggerNextStepChecked(
     typeof error?.message === "string" && error.message.length > 0
       ? error.message
       : TRIGGER_FALLBACK_MESSAGE;
+  const code = typeof error?.code === "string" ? error.code : undefined;
 
   return {
     status: "failed",
     message,
     alreadyReported: error?.reportedInChat === true,
+    code,
+    retryable: error?.isRetryable !== false && code !== "EXECUTION_NOT_ACTIVE",
+    superseded: response.status === 409 && code !== undefined && SUPERSEDED_CODES.has(code),
   };
 }

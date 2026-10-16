@@ -6,8 +6,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
 import { useAutoTrigger } from "@/hooks/use-auto-trigger";
+import { useAgentStore } from "@/stores/use-agent-store";
 import type { AgentStep } from "@/types/agent";
 
 // === Mock fetch ===
@@ -224,5 +225,70 @@ describe("useAutoTrigger (Story 17.7 - AC #1)", () => {
     // mesmo id -> o ref NAO e zerado -> nada de dispatch duplicado (regressao da 17.7)
     rerender({ executionId: "exec-001" });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ==============================================
+// Story 24.3 (AC2) — disparo VERIFICADO no auto-trigger
+// ==============================================
+
+describe("useAutoTrigger — falha no disparo (Story 24.3)", () => {
+  beforeEach(() => {
+    useAgentStore.setState({ stepTriggerFailure: null });
+  });
+
+  const steps = () => [
+    makeStep({ step_number: 1, status: "completed" }),
+    makeStep({ step_number: 2, status: "pending" }),
+  ];
+
+  it("falha pre-orchestrator (500) vira aviso no store em vez de sumir", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(
+        JSON.stringify({ error: { code: "API_KEY_ERROR", message: "Erro ao decriptar a API key do TheirStack" } }),
+        { status: 500 }
+      )
+    );
+
+    renderHook(() => useAutoTrigger({ executionId: "exec-001", steps: steps(), mode: "autopilot" }));
+
+    await waitFor(() => {
+      expect(useAgentStore.getState().stepTriggerFailure).toEqual({
+        executionId: "exec-001",
+        stepNumber: 2,
+        message: "Erro ao decriptar a API key do TheirStack",
+        retryable: true,
+      });
+    });
+  });
+
+  it("rejeicao de rede vira aviso retryable", async () => {
+    fetchSpy.mockRejectedValue(new Error("network down"));
+
+    renderHook(() => useAutoTrigger({ executionId: "exec-001", steps: steps(), mode: "autopilot" }));
+
+    await waitFor(() => {
+      expect(useAgentStore.getState().stepTriggerFailure).toMatchObject({
+        executionId: "exec-001",
+        stepNumber: 2,
+        retryable: true,
+      });
+    });
+  });
+
+  it("409 STEP_NOT_EXECUTABLE (outro executor cuidou) NAO gera aviso", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(
+        JSON.stringify({ error: { code: "STEP_NOT_EXECUTABLE", message: "ja em andamento" } }),
+        { status: 409 }
+      )
+    );
+
+    renderHook(() => useAutoTrigger({ executionId: "exec-001", steps: steps(), mode: "autopilot" }));
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+    // deixa a promise do disparo assentar
+    await new Promise((r) => setTimeout(r, 0));
+    expect(useAgentStore.getState().stepTriggerFailure).toBeNull();
   });
 });

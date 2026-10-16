@@ -294,3 +294,87 @@ describe("AgentCampaignPreview (AC: #1, #2, #3)", () => {
     expect(screen.getByTestId("icebreaker-list")).toBeInTheDocument();
   });
 });
+
+// ==============================================
+// Story 24.3 (AC2) — disparo do proximo step VERIFICADO
+// ==============================================
+
+describe("AgentCampaignPreview — falha no disparo do proximo step (Story 24.3)", () => {
+  function mockExecuteResponse(status: number, body: unknown) {
+    mockFetch.mockImplementation((url: string) => {
+      if (String(url).includes("/execute")) {
+        return Promise.resolve({
+          ok: status >= 200 && status < 300,
+          status,
+          json: () => Promise.resolve(body),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ data: { status: "approved" } }),
+      });
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAgentStore.setState({ stepTriggerFailure: null });
+  });
+
+  it("falha pre-orchestrator (422) no disparo nao aguardado vira aviso no store", async () => {
+    mockExecuteResponse(422, {
+      error: { code: "API_KEY_NOT_FOUND", message: "API key do TheirStack nao configurada" },
+    });
+
+    renderComponent();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("campaign-approve-btn"));
+    });
+
+    await waitFor(() => {
+      expect(useAgentStore.getState().stepTriggerFailure).toEqual({
+        executionId: "exec-001",
+        stepNumber: 4,
+        message: "API key do TheirStack nao configurada",
+        retryable: true,
+      });
+    });
+  });
+
+  it("409 STEP_ALREADY_RUNNING (outro executor) NAO gera aviso", async () => {
+    mockExecuteResponse(409, {
+      error: { code: "STEP_ALREADY_RUNNING", message: "Etapa ja esta em execucao" },
+    });
+
+    renderComponent();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("campaign-approve-btn"));
+    });
+
+    await waitFor(() => {
+      expect(
+        mockFetch.mock.calls.some(([url]) => String(url).includes("/execute"))
+      ).toBe(true);
+    });
+    expect(useAgentStore.getState().stepTriggerFailure).toBeNull();
+  });
+
+  it("falha ja reportada no chat (reportedInChat) NAO duplica o aviso", async () => {
+    mockExecuteResponse(503, {
+      error: { code: "STEP_ERROR", message: "Rate limited", isRetryable: true, reportedInChat: true },
+    });
+
+    renderComponent();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("campaign-approve-btn"));
+    });
+
+    await waitFor(() => {
+      expect(
+        mockFetch.mock.calls.some(([url]) => String(url).includes("/execute"))
+      ).toBe(true);
+    });
+    expect(useAgentStore.getState().stepTriggerFailure).toBeNull();
+  });
+});

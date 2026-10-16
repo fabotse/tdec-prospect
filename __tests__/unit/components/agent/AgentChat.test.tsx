@@ -37,6 +37,10 @@ const mockClearAdjustingStep = vi.fn();
 const mockSetPendingChipAdjustment = vi.fn();
 const mockClearPendingChipAdjustment = vi.fn();
 const mockSetChatInputDraft = vi.fn();
+// Story 24.3: aviso efemero de falha no disparo de step
+const mockSetStepTriggerFailure = vi.fn();
+const mockClearStepTriggerFailure = vi.fn();
+let capturedStepProgressProps: Record<string, unknown> | null = null;
 
 let capturedOnSendMessage: ((content: string) => Promise<void>) | null = null;
 let capturedMessageListProps: Record<string, unknown> = {};
@@ -144,7 +148,16 @@ vi.mock("@/components/agent/AgentExecutionPlan", () => ({
 }));
 
 vi.mock("@/components/agent/AgentStepProgress", () => ({
-  AgentStepProgress: () => <div data-testid="agent-step-progress">step progress</div>,
+  AgentStepProgress: (props: Record<string, unknown>) => {
+    capturedStepProgressProps = props;
+    return <div data-testid="agent-step-progress">step progress</div>;
+  },
+}));
+
+vi.mock("@/components/agent/AgentStepTriggerError", () => ({
+  AgentStepTriggerError: ({ failure }: { failure: { message: string } }) => (
+    <div data-testid="step-trigger-error">{failure.message}</div>
+  ),
 }));
 
 // ==============================================
@@ -160,6 +173,8 @@ function setupDefaults(overrides?: {
   adjustingStep?: Record<string, unknown> | null;
   // Story 22.14: sinal do chip de ajuste clicado no empty-state de busca vazia
   pendingChipAdjustment?: Record<string, unknown> | null;
+  // Story 24.3
+  stepTriggerFailure?: Record<string, unknown> | null;
 }) {
   mockStoreState = {
     currentExecutionId: overrides?.executionId ?? null,
@@ -185,6 +200,10 @@ function setupDefaults(overrides?: {
     clearPendingChipAdjustment: mockClearPendingChipAdjustment,
     chatInputDraft: null,
     setChatInputDraft: mockSetChatInputDraft,
+    // Story 24.3
+    stepTriggerFailure: overrides?.stepTriggerFailure ?? null,
+    setStepTriggerFailure: mockSetStepTriggerFailure,
+    clearStepTriggerFailure: mockClearStepTriggerFailure,
   };
   mockBriefingState = {
     status: overrides?.briefingStatus ?? "idle",
@@ -194,6 +213,7 @@ function setupDefaults(overrides?: {
   };
   capturedModeSelectorProps = null;
   capturedExecutionPlanProps = null;
+  capturedStepProgressProps = null;
 }
 
 // ==============================================
@@ -790,6 +810,40 @@ describe("AgentChat", () => {
       expect(mockSetShowExecutionPlan).toHaveBeenCalledWith(false);
     });
 
+    it("handleConfirmPlan: falha pre-orchestrator do step 1 vira aviso (Story 24.3)", async () => {
+      setupDefaults({ executionId: "exec-123", showExecutionPlan: true });
+
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (url === "/api/agent/executions/exec-123/steps/1/execute") {
+          return Promise.resolve({
+            ok: false,
+            status: 422,
+            json: () =>
+              Promise.resolve({
+                error: { code: "API_KEY_NOT_FOUND", message: "API key do TheirStack nao configurada" },
+              }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+      });
+
+      render(<AgentChat />);
+      const onConfirm = capturedExecutionPlanProps?.onConfirm as () => Promise<void>;
+
+      await act(async () => {
+        await onConfirm();
+      });
+
+      await waitFor(() => {
+        expect(mockSetStepTriggerFailure).toHaveBeenCalledWith({
+          executionId: "exec-123",
+          stepNumber: 1,
+          message: "API key do TheirStack nao configurada",
+          retryable: true,
+        });
+      });
+    });
+
     it("handleConfirmPlan mostra toast quando POST confirm falha", async () => {
       setupDefaults({ executionId: "exec-123", showExecutionPlan: true });
 
@@ -1172,6 +1226,107 @@ describe("AgentChat", () => {
 
   // --- Story 22.10: botao "Nova conversa" ---
 
+  describe('"Tentar novamente" e aviso de disparo (Story 24.3)', () => {
+    const FAILURE = {
+      executionId: "exec-123",
+      stepNumber: 3,
+      message: "API key do TheirStack nao configurada",
+      retryable: true,
+    };
+
+    // A execucao persistida so anexa depois de validada contra o servidor (22.8).
+    async function renderAttached() {
+      mockUserState = { profile: { id: "user-1" } };
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (url === "/api/agent/executions") {
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                data: [{ id: "exec-123", user_id: "user-1", status: "paused" }],
+              }),
+          });
+        }
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ data: {} }) });
+      });
+      await act(async () => {
+        render(<AgentChat />);
+      });
+    }
+
+    it("renderiza o aviso quando a falha e da execucao atual (AC2)", async () => {
+      setupDefaults({ executionId: "exec-123", stepTriggerFailure: FAILURE });
+      await renderAttached();
+      expect(screen.getByTestId("step-trigger-error")).toHaveTextContent(FAILURE.message);
+    });
+
+    it("NAO renderiza o aviso de outra execucao", async () => {
+      setupDefaults({
+        executionId: "exec-123",
+        stepTriggerFailure: { ...FAILURE, executionId: "exec-other" },
+      });
+      await renderAttached();
+      expect(screen.queryByTestId("step-trigger-error")).not.toBeInTheDocument();
+    });
+
+    it("passa onRetryStep ao painel de progresso, que reexecuta pela rota execute (AC3)", async () => {
+      setupDefaults({ executionId: "exec-123" });
+      mockExecutionData = {
+        messages: [],
+        steps: [{ id: "s3", step_number: 3, status: "failed" }],
+      };
+      await renderAttached();
+
+      const onRetryStep = capturedStepProgressProps?.onRetryStep as (n: number) => Promise<void>;
+      expect(onRetryStep).toBeTypeOf("function");
+
+      await act(async () => {
+        await onRetryStep(3);
+      });
+
+      expect(mockClearStepTriggerFailure).toHaveBeenCalled();
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/agent/executions/exec-123/steps/3/execute",
+        { method: "POST" }
+      );
+    });
+
+    it("onRetryStep com falha pre-orchestrator (422) grava o aviso do step (Story 24.3)", async () => {
+      setupDefaults({ executionId: "exec-123" });
+      mockExecutionData = {
+        messages: [],
+        steps: [{ id: "s3", step_number: 3, status: "failed" }],
+      };
+      await renderAttached();
+
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (url === "/api/agent/executions/exec-123/steps/3/execute") {
+          return Promise.resolve({
+            ok: false,
+            status: 422,
+            json: () =>
+              Promise.resolve({
+                error: { code: "API_KEY_NOT_FOUND", message: "API key do TheirStack nao configurada" },
+              }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+      });
+
+      const onRetryStep = capturedStepProgressProps?.onRetryStep as (n: number) => Promise<void>;
+      await act(async () => {
+        await onRetryStep(3);
+      });
+
+      expect(mockSetStepTriggerFailure).toHaveBeenCalledWith({
+        executionId: "exec-123",
+        stepNumber: 3,
+        message: "API key do TheirStack nao configurada",
+        retryable: true,
+      });
+    });
+  });
+
   describe('botao "Nova conversa" (Story 22.10)', () => {
     const USER_ID = "user-1";
 
@@ -1250,6 +1405,8 @@ describe("AgentChat", () => {
       expect(mockSetTotalSteps).toHaveBeenCalledWith(0);
       // o reset do briefing e o que impede o agente de retomar a conversa morta
       expect(mockResetBriefing).toHaveBeenCalled();
+      // Story 24.3: o aviso de disparo nao atravessa para a conversa nova
+      expect(mockClearStepTriggerFailure).toHaveBeenCalled();
     });
 
     it("PATCH falhou: toast de erro e NADA e limpo (tudo-ou-nada, AC5)", async () => {

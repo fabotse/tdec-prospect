@@ -16,6 +16,12 @@ import {
   isPipelineError,
 } from "@/lib/agent/orchestrator";
 
+// Story 24.3 (AC1): um step longo (busca + enriquecimento, geracao de copy, export para
+// o Instantly) passava do limite padrao da function e morria no meio, deixando o step
+// preso em `running`. 300s cobre o pior caso observado. O `vercel.json` so limita
+// `src/app/api/ai/**` — esta rota nao e afetada por ele.
+export const maxDuration = 300;
+
 export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ executionId: string; stepNumber: string }> }

@@ -32,11 +32,14 @@ import { AgentMessageList } from "./AgentMessageList";
 import { AgentModeSelector } from "./AgentModeSelector";
 import { AgentExecutionPlan } from "./AgentExecutionPlan";
 import { AgentStepProgress } from "./AgentStepProgress";
+import { AgentStepTriggerError } from "./AgentStepTriggerError";
 import { AgentInput } from "./AgentInput";
 import { useAgentExecution, useSendMessage } from "@/hooks/use-agent-execution";
 import { useAgentOnboarding } from "@/hooks/use-agent-onboarding";
 import { useAutoTrigger } from "@/hooks/use-auto-trigger";
 import { useAgentStore } from "@/stores/use-agent-store";
+import { executeStepChecked } from "@/lib/agent/client-utils";
+import { reportTriggerFailure } from "@/lib/agent/report-trigger-failure";
 import type {
   AdjustingStepState,
   PendingChipAdjustmentState,
@@ -95,6 +98,9 @@ export function AgentChat() {
   const pendingChipAdjustment = useAgentStore((s) => s.pendingChipAdjustment);
   const clearPendingChipAdjustment = useAgentStore((s) => s.clearPendingChipAdjustment);
   const setChatInputDraft = useAgentStore((s) => s.setChatInputDraft);
+  // Story 24.3: aviso efemero de falha no disparo de um step (pre-orchestrator).
+  const stepTriggerFailure = useAgentStore((s) => s.stepTriggerFailure);
+  const clearStepTriggerFailure = useAgentStore((s) => s.clearStepTriggerFailure);
 
   const [isModeSubmitting, setIsModeSubmitting] = useState(false);
   const [isPlanSubmitting, setIsPlanSubmitting] = useState(false);
@@ -231,6 +237,20 @@ export function AgentChat() {
 
   // Story 17.7 - AC #1: Auto-trigger next step in autopilot mode
   useAutoTrigger({ executionId: currentExecutionId, steps, mode: executionMode });
+
+  // Story 24.3 (AC3): "Tentar novamente" na linha de um step `failed`. Usa a mesma rota
+  // execute (guards da 24.2); o orchestrator tira a execucao de `paused`. Falha
+  // pre-orchestrator vira aviso no chat; pos-orchestrator ja tem bolha.
+  const handleRetryStep = useCallback(
+    async (stepNumber: number) => {
+      const executionId = attachedExecutionId;
+      if (!executionId) return;
+      clearStepTriggerFailure();
+      const outcome = await executeStepChecked(executionId, stepNumber);
+      reportTriggerFailure(outcome, executionId, stepNumber);
+    },
+    [attachedExecutionId, clearStepTriggerFailure]
+  );
 
   // Helper: inserir mensagem do agente via API
   const sendAgentMessage = useCallback(
@@ -893,11 +913,12 @@ export function AgentChat() {
       refetchMessages();
 
       // Story 17.7 - AC #5: Auto-trigger step 1 (both guided and autopilot)
-      // Fire-and-forget: plan already confirmed, don't let trigger failure show misleading error
-      fetch(
-        `/api/agent/executions/${currentExecutionId}/steps/1/execute`,
-        { method: "POST" }
-      ).catch(() => {});
+      // Nao aguardado: o plano ja foi confirmado. Story 24.3: a resposta e verificada —
+      // falha pre-orchestrator do step 1 vira aviso com "Tentar novamente".
+      const executionId = currentExecutionId;
+      void executeStepChecked(executionId, 1).then((outcome) =>
+        reportTriggerFailure(outcome, executionId, 1)
+      );
     } catch {
       toast.error("Erro ao confirmar execucao. Tente novamente.");
     } finally {
@@ -967,6 +988,8 @@ export function AgentChat() {
       // execucao encerrada nao pode atravessar para a conversa nova.
       clearPendingChipAdjustment();
       setChatInputDraft(null);
+      // Story 24.3: o aviso de disparo da execucao encerrada nao atravessa.
+      clearStepTriggerFailure();
       setShowAbandonDialog(false);
     } catch {
       toast.error("Erro ao encerrar a conversa. Tente novamente.");
@@ -985,6 +1008,7 @@ export function AgentChat() {
     clearAdjustingStep,
     clearPendingChipAdjustment,
     setChatInputDraft,
+    clearStepTriggerFailure,
   ]);
 
   const handleNewConversation = useCallback(() => {
@@ -1047,6 +1071,11 @@ export function AgentChat() {
         isAgentProcessing={isAgentProcessing}
         isFirstTime={isFirstTime}
       />
+      {stepTriggerFailure &&
+        attachedExecutionId &&
+        stepTriggerFailure.executionId === attachedExecutionId && (
+          <AgentStepTriggerError failure={stepTriggerFailure} />
+        )}
       {showModeSelector && (
         <AgentModeSelector
           onModeSelect={handleModeSelect}
@@ -1066,6 +1095,7 @@ export function AgentChat() {
         <AgentStepProgress
           steps={steps}
           currentStep={steps.find((s) => s.status === "running")?.step_number ?? 0}
+          onRetryStep={handleRetryStep}
         />
       )}
       <AgentInput

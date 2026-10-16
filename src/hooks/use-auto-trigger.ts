@@ -11,6 +11,8 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import type { AgentStep, ExecutionMode } from "@/types/agent";
+import { executeStepChecked } from "@/lib/agent/client-utils";
+import { reportTriggerFailure } from "@/lib/agent/report-trigger-failure";
 
 interface UseAutoTriggerOptions {
   executionId: string | null;
@@ -25,10 +27,10 @@ export function useAutoTrigger({ executionId, steps, mode }: UseAutoTriggerOptio
   const triggerStep = useCallback(
     async (stepNumber: number) => {
       if (!executionId) return;
-      await fetch(
-        `/api/agent/executions/${executionId}/steps/${stepNumber}/execute`,
-        { method: "POST" }
-      );
+      // Story 24.3 (AC2): resposta verificada. Antes um 4xx/5xx sumia no `.catch` e o
+      // autopilot parava em silencio.
+      const outcome = await executeStepChecked(executionId, stepNumber);
+      reportTriggerFailure(outcome, executionId, stepNumber);
     },
     [executionId]
   );

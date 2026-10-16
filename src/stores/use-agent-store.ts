@@ -66,6 +66,20 @@ export interface PendingChipAdjustmentState {
   delta: ChipDelta;
 }
 
+/**
+ * Story 24.3: falha no DISPARO de um step que nao virou bolha no chat (pre-orchestrator:
+ * 422 de chave, 500, rede...). O `AgentChat` renderiza um aviso com "Tentar novamente".
+ *
+ * Amarrado ao `executionId` (so aparece para a execucao atual) e EFEMERO — fora do
+ * `partialize`: nada disso existe no banco, e depois de um F5 o aviso some.
+ */
+export interface StepTriggerFailureState {
+  executionId: string;
+  stepNumber: number;
+  message: string;
+  retryable: boolean;
+}
+
 interface AgentUIState {
   currentExecutionId: string | null;
   isInputDisabled: boolean;
@@ -82,6 +96,7 @@ interface AgentUIState {
    * TEXTO da 22.13. Nunca envia sozinho: um clique não pode disparar busca paga.
    */
   chatInputDraft: string | null;
+  stepTriggerFailure: StepTriggerFailureState | null;
 }
 
 interface AgentUIActions {
@@ -97,6 +112,8 @@ interface AgentUIActions {
   setPendingChipAdjustment: (pending: PendingChipAdjustmentState) => void;
   clearPendingChipAdjustment: () => void;
   setChatInputDraft: (draft: string | null) => void;
+  setStepTriggerFailure: (failure: StepTriggerFailureState) => void;
+  clearStepTriggerFailure: () => void;
 }
 
 export const useAgentStore = create<AgentUIState & AgentUIActions>()(
@@ -112,6 +129,7 @@ export const useAgentStore = create<AgentUIState & AgentUIActions>()(
       adjustingStep: null,
       pendingChipAdjustment: null,
       chatInputDraft: null,
+      stepTriggerFailure: null,
 
       setCurrentExecutionId: (id) => set({ currentExecutionId: id }),
       setInputDisabled: (disabled) => set({ isInputDisabled: disabled }),
@@ -125,6 +143,8 @@ export const useAgentStore = create<AgentUIState & AgentUIActions>()(
       setPendingChipAdjustment: (pending) => set({ pendingChipAdjustment: pending }),
       clearPendingChipAdjustment: () => set({ pendingChipAdjustment: null }),
       setChatInputDraft: (draft) => set({ chatInputDraft: draft }),
+      setStepTriggerFailure: (failure) => set({ stepTriggerFailure: failure }),
+      clearStepTriggerFailure: () => set({ stepTriggerFailure: null }),
     }),
     {
       // Story 22.8: so o currentExecutionId persiste (localStorage). As demais flags
@@ -142,6 +162,7 @@ export const useAgentStore = create<AgentUIState & AgentUIActions>()(
       // Story 22.14: `pendingChipAdjustment` e `chatInputDraft` seguem a mesma regra —
       // sao sinais de UM gesto, consumidos em seguida pelo AgentChat/AgentInput. Persistidos,
       // um refresh reaplicaria um ajuste que o usuario ja tinha abandonado.
+      // Story 24.3: `stepTriggerFailure` tambem fica de fora (aviso efemero de um disparo).
       name: "tdec-agent-ui",
       partialize: (state) => ({ currentExecutionId: state.currentExecutionId }),
     }

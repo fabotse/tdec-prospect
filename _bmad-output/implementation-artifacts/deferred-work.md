@@ -470,3 +470,27 @@ source_spec: `spec-24-2-execucao-protegida-contra-cobranca-dupla.md`
 severity: low
 reason: Codigo da 22.13 (reject/route.ts, update do metadata do gate sem checar `error`; so excecao lancada e capturada). Com a 24.2 o carimbo passou a liberar o PATCH de briefing e o execute do ajuste: se a escrita falhar, o chat entra em ajuste mas toda tentativa toma 409 ("responda sim para eu tentar de novo") sem nenhum log. Degradacao segura (sem cobranca), mas invisivel.
 status: open
+
+### DW-10: O AgentActivationGate trata o 409 superseded (STEP_ALREADY_RUNNING/STEP_NOT_EXECUTABLE) como erro e rearma o card.
+origin: spec-deferred f6bf5ad1c6c3
+location: src/components/agent/AgentActivationGate.tsx:201
+source_spec: `spec-24-3-avanco-confiavel-e-tentar-novamente.md`
+severity: low
+reason: AgentActivationGate.tsx:201 faz `if (!outcome.alreadyReported) setError(outcome.message)` sem olhar `superseded`. Num clique duplo ou numa 2a aba, a ativacao em andamento aparece como erro e o card volta clicavel. O 2o clique toma 409 de novo (o CAS da 24.2 impede a ativacao dupla), entao nao ha cobranca, so um aviso enganoso. Codigo da 22.18, intocado de proposito por esta story.
+status: open
+
+### DW-11: Um step preso em running (function morta por timeout ou crash) continua sem saida pela UI.
+origin: spec-deferred 2aab69491162
+location: src/lib/agent/client-utils.ts executeStepChecked / src/lib/agent/steps/base-step.ts
+source_spec: `spec-24-3-avanco-confiavel-e-tentar-novamente.md`
+severity: medium
+reason: O maxDuration=300 so empurra o limite. Um 504 sem corpo JSON vira aviso retryable, mas o retry toma 409 STEP_NOT_EXECUTABLE (superseded) e o aviso some, com o step girando para sempre no painel. A deteccao de running velho e escopo da 24.1 (sweeper pg_cron, FR11/FR12).
+status: open
+
+### DW-12: No modo guiado, uma falha pre-orchestrator no disparo apos aprovar um gate perde a unica saida depois de um F5.
+origin: spec-deferred 9046028e7a5b
+location: src/stores/use-agent-store.ts stepTriggerFailure / src/components/agent/AgentStepProgress.tsx
+source_spec: `spec-24-3-avanco-confiavel-e-tentar-novamente.md`
+severity: medium
+reason: O aviso com "Tentar novamente" e efemero (store). Depois do F5 o step N+1 fica pending, o card ja mostra aprovado e o painel nao tem botao para step pending. Antes desta story nao havia saida nem na mesma sessao (o problema ja existia). No autopilot o auto-trigger redispara.
+status: open

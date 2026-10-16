@@ -382,6 +382,86 @@ describe("DeterministicOrchestrator (AC #5)", () => {
     });
   });
 
+  describe("Story 24.3 — mensagem retryable aponta para o botao", () => {
+    it("retryable: 'Clique em \"Tentar novamente\" na etapa para refazer.'", async () => {
+      const pipelineError: PipelineError = {
+        code: "STEP_SEARCH_COMPANIES_ERROR",
+        message: "Rate limited.",
+        stepNumber: 1,
+        stepType: "search_companies",
+        isRetryable: true,
+      };
+      mockSearchCompaniesRun.mockRejectedValue(pipelineError);
+
+      await expect(orchestrator.executeStep("exec-001", 1)).rejects.toBeDefined();
+
+      const errorInsert = mockSupabase.messagesChain.insert.mock.calls
+        .map((c: unknown[]) => c[0] as Record<string, unknown>)
+        .find((m) => (m.metadata as Record<string, unknown>)?.messageType === "error");
+      expect(errorInsert!.content).toBe(
+        'Erro na etapa "Busca de Empresas": Rate limited. Clique em "Tentar novamente" na etapa para refazer.'
+      );
+    });
+  });
+
+  describe("Story 24.3 (AC3) — retry tira a execucao de paused", () => {
+    function withExecutionStatus(status: string, updateError: unknown = null) {
+      const execChain = createChainBuilder({
+        data: { id: "exec-001", tenant_id: "tenant-1", status, mode: "guided", briefing: mockBriefing, total_steps: 5 },
+        error: null,
+      });
+      // a escrita do paused->running devolve `updateError`
+      const writeChain = createChainBuilder({ data: null, error: updateError });
+      let execCalls = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") {
+          execCalls++;
+          return execCalls === 1 ? execChain : writeChain;
+        }
+        if (table === "agent_steps") return mockSupabase.stepsChain;
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+      return { execChain, writeChain };
+    }
+
+    it("execucao paused: grava running com CAS em paused antes de rodar o step", async () => {
+      const { writeChain } = withExecutionStatus("paused");
+
+      await orchestrator.executeStep("exec-001", 1);
+
+      expect(writeChain.update).toHaveBeenCalledWith({ status: "running" });
+      expect(writeChain.eq).toHaveBeenCalledWith("id", "exec-001");
+      expect(writeChain.eq).toHaveBeenCalledWith("status", "paused");
+      expect(mockSearchCompaniesRun).toHaveBeenCalled();
+      // a retomada acontece ANTES do step rodar
+      expect(writeChain.update.mock.invocationCallOrder[0]).toBeLessThan(
+        mockSearchCompaniesRun.mock.invocationCallOrder[0]
+      );
+    });
+
+    it("erro na escrita do running so loga e o step roda mesmo assim", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      withExecutionStatus("paused", { message: "db down" });
+
+      const result = await orchestrator.executeStep("exec-001", 1);
+
+      expect(result.success).toBe(true);
+      expect(mockSearchCompaniesRun).toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("paused -> running"),
+        "db down"
+      );
+      errorSpy.mockRestore();
+    });
+
+    it("execucao running: nao escreve status antes do step", async () => {
+      await orchestrator.executeStep("exec-001", 1);
+
+      expect(mockSupabase.executionsChain.update).not.toHaveBeenCalledWith({ status: "running" });
+    });
+  });
+
   describe("status paused rule (4.7)", () => {
     it("never sets execution status to failed directly", async () => {
       const pipelineError: PipelineError = {
@@ -1784,6 +1864,33 @@ describe("DeterministicOrchestrator (AC #5)", () => {
           content: expect.stringContaining("pulada"),
           metadata: expect.objectContaining({ messageType: "skip" }),
         })
+      );
+    });
+
+    it("falha no skip: bolha escrita e o erro sai com reportedInChat true (Story 24.3)", async () => {
+      const skipBriefing: ParsedBriefing = { ...mockBriefing, skipSteps: ["search_companies"] };
+      const executionWithSkip = createChainBuilder({
+        data: { id: "exec-001", tenant_id: "tenant-1", status: "running", mode: "guided", briefing: skipBriefing, total_steps: 5 },
+        error: null,
+      });
+      const failingSkipWrite = createChainBuilder({ data: null, error: { message: "db down" } });
+      let stepsCalls = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return executionWithSkip;
+        if (table === "agent_steps") {
+          stepsCalls++;
+          return stepsCalls === 1 ? mockSupabase.stepsChain : failingSkipWrite;
+        }
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      await expect(orchestrator.executeStep("exec-001", 1)).rejects.toMatchObject({
+        code: "ORCHESTRATOR_SKIP_FAILED",
+        reportedInChat: true,
+      });
+      expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({ metadata: expect.objectContaining({ messageType: "error" }) })
       );
     });
 
