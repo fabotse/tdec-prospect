@@ -25,8 +25,9 @@ function createWrapper() {
       },
     },
   });
-  return ({ children }: { children: React.ReactNode }) =>
-    React.createElement(QueryClientProvider, { client: queryClient }, children);
+  return function Wrapper({ children }: { children: React.ReactNode }) {
+    return React.createElement(QueryClientProvider, { client: queryClient }, children);
+  };
 }
 
 describe("useSaveCampaign (AC 5.9: #1, #3, #5)", () => {

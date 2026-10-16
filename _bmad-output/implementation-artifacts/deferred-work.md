@@ -414,3 +414,43 @@ source_spec: `22-16-campanha-do-agente-visivel-em-campanhas.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260727-230325-92d3; this entry preserves the lingering recommendation for a deliberate later review.
 status: open
+
+### DW-3: Refatorar os dois efeitos do PhoneLookupProgress para tirar os eslint-disable de react-hooks/set-state-in-effect.
+origin: spec-deferred cb3e40f7f6c2
+location: src/components/leads/PhoneLookupProgress.tsx:80
+source_spec: `spec-23-4-ci-no-github-e-base-verde.md`
+severity: low
+reason: A 23.4 manteve o comportamento com disable pontual (Design Notes). A refatoração muda quando o diálogo dispara/reinicia a busca de telefone e precisa de smoke, idealmente com banco de teste (23.0 adiada).
+status: open
+
+### DW-4: Nenhum teste verifica que AgentApprovalGate/AgentCampaignPreview repassam totalSteps para triggerNextStep (tratamento do último step).
+origin: spec-deferred 6ae921dd3d4b
+location: __tests__/unit/components/agent/AgentApprovalGate.test.tsx
+source_spec: `spec-23-4-ci-no-github-e-base-verde.md`
+severity: low
+reason: A 23.4 só adicionou totalSteps={5} nos renders para satisfazer o tsc; a lacuna de cobertura já existia antes.
+status: open
+
+### DW-5: Edge Functions (supabase/functions, Deno) não passam por typecheck nem lint no CI.
+origin: spec-deferred 2c48d246f539
+location: tsconfig.json
+source_spec: `spec-23-4-ci-no-github-e-base-verde.md`
+severity: low
+reason: tsconfig.json exclui supabase/functions desde antes da story; o caminho do webhook e do reply-sweep fica fora do CI. Pré-existente.
+status: open
+
+### DW-6: O CI e o [verify] do bmad-loop não rodam `next build`; um upgrade de framework pode quebrar o build com os 3 gates verdes.
+origin: spec-deferred 94cec952e9f7
+location: .github/workflows/ci.yml
+source_spec: `spec-23-2-dependencias-sem-vulnerabilidades-criticas.md`
+severity: medium
+reason: .github/workflows/ci.yml e .bmad-loop/policy.toml [verify] rodam só lint, typecheck e test:run. Nesta story o build foi rodado à mão (exit 0). Lacuna anterior à story (vem da 23.4); exige env de placeholder no CI.
+status: open
+
+### DW-7: Planilha cuja tabela não começa em A1 (linhas/colunas vazias antes do cabeçalho) pode virar cabeçalho vazio no parser novo.
+origin: spec-deferred 5f793c0cfcbb
+location: src/lib/utils/xlsx-parser.ts
+source_spec: `spec-23-2-dependencias-sem-vulnerabilidades-criticas.md`
+reason: read-excel-file devolve as linhas/colunas vazias iniciais como null. O SheetJS antigo usava o range `!ref` da planilha: com arquivo gerado pelo próprio SheetJS (ref A1:E4) os dois parsers dão o mesmo resultado (testado no scratchpad). Falta testar um .xlsx salvo pelo Excel com dados a partir de C3, cuja tag dimension pode começar em C3 — isso decide se há divergência.
+status: resolved
+resolution: 2026-10-15, ainda na 23.2. O smoke mostrou que nenhuma coluna era detectada, no parser antigo e no novo. Agora o `xlsx-parser.ts` procura a linha de cabeçalho (a que mais casa com colunas de lead entre as 20 primeiras) e descarta linhas e colunas vazias. Teste TITULO com a fixture `import-leads-titulo.xlsx`.

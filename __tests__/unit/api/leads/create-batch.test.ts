@@ -8,6 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { NextRequest } from "next/server";
 import { createChainBuilder } from "../../../helpers/mock-supabase";
 
 // Mock getCurrentUserProfile
@@ -39,12 +40,12 @@ const mockProfile = {
   role: "user" as const,
 };
 
-function createRequest(body: unknown): Request {
+function createRequest(body: unknown): NextRequest {
   return new Request("http://localhost/api/leads/create-batch", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  });
+  }) as unknown as NextRequest;
 }
 
 const validLeads = [
@@ -113,7 +114,7 @@ describe("POST /api/leads/create-batch", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "not-json",
-    });
+    }) as unknown as NextRequest;
 
     const res = await POST(req);
     expect(res.status).toBe(400);

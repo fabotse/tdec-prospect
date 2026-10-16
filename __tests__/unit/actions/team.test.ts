@@ -1132,6 +1132,12 @@ describe("team actions", () => {
       profileUpdated = [{ id: ACCEPTING_USER.id }],
       profileUpdateError = null,
       acceptError = null,
+    }: {
+      invitations?: { id: string; role: string; tenant_id: string }[];
+      lookupError?: { message: string } | null;
+      profileUpdated?: { id: string }[];
+      profileUpdateError?: { message: string } | null;
+      acceptError?: { message: string } | null;
     } = {}) {
       const gt = vi.fn().mockReturnValue({
         order: vi.fn().mockReturnValue({

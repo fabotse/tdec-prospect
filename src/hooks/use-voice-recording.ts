@@ -62,8 +62,8 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
 
   // Check microphone permission on mount
   useEffect(() => {
+    // Sem Permissions API: o estado inicial ja e "unknown", nada a atualizar
     if (typeof navigator === "undefined" || !navigator.permissions) {
-      setPermissionState("unknown");
       return;
     }
 

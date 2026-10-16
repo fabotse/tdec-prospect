@@ -17,7 +17,8 @@ cache_read_weight = 0.1      # cache reads bill at ~0.1x input on all vendors; 1
 
 [verify]
 # Deterministic gates run by the orchestrator after a clean review, before commit.
-commands = []                # e.g. ["pytest -q", "ruff check ."]
+# Mesmos 3 gates do CI (.github/workflows/ci.yml): warnings de lint passam, erros não.
+commands = ["npm run lint", "npm run typecheck", "npm run test:run"]
 
 [notify]
 desktop = true               # notify-send, best-effort

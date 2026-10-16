@@ -94,7 +94,7 @@ function makeLead(id: number, email: string | null = `lead${id}@test.com`) {
   return {
     id: `lead-${id}`,
     tenant_id: "tenant-456",
-    apollo_id: `apollo-${id}`,
+    apollo_id: `apollo-${id}` as string | null,
     first_name: `Lead`,
     last_name: `${id}`,
     email,

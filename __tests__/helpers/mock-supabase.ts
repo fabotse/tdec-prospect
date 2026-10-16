@@ -11,7 +11,7 @@
  * Pattern: mock-data.ts = dados, mock-supabase.ts = infraestrutura de cliente
  */
 
-import { vi } from "vitest";
+import { vi, type Mock } from "vitest";
 
 const DEFAULT_RESPONSE = { data: null, error: null };
 
@@ -55,7 +55,7 @@ const CHAIN_METHODS = [
 type ChainMethod = (typeof CHAIN_METHODS)[number];
 
 export type ChainBuilder = {
-  [K in ChainMethod]: ReturnType<typeof vi.fn>;
+  [K in ChainMethod]: Mock;
 } & {
   then: (
     resolve: (value: { data: unknown; error: unknown }) => unknown,
@@ -96,8 +96,8 @@ export interface MockSupabaseClientOptions {
 }
 
 export interface MockSupabaseClient {
-  auth: { getUser: ReturnType<typeof vi.fn> };
-  from: ReturnType<typeof vi.fn>;
+  auth: { getUser: Mock };
+  from: Mock;
 }
 
 /**

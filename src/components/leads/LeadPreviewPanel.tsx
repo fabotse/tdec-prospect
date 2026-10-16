@@ -168,7 +168,7 @@ export function LeadPreviewPanel({
               {isImported ? (
                 <div className="text-center py-2">
                   <p className="text-sm text-muted-foreground">
-                    Este lead ja foi importado para "Meus Leads".
+                    Este lead ja foi importado para &quot;Meus Leads&quot;.
                   </p>
                 </div>
               ) : (

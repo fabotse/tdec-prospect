@@ -11,13 +11,14 @@ import {
   createChainBuilder,
   createMockSupabaseClient,
   mockTableResponse,
+  type ChainBuilder,
 } from "../../helpers/mock-supabase";
 
 describe("createChainBuilder (AC #1)", () => {
   it("should return object with all Supabase chain methods", () => {
     const chain = createChainBuilder();
 
-    const expectedMethods = [
+    const expectedMethods: (keyof ChainBuilder)[] = [
       "select",
       "insert",
       "update",

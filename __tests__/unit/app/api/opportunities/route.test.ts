@@ -76,6 +76,7 @@ interface TableResponses {
   opportunities?: { data: unknown; error: unknown; count?: number };
   campaigns?: { data: unknown; error: unknown };
   leadInsights?: { data: unknown; error: unknown };
+  gateways?: { data: unknown; error: unknown };
 }
 
 function makeChain(response: { data: unknown; error: unknown; count?: number }) {
@@ -97,15 +98,17 @@ function setupTables(responses: TableResponses) {
   );
   const campaignsChain = makeChain(responses.campaigns ?? { data: [], error: null });
   const insightsChain = makeChain(responses.leadInsights ?? { data: [], error: null });
+  const gatewaysChain = makeChain(responses.gateways ?? { data: [], error: null });
 
   mockFrom.mockImplementation((table: string) => {
     if (table === "opportunities") return opportunitiesChain;
     if (table === "campaigns") return campaignsChain;
     if (table === "lead_insights") return insightsChain;
+    if (table === "lead_security_gateways") return gatewaysChain;
     return makeChain({ data: null, error: null });
   });
 
-  return { opportunitiesChain, campaignsChain, insightsChain };
+  return { opportunitiesChain, campaignsChain, insightsChain, gatewaysChain };
 }
 
 describe("GET /api/opportunities", () => {
@@ -471,5 +474,87 @@ describe("GET /api/opportunities", () => {
 
     expect(response.status).toBe(500);
     expect(json.error.code).toBe("INTERNAL_ERROR");
+  });
+
+  // ==============================================
+  // Story 23.8: possível abertura automática (ESG)
+  // ==============================================
+
+  describe("Story 23.8 — security gateway", () => {
+    function engagementRow(id: string, email: string) {
+      return makeMockOpportunityRow({
+        id,
+        source: "engagement",
+        reply_event_id: null,
+        reply_text: null,
+        lead: { ...makeMockOpportunityRow().lead, id: `lead-${id}`, email },
+      });
+    }
+
+    it("marca só a engagement com ESG gravado pelo cron; reply não é consultada nem marcada", async () => {
+      const { gatewaysChain } = setupTables({
+        opportunities: {
+          data: [
+            engagementRow("e1", "GW1@corp.com"),
+            engagementRow("e2", "humano1@corp.com"),
+            makeMockOpportunityRow({
+              id: "r1",
+              lead: { ...makeMockOpportunityRow().lead, email: "reply1@corp.com" },
+            }),
+          ],
+          error: null,
+          count: 3,
+        },
+        gateways: { data: [{ email: "gw1@corp.com", gateway: "Mimecast" }], error: null },
+      });
+
+      const response = await GET(makeRequest());
+      const json = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(gatewaysChain.eq).toHaveBeenCalledWith("tenant_id", "tenant-1");
+      expect(gatewaysChain.in).toHaveBeenCalledWith("email", [
+        "gw1@corp.com",
+        "humano1@corp.com",
+      ]);
+      const byId = Object.fromEntries(
+        json.data.map((o: { id: string }) => [o.id, o])
+      );
+      expect(byId.e1.possibleAutoOpen).toBe(true);
+      expect(byId.e1.securityGateway).toBe("Mimecast");
+      expect(byId.e2.possibleAutoOpen).toBe(false);
+      expect(byId.e2.securityGateway).toBeNull();
+      expect(byId.r1.possibleAutoOpen).toBe(false);
+      expect(byId.r1.securityGateway).toBeNull();
+    });
+
+    it("só replies → não consulta lead_security_gateways", async () => {
+      setupTables({
+        opportunities: { data: [makeMockOpportunityRow()], error: null, count: 1 },
+      });
+
+      const response = await GET(makeRequest());
+      const json = await response.json();
+
+      expect(json.data[0].possibleAutoOpen).toBe(false);
+      expect(mockFrom).not.toHaveBeenCalledWith("lead_security_gateways");
+    });
+
+    it("erro na leitura do ESG → fail-open, sem 500", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      setupTables({
+        opportunities: { data: [engagementRow("e1", "err@corp.com")], error: null, count: 1 },
+        gateways: { data: null, error: { message: "relation does not exist" } },
+      });
+
+      const response = await GET(makeRequest());
+      const json = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(json.data).toHaveLength(1);
+      expect(json.data[0].possibleAutoOpen).toBe(false);
+      expect(warn).toHaveBeenCalled();
+      warn.mockRestore();
+    });
   });
 });

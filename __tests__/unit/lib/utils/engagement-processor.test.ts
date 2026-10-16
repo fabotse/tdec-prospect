@@ -135,6 +135,109 @@ describe("processEngagement", () => {
     expect(chains.lead_interactions).toBeUndefined();
   });
 
+  it("Story 23.8: lead com security gateway (ESG) não gera oportunidade; o sem ESG gera", async () => {
+    mockGetLeadTracking.mockResolvedValue([
+      createMockLeadTracking({
+        leadEmail: "gateway@corp.com",
+        esgCode: "Mimecast",
+        openCount: 9,
+        clickCount: 3,
+        lastOpenAt: "2026-07-12T10:00:00.000Z",
+        lastClickAt: "2026-07-12T11:00:00.000Z",
+      }),
+      createMockLeadTracking({
+        leadEmail: "humano@corp.com",
+        esgCode: undefined,
+        openCount: 4,
+        clickCount: 0,
+        lastOpenAt: "2026-07-12T10:00:00.000Z",
+        lastClickAt: null,
+      }),
+    ]);
+    const { supabase, chains } = makeSupabase({
+      campaigns: EXPORTED_CAMPAIGNS,
+      leads: { data: { id: "local-lead-99" } },
+      opportunitiesActive: { data: null },
+      opportunities: { data: null, error: null },
+    });
+
+    const result = await processEngagement(supabase, { tenantId: "tenant-1" });
+
+    expect(result.created).toBe(1);
+    expect(chains.opportunities.insert).toHaveBeenCalledTimes(1);
+    expect(chains.opportunities.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ source: "engagement", open_count: 4, click_count: 0 })
+    );
+    expect(chains.opportunities.insert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ open_count: 9 })
+    );
+  });
+
+  it("Story 23.8: grava em lead_security_gateways só os e-mails com ESG (normalizados)", async () => {
+    mockGetLeadTracking.mockResolvedValue([
+      createMockLeadTracking({ leadEmail: " Gateway@Corp.com ", esgCode: "Mimecast", openCount: 0 }),
+      createMockLeadTracking({ leadEmail: "humano@corp.com", esgCode: undefined, openCount: 0 }),
+      createMockLeadTracking({ leadEmail: "nf@corp.com", esgCode: "Not Found", openCount: 0 }),
+    ]);
+    const { supabase, chains } = makeSupabase({
+      campaigns: EXPORTED_CAMPAIGNS,
+      lead_security_gateways: { data: null, error: null },
+    });
+
+    await processEngagement(supabase, { tenantId: "tenant-1" });
+
+    expect(chains.lead_security_gateways.upsert).toHaveBeenCalledTimes(1);
+    expect(chains.lead_security_gateways.upsert).toHaveBeenCalledWith(
+      [
+        {
+          tenant_id: "tenant-1",
+          email: "gateway@corp.com",
+          gateway: "Mimecast",
+          last_seen_at: "2026-07-13T12:00:00.000Z",
+        },
+      ],
+      { onConflict: "tenant_id,email" }
+    );
+  });
+
+  it("Story 23.8: sem lead com ESG → não grava nada", async () => {
+    mockGetLeadTracking.mockResolvedValue([qualifyingLead()]);
+    const { supabase } = makeSupabase({
+      campaigns: EXPORTED_CAMPAIGNS,
+      leads: { data: { id: "local-lead-99" } },
+      opportunitiesActive: { data: null },
+      opportunities: { data: null, error: null },
+    });
+    const from = supabase.from as unknown as ReturnType<typeof vi.fn>;
+
+    await processEngagement(supabase, { tenantId: "tenant-1" });
+
+    expect(from).not.toHaveBeenCalledWith("lead_security_gateways");
+  });
+
+  it("Story 23.8: falha ao gravar o ESG não derruba o ciclo (fail-open)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockGetLeadTracking.mockResolvedValue([
+      createMockLeadTracking({ leadEmail: "gateway@corp.com", esgCode: "Proofpoint", openCount: 0 }),
+      qualifyingLead(),
+    ]);
+    const { supabase, chains } = makeSupabase({
+      campaigns: EXPORTED_CAMPAIGNS,
+      leads: { data: { id: "local-lead-99" } },
+      opportunitiesActive: { data: null },
+      opportunities: { data: null, error: null },
+      lead_security_gateways: { data: null, error: { message: "relation does not exist" } },
+    });
+
+    const result = await processEngagement(supabase, { tenantId: "tenant-1" });
+
+    expect(result.created).toBe(1);
+    expect(result.errors).toHaveLength(0);
+    expect(chains.opportunities.insert).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it("dedup app-level: oportunidade ATIVA do lead → pula (não insere)", async () => {
     mockGetLeadTracking.mockResolvedValue([qualifyingLead()]);
     const { supabase, chains } = makeSupabase({

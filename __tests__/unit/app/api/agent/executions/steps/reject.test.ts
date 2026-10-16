@@ -81,13 +81,13 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/reject", (
     executionsChain.select = vi.fn().mockReturnValue(executionsChain);
     executionsChain.eq = vi.fn().mockReturnValue(executionsChain);
     executionsChain.single = vi.fn().mockReturnValue(executionsChain);
-    executionsChain.then = (resolve: (v: unknown) => unknown) =>
+    executionsChain.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) =>
       Promise.resolve({ data: { id: VALID_UUID, tenant_id: "tenant-1" }, error: null }).then(resolve);
 
     stepsChain.select = vi.fn().mockReturnValue(stepsChain);
     stepsChain.eq = vi.fn().mockReturnValue(stepsChain);
     stepsChain.single = vi.fn().mockReturnValue(stepsChain);
-    stepsChain.then = (resolve: (v: unknown) => unknown) =>
+    stepsChain.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) =>
       Promise.resolve({
         data: {
           step_number: 1,
@@ -156,7 +156,7 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/reject", (
 
   // 9.9 - Step not awaiting_approval -> 409
   it("returns 409 when step is not awaiting_approval (9.9)", async () => {
-    stepsChain.then = (resolve: (v: unknown) => unknown) =>
+    stepsChain.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) =>
       Promise.resolve({
         data: {
           step_number: 1,
@@ -245,7 +245,7 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/reject", (
 
   // Step not found
   it("returns 404 when step not found", async () => {
-    stepsChain.then = (resolve: (v: unknown) => unknown) =>
+    stepsChain.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) =>
       Promise.resolve({ data: null, error: null }).then(resolve);
 
     const res = await POST(createRequest(), createParams());

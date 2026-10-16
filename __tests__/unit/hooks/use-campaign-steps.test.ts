@@ -27,8 +27,9 @@ function createWrapper() {
       queries: { retry: false },
     },
   });
-  return ({ children }: { children: React.ReactNode }) =>
-    React.createElement(QueryClientProvider, { client: queryClient }, children);
+  return function Wrapper({ children }: { children: React.ReactNode }) {
+    return React.createElement(QueryClientProvider, { client: queryClient }, children);
+  };
 }
 
 describe("useCampaignSteps (AC: #3, #6)", () => {
@@ -148,7 +149,7 @@ describe("useCampaignSteps (AC: #3, #6)", () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: false,
       json: async () => { throw new SyntaxError("Unexpected token <"); },
-    } as Response);
+    } as unknown as Response);
 
     const { result } = renderHook(() => useCampaignSteps(campaignId), {
       wrapper: createWrapper(),

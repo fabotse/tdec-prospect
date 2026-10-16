@@ -78,7 +78,22 @@ describe("POST /api/leads/enrich-icebreaker", () => {
   const leadId = "550e8400-e29b-41d4-a716-446655440001";
   const leadId2 = "550e8400-e29b-41d4-a716-446655440002";
 
-  const mockLead = {
+  type MockLeadRow = {
+    id: string;
+    tenant_id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    linkedin_url: string | null;
+    title: string;
+    company_name: string;
+    industry: string;
+    icebreaker: string | null;
+    icebreaker_generated_at: string | null;
+    linkedin_posts_cache: unknown;
+  };
+
+  const mockLead: MockLeadRow = {
     id: leadId,
     tenant_id: tenantId,
     first_name: "Joao",

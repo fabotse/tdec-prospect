@@ -52,6 +52,7 @@ function createKBContext(
   overrides: Partial<KBContextForSuggestion> = {}
 ): KBContextForSuggestion {
   return {
+    companyName: "AutoCo",
     companyContext: "Empresa de automação B2B",
     productsServices: "CRM, automação de vendas",
     competitiveAdvantages: "IA integrada, preço competitivo",

@@ -39,6 +39,10 @@ describe("CampaignCard", () => {
     productId: null,
     createdAt: "2026-02-01T10:00:00Z",
     updatedAt: "2026-02-01T10:00:00Z",
+    externalCampaignId: null,
+    exportPlatform: null,
+    exportedAt: null,
+    exportStatus: null,
     leadCount: 25,
   };
 

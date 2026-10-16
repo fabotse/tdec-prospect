@@ -16,6 +16,24 @@ export const DEFAULT_PERIOD_DAYS = 7;
  */
 export const MIN_CLICKS_FOR_OPPORTUNITY = 1;
 
+/**
+ * Story 23.8 — sentinelas que o mapeamento de ESG produz sem haver gateway real:
+ * "Not Found" (código 0 na API) e "Unknown(0)". Hoje, sem gateway, a API omite
+ * `esg_code` (→ undefined), mas os sentinelas continuam tratados como "sem ESG".
+ */
+const NO_GATEWAY_SENTINELS = new Set(["Not Found", "Unknown(0)"]);
+
+/**
+ * Story 23.8 — um lead "tem ESG" (security gateway: Proofpoint, Mimecast,
+ * Barracuda, Cisco...) quando `esgCode` é string não vazia e não é sentinela.
+ * Regra única usada pelo motor e pela rota GET /api/opportunities.
+ */
+export function hasSecurityGateway(esgCode: string | null | undefined): boolean {
+  if (typeof esgCode !== "string") return false;
+  const trimmed = esgCode.trim();
+  return trimmed.length > 0 && !NO_GATEWAY_SENTINELS.has(trimmed);
+}
+
 /** Último engajamento = o mais recente entre abertura e clique (null se ambos nulos). */
 function computeLastEngagementAt(
   lastOpenAt: string | null,
@@ -50,6 +68,13 @@ export function evaluateOpportunityWindow(
 
   return leads
     .map((lead) => {
+      // Story 23.8: gateway de segurança abre e clica para escanear — esses
+      // sinais não são interesse humano. Lead com ESG nunca qualifica por
+      // engajamento (respostas seguem por outro pipeline e não passam aqui).
+      if (hasSecurityGateway(lead.esgCode)) {
+        return { lead, qualifiesByOpens: false, qualifiesByClicks: false };
+      }
+
       // Aberturas: comportamento atual preservado byte-a-byte (openCount >= minOpens
       // E lastOpenAt não-nulo E dentro da janela). Sem opens → não qualifica por opens.
       const qualifiesByOpens =

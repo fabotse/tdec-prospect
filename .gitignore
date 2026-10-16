@@ -118,6 +118,7 @@ docs/roteiro-demo-notificacoes-21-7.md
 _bmad-output/epic-22-agente-tdec-2.0.html
 .bmad-loop/runs/
 .bmad-loop/cache/
+.bmad-loop/archive/
 
 # Settings LOCAIS/pessoais do Claude Code (por-usuário, nunca versionar).
 # Estava coberto só pelo XDG ignore global (~/.config/git/ignore), que é HOME-dependente:
@@ -134,4 +135,6 @@ _bmad-output/epic-22-agente-tdec-2.0.html
 playwright.verify*.config.ts
 vitest.verify*.config.mts
 _bmad/render/
-_bmad/config.user.yaml
+
+# Supabase CLI (cache local)
+supabase/.temp/

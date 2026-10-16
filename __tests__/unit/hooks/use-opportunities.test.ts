@@ -51,6 +51,8 @@ function makeOpportunity(
     leadId: "lead-1",
     campaignId: "camp-1",
     source: "reply",
+    possibleAutoOpen: false,
+    securityGateway: null,
     replyEventId: "evt-1",
     replyText: "Tenho interesse",
     replySubject: "RE: Proposta",
@@ -63,6 +65,7 @@ function makeOpportunity(
     openCount: null,
     clickCount: null,
     lastEngagementAt: null,
+    notifiedAt: null,
     createdAt: "2026-07-13T10:00:00Z",
     updatedAt: "2026-07-13T10:00:00Z",
     lead: {

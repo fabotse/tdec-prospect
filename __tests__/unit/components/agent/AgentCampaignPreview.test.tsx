@@ -42,6 +42,7 @@ function createDefaultData() {
 const defaultProps = {
   executionId: "exec-001",
   stepNumber: 3,
+  totalSteps: 5,
   onAction: vi.fn(),
 };
 

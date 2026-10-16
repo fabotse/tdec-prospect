@@ -20,12 +20,14 @@ import { matchLeadId, normalizeEmail } from "@/lib/utils/reply-processor";
 import {
   evaluateOpportunityWindow,
   getDefaultConfig,
+  hasSecurityGateway,
 } from "@/lib/services/opportunity-engine";
 import {
   transformOpportunityConfigRow,
   type OpportunityConfig,
   type OpportunityConfigRow,
   type OpportunityLead,
+  type LeadTracking,
 } from "@/types/tracking";
 import { ACTIVE_OPPORTUNITY_STATUSES } from "@/types/opportunity";
 import { normalizeLtInterestStatus } from "@/lib/utils/lt-interest";
@@ -224,6 +226,47 @@ async function createEngagementOpportunity(
   return { outcome: "created" };
 }
 
+/**
+ * Story 23.8 — grava os e-mails com security gateway (ESG) vistos nesta campanha em
+ * `lead_security_gateways`, para a Central ler do banco sem consultar o Instantly.
+ * Reaproveita o tracking que o ciclo já buscou (nenhuma chamada nova ao Instantly).
+ * Fail-open: erro só é logado — nunca derruba o ciclo nem a criação de oportunidades.
+ */
+async function recordSecurityGateways(
+  supabase: SupabaseClient,
+  tenantId: string,
+  leads: LeadTracking[]
+): Promise<void> {
+  const byEmail = new Map<string, string>();
+  for (const lead of leads) {
+    if (!lead.leadEmail || !lead.esgCode || !hasSecurityGateway(lead.esgCode)) continue;
+    const email = normalizeEmail(lead.leadEmail);
+    if (email && !byEmail.has(email)) byEmail.set(email, lead.esgCode.trim());
+  }
+  if (byEmail.size === 0) return;
+
+  const lastSeenAt = new Date().toISOString();
+  try {
+    const { error } = await supabase.from("lead_security_gateways").upsert(
+      [...byEmail].map(([email, gateway]) => ({
+        tenant_id: tenantId,
+        email,
+        gateway,
+        last_seen_at: lastSeenAt,
+      })),
+      { onConflict: "tenant_id,email" }
+    );
+    if (error) {
+      logWarn("failed to record security gateways — seguindo sem", { tenantId, error: error.message });
+    }
+  } catch (err) {
+    logWarn("failed to record security gateways — seguindo sem", {
+      tenantId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 /** Processa uma campanha exportada: tracking ao vivo → engine → oportunidades. */
 async function processCampaign(
   supabase: SupabaseClient,
@@ -247,6 +290,8 @@ async function processCampaign(
     });
     return { created: 0, skipped: 0, error: message };
   }
+
+  await recordSecurityGateways(supabase, tenantId, leads);
 
   const config = await loadCampaignConfig(supabase, campaign.id);
   if (!config) {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { toOpportunity, type OpportunityRow } from "@/types/opportunity";
+import { hasSecurityGateway } from "@/lib/services/opportunity-engine";
 
 /**
  * GET /api/opportunities
@@ -174,10 +175,44 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // Story 23.8: possível abertura automática (security gateway). Só `engagement`
+  // com e-mail — respostas nunca são marcadas nem consultadas.
+  const engagementEmailOf = (row: OpportunityRow & { lead: LeadJoinRow | null }) =>
+    row.source === "engagement" && row.lead?.email
+      ? row.lead.email.trim().toLowerCase() || null
+      : null;
+  const engagementEmails = [
+    ...new Set(
+      rows.map(engagementEmailOf).filter((email): email is string => email !== null)
+    ),
+  ];
+  // O cron de engajamento grava o ESG em `lead_security_gateways` (00064); a Central
+  // só lê do banco — nenhuma chamada ao Instantly aqui. Contexto secundário: se a
+  // query falhar, a Central segue sem a marcação (fail-open).
+  const gatewayMap = new Map<string, string>();
+  if (engagementEmails.length > 0) {
+    const { data: gatewayRows, error: gatewayError } = await supabase
+      .from("lead_security_gateways")
+      .select("email, gateway")
+      .eq("tenant_id", profile.tenant_id)
+      .in("email", engagementEmails);
+
+    if (gatewayError) {
+      console.warn("[opportunities] Falha ao buscar security gateways (seguindo sem):", gatewayError);
+    } else {
+      for (const gatewayRow of (gatewayRows ?? []) as Array<{ email: string; gateway: string }>) {
+        gatewayMap.set(gatewayRow.email, gatewayRow.gateway);
+      }
+    }
+  }
+
   const transformed = rows.map((row) => {
     const opportunity = toOpportunity(row);
     const lead = row.lead;
     const insightRow = lead && lead.is_monitored ? insightMap.get(lead.id) : undefined;
+    const engagementEmail = engagementEmailOf(row);
+    const gateway = engagementEmail ? gatewayMap.get(engagementEmail) : undefined;
+    const possibleAutoOpen = hasSecurityGateway(gateway);
 
     return {
       ...opportunity,
@@ -207,6 +242,8 @@ export async function GET(request: NextRequest) {
             createdAt: insightRow.created_at,
           }
         : null,
+      possibleAutoOpen,
+      securityGateway: possibleAutoOpen ? (gateway ?? null) : null,
     };
   });
 

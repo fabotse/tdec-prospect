@@ -39,6 +39,7 @@ function createKBContext(
   overrides: Partial<KBContextForClassification> = {}
 ): KBContextForClassification {
   return {
+    companyName: "TechCo",
     companyContext: "Empresa de tecnologia B2B",
     productsServices: "CRM, automação de vendas",
     competitiveAdvantages: "IA integrada, preço competitivo",

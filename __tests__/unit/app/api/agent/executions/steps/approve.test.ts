@@ -96,13 +96,13 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/approve", 
     executionsChain.select = vi.fn().mockReturnValue(executionsChain);
     executionsChain.eq = vi.fn().mockReturnValue(executionsChain);
     executionsChain.single = vi.fn().mockReturnValue(executionsChain);
-    executionsChain.then = (resolve: (v: unknown) => unknown) =>
+    executionsChain.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) =>
       Promise.resolve({ data: { id: VALID_UUID, tenant_id: "tenant-1" }, error: null }).then(resolve);
 
     stepsChain.select = vi.fn().mockReturnValue(stepsChain);
     stepsChain.eq = vi.fn().mockReturnValue(stepsChain);
     stepsChain.single = vi.fn().mockReturnValue(stepsChain);
-    stepsChain.then = (resolve: (v: unknown) => unknown) =>
+    stepsChain.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) =>
       Promise.resolve({
         data: {
           step_number: 1,
@@ -165,7 +165,7 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/approve", 
 
   // 9.6 - Step not found
   it("returns 404 when step not found (9.6)", async () => {
-    stepsChain.then = (resolve: (v: unknown) => unknown) =>
+    stepsChain.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) =>
       Promise.resolve({ data: null, error: null }).then(resolve);
 
     const res = await POST(createRequest(), createParams());
@@ -223,7 +223,7 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/approve", 
 
   // 9.5 - Step not awaiting_approval -> 409
   it("returns 409 when step is not awaiting_approval (9.5)", async () => {
-    stepsChain.then = (resolve: (v: unknown) => unknown) =>
+    stepsChain.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) =>
       Promise.resolve({
         data: {
           step_number: 1,
@@ -247,7 +247,7 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/approve", 
 
   describe("Story 22.18 (AC2) - 409 estruturado", () => {
     function mockStepStatus(status: string, output: Record<string, unknown> = {}) {
-      stepsChain.then = (resolve: (v: unknown) => unknown) =>
+      stepsChain.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) =>
         Promise.resolve({
           data: { step_number: 4, step_type: "export", status, output },
           error: null,
@@ -313,7 +313,7 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/approve", 
   // orchestrator, depois de a execucao ser escrita como `completed`.
   describe("Story 22.18 (code review, D1) - o approve nao carimba desfecho", () => {
     function mockGateMessageLookup() {
-      messagesChain.then = (resolve: (v: unknown) => unknown) =>
+      messagesChain.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) =>
         Promise.resolve({
           data: [
             {
@@ -389,7 +389,7 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/approve", 
 
   // Execution not found / wrong tenant
   it("returns 404 when execution not found or wrong tenant", async () => {
-    executionsChain.then = (resolve: (v: unknown) => unknown) =>
+    executionsChain.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) =>
       Promise.resolve({ data: null, error: null }).then(resolve);
 
     const res = await POST(createRequest(), createParams());
@@ -531,7 +531,7 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/approve", 
   // Task 4.1 - Completion on last step
   it("marks execution as completed when approving the last step (Story 17.6 Task 4.1)", async () => {
     // Override execution to have total_steps = 1 so stepNumber 1 is the last step
-    executionsChain.then = (resolve: (v: unknown) => unknown) =>
+    executionsChain.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) =>
       Promise.resolve({
         data: { id: VALID_UUID, tenant_id: "tenant-1", total_steps: 1, status: "running" },
         error: null,
@@ -571,7 +571,7 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/approve", 
 
   // Task 4.2 - Activation deferred in result_summary
   it("includes activationDeferred and campaignName in result_summary when deferred on last step (Story 17.6 Task 4.2)", async () => {
-    executionsChain.then = (resolve: (v: unknown) => unknown) =>
+    executionsChain.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) =>
       Promise.resolve({
         data: { id: VALID_UUID, tenant_id: "tenant-1", total_steps: 1, status: "running" },
         error: null,

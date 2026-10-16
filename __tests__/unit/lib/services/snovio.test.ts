@@ -204,14 +204,14 @@ describe("SnovioService", () => {
       // First call — gets token
       await service.createProspectList({ credentials: "id:secret", name: "List 1" });
       const firstTokenCalls = mock.mock.calls.filter(
-        (c: [string]) => typeof c[0] === "string" && c[0].includes("oauth")
+        (c: unknown[]) => typeof c[0] === "string" && c[0].includes("oauth")
       );
       expect(firstTokenCalls).toHaveLength(1);
 
       // Second call — should reuse cached token (no new OAuth call)
       await service.createProspectList({ credentials: "id:secret", name: "List 2" });
       const secondTokenCalls = mock.mock.calls.filter(
-        (c: [string]) => typeof c[0] === "string" && c[0].includes("oauth")
+        (c: unknown[]) => typeof c[0] === "string" && c[0].includes("oauth")
       );
       expect(secondTokenCalls).toHaveLength(1); // Still 1 — cache hit
     });
@@ -237,7 +237,7 @@ describe("SnovioService", () => {
       await service.createProspectList({ credentials: "id:secret", name: "List 2" });
 
       const tokenCalls = mock.mock.calls.filter(
-        (c: [string]) => typeof c[0] === "string" && c[0].includes("oauth")
+        (c: unknown[]) => typeof c[0] === "string" && c[0].includes("oauth")
       );
       expect(tokenCalls).toHaveLength(2); // Refreshed
 
@@ -298,7 +298,7 @@ describe("SnovioService", () => {
       await service.createProspectList({ credentials: "idB:secretB", name: "B" });
 
       const tokenCalls = mock.mock.calls.filter(
-        (c: [string]) => typeof c[0] === "string" && c[0].includes("oauth")
+        (c: unknown[]) => typeof c[0] === "string" && c[0].includes("oauth")
       );
       expect(tokenCalls).toHaveLength(2); // Different credentials → new token
     });
@@ -605,7 +605,7 @@ describe("SnovioService", () => {
 
       // 1 token call + 3 prospect calls
       const prospectCalls = mock.mock.calls.filter(
-        (c: [string]) => typeof c[0] === "string" && c[0].includes("add-prospect-to-list")
+        (c: unknown[]) => typeof c[0] === "string" && c[0].includes("add-prospect-to-list")
       );
       expect(prospectCalls).toHaveLength(3);
 

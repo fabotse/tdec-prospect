@@ -71,6 +71,11 @@ function makeExportParams(configOverrides?: Partial<ExportConfig>) {
 // FETCH MOCK HELPERS
 // ==============================================
 
+/** Tipagem: o mock de fetch trata a URL como string (as chamadas do hook usam string). */
+function mockFetchImpl(impl: (url: string, options?: RequestInit) => unknown) {
+  vi.mocked(global.fetch).mockImplementation(impl as unknown as typeof fetch);
+}
+
 function createSuccessFetch() {
   return vi.fn().mockImplementation((url: string, options?: RequestInit) => {
     const method = options?.method ?? "GET";
@@ -207,7 +212,7 @@ describe("useInstantlyExport", () => {
   // ==============================================
 
   it("stops pipeline when campaign creation fails", async () => {
-    vi.mocked(global.fetch).mockImplementation((url: string, options?: RequestInit) => {
+    mockFetchImpl((url: string, options?: RequestInit) => {
       if (url === "/api/instantly/campaign" && options?.method === "POST") {
         return Promise.resolve({
           ok: false,
@@ -270,7 +275,7 @@ describe("useInstantlyExport", () => {
   // ==============================================
 
   it("stops pipeline when adding leads fails", async () => {
-    vi.mocked(global.fetch).mockImplementation((url: string, options?: RequestInit) => {
+    mockFetchImpl((url: string, options?: RequestInit) => {
       if (url === "/api/instantly/leads" && options?.method === "POST") {
         return Promise.resolve({
           ok: false,
@@ -307,7 +312,7 @@ describe("useInstantlyExport", () => {
   // ==============================================
 
   it("considers export successful even when persist fails", async () => {
-    vi.mocked(global.fetch).mockImplementation((url: string, options?: RequestInit) => {
+    mockFetchImpl((url: string, options?: RequestInit) => {
       if (url.includes("/export-status") && options?.method === "PUT") {
         return Promise.resolve({
           ok: false,
@@ -450,7 +455,7 @@ describe("useInstantlyExport", () => {
       resolveLeads = resolve;
     });
 
-    vi.mocked(global.fetch).mockImplementation((url: string, options?: RequestInit) => {
+    mockFetchImpl((url: string, options?: RequestInit) => {
       if (url === "/api/instantly/leads" && options?.method === "POST") {
         return leadsPromise;
       }
@@ -519,7 +524,7 @@ describe("useInstantlyExport", () => {
 
     // Intercept fetch to capture step states mid-pipeline
     let callCount = 0;
-    vi.mocked(global.fetch).mockImplementation((url: string, options?: RequestInit) => {
+    mockFetchImpl((url: string, options?: RequestInit) => {
       callCount++;
       return createSuccessFetch()(url, options);
     });
@@ -550,7 +555,7 @@ describe("useInstantlyExport", () => {
   // ==============================================
 
   it("tracks partial lead upload with duplicated leads count", async () => {
-    vi.mocked(global.fetch).mockImplementation((url: string, options?: RequestInit) => {
+    mockFetchImpl((url: string, options?: RequestInit) => {
       if (url === "/api/instantly/leads" && options?.method === "POST") {
         return Promise.resolve({
           ok: true,
@@ -583,7 +588,7 @@ describe("useInstantlyExport", () => {
   // ==============================================
 
   it("handles unexpected exception during pipeline", async () => {
-    vi.mocked(global.fetch).mockImplementation((url: string, options?: RequestInit) => {
+    mockFetchImpl((url: string, options?: RequestInit) => {
       if (url === "/api/instantly/campaign" && options?.method === "POST") {
         return Promise.reject(new Error("Network error: connection refused"));
       }

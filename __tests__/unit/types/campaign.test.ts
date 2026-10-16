@@ -233,6 +233,10 @@ describe("Campaign Types", () => {
         product_id: null,
         created_at: "2026-02-01T10:00:00Z",
         updated_at: "2026-02-01T12:00:00Z",
+        external_campaign_id: null,
+        export_platform: null,
+        exported_at: null,
+        export_status: null,
         lead_count: "15" as unknown as number, // DB might return string
       };
 
@@ -250,6 +254,10 @@ describe("Campaign Types", () => {
         product_id: null,
         created_at: "2026-02-01T10:00:00Z",
         updated_at: "2026-02-01T12:00:00Z",
+        external_campaign_id: null,
+        export_platform: null,
+        exported_at: null,
+        export_status: null,
         lead_count: NaN as unknown as number,
       };
 

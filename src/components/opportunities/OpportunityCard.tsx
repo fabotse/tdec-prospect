@@ -231,6 +231,18 @@ export function OpportunityCard({
             Alto engajamento
           </Badge>
         )}
+        {opportunity.source === "engagement" && opportunity.possibleAutoOpen && (
+          <Badge
+            variant="outline"
+            className="border-amber-500/50 text-amber-600 dark:text-amber-400"
+            data-testid="opportunity-auto-open-badge"
+            title={`O e-mail deste lead passa pelo filtro de segurança ${
+              opportunity.securityGateway ?? "corporativo"
+            }, que abre e-mails e clica em links para escanear. As aberturas e cliques podem ser da máquina, não da pessoa.`}
+          >
+            Possível abertura automática
+          </Badge>
+        )}
         {opportunity.status === "new" && (
           <Badge variant="default" data-testid="opportunity-new-badge">
             Nova

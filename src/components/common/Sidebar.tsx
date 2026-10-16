@@ -246,7 +246,9 @@ export function Sidebar({ isCollapsed, onToggleCollapse, width, isHydrated }: Si
 
   const renderNavItem = (item: NavItem) => {
     const subItems = item.subItems;
-    const isExpanded = expandedItems.includes(item.href);
+    // The server has no localStorage, so its HTML is always collapsed: keep that
+    // until hydration ends, or a stored "expanded" breaks hydration (React #418).
+    const isExpanded = isHydrated && expandedItems.includes(item.href);
     const isActive = isParentActive(item);
     const Icon = item.icon;
     // Remove leading slash and replace remaining slashes with dashes for clean ID

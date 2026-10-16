@@ -28,6 +28,10 @@ describe("DeleteCampaignDialog", () => {
     leadCount: 0,
     productId: null,
     productName: null,
+    externalCampaignId: null,
+    exportPlatform: null,
+    exportedAt: null,
+    exportStatus: null,
   };
 
   const campaignWithLeads: CampaignWithCount = {

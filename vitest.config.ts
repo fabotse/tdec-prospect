@@ -10,6 +10,14 @@ export default defineConfig({
     setupFiles: ['./__tests__/setup.ts'],
     include: ['__tests__/**/*.{test,spec}.{ts,tsx}'],
     exclude: ['__tests__/e2e/**', 'node_modules/**'],
+    // happy-dom >= 20.8.9 (required to clear its security advisory) rejects
+    // Animation.finished with an AbortError when framer-motion cancels an
+    // animation on unmount. Only that specific test-env rejection is ignored.
+    onUnhandledError(error) {
+      if (error.name === 'AbortError' && error.message === 'The animation was canceled.') {
+        return false
+      }
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

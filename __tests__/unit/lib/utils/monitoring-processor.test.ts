@@ -22,13 +22,13 @@ vi.mock("@/lib/services/apify", () => ({
   },
 }));
 
-const mockDecryptApiKey = vi.fn(() => "decrypted-key");
+const mockDecryptApiKey = vi.fn<(...args: unknown[]) => string>(() => "decrypted-key");
 vi.mock("@/lib/crypto/encryption", () => ({
   decryptApiKey: (...args: unknown[]) => mockDecryptApiKey(...args),
 }));
 
 const mockClassifyPostRelevance = vi.fn();
-const mockCalculateClassificationCost = vi.fn(() => 0.00005);
+const mockCalculateClassificationCost = vi.fn<(...args: unknown[]) => number>(() => 0.00005);
 vi.mock("@/lib/utils/relevance-classifier", () => ({
   classifyPostRelevance: (...args: unknown[]) =>
     mockClassifyPostRelevance(...args),
@@ -37,7 +37,7 @@ vi.mock("@/lib/utils/relevance-classifier", () => ({
 }));
 
 const mockGenerateApproachSuggestion = vi.fn();
-const mockCalculateSuggestionCost = vi.fn(() => 0.000195);
+const mockCalculateSuggestionCost = vi.fn<(...args: unknown[]) => number>(() => 0.000195);
 vi.mock("@/lib/utils/approach-suggestion", () => ({
   generateApproachSuggestion: (...args: unknown[]) =>
     mockGenerateApproachSuggestion(...args),
@@ -416,7 +416,7 @@ describe("processLead", () => {
 
     const lead = createMockLead({
       linkedin_posts_cache: {
-        posts: [{ postUrl: "https://linkedin.com/post/1", text: "Old post", publishedAt: "2026-01-01" }],
+        posts: [{ postUrl: "https://linkedin.com/post/1", text: "Old post", publishedAt: "2026-01-01", likesCount: 0, commentsCount: 0 }],
         fetchedAt: "2026-02-01T00:00:00Z",
         profileUrl: "https://linkedin.com/in/johndoe",
       },
@@ -444,6 +444,7 @@ describe("processLead", () => {
     });
 
     const kbContext = {
+      companyName: "TestCo",
       companyContext: "Tech company",
       productsServices: "SaaS",
       competitiveAdvantages: "AI",
@@ -562,7 +563,7 @@ describe("processLead", () => {
 
     const lead = createMockLead({
       linkedin_posts_cache: {
-        posts: [{ postUrl: "https://linkedin.com/post/old1", text: "Old", publishedAt: "2026-01-01" }],
+        posts: [{ postUrl: "https://linkedin.com/post/old1", text: "Old", publishedAt: "2026-01-01", likesCount: 0, commentsCount: 0 }],
         fetchedAt: "2026-02-01T00:00:00Z",
         profileUrl: "https://linkedin.com/in/johndoe",
       },
