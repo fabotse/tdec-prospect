@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { toOpportunity, type OpportunityRow } from "@/types/opportunity";
-import { getInjectableServiceApiKey } from "@/lib/agent/service-keys";
-import { TrackingService } from "@/lib/services/tracking";
 import { hasSecurityGateway } from "@/lib/services/opportunity-engine";
 
 /**
@@ -41,98 +39,6 @@ interface InsightJoinRow {
   post_text: string | null;
   post_published_at: string | null;
   created_at: string;
-}
-
-// Story 23.8 — ESG (security gateway) calculado na leitura, só para as linhas
-// `engagement` da página. Nada é persistido: cache em memória por tenant:email,
-// guardando também os negativos, para as recargas da Central não baterem de novo
-// no Instantly (limite 20 req/min dividido com o reply-sweep).
-const ESG_CACHE_TTL_MS = 30 * 60 * 1000;
-const ESG_LOOKUP_TIMEOUT_MS = 3000;
-const ESG_FAILURE_TTL_MS = 60 * 1000;
-const esgCache = new Map<string, { gateway: string | null; expiresAt: number }>();
-
-/**
- * Devolve Map<emailLowercase, gateway> só com os e-mails que têm ESG.
- * Fail-open: sem chave, erro ou timeout → Map com o que estava em cache (ou vazio),
- * com `console.warn`, nunca lança. Falhas ficam em cache negativo por 60s.
- */
-async function resolveSecurityGateways(
-  tenantId: string,
-  emails: string[]
-): Promise<Map<string, string>> {
-  const result = new Map<string, string>();
-  const now = Date.now();
-  const missing: string[] = [];
-
-  for (const email of emails) {
-    const cached = esgCache.get(`${tenantId}:${email}`);
-    if (cached && cached.expiresAt > now) {
-      if (cached.gateway) result.set(email, cached.gateway);
-    } else {
-      missing.push(email);
-    }
-  }
-  if (missing.length === 0) return result;
-
-  // Falha (sem chave, erro ou timeout) → "sem gateway" por pouco tempo, para as
-  // próximas cargas não esperarem 3s nem refazerem as chamadas ao Instantly.
-  const cacheMissingAsNegative = () => {
-    const expiresAt = Date.now() + ESG_FAILURE_TTL_MS;
-    for (const email of missing) {
-      esgCache.set(`${tenantId}:${email}`, { gateway: null, expiresAt });
-    }
-  };
-
-  // O cache é gravado DENTRO do lookup: um sucesso que chega depois do timeout
-  // ainda preenche o cache de 30 min (sobrescrevendo o negativo curto).
-  const lookup = (async (): Promise<Map<string, string>> => {
-    try {
-      const apiKey = await getInjectableServiceApiKey(tenantId, "instantly");
-      if (!apiKey) {
-        console.warn("[opportunities] Sem API key do Instantly — seguindo sem ESG");
-        cacheMissingAsNegative();
-        return new Map();
-      }
-      const gateways = await new TrackingService().getSecurityGatewaysByEmails({
-        apiKey,
-        emails: missing,
-      });
-      const expiresAt = Date.now() + ESG_CACHE_TTL_MS;
-      for (const email of missing) {
-        esgCache.set(`${tenantId}:${email}`, {
-          gateway: gateways.get(email) ?? null,
-          expiresAt,
-        });
-      }
-      return gateways;
-    } catch (err) {
-      console.warn("[opportunities] Falha ao consultar ESG no Instantly (seguindo sem):", err);
-      cacheMissingAsNegative();
-      return new Map();
-    }
-  })();
-
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), ESG_LOOKUP_TIMEOUT_MS);
-  });
-
-  const gateways = await Promise.race([lookup, timeout]);
-  if (timer) clearTimeout(timer);
-  if (gateways === null) {
-    console.warn(
-      `[opportunities] Consulta de ESG passou de ${ESG_LOOKUP_TIMEOUT_MS}ms (seguindo sem)`
-    );
-    cacheMissingAsNegative();
-    return result;
-  }
-
-  for (const email of missing) {
-    const gateway = gateways.get(email);
-    if (gateway) result.set(email, gateway);
-  }
-  return result;
 }
 
 export async function GET(request: NextRequest) {
@@ -280,10 +186,25 @@ export async function GET(request: NextRequest) {
       rows.map(engagementEmailOf).filter((email): email is string => email !== null)
     ),
   ];
-  const gatewayMap =
-    engagementEmails.length > 0
-      ? await resolveSecurityGateways(profile.tenant_id, engagementEmails)
-      : new Map<string, string>();
+  // O cron de engajamento grava o ESG em `lead_security_gateways` (00064); a Central
+  // só lê do banco — nenhuma chamada ao Instantly aqui. Contexto secundário: se a
+  // query falhar, a Central segue sem a marcação (fail-open).
+  const gatewayMap = new Map<string, string>();
+  if (engagementEmails.length > 0) {
+    const { data: gatewayRows, error: gatewayError } = await supabase
+      .from("lead_security_gateways")
+      .select("email, gateway")
+      .eq("tenant_id", profile.tenant_id)
+      .in("email", engagementEmails);
+
+    if (gatewayError) {
+      console.warn("[opportunities] Falha ao buscar security gateways (seguindo sem):", gatewayError);
+    } else {
+      for (const gatewayRow of (gatewayRows ?? []) as Array<{ email: string; gateway: string }>) {
+        gatewayMap.set(gatewayRow.email, gatewayRow.gateway);
+      }
+    }
+  }
 
   const transformed = rows.map((row) => {
     const opportunity = toOpportunity(row);

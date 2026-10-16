@@ -170,3 +170,26 @@ Status: done
 - A Central divide o limite de 20 req/min do Instantly com o `reply-sweep`. Uma carga sem cache faz de 1 a 3 requisições, sem single-flight. Se houver muitas abas abertas ao mesmo tempo, o cron pode levar um 429, mas é fail-open e repete no ciclo seguinte.
 - A marcação é calculada na leitura, não persistida. Ela some se o Instantly falhar (por 60s), e outros consumidores de `opportunities` não a enxergam.
 - O cache vive em memória, por instância.
+
+## Fix pós-entrega — ESG persistido (2026-10-16)
+
+**Branch:** `fix/23-8-esg-persistido`, a partir da `epic/23-plataforma-higiene`. Fica segurada até a janela de deploy da 23.1/23.3. **Não fazer merge antes de aplicar a migration.**
+
+**Motivo:** resolve os 3 riscos residuais da entrega original: a Central dividia com o `reply-sweep` o limite de requisições do Instantly, a marcação era só na leitura e o cache era por instância.
+
+**O que muda:**
+- `supabase/migrations/00064_create_lead_security_gateways.sql` (nova, **só aditiva**): tabela `lead_security_gateways` (tenant, e-mail normalizado, gateway, `last_seen_at`) com `UNIQUE (tenant_id, email)` e RLS de leitura por tenant. A escrita é só do cron, via service role. Não toca linhas existentes.
+- `src/lib/utils/engagement-processor.ts`: depois do `getLeadTracking` de cada campanha, faz upsert dos e-mails com ESG na tabela. Não faz nenhuma chamada nova ao Instantly (reaproveita o tracking do ciclo) e é fail-open: erro só gera log e o ciclo segue criando oportunidades.
+- `src/app/api/opportunities/route.ts`: lê `lead_security_gateways` do banco em vez de consultar o Instantly. Saem o cache em memória, o timeout e a chave do Instantly. Se a leitura falhar, a lista segue sem marcação.
+- `src/lib/services/tracking.ts`: `getSecurityGatewaysByEmails` foi removido (sem uso) e o arquivo voltou ao estado anterior à 23.8.
+- Testes: rota (marca pelo banco, reply sem consulta, erro em fail-open) e cron (grava só ESG normalizado, não grava sem ESG, falha não derruba o ciclo).
+
+**Verificação local:** `npm run lint` 0 erros, `npm run typecheck` ok, `npm run test:run` 409 arquivos / 7577 testes passando (2 skipped).
+
+**Os 3 pontos do CLAUDE.md:** o ponto 1 é afetado, porque o cron do `reply-sweep` passa a gravar numa tabela nova. A gravação é fail-open e não muda respostas, oportunidades nem notificações. Por isso o fix fica na janela de deploy. Pontos 2 e 3: não tocados (análise do diff).
+
+**Na janela de deploy (operador):**
+1. Aplicar `00064_create_lead_security_gateways.sql` no Supabase de produção, com o OK do Fabossi.
+2. Fazer merge da `fix/23-8-esg-persistido` na branch do épico e o deploy.
+3. Esperar um ciclo do `reply-sweep` (até 5 min) e conferir que `lead_security_gateways` tem 1 linha (Mimecast).
+4. Rodar `__tests__/e2e/smoke-23-8.spec.ts`. O esperado é 1 badge na Central e 0 escritas.
