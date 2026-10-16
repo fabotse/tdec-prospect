@@ -2,7 +2,7 @@
 title: '24.6 — E-mails sem dados fictícios e follow-ups com valor'
 type: 'bugfix'
 created: '2026-10-16'
-status: 'awaiting-operator'
+status: done
 baseline_revision: '42dd9ae844b523a3dd2276d3cf150eba57bcd868'
 review_loop_iteration: 0
 followup_review_recommended: true
@@ -217,3 +217,11 @@ Status: awaiting-operator
 - Este repo sempre exportou `{{first_name}}`/`{{company_name}}` ao Instantly, como já faz o fluxo manual. Vale confirmar no preview do Instantly que essas variáveis resolvem.
 - Prompts customizados por tenant no banco podem ignorar as novas estratégias (24.8).
 - "Nome"/"Empresa" sem pontuação depois, se o LLM alucinar, não são reescritos.
+
+## Operator Confirmation
+
+Confirmed 2026-10-16: the external actions this story owed were carried out.
+
+- Rode uma execução real do agente (Guiado) até a revisão da campanha, sem exportar nem ativar, e confira que os e-mails gerados não têm 'Nome', 'Empresa', '[Sua', '[Seu', '{{follow_up_strategy}}' nem variável fora de {{first_name}}/{{company_name}}/{{title}}/{{ice_breaker}}, e que os follow-ups saem como 'Email 2 de N'... com ângulos diferentes; ou rode /private/tmp/claude-501/-Users-fabossi-Documents-Fabossi-Projects-TDec-Prospect/f6bfd665-e221-41f8-b43a-0f669a8c45b8/scratchpad/smoke-24-6.ts com uma OPENAI_API_KEY válida (a do .env.local devolve 401).
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._

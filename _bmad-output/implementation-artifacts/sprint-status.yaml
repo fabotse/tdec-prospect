@@ -34,7 +34,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-25
-last_updated: 2026-10-15  # 23.0 adiada (story escrita, volta a backlog); epic-23 volta a backlog
+last_updated: 2026-10-16  # 23.0 adiada (story escrita, volta a backlog); epic-23 volta a backlog
 project: tdec-prospect
 project_key: NOKEY
 tracking_system: file-system
@@ -588,7 +588,7 @@ development_status:
   24-3-avanco-confiavel-e-tentar-novamente: done
   24-4-conversa-sem-becos-sem-saida: done
   24-5-confirmacao-por-card-com-botoes: done
-  24-6-e-mails-sem-dados-ficticios-e-follow-ups-com-valor: awaiting-operator
+  24-6-e-mails-sem-dados-ficticios-e-follow-ups-com-valor: done
   24-7-secao-de-provas-na-knowledge-base: backlog
   24-8-prompts-honestos-problema-primeiro-provas-so-da-kb: backlog
   24-9-revisor-automatico-de-copy: backlog
