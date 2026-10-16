@@ -5,6 +5,7 @@ import {
   DEFAULT_PERIOD_DAYS,
   MIN_CLICKS_FOR_OPPORTUNITY,
   getDefaultConfig,
+  hasSecurityGateway,
 } from "@/lib/services/opportunity-engine";
 import { createMockLeadTracking } from "../../../helpers/mock-data";
 import type { OpportunityConfig } from "@/types/tracking";
@@ -344,5 +345,114 @@ describe("evaluateOpportunityWindow — qualificação por cliques (Story 21.6)"
     const result = evaluateOpportunityWindow(leads, baseConfig);
 
     expect(result).toHaveLength(0);
+  });
+});
+
+describe("Story 23.8 — security gateway (ESG) fora do motor", () => {
+  const config: OpportunityConfig = {
+    id: "config-1",
+    tenantId: "tenant-1",
+    campaignId: "campaign-1",
+    minOpens: 3,
+    periodDays: 7,
+    isActive: true,
+    createdAt: "2026-02-10T10:00:00.000Z",
+    updatedAt: "2026-02-10T10:00:00.000Z",
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-10T12:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  describe("hasSecurityGateway", () => {
+    it.each(["Mimecast", "Proofpoint", "Barracuda", "Cisco", "Unknown(7)"])(
+      "%s → true",
+      (code) => {
+        expect(hasSecurityGateway(code)).toBe(true);
+      }
+    );
+
+    it.each([undefined, null, "", "   ", "Not Found", "Unknown(0)"])(
+      "%s → false",
+      (code) => {
+        expect(hasSecurityGateway(code)).toBe(false);
+      }
+    );
+  });
+
+  it("lead com ESG e aberturas acima do limiar não qualifica", () => {
+    const leads = [
+      createMockLeadTracking({
+        esgCode: "Mimecast",
+        openCount: 5,
+        clickCount: 0,
+        lastOpenAt: "2026-02-09T10:00:00.000Z",
+      }),
+    ];
+    expect(evaluateOpportunityWindow(leads, config)).toHaveLength(0);
+  });
+
+  it("lead com ESG só com clique não qualifica", () => {
+    const leads = [
+      createMockLeadTracking({
+        esgCode: "Proofpoint",
+        openCount: 0,
+        clickCount: 1,
+        lastOpenAt: null,
+        lastClickAt: "2026-02-09T10:00:00.000Z",
+      }),
+    ];
+    expect(evaluateOpportunityWindow(leads, config)).toHaveLength(0);
+  });
+
+  it.each([undefined, "Not Found", "Unknown(0)"])(
+    "sem ESG (%s): opens, clicks e both seguem iguais",
+    (esgCode) => {
+      const leads = [
+        createMockLeadTracking({
+          leadEmail: "opens@x.com",
+          esgCode,
+          openCount: 4,
+          clickCount: 0,
+          lastOpenAt: "2026-02-09T10:00:00.000Z",
+        }),
+        createMockLeadTracking({
+          leadEmail: "clicks@x.com",
+          esgCode,
+          openCount: 0,
+          clickCount: 1,
+          lastOpenAt: null,
+          lastClickAt: "2026-02-09T10:00:00.000Z",
+        }),
+        createMockLeadTracking({
+          leadEmail: "both@x.com",
+          esgCode,
+          openCount: 4,
+          clickCount: 2,
+          lastOpenAt: "2026-02-09T10:00:00.000Z",
+          lastClickAt: "2026-02-09T11:00:00.000Z",
+        }),
+      ];
+      const result = evaluateOpportunityWindow(leads, config);
+      expect(result.map((r) => [r.leadEmail, r.qualifiedBy])).toEqual([
+        ["opens@x.com", "opens"],
+        ["clicks@x.com", "clicks"],
+        ["both@x.com", "both"],
+      ]);
+    }
+  );
+
+  it("filtra só o lead com ESG numa lista mista", () => {
+    const leads = [
+      createMockLeadTracking({ leadEmail: "humano@x.com", esgCode: undefined }),
+      createMockLeadTracking({ leadEmail: "gateway@x.com", esgCode: "Barracuda" }),
+    ];
+    const result = evaluateOpportunityWindow(leads, config);
+    expect(result.map((r) => r.leadEmail)).toEqual(["humano@x.com"]);
   });
 });

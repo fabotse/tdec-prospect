@@ -135,6 +135,44 @@ describe("processEngagement", () => {
     expect(chains.lead_interactions).toBeUndefined();
   });
 
+  it("Story 23.8: lead com security gateway (ESG) não gera oportunidade; o sem ESG gera", async () => {
+    mockGetLeadTracking.mockResolvedValue([
+      createMockLeadTracking({
+        leadEmail: "gateway@corp.com",
+        esgCode: "Mimecast",
+        openCount: 9,
+        clickCount: 3,
+        lastOpenAt: "2026-07-12T10:00:00.000Z",
+        lastClickAt: "2026-07-12T11:00:00.000Z",
+      }),
+      createMockLeadTracking({
+        leadEmail: "humano@corp.com",
+        esgCode: undefined,
+        openCount: 4,
+        clickCount: 0,
+        lastOpenAt: "2026-07-12T10:00:00.000Z",
+        lastClickAt: null,
+      }),
+    ]);
+    const { supabase, chains } = makeSupabase({
+      campaigns: EXPORTED_CAMPAIGNS,
+      leads: { data: { id: "local-lead-99" } },
+      opportunitiesActive: { data: null },
+      opportunities: { data: null, error: null },
+    });
+
+    const result = await processEngagement(supabase, { tenantId: "tenant-1" });
+
+    expect(result.created).toBe(1);
+    expect(chains.opportunities.insert).toHaveBeenCalledTimes(1);
+    expect(chains.opportunities.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ source: "engagement", open_count: 4, click_count: 0 })
+    );
+    expect(chains.opportunities.insert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ open_count: 9 })
+    );
+  });
+
   it("dedup app-level: oportunidade ATIVA do lead → pula (não insere)", async () => {
     mockGetLeadTracking.mockResolvedValue([qualifyingLead()]);
     const { supabase, chains } = makeSupabase({

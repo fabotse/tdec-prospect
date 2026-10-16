@@ -63,6 +63,8 @@ function makeOpportunity(
     leadId: "lead-1",
     campaignId: "camp-1",
     source: "reply",
+    possibleAutoOpen: false,
+    securityGateway: null,
     replyEventId: "evt-1",
     replyText:
       "Olá! Tenho interesse na proposta. Pode me mandar mais detalhes sobre valores e prazos?",
@@ -193,6 +195,56 @@ describe("OpportunityCard", () => {
       expect(screen.getByTestId("opportunity-engagement-badge")).toHaveTextContent(
         "Alto engajamento"
       );
+    });
+
+    // Story 23.8
+    it("should render auto-open badge with gateway in title when possibleAutoOpen", () => {
+      render(
+        <OpportunityCard
+          opportunity={makeOpportunity({
+            source: "engagement",
+            replyText: null,
+            replySubject: null,
+            intent: null,
+            openCount: 5,
+            clickCount: 0,
+            possibleAutoOpen: true,
+            securityGateway: "Mimecast",
+          })}
+        />
+      );
+
+      const badge = screen.getByTestId("opportunity-auto-open-badge");
+      expect(badge).toHaveTextContent("Possível abertura automática");
+      expect(badge.getAttribute("title")).toContain("Mimecast");
+      expect(screen.getByTestId("opportunity-engagement-badge")).toBeInTheDocument();
+    });
+
+    it("should not render auto-open badge when possibleAutoOpen is false", () => {
+      render(
+        <OpportunityCard
+          opportunity={makeOpportunity({
+            source: "engagement",
+            replyText: null,
+            replySubject: null,
+            intent: null,
+            openCount: 5,
+            clickCount: 0,
+          })}
+        />
+      );
+
+      expect(screen.queryByTestId("opportunity-auto-open-badge")).not.toBeInTheDocument();
+    });
+
+    it("should never render auto-open badge for reply source", () => {
+      render(
+        <OpportunityCard
+          opportunity={makeOpportunity({ possibleAutoOpen: true, securityGateway: "Cisco" })}
+        />
+      );
+
+      expect(screen.queryByTestId("opportunity-auto-open-badge")).not.toBeInTheDocument();
     });
 
     it("should not render engagement badge for reply source", () => {

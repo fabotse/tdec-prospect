@@ -363,7 +363,8 @@ export function createMockLeadTracking(
     leadId: "instantly-lead-1",
     // Story 14.1: New lead tracking fields
     espCode: "Google",
-    esgCode: "Barracuda",
+    // Story 23.8: sem gateway por padrão (com ESG o motor descarta o lead).
+    esgCode: undefined,
     emailOpenedStep: 2,
     emailOpenedVariant: 1,
     emailClickedStep: 1,

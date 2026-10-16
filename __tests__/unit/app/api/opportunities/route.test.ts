@@ -25,6 +25,21 @@ vi.mock("@/lib/supabase/server", () => ({
   })),
 }));
 
+const mockGetInjectableServiceApiKey = vi.fn();
+const mockGetSecurityGateways = vi.fn();
+
+vi.mock("@/lib/agent/service-keys", () => ({
+  getInjectableServiceApiKey: (...args: unknown[]) => mockGetInjectableServiceApiKey(...args),
+}));
+
+vi.mock("@/lib/services/tracking", () => ({
+  TrackingService: class {
+    getSecurityGatewaysByEmails(...args: unknown[]) {
+      return mockGetSecurityGateways(...args);
+    }
+  },
+}));
+
 import { GET } from "@/app/api/opportunities/route";
 
 function makeRequest(params: Record<string, string> = {}) {
@@ -471,5 +486,195 @@ describe("GET /api/opportunities", () => {
 
     expect(response.status).toBe(500);
     expect(json.error.code).toBe("INTERNAL_ERROR");
+  });
+
+  // ==============================================
+  // Story 23.8: possível abertura automática (ESG)
+  // ==============================================
+
+  describe("Story 23.8 — security gateway", () => {
+    // O cache de ESG vive no módulo da rota: cada teste usa e-mails próprios.
+    function engagementRow(id: string, email: string) {
+      return makeMockOpportunityRow({
+        id,
+        source: "engagement",
+        reply_event_id: null,
+        reply_text: null,
+        lead: { ...makeMockOpportunityRow().lead, id: `lead-${id}`, email },
+      });
+    }
+
+    beforeEach(() => {
+      mockGetInjectableServiceApiKey.mockResolvedValue("instantly-key");
+      mockGetSecurityGateways.mockResolvedValue(new Map());
+    });
+
+    it("marca só a engagement com ESG; reply não é consultada nem marcada", async () => {
+      mockGetSecurityGateways.mockResolvedValue(new Map([["gw1@corp.com", "Mimecast"]]));
+      setupTables({
+        opportunities: {
+          data: [
+            engagementRow("e1", "GW1@corp.com"),
+            engagementRow("e2", "humano1@corp.com"),
+            makeMockOpportunityRow({
+              id: "r1",
+              lead: { ...makeMockOpportunityRow().lead, email: "reply1@corp.com" },
+            }),
+          ],
+          error: null,
+          count: 3,
+        },
+      });
+
+      const response = await GET(makeRequest());
+      const json = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(mockGetInjectableServiceApiKey).toHaveBeenCalledWith("tenant-1", "instantly");
+      expect(mockGetSecurityGateways).toHaveBeenCalledTimes(1);
+      expect(mockGetSecurityGateways).toHaveBeenCalledWith({
+        apiKey: "instantly-key",
+        emails: ["gw1@corp.com", "humano1@corp.com"],
+      });
+      const byId = Object.fromEntries(
+        json.data.map((o: { id: string }) => [o.id, o])
+      );
+      expect(byId.e1.possibleAutoOpen).toBe(true);
+      expect(byId.e1.securityGateway).toBe("Mimecast");
+      expect(byId.e2.possibleAutoOpen).toBe(false);
+      expect(byId.e2.securityGateway).toBeNull();
+      expect(byId.r1.possibleAutoOpen).toBe(false);
+      expect(byId.r1.securityGateway).toBeNull();
+    });
+
+    it("só replies → não busca chave nem consulta o Instantly", async () => {
+      setupTables({
+        opportunities: { data: [makeMockOpportunityRow()], error: null, count: 1 },
+      });
+
+      const response = await GET(makeRequest());
+      const json = await response.json();
+
+      expect(json.data[0].possibleAutoOpen).toBe(false);
+      expect(mockGetInjectableServiceApiKey).not.toHaveBeenCalled();
+      expect(mockGetSecurityGateways).not.toHaveBeenCalled();
+    });
+
+    it("cache (inclusive negativos) evita a segunda chamada", async () => {
+      mockGetSecurityGateways.mockResolvedValue(new Map([["gw2@corp.com", "Proofpoint"]]));
+      const rows = [engagementRow("e1", "gw2@corp.com"), engagementRow("e2", "neg2@corp.com")];
+      setupTables({ opportunities: { data: rows, error: null, count: 2 } });
+
+      await GET(makeRequest());
+      const second = await (await GET(makeRequest())).json();
+
+      expect(mockGetSecurityGateways).toHaveBeenCalledTimes(1);
+      expect(second.data[0].possibleAutoOpen).toBe(true);
+      expect(second.data[0].securityGateway).toBe("Proofpoint");
+      expect(second.data[1].possibleAutoOpen).toBe(false);
+    });
+
+    it("erro do Instantly → fail-open, sem 500", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockGetSecurityGateways.mockRejectedValue(new Error("Instantly 503"));
+      setupTables({
+        opportunities: { data: [engagementRow("e1", "err3@corp.com")], error: null, count: 1 },
+      });
+
+      const response = await GET(makeRequest());
+      const json = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(json.data).toHaveLength(1);
+      expect(json.data[0].possibleAutoOpen).toBe(false);
+      expect(warn).toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it("sem chave do Instantly → fail-open sem consultar", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockGetInjectableServiceApiKey.mockResolvedValue(undefined);
+      setupTables({
+        opportunities: { data: [engagementRow("e1", "nokey4@corp.com")], error: null, count: 1 },
+      });
+
+      const response = await GET(makeRequest());
+      const json = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(json.data[0].possibleAutoOpen).toBe(false);
+      expect(mockGetSecurityGateways).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it("decrypt_error da chave → fail-open", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockGetInjectableServiceApiKey.mockRejectedValue(new Error("Erro ao decriptar"));
+      setupTables({
+        opportunities: { data: [engagementRow("e1", "dec5@corp.com")], error: null, count: 1 },
+      });
+
+      const response = await GET(makeRequest());
+      expect(response.status).toBe(200);
+      expect((await response.json()).data[0].possibleAutoOpen).toBe(false);
+      warn.mockRestore();
+    });
+
+    it("timeout de 3s → fail-open; resultado tardio preenche o cache", async () => {
+      vi.useFakeTimers();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockGetSecurityGateways.mockReturnValue(
+        new Promise((resolve) =>
+          setTimeout(() => resolve(new Map([["slow6@corp.com", "Cisco"]])), 5000)
+        )
+      );
+      setupTables({
+        opportunities: { data: [engagementRow("e1", "slow6@corp.com")], error: null, count: 1 },
+      });
+
+      const pending = GET(makeRequest());
+      await vi.advanceTimersByTimeAsync(3000);
+      const response = await pending;
+      const json = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(json.data[0].possibleAutoOpen).toBe(false);
+      expect(warn).toHaveBeenCalled();
+
+      // O lookup segue e, ao terminar, grava o cache de 30 min.
+      await vi.advanceTimersByTimeAsync(2000);
+      const next = await (await GET(makeRequest())).json();
+      vi.useRealTimers();
+
+      expect(next.data[0].possibleAutoOpen).toBe(true);
+      expect(next.data[0].securityGateway).toBe("Cisco");
+      expect(mockGetSecurityGateways).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
+    });
+
+    it("falha não é refeita dentro dos 60s do cache negativo", async () => {
+      vi.useFakeTimers();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockGetSecurityGateways.mockRejectedValue(new Error("Instantly 503"));
+      setupTables({
+        opportunities: { data: [engagementRow("e1", "down7@corp.com")], error: null, count: 1 },
+      });
+
+      await GET(makeRequest());
+      await vi.advanceTimersByTimeAsync(30_000);
+      const second = await (await GET(makeRequest())).json();
+      expect(second.data[0].possibleAutoOpen).toBe(false);
+      expect(mockGetSecurityGateways).toHaveBeenCalledTimes(1);
+
+      // Passado o TTL curto, consulta de novo.
+      await vi.advanceTimersByTimeAsync(31_000);
+      mockGetSecurityGateways.mockResolvedValue(new Map([["down7@corp.com", "Mimecast"]]));
+      const third = await (await GET(makeRequest())).json();
+      vi.useRealTimers();
+
+      expect(mockGetSecurityGateways).toHaveBeenCalledTimes(2);
+      expect(third.data[0].possibleAutoOpen).toBe(true);
+      warn.mockRestore();
+    });
   });
 });

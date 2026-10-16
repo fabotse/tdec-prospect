@@ -30,6 +30,7 @@ import type {
   InstantlyReceivedEmail,
   InstantlyEmailsListResponse,
 } from "@/types/tracking";
+import { hasSecurityGateway } from "./opportunity-engine";
 
 // ==============================================
 // CONSTANTS
@@ -41,6 +42,8 @@ const DAILY_ANALYTICS_ENDPOINT = "/api/v2/campaigns/analytics/daily";
 const LEADS_LIST_ENDPOINT = "/api/v2/leads/list";
 const EMAILS_ENDPOINT = "/api/v2/emails";
 const MAX_PAGINATION_PAGES = 50;
+/** Story 23.8: teto da consulta de ESG — até 5 páginas, cada uma com até 100 entradas do Instantly. */
+const MAX_ESG_LOOKUP_PAGES = 5;
 
 // ==============================================
 // HELPERS
@@ -325,6 +328,60 @@ export class TrackingService extends ExternalService {
     } while (cursor && pageCount < MAX_PAGINATION_PAGES);
 
     return allLeads;
+  }
+
+  /**
+   * Story 23.8 — security gateway (ESG) por e-mail, só leitura.
+   * POST /api/v2/leads/list com filtro `contacts` (devolve só os e-mails pedidos,
+   * uma entrada por campanha), paginado até MAX_ESG_LOOKUP_PAGES.
+   *
+   * Retorna Map<emailLowercase, gatewayLabel> APENAS com os e-mails que têm ESG
+   * (regra `hasSecurityGateway`). Basta uma entrada com ESG para marcar o e-mail.
+   * Lista vazia → Map vazio, sem chamar a API.
+   */
+  async getSecurityGatewaysByEmails(params: {
+    apiKey: string;
+    emails: string[];
+  }): Promise<Map<string, string>> {
+    const { apiKey } = params;
+    const gateways = new Map<string, string>();
+    const emails = [
+      ...new Set(
+        params.emails.map((email) => email.trim().toLowerCase()).filter(Boolean)
+      ),
+    ];
+    if (emails.length === 0) return gateways;
+
+    let cursor: string | undefined = undefined;
+    let pageCount = 0;
+
+    do {
+      const body: Record<string, unknown> = { contacts: emails, limit: 100 };
+      if (cursor) body.starting_after = cursor;
+
+      const response = await this.request<InstantlyLeadListResponse>(
+        `${INSTANTLY_API_BASE}${LEADS_LIST_ENDPOINT}`,
+        {
+          method: "POST",
+          headers: buildAuthHeaders(apiKey),
+          body: JSON.stringify(body),
+        }
+      );
+
+      for (const item of response.items ?? []) {
+        if (!item.email) continue;
+        const gateway = resolveEsgCode(item.esg_code);
+        const email = item.email.trim().toLowerCase();
+        if (gateway && hasSecurityGateway(gateway) && !gateways.has(email)) {
+          gateways.set(email, gateway);
+        }
+      }
+
+      cursor = response.next_starting_after ?? undefined;
+      pageCount++;
+    } while (cursor && pageCount < MAX_ESG_LOOKUP_PAGES);
+
+    return gateways;
   }
 
   /**

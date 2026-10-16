@@ -576,7 +576,7 @@ development_status:
   23-5-lista-de-supressao-cadastro-e-import: backlog
   23-6-supressao-aplicada-em-todos-os-caminhos: backlog
   23-7-envio-sem-repeticao: backlog
-  23-8-oportunidades-sem-falso-positivo-de-security-gateway: backlog
+  23-8-oportunidades-sem-falso-positivo-de-security-gateway: done
   epic-23-retrospective: optional
   #
   # EPIC 24: Agente TDec 3.0 — Analista de Contas

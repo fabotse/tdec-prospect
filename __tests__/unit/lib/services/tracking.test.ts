@@ -510,6 +510,106 @@ describe("TrackingService", () => {
   });
 
   // ==============================================
+  // Story 23.8: getSecurityGatewaysByEmails
+  // ==============================================
+
+  describe("getSecurityGatewaysByEmails", () => {
+    it("lista vazia → Map vazio sem chamar a API", async () => {
+      const { mock } = createMockFetch([]);
+      const result = await service.getSecurityGatewaysByEmails({
+        apiKey: TEST_API_KEY,
+        emails: [],
+      });
+      expect(result.size).toBe(0);
+      expect(mock).not.toHaveBeenCalled();
+    });
+
+    it("usa filtro contacts e devolve só os e-mails com ESG", async () => {
+      const { calls } = createMockFetch([
+        {
+          url: LEADS_LIST_URL,
+          method: "POST",
+          response: mockJsonResponse({
+            items: [
+              createMockInstantlyLeadEntry({ email: "Gate@X.com", esg_code: 2 }),
+              createMockInstantlyLeadEntry({ email: "humano@x.com", esg_code: undefined }),
+              createMockInstantlyLeadEntry({ email: "nf@x.com", esg_code: 0 }),
+            ],
+          }),
+        },
+      ]);
+
+      const result = await service.getSecurityGatewaysByEmails({
+        apiKey: TEST_API_KEY,
+        emails: ["gate@x.com", "HUMANO@x.com", "nf@x.com"],
+      });
+
+      expect(result).toEqual(new Map([["gate@x.com", "Mimecast"]]));
+      expect(calls()).toHaveLength(1);
+      expect(calls()[0].body).toEqual({
+        contacts: ["gate@x.com", "humano@x.com", "nf@x.com"],
+        limit: 100,
+      });
+    });
+
+    it("basta uma entrada (de qualquer campanha) com ESG para marcar o e-mail", async () => {
+      createMockFetch([
+        {
+          url: LEADS_LIST_URL,
+          method: "POST",
+          response: mockJsonResponse({
+            items: [
+              createMockInstantlyLeadEntry({ email: "a@x.com", esg_code: undefined }),
+              createMockInstantlyLeadEntry({ email: "a@x.com", esg_code: 3 }),
+            ],
+          }),
+        },
+      ]);
+      const result = await service.getSecurityGatewaysByEmails({
+        apiKey: TEST_API_KEY,
+        emails: ["a@x.com"],
+      });
+      expect(result.get("a@x.com")).toBe("Proofpoint");
+    });
+
+    it("pagina com starting_after e para no teto de 5 páginas", async () => {
+      let callCount = 0;
+      const { calls } = createMockFetch([
+        {
+          url: LEADS_LIST_URL,
+          method: "POST",
+          response: {
+            ok: true,
+            status: 200,
+            json: () => {
+              callCount++;
+              return Promise.resolve({
+                items: [
+                  createMockInstantlyLeadEntry({
+                    email: callCount === 2 ? "p2@x.com" : "outro@x.com",
+                    esg_code: callCount === 2 ? 1 : undefined,
+                  }),
+                ],
+                next_starting_after: `cursor-${callCount}`,
+              });
+            },
+            text: () => Promise.resolve(""),
+          },
+        },
+      ]);
+
+      const result = await service.getSecurityGatewaysByEmails({
+        apiKey: TEST_API_KEY,
+        emails: ["p2@x.com", "outro@x.com"],
+      });
+
+      expect(result).toEqual(new Map([["p2@x.com", "Barracuda"]]));
+      expect(calls()).toHaveLength(5);
+      expect(calls()[1].body).toMatchObject({ starting_after: "cursor-1" });
+    });
+  });
+
+  // ==============================================
   // Story 21.2 Task 7.1: getReceivedEmails
   // ==============================================
 

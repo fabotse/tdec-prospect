@@ -52,6 +52,13 @@ export interface OpportunityCardData extends Opportunity {
   lead: OpportunityLeadData | null;
   campaignName: string | null;
   insight: OpportunityInsightData | null;
+  /**
+   * Story 23.8 — o e-mail do lead passa por security gateway (Proofpoint,
+   * Mimecast...) que abre/clica para escanear: o engajamento pode ser da máquina.
+   * Calculado na leitura (não persistido); sempre `false` em `source='reply'`.
+   */
+  possibleAutoOpen: boolean;
+  securityGateway: string | null;
 }
 
 interface OpportunitiesResponse {

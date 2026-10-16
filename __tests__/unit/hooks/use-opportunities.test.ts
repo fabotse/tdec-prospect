@@ -51,6 +51,8 @@ function makeOpportunity(
     leadId: "lead-1",
     campaignId: "camp-1",
     source: "reply",
+    possibleAutoOpen: false,
+    securityGateway: null,
     replyEventId: "evt-1",
     replyText: "Tenho interesse",
     replySubject: "RE: Proposta",
