@@ -34,6 +34,10 @@ import { AgentExecutionPlan } from "./AgentExecutionPlan";
 import { AgentStepProgress } from "./AgentStepProgress";
 import { AgentStepTriggerError } from "./AgentStepTriggerError";
 import { AgentInput } from "./AgentInput";
+import {
+  AgentConfirmationCard,
+  type ConfirmationCardVariant,
+} from "./AgentConfirmationCard";
 import { useAgentExecution, useSendMessage } from "@/hooks/use-agent-execution";
 import { useAgentOnboarding } from "@/hooks/use-agent-onboarding";
 import { useAutoTrigger } from "@/hooks/use-auto-trigger";
@@ -44,7 +48,14 @@ import type {
   AdjustingStepState,
   PendingChipAdjustmentState,
 } from "@/stores/use-agent-store";
-import { useBriefingFlow } from "@/hooks/use-briefing-flow";
+import {
+  useBriefingFlow,
+  CARD_ACTION_LABELS,
+  parseBriefingFieldInput,
+  buildChipEditTurn,
+  type BriefingCardAction,
+  type BriefingCardField,
+} from "@/hooks/use-briefing-flow";
 import { useUser } from "@/hooks/use-user";
 import {
   mergeAdjustedBriefing,
@@ -227,6 +238,9 @@ export function AgentChat() {
   const {
     state: briefingState,
     processMessage: processBriefing,
+    // Story 24.5: cliques e chips do card de confirmacao
+    processCardAction,
+    editBriefingField,
     reset: resetBriefing,
     // Story 24.4: "Cancelar" no plano reabre o briefing (sem isto a conversa morria)
     reopenBriefing,
@@ -292,18 +306,22 @@ export function AgentChat() {
     []
   );
 
-  // Helper: salvar briefing confirmado na execucao
+  // Helper: salvar briefing confirmado na execucao. Story 24.5: devolve se salvou.
   const saveBriefing = useCallback(
-    async (executionId: string) => {
-      if (!briefingState.briefing) return;
-      const response = await fetch(`/api/agent/executions/${executionId}/briefing`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(briefingState.briefing),
-      });
-      if (!response.ok) {
-        toast.error("Erro ao salvar briefing. Tente novamente.");
+    async (executionId: string): Promise<boolean> => {
+      if (!briefingState.briefing) return false;
+      try {
+        const response = await fetch(`/api/agent/executions/${executionId}/briefing`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(briefingState.briefing),
+        });
+        if (response.ok) return true;
+      } catch {
+        // rede caiu: mesmo aviso do !ok
       }
+      toast.error("Erro ao salvar briefing. Tente novamente.");
+      return false;
     },
     [briefingState.briefing]
   );
@@ -736,6 +754,22 @@ export function AgentChat() {
     applyChipAdjustment,
   ]);
 
+  // Story 24.5: desfecho de uma confirmacao de briefing (hoje so pelo botao do card).
+  // Salva o briefing (PATCH), avisa e abre o seletor de modo.
+  const finishBriefingConfirmation = useCallback(
+    async (executionId: string) => {
+      // Sem o briefing salvo no servidor nao abre o seletor: volta ao card.
+      if (!(await saveBriefing(executionId))) {
+        reopenBriefing();
+        return;
+      }
+      // Story 24.4: mensagens do AgentChat tambem entram na memoria do LLM.
+      await sendAndRecordAgent(executionId, "Briefing confirmado! Agora escolha o modo de operacao:");
+      setShowModeSelector(true);
+    },
+    [saveBriefing, reopenBriefing, sendAndRecordAgent, setShowModeSelector]
+  );
+
   // A execucao ja passou pelo confirm? Dois sinais, ambos confiaveis:
   // - steps existem: SO o POST /confirm cria agent_steps;
   // - status validado no mount e running/paused: idem (running so e escrito pelo confirm),
@@ -805,14 +839,10 @@ export function AgentChat() {
 
         const result = await processBriefing(content, execId, sendAgentMessage, createProduct);
 
+        // Story 24.5: texto nunca confirma (o hook nao devolve confirmed por texto);
+        // mantido por defesa — o desfecho e o mesmo do clique.
         if (result.confirmed) {
-          await saveBriefing(execId);
-          // Story 24.4: mensagens do AgentChat tambem entram na memoria do LLM.
-          await sendAndRecordAgent(
-            execId,
-            "Briefing confirmado! Agora escolha o modo de operacao:"
-          );
-          setShowModeSelector(true);
+          await finishBriefingConfirmation(execId);
         }
 
         // Se briefing nao conseguiu processar, informar usuario
@@ -869,15 +899,90 @@ export function AgentChat() {
       steps,
       showModeSelector,
       showExecutionPlan,
-      saveBriefing,
+      finishBriefingConfirmation,
       createProduct,
       setAgentProcessing,
-      setShowModeSelector,
       refetchMessages,
       adjustingStep,
       clearAdjustingStep,
       handleAdjustmentMessage,
       isPostConfirmExecution,
+    ]
+  );
+
+  // ============================================================
+  // Story 24.5 — card de confirmacao (briefing, produto, leads)
+  // ============================================================
+
+  const handleCardAction = useCallback(
+    async (action: BriefingCardAction) => {
+      const execId = currentExecutionId;
+      if (!execId || isAgentProcessing) return;
+      // O clique e um turno do usuario no historico duravel (o hook grava na memoria).
+      sendMessageMutation.mutate({ executionId: execId, content: CARD_ACTION_LABELS[action] });
+      setAgentProcessing(true);
+      try {
+        const result = await processCardAction(action, execId, sendAgentMessage, createProduct);
+        if (result.confirmed) {
+          await finishBriefingConfirmation(execId);
+        }
+      } catch {
+        toast.error("Erro ao processar a acao. Tente novamente.");
+      } finally {
+        try {
+          await refetchMessages(execId);
+        } catch {
+          // falha no refetch nao pode deixar o card desabilitado
+        }
+        setAgentProcessing(false);
+      }
+    },
+    [
+      currentExecutionId,
+      isAgentProcessing,
+      sendMessageMutation,
+      setAgentProcessing,
+      processCardAction,
+      sendAgentMessage,
+      createProduct,
+      finishBriefingConfirmation,
+      refetchMessages,
+    ]
+  );
+
+  const handleChipEdit = useCallback(
+    async (field: BriefingCardField, raw: string): Promise<{ ok: boolean; error?: string }> => {
+      const execId = currentExecutionId;
+      if (!execId) return { ok: false, error: "Conversa nao encontrada." };
+      // Valida ANTES de gravar o turno: valor invalido so mostra o erro inline.
+      const parsed = parseBriefingFieldInput(field, raw);
+      if (!parsed.ok) return { ok: false, error: parsed.error };
+      sendMessageMutation.mutate({
+        executionId: execId,
+        content: buildChipEditTurn(field, parsed.display),
+      });
+      setAgentProcessing(true);
+      try {
+        return await editBriefingField(field, raw, execId, sendAgentMessage);
+      } catch {
+        toast.error("Erro ao salvar o ajuste. Tente novamente.");
+        return { ok: false, error: "Erro ao salvar o ajuste." };
+      } finally {
+        try {
+          await refetchMessages(execId);
+        } catch {
+          // falha no refetch nao pode deixar o card desabilitado
+        }
+        setAgentProcessing(false);
+      }
+    },
+    [
+      currentExecutionId,
+      sendMessageMutation,
+      setAgentProcessing,
+      editBriefingField,
+      sendAgentMessage,
+      refetchMessages,
     ]
   );
 
@@ -963,12 +1068,12 @@ export function AgentChat() {
     if (!currentExecutionId) return;
     setShowExecutionPlan(false);
     // Story 24.4: reabre o briefing ANTES de enviar — mesmo se o envio falhar, a
-    // proxima mensagem volta a ser ouvida (ajuste ou "sim" para manter).
+    // proxima mensagem volta a ser ouvida como ajuste. Story 24.5: manter = card.
     reopenBriefing();
     try {
       await sendAndRecordAgent(
         currentExecutionId,
-        'Tudo bem, nada foi iniciado e nenhum credito foi gasto. Me diga o que voce quer ajustar no briefing (cargos, localizacao, setor, tamanho...) ou responda "sim" para manter os parametros e escolher o modo de novo.'
+        'Tudo bem, nada foi iniciado e nenhum credito foi gasto. Me diga o que voce quer ajustar no briefing (cargos, localizacao, setor, tamanho...), edite um campo no card ou clique em "Confirmar" no card para manter os parametros e escolher o modo de novo.'
       );
       refetchMessages();
     } catch {
@@ -1057,6 +1162,23 @@ export function AgentChat() {
     void cancelCurrentExecution();
   }, [isPostConfirmExecution, cancelCurrentExecution]);
 
+  // Story 24.5: card derivado do estado do hook (nunca persistido). So numa execucao
+  // pre-confirm, fora do ajuste pos-rejeicao e sem seletor de modo/plano na tela.
+  const confirmationCardVariant: ConfirmationCardVariant | null =
+    !currentExecutionId ||
+    isPostConfirmExecution ||
+    adjustingStep ||
+    showModeSelector ||
+    showExecutionPlan
+      ? null
+      : briefingState.status === "confirming" && briefingState.briefing
+        ? "briefing"
+        : briefingState.status === "confirming_product" && briefingState.pendingProduct
+          ? "product"
+          : briefingState.status === "confirming_leads"
+            ? "leads"
+            : null;
+
   return (
     <div className="flex flex-col flex-1 min-h-0" data-testid="agent-chat">
       {/* Story 22.10: so aparece com conversa em andamento — sem execucao, o chat ja
@@ -1112,6 +1234,17 @@ export function AgentChat() {
         stepTriggerFailure.executionId === attachedExecutionId && (
           <AgentStepTriggerError failure={stepTriggerFailure} />
         )}
+      {confirmationCardVariant && (
+        <AgentConfirmationCard
+          variant={confirmationCardVariant}
+          briefing={briefingState.briefing}
+          product={briefingState.pendingProduct}
+          leadCount={briefingState.briefing?.importedLeads?.length ?? 0}
+          disabled={isAgentProcessing}
+          onAction={(action) => void handleCardAction(action)}
+          onEditField={handleChipEdit}
+        />
+      )}
       {showModeSelector && (
         <AgentModeSelector
           onModeSelect={handleModeSelect}

@@ -13,7 +13,7 @@
  * AC 16.5: #1-#5 - Plano de execucao, confirmar/cancelar
  */
 
-import { render, screen, act, waitFor } from "@testing-library/react";
+import { render, screen, act, waitFor, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AgentChat } from "@/components/agent/AgentChat";
 
@@ -112,6 +112,9 @@ const mockReopenBriefing = vi.fn();
 const mockParseAdjustment = vi.fn();
 const mockRecordAgentTurn = vi.fn();
 const mockRecordUserTurn = vi.fn();
+// Story 24.5: cliques e chips do card de confirmacao
+const mockProcessCardAction = vi.fn().mockResolvedValue({ handled: true });
+const mockEditBriefingField = vi.fn().mockResolvedValue({ ok: true });
 
 // Story 22.13: importOriginal preserva os helpers PUROS exportados pelo modulo
 // (isConfirmation — SSOT deterministico da confirmacao). Sem isso o AgentChat
@@ -123,6 +126,8 @@ vi.mock("@/hooks/use-briefing-flow", async (importOriginal) => {
     useBriefingFlow: () => ({
       state: mockBriefingState,
       processMessage: mockProcessMessage,
+      processCardAction: mockProcessCardAction,
+      editBriefingField: mockEditBriefingField,
       reset: mockResetBriefing,
       reopenBriefing: mockReopenBriefing,
       parseAdjustment: mockParseAdjustment,
@@ -189,11 +194,14 @@ function setupDefaults(overrides?: {
   pendingChipAdjustment?: Record<string, unknown> | null;
   // Story 24.3
   stepTriggerFailure?: Record<string, unknown> | null;
+  // Story 24.5
+  pendingProduct?: Record<string, unknown> | null;
+  isAgentProcessing?: boolean;
 }) {
   mockStoreState = {
     currentExecutionId: overrides?.executionId ?? null,
     setCurrentExecutionId: mockSetCurrentExecutionId,
-    isAgentProcessing: false,
+    isAgentProcessing: overrides?.isAgentProcessing ?? false,
     setAgentProcessing: mockSetAgentProcessing,
     isInputDisabled: false,
     showModeSelector: overrides?.showModeSelector ?? false,
@@ -224,6 +232,7 @@ function setupDefaults(overrides?: {
     briefing: overrides?.briefing ?? null,
     missingFields: [],
     isComplete: false,
+    pendingProduct: overrides?.pendingProduct ?? null,
   };
   capturedModeSelectorProps = null;
   capturedExecutionPlanProps = null;
@@ -2518,7 +2527,9 @@ describe("AgentChat", () => {
       expect(mockReopenBriefing).toHaveBeenCalledTimes(1);
       const [cancelText] = agentMessageBodies();
       expect(cancelText).toContain("nada foi iniciado");
-      expect(cancelText).toContain('"sim"');
+      // Story 24.5: manter os parametros e pelo card, nao por "sim".
+      expect(cancelText).not.toContain('"sim"');
+      expect(cancelText).toContain('clique em "Confirmar" no card');
       expect(mockRecordAgentTurn).toHaveBeenCalledWith(cancelText);
     });
 
@@ -2690,6 +2701,255 @@ describe("AgentChat", () => {
       expect(mockRecordAgentTurn).toHaveBeenCalledWith(
         "Desculpe, nao consegui processar sua mensagem. Pode tentar novamente?"
       );
+    });
+  });
+
+  // ==============================================
+  // Story 24.5 — confirmacao por card com botoes
+  // ==============================================
+
+  describe("card de confirmacao (Story 24.5)", () => {
+    const BRIEFING = {
+      technology: null,
+      jobTitles: ["CTO"],
+      location: "Sao Paulo",
+      companySize: null,
+      industry: null,
+      productSlug: null,
+      mode: "guided",
+      skipSteps: ["search_companies"],
+    };
+
+    function okFetch() {
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: {} }),
+      });
+    }
+
+    it("aparece em confirming com os chips e os botoes Confirmar/Ajustar", () => {
+      setupDefaults({ executionId: "exec-123", briefingStatus: "confirming", briefing: BRIEFING });
+      render(<AgentChat />);
+
+      expect(screen.getByTestId("agent-confirmation-card-briefing")).toBeInTheDocument();
+      expect(screen.getByTestId("briefing-chip-location")).toHaveTextContent("Sao Paulo");
+      expect(screen.getByTestId("card-action-confirm_briefing")).toHaveTextContent("Confirmar");
+      expect(screen.getByTestId("card-action-adjust_briefing")).toHaveTextContent("Ajustar");
+      // O input continua habilitado: texto com o card visivel e ajuste.
+      expect(capturedInputProps.disabled).toBe(false);
+    });
+
+    it("mostra o card do produto e o dos leads nos respectivos estados", () => {
+      setupDefaults({
+        executionId: "exec-123",
+        briefingStatus: "confirming_product",
+        briefing: BRIEFING,
+        pendingProduct: {
+          name: "Radar",
+          description: "Monitora custos",
+          features: null,
+          differentials: null,
+          targetAudience: "CFOs",
+        },
+      });
+      const { unmount } = render(<AgentChat />);
+      expect(screen.getByTestId("agent-confirmation-card-product")).toHaveTextContent("Radar");
+      expect(screen.getByTestId("card-action-redo_product")).toBeInTheDocument();
+      expect(screen.getByTestId("card-action-skip_product")).toBeInTheDocument();
+      unmount();
+
+      setupDefaults({
+        executionId: "exec-123",
+        briefingStatus: "confirming_leads",
+        briefing: { ...BRIEFING, importedLeads: [{ name: "Joao", email: "j@a.com" }] },
+      });
+      render(<AgentChat />);
+      expect(screen.getByTestId("agent-confirmation-card-leads")).toHaveTextContent("1 leads");
+      expect(screen.getByTestId("card-action-confirm_leads")).toBeInTheDocument();
+      expect(screen.getByTestId("card-action-redo_leads")).toBeInTheDocument();
+    });
+
+    it.each([
+      ["status fora de confirmacao", { briefingStatus: "awaiting_fields" }],
+      ["seletor de modo visivel", { briefingStatus: "confirming", showModeSelector: true }],
+      ["plano visivel", { briefingStatus: "confirming", showExecutionPlan: true }],
+      [
+        "ajuste pos-rejeicao",
+        {
+          briefingStatus: "confirming",
+          adjustingStep: { executionId: "exec-123", stepNumber: 1, stepType: "search_leads", phase: "describe" },
+        },
+      ],
+    ])("fica oculto com %s", (_label, overrides) => {
+      setupDefaults({ executionId: "exec-123", briefing: BRIEFING, ...overrides });
+      render(<AgentChat />);
+      expect(screen.queryByTestId("agent-confirmation-card-briefing")).not.toBeInTheDocument();
+    });
+
+    it("fica oculto numa execucao ja confirmada (steps existem)", async () => {
+      setupDefaults({ executionId: "exec-123", briefingStatus: "confirming", briefing: BRIEFING });
+      mockExecutionData = {
+        messages: [],
+        steps: [{ id: "s1", step_number: 1, step_type: "search_leads", status: "running", output: null }],
+      };
+      await act(async () => {
+        render(<AgentChat />);
+      });
+      expect(screen.queryByTestId("agent-confirmation-card-briefing")).not.toBeInTheDocument();
+    });
+
+    it("botoes desabilitados enquanto o agente processa", () => {
+      setupDefaults({
+        executionId: "exec-123",
+        briefingStatus: "confirming",
+        briefing: BRIEFING,
+        isAgentProcessing: true,
+      });
+      render(<AgentChat />);
+      expect(screen.getByTestId("card-action-confirm_briefing")).toBeDisabled();
+      expect(screen.getByTestId("card-action-adjust_briefing")).toBeDisabled();
+    });
+
+    it("clique em Confirmar grava o turno, salva o briefing (PATCH) e abre o seletor de modo", async () => {
+      setupDefaults({ executionId: "exec-123", briefingStatus: "confirming", briefing: BRIEFING });
+      okFetch();
+      mockProcessCardAction.mockResolvedValueOnce({ handled: true, confirmed: true });
+      render(<AgentChat />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("card-action-confirm_briefing"));
+      });
+
+      await waitFor(() => expect(mockSetShowModeSelector).toHaveBeenCalledWith(true));
+      expect(mockMutate).toHaveBeenCalledWith({ executionId: "exec-123", content: "Confirmar" });
+      expect(mockProcessCardAction).toHaveBeenCalledWith(
+        "confirm_briefing",
+        "exec-123",
+        expect.any(Function),
+        expect.any(Function)
+      );
+      const patch = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.find(
+        ([url, init]) =>
+          typeof url === "string" &&
+          url.endsWith("/exec-123/briefing") &&
+          (init as RequestInit)?.method === "PATCH"
+      );
+      expect(patch).toBeDefined();
+      expect(JSON.parse((patch![1] as RequestInit).body as string)).toEqual(BRIEFING);
+      expect(mockRecordAgentTurn).toHaveBeenCalledWith(
+        "Briefing confirmado! Agora escolha o modo de operacao:"
+      );
+      expect(mockRefetchMessages).toHaveBeenCalledWith("exec-123");
+      expect(mockSetAgentProcessing).toHaveBeenLastCalledWith(false);
+    });
+
+    it("PATCH do briefing falha (!ok): reabre o card, sem 'Briefing confirmado!' nem seletor", async () => {
+      setupDefaults({ executionId: "exec-123", briefingStatus: "confirming", briefing: BRIEFING });
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (url: string, init?: RequestInit) =>
+        typeof url === "string" && url.endsWith("/briefing") && init?.method === "PATCH"
+          ? { ok: false, json: () => Promise.resolve({}) }
+          : { ok: true, json: () => Promise.resolve({ data: {} }) }
+      );
+      mockProcessCardAction.mockResolvedValueOnce({ handled: true, confirmed: true });
+      render(<AgentChat />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("card-action-confirm_briefing"));
+      });
+
+      await waitFor(() => expect(mockReopenBriefing).toHaveBeenCalledTimes(1));
+      expect(mockToastError).toHaveBeenCalledWith("Erro ao salvar briefing. Tente novamente.");
+      expect(mockSetShowModeSelector).not.toHaveBeenCalledWith(true);
+      expect(mockRecordAgentTurn).not.toHaveBeenCalledWith(
+        "Briefing confirmado! Agora escolha o modo de operacao:"
+      );
+      expect(mockSetAgentProcessing).toHaveBeenLastCalledWith(false);
+    });
+
+    it("processCardAction rejeita: toast e flag de processamento liberada", async () => {
+      setupDefaults({ executionId: "exec-123", briefingStatus: "confirming", briefing: BRIEFING });
+      okFetch();
+      mockProcessCardAction.mockRejectedValueOnce(new Error("boom"));
+      render(<AgentChat />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("card-action-confirm_briefing"));
+      });
+
+      await waitFor(() =>
+        expect(mockToastError).toHaveBeenCalledWith("Erro ao processar a acao. Tente novamente.")
+      );
+      expect(mockSetAgentProcessing).toHaveBeenLastCalledWith(false);
+      expect(mockSetShowModeSelector).not.toHaveBeenCalledWith(true);
+    });
+
+    it("clique que nao confirma (Ajustar) nao salva nem abre o seletor", async () => {
+      setupDefaults({ executionId: "exec-123", briefingStatus: "confirming", briefing: BRIEFING });
+      okFetch();
+      render(<AgentChat />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("card-action-adjust_briefing"));
+      });
+
+      await waitFor(() => expect(mockProcessCardAction).toHaveBeenCalled());
+      expect(mockMutate).toHaveBeenCalledWith({ executionId: "exec-123", content: "Ajustar" });
+      expect(mockSetShowModeSelector).not.toHaveBeenCalledWith(true);
+      const patch = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.find(
+        ([url]) => typeof url === "string" && url.endsWith("/briefing")
+      );
+      expect(patch).toBeUndefined();
+    });
+
+    it("editar um chip grava 'Ajustei X: Y' e chama editBriefingField; invalido so mostra o erro", async () => {
+      setupDefaults({ executionId: "exec-123", briefingStatus: "confirming", briefing: BRIEFING });
+      okFetch();
+      render(<AgentChat />);
+
+      fireEvent.click(screen.getByTestId("briefing-chip-location"));
+      fireEvent.change(screen.getByTestId("chip-input-location"), { target: { value: "Campinas" } });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("chip-save-location"));
+      });
+
+      expect(mockMutate).toHaveBeenCalledWith({
+        executionId: "exec-123",
+        content: "Ajustei Localizacao: Campinas",
+      });
+      expect(mockEditBriefingField).toHaveBeenCalledWith(
+        "location",
+        "Campinas",
+        "exec-123",
+        expect.any(Function)
+      );
+      expect(mockSetAgentProcessing).toHaveBeenLastCalledWith(false);
+
+      mockMutate.mockClear();
+      mockEditBriefingField.mockClear();
+      fireEvent.click(screen.getByTestId("briefing-chip-emailCount"));
+      fireEvent.change(screen.getByTestId("chip-input-emailCount"), { target: { value: "11" } });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("chip-save-emailCount"));
+      });
+
+      expect(screen.getByTestId("chip-error-emailCount")).toHaveTextContent("1 a 10");
+      expect(mockMutate).not.toHaveBeenCalled();
+      expect(mockEditBriefingField).not.toHaveBeenCalled();
+    });
+
+    it("texto digitado com o card visivel vai ao hook como mensagem (nunca confirma pelo AgentChat)", async () => {
+      setupDefaults({ executionId: "exec-123", briefingStatus: "confirming", briefing: BRIEFING });
+      okFetch();
+      mockProcessMessage.mockResolvedValueOnce({ handled: true });
+      render(<AgentChat />);
+
+      await act(async () => {
+        await capturedOnSendMessage!("sim");
+      });
+
+      expect(mockProcessMessage).toHaveBeenCalledWith("sim", "exec-123", expect.any(Function), expect.any(Function));
+      expect(mockProcessCardAction).not.toHaveBeenCalled();
+      expect(mockSetShowModeSelector).not.toHaveBeenCalledWith(true);
     });
   });
 });

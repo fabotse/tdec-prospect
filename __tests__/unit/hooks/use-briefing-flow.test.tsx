@@ -18,6 +18,7 @@ import {
   isSearchPreference,
   looksLikeLeadPaste,
   toMemoryContent,
+  parseBriefingFieldInput,
 } from "@/hooks/use-briefing-flow";
 import {
   createMockFetch,
@@ -299,8 +300,8 @@ describe("useBriefingFlow", () => {
     expect(result.current.state.briefing?.technology).toBe("Netskope");
   });
 
-  it("deve confirmar briefing quando usuario diz 'sim' (AC: #4)", async () => {
-    // Story 22.3: confirmacao passa pelo LLM -> nextAction "proceed" confirma.
+  it("'sim' digitado NAO confirma; so o clique em Confirmar confirma (Story 24.5)", async () => {
+    // Story 24.5: mesmo com o LLM devolvendo "proceed", texto nunca confirma.
     createMockFetch([
       {
         url: /\/api\/agent\/briefing\/parse$/,
@@ -328,11 +329,26 @@ describe("useBriefingFlow", () => {
       );
     });
 
+    expect(result.current.state.status).toBe("confirming");
+    expect(outcome?.confirmed).toBeUndefined();
+    expect(mockSendAgentMessage).toHaveBeenLastCalledWith(
+      EXEC_ID,
+      expect.stringContaining('clique em "Confirmar" no card')
+    );
+
+    await act(async () => {
+      outcome = await result.current.processCardAction(
+        "confirm_briefing",
+        EXEC_ID,
+        mockSendAgentMessage
+      );
+    });
+
     expect(result.current.state.status).toBe("confirmed");
     expect(outcome?.confirmed).toBe(true);
   });
 
-  it("deve aceitar variantes de confirmacao (AC: #4)", async () => {
+  it("variantes de confirmacao digitadas nao confirmam (Story 24.5)", async () => {
     const confirmations = ["ok", "pode ir", "confirmo", "perfeito", "bora"];
 
     for (const keyword of confirmations) {
@@ -353,8 +369,9 @@ describe("useBriefingFlow", () => {
 
       await act(async () => {
         const r = await result.current.processMessage(keyword, EXEC_ID, mockSendAgentMessage);
-        expect(r.confirmed).toBe(true);
+        expect(r.confirmed).toBeUndefined();
       });
+      expect(result.current.state.status).toBe("confirming");
 
       restoreFetch();
     }
@@ -467,7 +484,7 @@ describe("useBriefingFlow", () => {
       await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
     });
     await act(async () => {
-      await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
+      await result.current.processCardAction("confirm_briefing", EXEC_ID, mockSendAgentMessage);
     });
 
     expect(result.current.state.status).toBe("confirmed");
@@ -799,8 +816,8 @@ describe("useBriefingFlow", () => {
       mockSendAgentMessage.mockClear();
 
       await act(async () => {
-        await result.current.processMessage(
-          "sim",
+        await result.current.processCardAction(
+          "confirm_product",
           EXEC_ID,
           mockSendAgentMessage,
           mockCreateProduct
@@ -863,8 +880,8 @@ describe("useBriefingFlow", () => {
       mockSendAgentMessage.mockClear();
 
       await act(async () => {
-        await result.current.processMessage(
-          "sim",
+        await result.current.processCardAction(
+          "confirm_product",
           EXEC_ID,
           mockSendAgentMessage,
           mockCreateProduct
@@ -922,8 +939,9 @@ describe("useBriefingFlow", () => {
 
       mockSendAgentMessage.mockClear();
 
+      // Story 24.5: refazer e pelo botao "Refazer cadastro" do card.
       await act(async () => {
-        await result.current.processMessage("nao", EXEC_ID, mockSendAgentMessage);
+        await result.current.processCardAction("redo_product", EXEC_ID, mockSendAgentMessage);
       });
 
       expect(result.current.state.status).toBe("awaiting_product_name");
@@ -1051,7 +1069,7 @@ describe("useBriefingFlow", () => {
       );
     });
 
-    it("deve tratar ambiguidade em confirming_product", async () => {
+    it("texto em confirming_product e correcao via /parse-product, nunca cadastro (Story 24.5)", async () => {
       createMockFetch([
         {
           url: /\/api\/agent\/briefing\/parse$/,
@@ -1096,15 +1114,30 @@ describe("useBriefingFlow", () => {
       expect(result.current.state.status).toBe("confirming_product");
       mockSendAgentMessage.mockClear();
 
-      // Ambiguous input — neither clearly confirm nor reject
+      const corrected = { ...EXTRACTED_PRODUCT, targetAudience: "CFOs" };
+      restoreFetch();
+      const fetchMock = createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse-product/,
+          method: "POST",
+          response: mockJsonResponse({ product: corrected }),
+        },
+      ]);
+
       await act(async () => {
-        await result.current.processMessage("hmm talvez", EXEC_ID, mockSendAgentMessage);
+        await result.current.processMessage("o publico e CFO", EXEC_ID, mockSendAgentMessage);
       });
 
       expect(result.current.state.status).toBe("confirming_product");
+      expect(result.current.state.pendingProduct).toEqual(corrected);
+      const body = fetchMock.calls()[0].body as { productName: string; message: string };
+      expect(body.productName).toBe("TDEC Analytics");
+      expect(body.message).toContain("Dados atuais do produto:");
+      expect(body.message).toContain("Descricao: Plataforma de analytics");
+      expect(body.message).toContain("Correcao do usuario: o publico e CFO");
       expect(mockSendAgentMessage).toHaveBeenCalledWith(
         EXEC_ID,
-        expect.stringContaining("Responda 'sim' para confirmar ou 'nao'")
+        expect.stringContaining("Publico-alvo: CFOs")
       );
     });
 
@@ -1189,8 +1222,8 @@ describe("useBriefingFlow", () => {
 
       // 4. Confirm product
       await act(async () => {
-        await result.current.processMessage(
-          "sim",
+        await result.current.processCardAction(
+          "confirm_product",
           EXEC_ID,
           mockSendAgentMessage,
           mockCreateProduct
@@ -1199,11 +1232,11 @@ describe("useBriefingFlow", () => {
       expect(result.current.state.status).toBe("confirming");
       expect(result.current.state.briefing?.productSlug).toBe("new-prod-id");
 
-      // 5. Confirm briefing
+      // 5. Confirm briefing (Story 24.5: pelo card)
       let outcome: { handled: boolean; confirmed?: boolean } | undefined;
       await act(async () => {
-        outcome = await result.current.processMessage(
-          "sim",
+        outcome = await result.current.processCardAction(
+          "confirm_briefing",
           EXEC_ID,
           mockSendAgentMessage
         );
@@ -2044,10 +2077,10 @@ describe("useBriefingFlow", () => {
         );
       });
 
-      // Confirm leads → confirming (briefing summary)
+      // Confirm leads → confirming (briefing summary). Story 24.5: pelo card.
       await act(async () => {
-        await result.current.processMessage(
-          "sim",
+        await result.current.processCardAction(
+          "confirm_leads",
           EXEC_ID,
           mockSendAgentMessage
         );
@@ -2086,20 +2119,19 @@ describe("useBriefingFlow", () => {
         );
       });
 
-      // Reject leads → back to awaiting_leads_input
+      // Reject leads → back to awaiting_leads_input. Story 24.5: botao "Colar outra lista".
       await act(async () => {
-        await result.current.processMessage(
-          "errei, deixa eu refazer",
+        await result.current.processCardAction(
+          "redo_leads",
           EXEC_ID,
           mockSendAgentMessage
         );
       });
 
       expect(result.current.state.status).toBe("awaiting_leads_input");
-      expect(mockSendAgentMessage).toHaveBeenLastCalledWith(
-        EXEC_ID,
-        expect.stringContaining("cole a lista de leads novamente")
-      );
+      const last = mockSendAgentMessage.mock.lastCall?.[1] as string;
+      expect(last).toContain("cole a nova lista de leads");
+      expect(last).toContain("buscar leads");
     });
   });
 
@@ -2440,9 +2472,9 @@ describe("useBriefingFlow", () => {
       expect(result.current.state.status).toBe("confirming_leads");
       expect(result.current.state.briefing?.importedLeads).toHaveLength(1);
 
-      // 3) Confirma os leads -> confirming (resumo)
+      // 3) Confirma os leads -> confirming (resumo). Story 24.5: pelo card.
       await act(async () => {
-        await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
+        await result.current.processCardAction("confirm_leads", EXEC_ID, mockSendAgentMessage);
       });
       expect(result.current.state.status).toBe("confirming");
 
@@ -2584,7 +2616,7 @@ describe("useBriefingFlow", () => {
       expect(last).toEqual({ role: "user", content: "em Sao Paulo" });
     });
 
-    it("nextAction:proceed confirma no confirming sem depender de keyword (AC3)", async () => {
+    it("nextAction:proceed NAO confirma por texto: reapresenta o resumo apontando o card (Story 24.5)", async () => {
       createMockFetch([
         {
           url: /\/api\/agent\/briefing\/parse$/,
@@ -2619,8 +2651,11 @@ describe("useBriefingFlow", () => {
         );
       });
 
-      expect(result.current.state.status).toBe("confirmed");
-      expect(outcome?.confirmed).toBe(true);
+      expect(result.current.state.status).toBe("confirming");
+      expect(outcome?.confirmed).toBeUndefined();
+      const last = mockSendAgentMessage.mock.lastCall?.[1] as string;
+      expect(last).toContain('clique em "Confirmar" no card');
+      expect(last).toContain("Confirma esses parametros?");
     });
 
     it("correcao parcial em confirming aplica briefing e reapresenta resumo (AC3)", async () => {
@@ -2704,7 +2739,7 @@ describe("useBriefingFlow", () => {
       );
     });
 
-    it("fail-open: parse falha no confirming + 'sim' confirma via keyword (AC4)", async () => {
+    it("parse falha no confirming + 'sim' NAO confirma: aponta o card (Story 24.5)", async () => {
       createMockFetch([
         {
           url: /\/api\/agent\/briefing\/parse$/,
@@ -2735,8 +2770,12 @@ describe("useBriefingFlow", () => {
         outcome = await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
       });
 
-      expect(result.current.state.status).toBe("confirmed");
-      expect(outcome?.confirmed).toBe(true);
+      expect(result.current.state.status).toBe("confirming");
+      expect(outcome?.confirmed).toBeUndefined();
+      expect(outcome?.handled).toBe(true);
+      const last = mockSendAgentMessage.mock.lastCall?.[1] as string;
+      expect(last).toContain("Nao consegui processar sua mensagem");
+      expect(last).toContain('clique em "Confirmar" no card');
     });
 
     it("fail-open: parse falha no confirming + msg nao-confirmadora mantem confirming (AC4)", async () => {
@@ -2774,14 +2813,16 @@ describe("useBriefingFlow", () => {
       });
 
       expect(result.current.state.status).toBe("confirming");
-      expect(outcome?.handled).toBe(false);
+      // Story 24.5: o agente responde (aponta o card) em vez de devolver handled:false.
+      expect(outcome?.handled).toBe(true);
+      expect(outcome?.confirmed).toBeUndefined();
     });
 
     // ==============================================
     // REVIEW PATCHES (code review 22.3, 2026-07-20)
     // ==============================================
 
-    it("guard hibrido: 'sim' confirma no caminho de sucesso mesmo com LLM devolvendo confirm (review 22.3)", async () => {
+    it("'sim' com LLM devolvendo confirm e briefing inalterado NAO confirma (Story 24.5)", async () => {
       createMockFetch([
         {
           url: /\/api\/agent\/briefing\/parse$/,
@@ -2813,8 +2854,9 @@ describe("useBriefingFlow", () => {
         outcome = await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
       });
 
-      expect(result.current.state.status).toBe("confirmed");
-      expect(outcome?.confirmed).toBe(true);
+      expect(result.current.state.status).toBe("confirming");
+      expect(outcome?.confirmed).toBeUndefined();
+      expect(mockSendAgentMessage.mock.lastCall?.[1]).toContain('clique em "Confirmar" no card');
     });
 
     it("guard hibrido NAO confirma quando o LLM aplicou correcao ('sim, mas...') (review 22.3)", async () => {
@@ -3622,7 +3664,7 @@ describe("useBriefingFlow", () => {
       );
     });
 
-    it("'sim' puro ainda confirma quando nada mudou (briefingChanged=false, regressao 22.5)", async () => {
+    it("'sim' puro com nada mudado reapresenta o resumo, sem confirmar (Story 24.5)", async () => {
       createMockFetch([
         {
           url: /\/api\/agent\/briefing\/parse$/,
@@ -3638,7 +3680,7 @@ describe("useBriefingFlow", () => {
       });
       expect(result.current.state.status).toBe("confirming");
 
-      // briefing identico (nenhum campo de campanha alterado) -> keyword "sim" confirma.
+      // briefing identico (nenhum campo de campanha alterado) -> "sim" aponta o card.
       restoreFetch();
       createMockFetch([
         {
@@ -3653,8 +3695,8 @@ describe("useBriefingFlow", () => {
         outcome = await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
       });
 
-      expect(result.current.state.status).toBe("confirmed");
-      expect(outcome?.confirmed).toBe(true);
+      expect(result.current.state.status).toBe("confirming");
+      expect(outcome?.confirmed).toBeUndefined();
     });
   });
 
@@ -3810,7 +3852,7 @@ describe("useBriefingFlow", () => {
         await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
       });
       await act(async () => {
-        await result.current.processMessage("sim", EXEC_ID, mockSendAgentMessage);
+        await result.current.processCardAction("confirm_briefing", EXEC_ID, mockSendAgentMessage);
       });
       expect(result.current.state.status).toBe("confirmed");
 
@@ -3871,6 +3913,23 @@ describe("useBriefingFlow", () => {
           createProduct as never
         );
       });
+    }
+
+    async function click(
+      result: { current: ReturnType<typeof useBriefingFlow> },
+      action: Parameters<ReturnType<typeof useBriefingFlow>["processCardAction"]>[0],
+      createProduct?: (p: unknown) => Promise<string | null>
+    ) {
+      let outcome: { handled: boolean; confirmed?: boolean } | undefined;
+      await act(async () => {
+        outcome = await result.current.processCardAction(
+          action,
+          EXEC_ID,
+          mockSendAgentMessage,
+          createProduct as never
+        );
+      });
+      return outcome;
     }
 
     async function enterRegisterWithoutName() {
@@ -3994,7 +4053,7 @@ describe("useBriefingFlow", () => {
         expect(result.current.state.status).toBe("confirming_product");
       });
 
-      it("'sim, nao precisa mudar nada' em confirming_product cadastra o produto", async () => {
+      it("24.5: 'sim, nao precisa mudar nada' digitado NAO cadastra; o clique em Confirmar cadastra", async () => {
         const result = await enterRegisterWithoutName();
         mockRoutes([
           { url: PARSE_PRODUCT_URL, response: mockJsonResponse({ product: EXTRACTED_PRODUCT }) },
@@ -4004,13 +4063,16 @@ describe("useBriefingFlow", () => {
 
         const createProduct = vi.fn().mockResolvedValue("new-id");
         await send(result, "sim, nao precisa mudar nada", createProduct);
+        expect(createProduct).not.toHaveBeenCalled();
+        expect(result.current.state.status).toBe("confirming_product");
 
+        await click(result, "confirm_product", createProduct);
         expect(createProduct).toHaveBeenCalledWith(EXTRACTED_PRODUCT);
         expect(result.current.state.status).toBe("confirming");
         expect(result.current.state.briefing?.productSlug).toBe("new-id");
       });
 
-      it("'ok, nao precisa' em confirming_product confirma e cadastra (nao e skip)", async () => {
+      it("24.5: 'ok, nao precisa' digitado nao e skip nem cadastro (fica no card do produto)", async () => {
         const result = await enterRegisterWithoutName();
         mockRoutes([
           { url: PARSE_PRODUCT_URL, response: mockJsonResponse({ product: EXTRACTED_PRODUCT }) },
@@ -4021,8 +4083,9 @@ describe("useBriefingFlow", () => {
         const createProduct = vi.fn().mockResolvedValue("new-id");
         await send(result, "ok, nao precisa", createProduct);
 
-        expect(createProduct).toHaveBeenCalledWith(EXTRACTED_PRODUCT);
-        expect(result.current.state.briefing?.productSlug).toBe("new-id");
+        expect(createProduct).not.toHaveBeenCalled();
+        expect(result.current.state.status).toBe("confirming_product");
+        expect(result.current.state.pendingProduct).toEqual(EXTRACTED_PRODUCT);
       });
 
       it("'nao sei' no pedido de nome sai sem produto", async () => {
@@ -4050,7 +4113,7 @@ describe("useBriefingFlow", () => {
         expect(result.current.state.pendingProduct).toBeNull();
       });
 
-      it("'nao' na confirmacao: pede o nome uma vez; o segundo 'nao' sai sem produto", async () => {
+      it("'Refazer cadastro': pede o nome uma vez; o segundo clique sai sem produto", async () => {
         mockRoutes([{ url: PARSE_URL, response: mockJsonResponse(COMPLETE_WITH_PRODUCT_NOT_FOUND) }]);
         const { result } = renderHook(() => useBriefingFlow());
         await send(result, "Quero prospectar pro TDEC Analytics");
@@ -4061,7 +4124,7 @@ describe("useBriefingFlow", () => {
         ]);
         await send(result, "Plataforma de analytics");
 
-        await send(result, "nao");
+        await click(result, "redo_product");
         expect(result.current.state.status).toBe("awaiting_product_name");
         expect(lastAgentText()).toContain("seguir sem produto");
 
@@ -4069,7 +4132,7 @@ describe("useBriefingFlow", () => {
         await send(result, "Plataforma de analytics");
         expect(result.current.state.status).toBe("confirming_product");
 
-        await send(result, "nao");
+        await click(result, "redo_product");
         expect(result.current.state.status).toBe("confirming");
         expect(result.current.state.pendingProduct).toBeNull();
         expect(lastAgentText()).toContain("Vou prospectar com os seguintes parametros");
@@ -4115,7 +4178,7 @@ describe("useBriefingFlow", () => {
         expect(result.current.state.briefing?.productSlug).toBe("prod-123");
       });
 
-      it("'sim' com parse 'proceed' sem produto confirma mantendo o productSlug", async () => {
+      it("'sim' com parse 'proceed' sem produto nao confirma, mantem o slug e o clique confirma", async () => {
         mockRoutes([{ url: PARSE_URL, response: mockJsonResponse(COMPLETE_WITH_PRODUCT_FOUND) }]);
         const { result } = renderHook(() => useBriefingFlow());
         await send(result, "Quero CTOs em SP pro TDEC Analytics");
@@ -4135,7 +4198,11 @@ describe("useBriefingFlow", () => {
           },
         ]);
         await send(result, "sim");
+        expect(result.current.state.status).toBe("confirming");
+        expect(result.current.state.briefing?.productSlug).toBe("prod-123");
 
+        const outcome = await click(result, "confirm_briefing");
+        expect(outcome?.confirmed).toBe(true);
         expect(result.current.state.status).toBe("confirmed");
         expect(result.current.state.briefing?.productSlug).toBe("prod-123");
       });
@@ -4299,13 +4366,14 @@ describe("useBriefingFlow", () => {
         expect(result.current.state.briefing?.importedLeads?.[0]?.email).toBe("simone@okta.com");
       });
 
-      it("confirming_leads + texto que nao confirma: volta a colar com a oferta de buscar", async () => {
+      it("24.5: confirming_leads + texto com LLM indicando import: fica no card e aponta os botoes", async () => {
         const result = await enterLeads();
         await send(result, "joao@empresa.com");
         await send(result, "errei, deixa eu refazer");
 
-        expect(result.current.state.status).toBe("awaiting_leads_input");
-        expect(lastAgentText()).toContain("cole a lista de leads novamente");
+        expect(result.current.state.status).toBe("confirming_leads");
+        expect(result.current.state.briefing?.importedLeads).toHaveLength(1);
+        expect(lastAgentText()).toContain('"Colar outra lista"');
         expect(lastAgentText()).toContain("buscar leads");
       });
 
@@ -4320,6 +4388,9 @@ describe("useBriefingFlow", () => {
           { url: PARSE_URL, response: mockJsonResponse({ ...COMPLETE_PARSE_RESPONSE, nextAction: "confirm" }) },
         ]);
         await send(result, "sim");
+        // Story 24.5: "sim" digitado nao aceita a lista (nem a descarta).
+        expect(result.current.state.status).toBe("confirming_leads");
+        await click(result, "confirm_leads");
         expect(result.current.state.status).toBe("confirming");
         await send(result, "troca pra CFO");
 
@@ -4329,6 +4400,8 @@ describe("useBriefingFlow", () => {
         expect(pasteTurn?.content.length).toBe(2000 + "\n[...lista truncada]".length);
         expect(messages.some((m) => m.role === "agent" && m.content.includes("leads aceitos"))).toBe(true);
         expect(messages.some((m) => m.role === "user" && m.content === "sim")).toBe(true);
+        // Story 24.5: o clique tambem e turno do usuario na memoria.
+        expect(messages.some((m) => m.role === "user" && m.content === "Confirmar leads")).toBe(true);
       });
     });
 
@@ -4353,7 +4426,7 @@ describe("useBriefingFlow", () => {
         ]);
         const { result } = renderHook(() => useBriefingFlow());
         await send(result, "CTOs em SP");
-        await send(result, "sim");
+        await click(result, "confirm_briefing");
         expect(result.current.state.status).toBe("confirmed");
 
         act(() => result.current.reopenBriefing());
@@ -4380,6 +4453,415 @@ describe("useBriefingFlow", () => {
         const { result } = renderHook(() => useBriefingFlow());
         act(() => result.current.reopenBriefing());
         expect(result.current.state.status).toBe("idle");
+      });
+    });
+  });
+
+  // ==============================================
+  // Story 24.5 — confirmacao por card com botoes
+  // ==============================================
+
+  describe("Story 24.5 — confirmacao por card", () => {
+    const PARSE_URL = /\/api\/agent\/briefing\/parse$/;
+    const PARSE_PRODUCT_URL = /\/api\/agent\/briefing\/parse-product/;
+    type Hook = { current: ReturnType<typeof useBriefingFlow> };
+    type CardAction = Parameters<ReturnType<typeof useBriefingFlow>["processCardAction"]>[0];
+
+    function mockRoutes(routes: { url: RegExp; response: ReturnType<typeof mockJsonResponse> }[]) {
+      restoreFetch();
+      return createMockFetch(routes.map((r) => ({ ...r, method: "POST" })));
+    }
+
+    function lastAgentText(): string {
+      return mockSendAgentMessage.mock.lastCall?.[1] as string;
+    }
+
+    async function send(result: Hook, content: string, createProduct?: (p: unknown) => Promise<string | null>) {
+      let outcome: { handled: boolean; confirmed?: boolean } | undefined;
+      await act(async () => {
+        outcome = await result.current.processMessage(content, EXEC_ID, mockSendAgentMessage, createProduct as never);
+      });
+      return outcome;
+    }
+
+    async function click(result: Hook, action: CardAction, createProduct?: (p: unknown) => Promise<string | null>) {
+      let outcome: { handled: boolean; confirmed?: boolean } | undefined;
+      await act(async () => {
+        outcome = await result.current.processCardAction(action, EXEC_ID, mockSendAgentMessage, createProduct as never);
+      });
+      return outcome;
+    }
+
+    async function edit(result: Hook, field: Parameters<ReturnType<typeof useBriefingFlow>["editBriefingField"]>[0], raw: string) {
+      let outcome: { ok: boolean; error?: string } | undefined;
+      await act(async () => {
+        outcome = await result.current.editBriefingField(field, raw, EXEC_ID, mockSendAgentMessage);
+      });
+      return outcome;
+    }
+
+    async function enterConfirming(response: unknown = COMPLETE_PARSE_RESPONSE) {
+      mockRoutes([{ url: PARSE_URL, response: mockJsonResponse(response) }]);
+      const hook = renderHook(() => useBriefingFlow());
+      await send(hook.result, "CTOs de fintech em SP");
+      expect(hook.result.current.state.status).toBe("confirming");
+      return hook.result;
+    }
+
+    async function enterConfirmingProduct() {
+      mockRoutes([{ url: PARSE_URL, response: mockJsonResponse(COMPLETE_WITH_PRODUCT_NOT_FOUND) }]);
+      const { result } = renderHook(() => useBriefingFlow());
+      await send(result, "Quero prospectar pro TDEC Analytics");
+      swapParseToRegisterProduct();
+      await send(result, "sim");
+      mockRoutes([{ url: PARSE_PRODUCT_URL, response: mockJsonResponse({ product: EXTRACTED_PRODUCT }) }]);
+      await send(result, "Plataforma de analytics");
+      expect(result.current.state.status).toBe("confirming_product");
+      return result;
+    }
+
+    const IMPORT_RESPONSE = {
+      briefing: {
+        technology: null,
+        jobTitles: [],
+        location: null,
+        companySize: null,
+        industry: null,
+        productSlug: null,
+        mode: "guided" as const,
+        skipSteps: ["search_companies", "search_leads"],
+      },
+      missingFields: ["technology", "jobTitles"],
+      isComplete: false,
+      canProceed: true,
+      suggestions: {},
+      productMentioned: null,
+      nextAction: "import_leads",
+    };
+
+    async function enterConfirmingLeads() {
+      mockRoutes([{ url: PARSE_URL, response: mockJsonResponse(IMPORT_RESPONSE) }]);
+      const { result } = renderHook(() => useBriefingFlow());
+      await send(result, "Ja tenho meus leads");
+      await send(result, "joao@empresa.com");
+      expect(result.current.state.status).toBe("confirming_leads");
+      return result;
+    }
+
+    describe("briefing", () => {
+      it("o resumo mantem 'Confirma esses parametros?' e acrescenta a instrucao do card", async () => {
+        await enterConfirming();
+        const summary = lastAgentText();
+        expect(summary).toContain("Confirma esses parametros?");
+        expect(summary).toContain('clique em "Confirmar" no card');
+      });
+
+      it.each(["sim", "pode ir", "ok", "confirmo"])(
+        "'%s' digitado com LLM 'proceed' NAO confirma (RED contra o guard hibrido)",
+        async (text) => {
+          const result = await enterConfirming();
+          mockRoutes([
+            { url: PARSE_URL, response: mockJsonResponse({ ...COMPLETE_PARSE_RESPONSE, nextAction: "proceed" }) },
+          ]);
+          const outcome = await send(result, text);
+          expect(outcome?.confirmed).toBeUndefined();
+          expect(result.current.state.status).toBe("confirming");
+          expect(lastAgentText()).toContain('clique em "Confirmar" no card');
+        }
+      );
+
+      it("'nao, pode trocar pra CFO' vai ao /parse e aplica a correcao, sem confirmar", async () => {
+        const result = await enterConfirming();
+        mockRoutes([
+          {
+            url: PARSE_URL,
+            response: mockJsonResponse({
+              ...COMPLETE_PARSE_RESPONSE,
+              briefing: { ...COMPLETE_PARSE_RESPONSE.briefing, jobTitles: ["CFO"] },
+              nextAction: "proceed",
+            }),
+          },
+        ]);
+        const outcome = await send(result, "nao, pode trocar pra CFO");
+        expect(outcome?.confirmed).toBeUndefined();
+        expect(result.current.state.status).toBe("confirming");
+        expect(result.current.state.briefing?.jobTitles).toEqual(["CFO"]);
+        expect(lastAgentText()).toContain("Cargos: CFO");
+      });
+
+      it("/parse falha + 'pode ir': nao confirma e responde apontando o card", async () => {
+        const result = await enterConfirming();
+        swapParseToFailure();
+        const outcome = await send(result, "pode ir");
+        expect(outcome).toEqual({ handled: true });
+        expect(result.current.state.status).toBe("confirming");
+        expect(lastAgentText()).toContain("Nao consegui processar");
+      });
+
+      it("Confirmar confirma; Ajustar mantem confirming e pede o ajuste", async () => {
+        const result = await enterConfirming();
+        mockSendAgentMessage.mockClear();
+        const adjust = await click(result, "adjust_briefing");
+        expect(adjust).toEqual({ handled: true });
+        expect(result.current.state.status).toBe("confirming");
+        expect(lastAgentText()).toContain("Clique num campo do card");
+
+        const confirm = await click(result, "confirm_briefing");
+        expect(confirm).toEqual({ handled: true, confirmed: true });
+        expect(result.current.state.status).toBe("confirmed");
+      });
+
+      it("Confirmar sem localizacao nao confirma e pede o campo", async () => {
+        const result = await enterConfirming({
+          ...COMPLETE_PARSE_RESPONSE,
+          briefing: { ...COMPLETE_PARSE_RESPONSE.briefing, location: null },
+        });
+        const outcome = await click(result, "confirm_briefing");
+        expect(outcome?.confirmed).toBeUndefined();
+        expect(result.current.state.status).toBe("awaiting_fields");
+        expect(result.current.state.missingFields).toContain("location");
+        expect(lastAgentText()).toContain("localizacao");
+      });
+
+      it("acoes fora do estado devolvem handled:false sem gravar turno nem responder", async () => {
+        const result = await enterConfirming();
+        mockSendAgentMessage.mockClear();
+        for (const action of ["confirm_product", "redo_product", "skip_product", "confirm_leads", "redo_leads"] as const) {
+          expect(await click(result, action)).toEqual({ handled: false });
+        }
+        expect(mockSendAgentMessage).not.toHaveBeenCalled();
+        expect(result.current.state.status).toBe("confirming");
+
+        const { result: idle } = renderHook(() => useBriefingFlow());
+        expect(await click(idle, "confirm_briefing")).toEqual({ handled: false });
+        expect(idle.current.state.status).toBe("idle");
+      });
+
+      it("os cliques e as edicoes de chip entram na memoria do proximo /parse", async () => {
+        const result = await enterConfirming();
+        await click(result, "adjust_briefing");
+        await edit(result, "location", "Campinas");
+        const fetchMock = mockRoutes([
+          { url: PARSE_URL, response: mockJsonResponse({ ...COMPLETE_PARSE_RESPONSE, nextAction: "confirm" }) },
+        ]);
+        await send(result, "troca pra CFO");
+
+        const body = fetchMock.calls()[0].body as { messages: { role: string; content: string }[] };
+        const contents = body.messages.map((m) => `${m.role}:${m.content}`);
+        expect(contents).toContain("user:Ajustar");
+        expect(contents).toContain("user:Ajustei Localizacao: Campinas");
+        expect(body.messages.some((m) => m.role === "agent" && m.content.includes("Localizacao agora e Campinas"))).toBe(true);
+        expect(body.messages[body.messages.length - 1]).toEqual({ role: "user", content: "troca pra CFO" });
+      });
+    });
+
+    describe("chips", () => {
+      it("editar Localizacao altera so o campo, sem /parse, e grava os turnos", async () => {
+        const result = await enterConfirming();
+        const fetchMock = mockRoutes([]);
+        const before = result.current.state.briefing!;
+        const outcome = await edit(result, "location", "  Campinas ");
+        expect(outcome).toEqual({ ok: true });
+        expect(result.current.state.briefing).toEqual({ ...before, location: "Campinas" });
+        expect(result.current.state.status).toBe("confirming");
+        expect(fetchMock.calls()).toHaveLength(0);
+        expect(lastAgentText()).toContain("Localizacao agora e Campinas");
+      });
+
+      it("cargos separados por virgula viram lista", async () => {
+        const result = await enterConfirming();
+        await edit(result, "jobTitles", "CFO, Diretor Financeiro ,");
+        expect(result.current.state.briefing?.jobTitles).toEqual(["CFO", "Diretor Financeiro"]);
+      });
+
+      it.each([
+        ["location", "   ", "localizacao"],
+        ["jobTitles", " , ", "cargo"],
+        ["emailCount", "0", "1 a 10"],
+        ["emailCount", "11", "1 a 10"],
+        ["emailCount", "2.5", "1 a 10"],
+        ["objective", "VENDER", "opcoes"],
+        ["urgency", "URGENTE", "opcoes"],
+      ] as const)("%s = '%s' e invalido: erro inline e nada muda", async (field, raw, error) => {
+        const result = await enterConfirming();
+        const before = result.current.state.briefing;
+        mockSendAgentMessage.mockClear();
+        const outcome = await edit(result, field, raw);
+        expect(outcome?.ok).toBe(false);
+        expect(outcome?.error).toContain(error);
+        expect(result.current.state.briefing).toEqual(before);
+        expect(mockSendAgentMessage).not.toHaveBeenCalled();
+      });
+
+      it("valores validos dos enums, numero e textos opcionais (vazio vira null)", () => {
+        expect(parseBriefingFieldInput("objective", "REENGAGEMENT")).toMatchObject({ ok: true, value: "REENGAGEMENT" });
+        expect(parseBriefingFieldInput("urgency", "")).toMatchObject({ ok: true, value: null });
+        expect(parseBriefingFieldInput("emailCount", "10")).toMatchObject({ ok: true, value: 10 });
+        expect(parseBriefingFieldInput("emailCount", "")).toMatchObject({ ok: true, value: null });
+        expect(parseBriefingFieldInput("industry", "  ")).toMatchObject({ ok: true, value: null });
+        expect(parseBriefingFieldInput("segmentName", "x".repeat(101)).ok).toBe(false);
+        expect(parseBriefingFieldInput("campaignDescription", "x".repeat(201)).ok).toBe(false);
+        expect(parseBriefingFieldInput("objective", "COLD_OUTREACH")).toMatchObject({
+          display: "Primeiro contato (prospeccao fria)",
+        });
+      });
+
+      it("editar tecnologia fora do import re-deriva skipSteps", async () => {
+        const result = await enterConfirming({
+          ...COMPLETE_PARSE_RESPONSE,
+          briefing: { ...COMPLETE_PARSE_RESPONSE.briefing, technology: null, skipSteps: ["search_companies"] },
+          missingFields: ["technology", "companySize"],
+        });
+        await edit(result, "technology", "AWS");
+        expect(result.current.state.briefing?.technology).toBe("AWS");
+        expect(result.current.state.briefing?.skipSteps).toEqual([]);
+        expect(result.current.state.missingFields).not.toContain("technology");
+
+        await edit(result, "technology", "");
+        expect(result.current.state.briefing?.technology).toBeNull();
+        expect(result.current.state.briefing?.skipSteps).toEqual(["search_companies"]);
+        expect(result.current.state.missingFields).toContain("technology");
+      });
+
+      it("editar tecnologia no fluxo importado mantem skipSteps", async () => {
+        const result = await enterConfirmingLeads();
+        await click(result, "confirm_leads");
+        expect(result.current.state.status).toBe("confirming");
+        await edit(result, "technology", "AWS");
+        expect(result.current.state.briefing?.skipSteps).toEqual(["search_companies", "search_leads"]);
+        expect(result.current.state.briefing?.importedLeads).toHaveLength(1);
+      });
+
+      it("fora de confirming a edicao e recusada", async () => {
+        const result = await enterConfirmingLeads();
+        const outcome = await edit(result, "location", "Campinas");
+        expect(outcome?.ok).toBe(false);
+        expect(result.current.state.briefing?.location).toBeNull();
+      });
+    });
+
+    describe("produto", () => {
+      it("o resumo do produto aponta os botoes", async () => {
+        await enterConfirmingProduct();
+        expect(lastAgentText()).toContain('"Refazer cadastro"');
+        expect(lastAgentText()).toContain("seguir sem produto");
+      });
+
+      it("Confirmar cadastra e volta ao resumo do briefing", async () => {
+        const result = await enterConfirmingProduct();
+        const createProduct = vi.fn().mockResolvedValue("prod-new");
+        await click(result, "confirm_product", createProduct);
+        expect(createProduct).toHaveBeenCalledWith(EXTRACTED_PRODUCT);
+        expect(result.current.state.status).toBe("confirming");
+        expect(result.current.state.briefing?.productSlug).toBe("prod-new");
+        expect(lastAgentText()).toContain("Produto cadastrado!");
+      });
+
+      it("Seguir sem produto sai com o resumo sem cadastrar", async () => {
+        const result = await enterConfirmingProduct();
+        const createProduct = vi.fn();
+        await click(result, "skip_product", createProduct);
+        expect(createProduct).not.toHaveBeenCalled();
+        expect(result.current.state.status).toBe("confirming");
+        expect(result.current.state.pendingProduct).toBeNull();
+        expect(lastAgentText()).toContain("seguimos sem produto");
+      });
+
+      it("'sim' digitado nunca cadastra, nem com o /parse-product falhando", async () => {
+        const result = await enterConfirmingProduct();
+        mockRoutes([{ url: PARSE_PRODUCT_URL, response: mockErrorResponse(500, "down") }]);
+        const createProduct = vi.fn().mockResolvedValue("id");
+        await send(result, "sim", createProduct);
+        expect(createProduct).not.toHaveBeenCalled();
+        expect(result.current.state.status).toBe("confirming_product");
+        expect(result.current.state.pendingProduct).toEqual(EXTRACTED_PRODUCT);
+        expect(lastAgentText()).toContain("Nao consegui aplicar a correcao");
+        expect(lastAgentText()).toContain('"Confirmar"');
+      });
+
+      it("skip explicito por texto continua saindo (24.4)", async () => {
+        const result = await enterConfirmingProduct();
+        await send(result, "seguir sem produto");
+        expect(result.current.state.status).toBe("confirming");
+        expect(result.current.state.pendingProduct).toBeNull();
+      });
+    });
+
+    describe("leads", () => {
+      it("a previa aponta os botoes", async () => {
+        await enterConfirmingLeads();
+        expect(lastAgentText()).toContain('"Confirmar leads"');
+        expect(lastAgentText()).toContain('"Colar outra lista"');
+      });
+
+      it("Confirmar leads -> confirming; Confirmar no briefing importado (sem cargo/local) confirma", async () => {
+        const result = await enterConfirmingLeads();
+        await click(result, "confirm_leads");
+        expect(result.current.state.status).toBe("confirming");
+        expect(lastAgentText()).toContain("leads importados serao usados diretamente");
+
+        const outcome = await click(result, "confirm_briefing");
+        expect(outcome?.confirmed).toBe(true);
+      });
+
+      it.each(["sim", "ok", "pode ir"])("'%s' digitado nao aceita nem descarta a lista", async (text) => {
+        const result = await enterConfirmingLeads();
+        const fetchMock = mockRoutes([
+          { url: PARSE_URL, response: mockJsonResponse({ ...COMPLETE_PARSE_RESPONSE, nextAction: "proceed" }) },
+        ]);
+        await send(result, text);
+        expect(result.current.state.status).toBe("confirming_leads");
+        expect(result.current.state.briefing?.importedLeads).toHaveLength(1);
+        expect(fetchMock.calls()).toHaveLength(0);
+        expect(lastAgentText()).toContain('"Confirmar leads"');
+      });
+
+      it("'sim, pode buscar' (keyword + pedido de busca) vai ao /parse e sai do card", async () => {
+        const result = await enterConfirmingLeads();
+        const fetchMock = mockRoutes([
+          {
+            url: PARSE_URL,
+            response: mockJsonResponse({
+              ...COMPLETE_PARSE_RESPONSE,
+              briefing: { ...COMPLETE_PARSE_RESPONSE.briefing, technology: null },
+              nextAction: "confirm",
+            }),
+          },
+        ]);
+        await send(result, "sim, pode buscar");
+        expect(fetchMock.calls().filter((c) => PARSE_URL.test(c.url))).toHaveLength(1);
+        expect(result.current.state.status).not.toBe("confirming_leads");
+        expect(result.current.state.briefing?.importedLeads).toBeUndefined();
+      });
+
+      it("texto conversacional com LLM sem import sai para a busca", async () => {
+        const result = await enterConfirmingLeads();
+        mockRoutes([
+          {
+            url: PARSE_URL,
+            response: mockJsonResponse({
+              ...COMPLETE_PARSE_RESPONSE,
+              briefing: { ...COMPLETE_PARSE_RESPONSE.briefing, technology: null },
+              nextAction: "confirm",
+            }),
+          },
+        ]);
+        await send(result, "pensando bem, prefiro que voce procure");
+        expect(result.current.state.status).toBe("confirming");
+        expect(result.current.state.briefing?.skipSteps).not.toContain("search_leads");
+        expect(result.current.state.briefing?.importedLeads).toBeUndefined();
+      });
+
+      it("/parse falha: pedido de busca sai; sem pedido aponta os botoes", async () => {
+        const result = await enterConfirmingLeads();
+        swapParseToFailure();
+        await send(result, "hmm, deixa eu ver");
+        expect(result.current.state.status).toBe("confirming_leads");
+        expect(lastAgentText()).toContain('"Colar outra lista"');
+
+        await send(result, "prefiro buscar");
+        expect(result.current.state.status).toBe("awaiting_fields");
+        expect(result.current.state.briefing?.skipSteps).not.toContain("search_leads");
       });
     });
   });

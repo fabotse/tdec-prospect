@@ -587,7 +587,7 @@ development_status:
   24-2-execucao-protegida-contra-cobranca-dupla: done
   24-3-avanco-confiavel-e-tentar-novamente: done
   24-4-conversa-sem-becos-sem-saida: done
-  24-5-confirmacao-por-card-com-botoes: backlog
+  24-5-confirmacao-por-card-com-botoes: done
   24-6-e-mails-sem-dados-ficticios-e-follow-ups-com-valor: backlog
   24-7-secao-de-provas-na-knowledge-base: backlog
   24-8-prompts-honestos-problema-primeiro-provas-so-da-kb: backlog

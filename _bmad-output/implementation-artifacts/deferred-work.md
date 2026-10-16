@@ -509,3 +509,11 @@ source_spec: `spec-24-4-conversa-sem-becos-sem-saida.md`
 severity: low
 reason: generateProductSummary (use-briefing-flow.ts:275) usa "Cadastrei" desde antes da 24.4; o cadastro so acontece apos o "sim" em confirming_product. Com a dica de saida no fim, fica ambiguo se algo ficou salvo. Correcao: trocar por "Extrai os dados do X" e ajustar as assercoes de texto.
 status: open
+
+### DW-15: Se o createProduct falha, o "tentar novamente" pede a descricao de novo e perde os dados ja extraidos.
+origin: spec-deferred a5260911d348
+location: src/hooks/use-briefing-flow.ts (processCardAction, case confirm_product)
+source_spec: `spec-24-5-confirmacao-por-card-com-botoes.md`
+severity: low
+reason: Preexistente (24.4 e antes): a falha leva a awaiting_product_decision. Um "sim" vai para enterProductDetails, que pede a descricao em vez de reenviar o pendingProduct. Nesse estado o card some. Para corrigir, manter confirming_product com o pendingProduct e reoferecer "Confirmar".
+status: open
