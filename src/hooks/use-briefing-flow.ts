@@ -32,6 +32,7 @@ export type BriefingFlowStatus =
   | "confirming"
   | "confirmed"
   | "awaiting_product_decision"
+  | "awaiting_product_name"     // Story 24.4: cadastro sem nome -> pergunta o nome uma vez
   | "awaiting_product_details"
   | "confirming_product"
   | "awaiting_leads_input"    // Story 17.11: esperando usuario colar leads
@@ -272,7 +273,7 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
 }
 
 function generateProductSummary(product: ExtractedProduct): string {
-  return `Cadastrei o ${product.name} com os seguintes dados:\n- Descricao: ${product.description}\n- Features: ${product.features || "nao informado"}\n- Diferenciais: ${product.differentials || "nao informado"}\n- Publico-alvo: ${product.targetAudience || "nao informado"}\n\nEsta correto?`;
+  return `Cadastrei o ${product.name} com os seguintes dados:\n- Descricao: ${product.description}\n- Features: ${product.features || "nao informado"}\n- Diferenciais: ${product.differentials || "nao informado"}\n- Publico-alvo: ${product.targetAudience || "nao informado"}\n\nEsta correto? ${PRODUCT_EXIT_HINT}`;
 }
 
 /**
@@ -320,6 +321,147 @@ function briefingChanged(prev: ParsedBriefing | null, next: ParsedBriefing): boo
 function isProductRejection(message: string): boolean {
   const normalized = message.toLowerCase().trim();
   return PRODUCT_REJECTION_KEYWORDS.some((kw) => normalized.includes(kw));
+}
+
+// ==============================================
+// STORY 24.4 — SAIDAS EXPLICITAS DOS RAMOS
+// ==============================================
+
+// Toda resposta do ramo de produto cita a saida; toda resposta do ramo de leads tambem.
+const PRODUCT_EXIT_HINT = 'Se preferir, responda "seguir sem produto".';
+const LEADS_EXIT_HINT = 'Se preferir que eu busque os leads, responda "buscar leads".';
+
+const PRODUCT_DESCRIBE_REQUEST =
+  "Otimo! Me descreva o produto em linguagem natural. Pode incluir o que ele faz, funcionalidades, diferenciais e para quem e voltado. " +
+  PRODUCT_EXIT_HINT;
+
+const PRODUCT_NAME_REQUEST =
+  "Qual e o nome do produto que voce quer cadastrar? " + PRODUCT_EXIT_HINT;
+
+const LEADS_PASTE_INSTRUCTIONS =
+  "**Formato aceito** (um lead por linha):\n" +
+  "- `email@empresa.com` (minimo)\n" +
+  "- `Nome, email@empresa.com`\n" +
+  "- `Nome, Cargo, email@empresa.com`\n" +
+  "- `Nome, Cargo, Empresa, email@empresa.com`\n\n" +
+  "Tambem aceito CSV com header (nome, cargo, empresa, email).";
+
+// Expressoes EXPLICITAS de "seguir sem produto", ja normalizadas (sem acento). Valem em
+// qualquer ponto da mensagem.
+const PRODUCT_SKIP_EXPLICIT: readonly string[] = [
+  "sem produto",
+  "seguir sem",
+  "segue sem",
+  "continuar sem",
+];
+
+// Palavras de skip ambiguas ("o cliente nao precisa instalar", "depois de integrado..."):
+// so valem quando a mensagem inteira e curta. Casadas como palavra inteira para nao pegar
+// substrings ("pula" em "populacao").
+const PRODUCT_SKIP_SHORT_ONLY: readonly string[] = [
+  "pular",
+  "pula",
+  "skip",
+  "depois",
+  "nao precisa",
+  "nao quero",
+];
+
+const SEARCH_PREFERENCE_KEYWORDS: readonly string[] = [
+  "buscar",
+  "busca",
+  "procurar",
+  "pesquisar",
+  "nao tenho",
+];
+
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function containsWholePhrase(normalized: string, phrase: string): boolean {
+  return new RegExp(`(^|[^a-z0-9])${escapeRegex(phrase)}($|[^a-z0-9])`).test(normalized);
+}
+
+function normalizeAnswer(text: string): string {
+  return normalizeForSignal(text).trim();
+}
+
+const SHORT_SKIP_MAX_WORDS = 3;
+
+/**
+ * Story 24.4: o usuario quer sair do ramo de produto. Expressao explicita ("seguir sem
+ * produto") vale em qualquer mensagem; palavra ambigua ("pular", "depois", "nao precisa")
+ * so numa mensagem curta (ate 3 palavras) — numa descricao ou confirmacao ela e conteudo.
+ * Com `allowBareNo` (pergunta "qual o nome?"), resposta que COMECA com "nao" ("nao",
+ * "nao sei", "nao tem nome ainda") tambem e saida.
+ */
+export function isProductSkip(message: string, allowBareNo = false): boolean {
+  const normalized = normalizeAnswer(message);
+  if (!normalized) return false;
+  if (allowBareNo && /^nao\b/.test(normalized)) return true;
+  if (PRODUCT_SKIP_EXPLICIT.some((kw) => containsWholePhrase(normalized, kw))) return true;
+  const words = normalized.split(/[^a-z0-9]+/).filter(Boolean);
+  if (words.length > SHORT_SKIP_MAX_WORDS) return false;
+  return PRODUCT_SKIP_SHORT_ONLY.some((kw) => containsWholePhrase(normalized, kw));
+}
+
+/** Story 24.4: extrai o nome do produto da resposta ("O nome e Radar Pro" -> "Radar Pro"). */
+export function extractProductName(message: string): string {
+  let name = message.trim();
+  name = name.replace(
+    /^(?:o\s+)?(?:nome(?:\s+do\s+produto)?\s+(?:eh|é|e)|nome(?:\s+do\s+produto)?(?=\s*:)|produto\s+(?:eh|é|e|se\s+chama)|se\s+chama|chama-se|chama)(?:\s*:\s*|\s+)/i,
+    ""
+  );
+  name = name.replace(/^["'`]+|["'`.!]+$/g, "").trim();
+  return name.slice(0, 100).trim();
+}
+
+/** Story 24.4: fallback por palavra-chave quando o /parse falha no ramo de leads. */
+export function isSearchPreference(message: string): boolean {
+  const normalized = normalizeAnswer(message);
+  return SEARCH_PREFERENCE_KEYWORDS.some((kw) => containsWholePhrase(normalized, kw));
+}
+
+const MEMORY_CONTENT_LIMIT = 2000;
+
+/** Story 24.4: turno de colagem grande entra truncado na memoria do LLM. */
+export function toMemoryContent(content: string): string {
+  if (content.length <= MEMORY_CONTENT_LIMIT) return content;
+  return `${content.slice(0, MEMORY_CONTENT_LIMIT)}\n[...lista truncada]`;
+}
+
+/** Story 24.4: e-mail ou 2+ linhas nao vazias = tentativa de colar leads (nao conversa). */
+export function looksLikeLeadPaste(content: string): boolean {
+  if (EMAIL_SIGNAL_REGEX.test(content)) return true;
+  return content.split(/\r?\n/).filter((line) => line.trim() !== "").length >= 2;
+}
+
+/**
+ * Story 24.4: o /parse so resolve `productSlug` quando o LLM devolve `productMentioned`
+ * NAQUELE turno. Numa correcao ("troca pra CFO") o produto ja cadastrado se perdia. Se o
+ * parse nao citou outro produto, preserva o slug atual.
+ */
+function carryProductSlug(
+  result: BriefingParseResponse,
+  current: ParsedBriefing | null
+): BriefingParseResponse {
+  if (
+    result.briefing.productSlug == null &&
+    result.productMentioned == null &&
+    current?.productSlug
+  ) {
+    return { ...result, briefing: { ...result.briefing, productSlug: current.productSlug } };
+  }
+  return result;
+}
+
+/** Story 24.4: garante cargo/localizacao em missingFields quando ausentes no briefing. */
+function withRequiredMissing(briefing: ParsedBriefing, missingFields: string[]): string[] {
+  const missing = new Set(missingFields);
+  if (!briefing.jobTitles?.length) missing.add("jobTitles");
+  if (!briefing.location) missing.add("location");
+  return Array.from(missing);
 }
 
 // ==============================================
@@ -446,6 +588,11 @@ export interface UseBriefingFlowReturn {
   ) => Promise<{ handled: boolean; confirmed?: boolean }>;
   reset: () => void;
   /**
+   * Story 24.4: reabre o briefing apos "Cancelar" no plano (`confirming` com briefing,
+   * `idle` sem). Nao toca a memoria conversacional.
+   */
+  reopenBriefing: () => void;
+  /**
    * Story 22.13 (seam): parseia uma mensagem de AJUSTE pos-rejeicao reusando a
    * memoria conversacional da 22.3 — empilha o turno do usuario em conversationRef
    * e chama o MESMO callParseAPI do fluxo de briefing. NAO toca o estado do hook
@@ -480,6 +627,13 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
   // Story 22.3: historico ESTRUTURADO da conversa (usuario E agente), substituindo o
   // antigo messageHistoryRef: string[] + join("\n"). Fornece memoria real ao LLM.
   const conversationRef = useRef<ChatTurn[]>([]);
+
+  // Story 24.4: contadores do ramo de produto (client-only, nunca persistidos). O nome e
+  // pedido no maximo uma vez e a extracao falha no maximo uma vez antes de sair sem produto.
+  const productFlowRef = useRef<{ nameAsked: boolean; detailFailures: number }>({
+    nameAsked: false,
+    detailFailures: 0,
+  });
 
   // Story 22.3: envia uma mensagem do agente E a registra no historico (fecha o loop
   // de memoria — o proximo /parse vera a pergunta/resumo que o agente enviou).
@@ -561,8 +715,16 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       // Story 22.11 (D1 — patch review): briefing ATUAL do estado. Usado para preservar
       // `importedLeads` (client-only, o parser nunca os devolve) numa correcao dentro de um
       // import ja em andamento. Todos os call sites passam `state.briefing`.
-      currentBriefing: ParsedBriefing | null
+      currentBriefing: ParsedBriefing | null,
+      // Story 24.4: nome de produto ja conhecido (pedido explicito de cadastro pode nao
+      // repetir o nome). Sem nome, o cadastro pergunta o nome em vez de chamar o
+      // /parse-product com productName "" (400 -> loop).
+      currentProductMentioned: string | null = null
     ): Promise<{ handled: boolean }> => {
+      // Story 24.4: correcao apos cadastro nao perde o produto (o /parse so resolve o
+      // slug quando o LLM cita o produto naquele turno).
+      result = carryProductSlug(result, currentBriefing);
+
       // Story 17.11 + 22.4: imported leads flow — disparado pela INTENCAO do LLM
       // (nextAction="import_leads") OU pelo sinal deterministico skipSteps
       // (isImportedLeadsFlow, fallback OR — D1). Continua como PRIMEIRO ramo (antes de
@@ -608,13 +770,9 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
         await sendAndRecord(
           executionId,
           "Entendi! Voce ja tem seus proprios leads. Cole a lista abaixo no formato:\n\n" +
-          "**Formato aceito** (um lead por linha):\n" +
-          "- `email@empresa.com` (minimo)\n" +
-          "- `Nome, email@empresa.com`\n" +
-          "- `Nome, Cargo, email@empresa.com`\n" +
-          "- `Nome, Cargo, Empresa, email@empresa.com`\n\n" +
-          "Tambem aceito CSV com header (nome, cargo, empresa, email).\n\n" +
-          "Cole seus leads:",
+          LEADS_PASTE_INSTRUCTIONS +
+          "\n\nCole seus leads. " +
+          LEADS_EXIT_HINT,
           sendAgentMessage
         );
         return { handled: true };
@@ -703,19 +861,23 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       // produto ja existe — IGNORA register_product para nao cadastrar duplicado, seguindo
       // o fluxo normal (resumo). D2: so alcancavel com canProceed=true (gate acima).
       if (result.nextAction === "register_product" && result.briefing.productSlug === null) {
+        // Guarda o nome do produto (usado por callParseProductAPI). Usa o do parse
+        // quando presente; senao preserva o atual (pedido explicito pode nao repetir o nome).
+        const productName = result.productMentioned ?? currentProductMentioned;
+        // Story 24.4: entrada no ramo de produto zera o contador de pedidos/falhas.
+        productFlowRef.current = { nameAsked: !productName, detailFailures: 0 };
         setState((prev) => ({
           ...prev,
-          status: "awaiting_product_details",
+          status: productName ? "awaiting_product_details" : "awaiting_product_name",
           briefing: result.briefing,
           missingFields: result.missingFields,
           isComplete: result.isComplete,
-          // Guarda o nome do produto (usado por callParseProductAPI). Usa o do parse
-          // quando presente; senao preserva o atual (pedido explicito pode nao repetir o nome).
-          productMentioned: result.productMentioned ?? prev.productMentioned,
+          productMentioned: productName,
+          pendingProduct: null,
         }));
         await sendAndRecord(
           executionId,
-          "Otimo! Me descreva o produto em linguagem natural. Pode incluir o que ele faz, funcionalidades, diferenciais e para quem e voltado.",
+          productName ? PRODUCT_DESCRIBE_REQUEST : PRODUCT_NAME_REQUEST,
           sendAgentMessage
         );
         return { handled: true };
@@ -726,6 +888,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       // 22.4/D1: a OFERTA continua entrando pelo sinal productMentioned (fallback deste
       // ramo); a DECISAO subsequente (awaiting_product_decision) passa a consultar o LLM.
       if (result.productMentioned && result.briefing.productSlug === null) {
+        productFlowRef.current = { nameAsked: false, detailFailures: 0 };
         setState((prev) => ({
           ...prev,
           status: "awaiting_product_decision",
@@ -736,7 +899,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
         }));
         await sendAndRecord(
           executionId,
-          `Nao encontrei o produto '${result.productMentioned}' na base de conhecimento. Quer cadastrar agora? Vou precisar de: nome, descricao, features, diferenciais e publico-alvo.`,
+          `Nao encontrei o produto '${result.productMentioned}' na base de conhecimento. Quer cadastrar agora? Vou precisar de: nome, descricao, features, diferenciais e publico-alvo. ${PRODUCT_EXIT_HINT}`,
           sendAgentMessage
         );
         return { handled: true };
@@ -772,6 +935,62 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
     ): Promise<{ handled: boolean; confirmed?: boolean }> => {
       const currentStatus = state.status;
 
+      // Story 24.4: saida UNICA do ramo de produto — volta a `confirming` com o resumo.
+      // Zera os contadores do ramo, `productMentioned` e `pendingProduct`.
+      const exitProductFlow = async (
+        prefix: string,
+        briefingOverride?: ParsedBriefing
+      ): Promise<{ handled: boolean }> => {
+        productFlowRef.current = { nameAsked: false, detailFailures: 0 };
+        const briefing = briefingOverride ?? state.briefing;
+        if (!briefing) {
+          // Sem briefing nao ha resumo a mostrar: volta a coleta dos campos (a memoria
+          // conversacional segue intacta para o proximo /parse).
+          setState((prev) => ({
+            ...prev,
+            status: "awaiting_fields",
+            productMentioned: null,
+            pendingProduct: null,
+          }));
+          await sendAndRecord(
+            executionId,
+            `${prefix} Me diga quais cargos e qual localizacao voce quer prospectar.`.trim(),
+            sendAgentMessage
+          );
+          return { handled: true };
+        }
+        setState((prev) => ({
+          ...prev,
+          status: "confirming",
+          briefing,
+          productMentioned: null,
+          pendingProduct: null,
+        }));
+        const summary = generateBriefingSummary(briefing, state.missingFields);
+        await sendAndRecord(
+          executionId,
+          prefix ? `${prefix} ${summary}` : summary,
+          sendAgentMessage
+        );
+        return { handled: true };
+      };
+
+      const askProductName = async (prefix: string): Promise<{ handled: boolean }> => {
+        productFlowRef.current = { ...productFlowRef.current, nameAsked: true };
+        setState((prev) => ({
+          ...prev,
+          status: "awaiting_product_name",
+          productMentioned: null,
+          pendingProduct: null,
+        }));
+        await sendAndRecord(
+          executionId,
+          prefix ? `${prefix} ${PRODUCT_NAME_REQUEST}` : PRODUCT_NAME_REQUEST,
+          sendAgentMessage
+        );
+        return { handled: true };
+      };
+
       // === PRODUCT FLOW HANDLERS ===
 
       // Handler: awaiting_product_decision (AC: #1, #5)
@@ -784,18 +1003,22 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
         conversationRef.current.push({ role: "user", content });
         setState((prev) => ({ ...prev, status: "parsing" }));
 
+        // Story 24.4: aceitar o cadastro sem nome conhecido pergunta o nome (nunca chama
+        // o /parse-product com productName "").
+        const enterProductDetails = async (): Promise<{ handled: boolean }> => {
+          productFlowRef.current = { nameAsked: false, detailFailures: 0 };
+          if (!state.productMentioned) return askProductName("");
+          setState((prev) => ({ ...prev, status: "awaiting_product_details" }));
+          await sendAndRecord(executionId, PRODUCT_DESCRIBE_REQUEST, sendAgentMessage);
+          return { handled: true };
+        };
+
         try {
-          const result = await callParseAPI(executionId);
+          const result = carryProductSlug(await callParseAPI(executionId), state.briefing);
 
           // register_product = usuario afirma o cadastro -> vai para os detalhes.
           if (result.nextAction === "register_product") {
-            setState((prev) => ({ ...prev, status: "awaiting_product_details" }));
-            await sendAndRecord(
-              executionId,
-              "Otimo! Me descreva o produto em linguagem natural. Pode incluir o que ele faz, funcionalidades, diferenciais e para quem e voltado.",
-              sendAgentMessage
-            );
-            return { handled: true };
+            return enterProductDetails();
           }
 
           // Qualquer outro nextAction = seguir SEM produto: limpa productMentioned e
@@ -805,10 +1028,12 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
           // Review 22.4: persiste result.briefing/missingFields (nao o state.briefing antigo)
           // e resume a partir dele — assim uma correcao embutida na recusa ("nao precisa do
           // produto, mas troca pra CFO") e aplicada em vez de silenciosamente perdida.
+          productFlowRef.current = { nameAsked: false, detailFailures: 0 };
           setState((prev) => ({
             ...prev,
             status: "confirming",
             productMentioned: null,
+            pendingProduct: null,
             briefing: result.briefing,
             missingFields: result.missingFields,
             isComplete: result.isComplete,
@@ -826,27 +1051,11 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
           const rejected = isProductRejection(content);
 
           if (confirmed && !rejected) {
-            setState((prev) => ({ ...prev, status: "awaiting_product_details" }));
-            await sendAndRecord(
-              executionId,
-              "Otimo! Me descreva o produto em linguagem natural. Pode incluir o que ele faz, funcionalidades, diferenciais e para quem e voltado.",
-              sendAgentMessage
-            );
-            return { handled: true };
+            return enterProductDetails();
           }
 
           if (rejected && !confirmed) {
-            setState((prev) => ({ ...prev, status: "confirming", productMentioned: null }));
-            if (state.briefing) {
-              // Review 22.4: passa missingFields para as notas de campos opcionais
-              // aparecerem, consistente com os demais resumos reapresentados.
-              await sendAndRecord(
-                executionId,
-                generateBriefingSummary(state.briefing, state.missingFields),
-                sendAgentMessage
-              );
-            }
-            return { handled: true };
+            return exitProductFlow("");
           }
 
           // Ambiguo (ambos ou nenhum) — reapresenta a oferta.
@@ -860,31 +1069,83 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
         }
       }
 
+      // Handler: awaiting_product_name (Story 24.4) — o nome e pedido UMA vez.
+      if (currentStatus === "awaiting_product_name") {
+        conversationRef.current.push({ role: "user", content });
+
+        // Aqui "nao" responde "qual o nome?" -> tambem e saida.
+        if (isProductSkip(content, true)) {
+          return exitProductFlow("Sem problema, seguimos sem produto.");
+        }
+
+        const productName = extractProductName(content);
+        if (!productName) {
+          return exitProductFlow("Nao entendi o nome do produto, entao seguimos sem produto por enquanto.");
+        }
+
+        setState((prev) => ({
+          ...prev,
+          status: "awaiting_product_details",
+          productMentioned: productName,
+          pendingProduct: null,
+        }));
+        await sendAndRecord(
+          executionId,
+          `Anotado: "${productName}". ${PRODUCT_DESCRIBE_REQUEST}`,
+          sendAgentMessage
+        );
+        return { handled: true };
+      }
+
       // Handler: awaiting_product_details (AC: #2)
       if (currentStatus === "awaiting_product_details") {
+        conversationRef.current.push({ role: "user", content });
+
+        // Story 24.4: numa descricao "nao" pode ser conteudo ("nao e SaaS") — so as
+        // expressoes explicitas de skip saem do ramo.
+        if (isProductSkip(content)) {
+          return exitProductFlow("Sem problema, seguimos sem produto.");
+        }
+
+        // Story 24.4: sem nome o /parse-product responde 400 (productName min(1)) e o
+        // agente repetia "Nao consegui extrair os dados" para sempre.
+        const productName = state.productMentioned?.trim() ?? "";
+        if (!productName) {
+          if (!productFlowRef.current.nameAsked) return askProductName("");
+          return exitProductFlow("Sem o nome do produto nao consigo cadastra-lo, entao seguimos sem produto.");
+        }
+
         setState((prev) => ({ ...prev, status: "parsing" }));
 
         try {
-          const result = await callParseProductAPI(
-            content,
-            executionId,
-            state.productMentioned ?? ""
-          );
+          const result = await callParseProductAPI(content, executionId, productName);
           setState((prev) => ({
             ...prev,
             status: "confirming_product",
             pendingProduct: result.product,
           }));
-          await sendAgentMessage(
+          await sendAndRecord(
             executionId,
-            generateProductSummary(result.product)
+            generateProductSummary(result.product),
+            sendAgentMessage
           );
           return { handled: true };
         } catch {
+          // Story 24.4: no maximo um ciclo de repeticao — a 2a falha sai sem produto.
+          productFlowRef.current = {
+            ...productFlowRef.current,
+            detailFailures: productFlowRef.current.detailFailures + 1,
+          };
+          if (productFlowRef.current.detailFailures >= 2) {
+            return exitProductFlow(
+              "Nao consegui extrair os dados do produto de novo, entao seguimos sem produto por enquanto (voce pode cadastra-lo depois na base de conhecimento)."
+            );
+          }
           setState((prev) => ({ ...prev, status: "awaiting_product_details" }));
-          await sendAgentMessage(
+          await sendAndRecord(
             executionId,
-            "Nao consegui extrair os dados. Tente descrever novamente o produto, incluindo nome, o que faz e para quem."
+            `Nao consegui extrair os dados. Tente descrever novamente o produto, incluindo o que faz e para quem. ${PRODUCT_EXIT_HINT}`,
+            sendAgentMessage
           );
           return { handled: true };
         }
@@ -892,121 +1153,194 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
 
       // Handler: confirming_product (AC: #2, #3)
       if (currentStatus === "confirming_product") {
+        conversationRef.current.push({ role: "user", content });
+
+        // Story 24.4: skip explicito ("seguir sem produto", "pular") sai do ramo. O "nao"
+        // exato aqui significa "os dados estao errados" e e tratado abaixo. Mensagem que
+        // tambem confirma ("ok, nao precisa") e confirmacao, nao skip.
+        if (isProductSkip(content) && !isConfirmation(content)) {
+          return exitProductFlow("Sem problema, seguimos sem produto.");
+        }
+
         const confirmed = isConfirmation(content);
-        const rejected = isProductRejection(content);
+        // Story 24.4: "sim, nao precisa mudar nada" confirma — "nao precisa"/"nao tem
+        // problema" negam a mudanca, nao os dados.
+        const rejected = isProductRejection(
+          normalizeAnswer(content).replace(/\bnao (precisa|tem problema|ha problema)\b/g, "")
+        );
 
         if (confirmed && !rejected) {
           if (createProduct && state.pendingProduct) {
             const productId = await createProduct(state.pendingProduct);
             if (productId && state.briefing) {
-              const updatedBriefing: ParsedBriefing = {
+              return exitProductFlow("Produto cadastrado!", {
                 ...state.briefing,
                 productSlug: productId,
-              };
-              setState((prev) => ({
-                ...prev,
-                status: "confirming",
-                briefing: updatedBriefing,
-                pendingProduct: null,
-                productMentioned: null,
-              }));
-              await sendAgentMessage(
-                executionId,
-                `Produto cadastrado! ${generateBriefingSummary(updatedBriefing)}`
-              );
-              return { handled: true };
+              });
             }
 
             // Creation failed
-            await sendAgentMessage(
-              executionId,
-              "Erro ao cadastrar produto. Quer tentar novamente?"
-            );
             setState((prev) => ({
               ...prev,
               status: "awaiting_product_decision",
             }));
+            await sendAndRecord(
+              executionId,
+              `Erro ao cadastrar produto. Quer tentar novamente? ${PRODUCT_EXIT_HINT}`,
+              sendAgentMessage
+            );
             return { handled: true };
           }
 
           // No createProduct callback — skip product
-          setState((prev) => ({
-            ...prev,
-            status: "confirming",
-            pendingProduct: null,
-            productMentioned: null,
-          }));
-          if (state.briefing) {
-            await sendAgentMessage(
-              executionId,
-              generateBriefingSummary(state.briefing)
-            );
-          }
-          return { handled: true };
+          return exitProductFlow("");
         }
 
         if (rejected && !confirmed) {
-          // Rejection — re-describe product
-          setState((prev) => ({
-            ...prev,
-            status: "awaiting_product_details",
-            pendingProduct: null,
-          }));
-          await sendAgentMessage(
-            executionId,
-            "OK, me descreva o produto novamente."
-          );
-          return { handled: true };
+          // Story 24.4: em vez de "descreva de novo" em loop, descarta os dados e pede o
+          // nome UMA vez. Se o nome ja foi pedido, sai sem produto com o resumo.
+          if (!productFlowRef.current.nameAsked) {
+            productFlowRef.current = { nameAsked: false, detailFailures: 0 };
+            return askProductName("Ok, vamos refazer o cadastro.");
+          }
+          return exitProductFlow("Ok, seguimos sem produto.");
         }
 
         // Ambiguous — ask for clarification
-        await sendAgentMessage(
+        await sendAndRecord(
           executionId,
-          "Os dados estao corretos? Responda 'sim' para confirmar ou 'nao' para descrever novamente."
+          `Os dados estao corretos? Responda 'sim' para confirmar ou 'nao' para refazer. ${PRODUCT_EXIT_HINT}`,
+          sendAgentMessage
         );
         return { handled: true };
       }
 
       // === IMPORTED LEADS FLOW HANDLERS (Story 17.11) ===
 
-      // Handler: awaiting_leads_input (AC: #1, #2)
-      if (currentStatus === "awaiting_leads_input") {
-        const result = parseLeadInput(content);
+      // Story 24.4: processa uma colagem (e-mail ou 2+ linhas). Toda resposta oferece a busca.
+      const processLeadPaste = async (): Promise<{ handled: boolean }> => {
+        const parsed = parseLeadInput(content);
 
-        if (result.accepted.length === 0) {
-          await sendAgentMessage(
+        if (parsed.accepted.length === 0 || !state.briefing) {
+          setState((prev) => ({ ...prev, status: "awaiting_leads_input" }));
+          await sendAndRecord(
             executionId,
-            `Nenhum lead valido encontrado. ${result.rejected.length > 0
-              ? `${result.rejected.length} rejeitados:\n${result.rejected.map(r => `- "${r.line}" — ${r.reason}`).join("\n")}`
-              : "Cole ao menos um email valido."}`
+            `Nenhum lead valido encontrado. ${parsed.rejected.length > 0
+              ? `${parsed.rejected.length} rejeitados:\n${parsed.rejected.map(r => `- "${r.line}" — ${r.reason}`).join("\n")}`
+              : "Cole ao menos um email valido."}\n\n${LEADS_EXIT_HINT}`,
+            sendAgentMessage
           );
           return { handled: true };
         }
 
-        if (!state.briefing) return { handled: true };
-        const updatedBriefing = { ...state.briefing, importedLeads: result.accepted };
+        const updatedBriefing = { ...state.briefing, importedLeads: parsed.accepted };
         setState((prev) => ({
           ...prev,
           status: "confirming_leads",
           briefing: updatedBriefing,
         }));
-
-        const preview = formatLeadPreview(result);
-        await sendAgentMessage(executionId, preview);
+        await sendAndRecord(executionId, formatLeadPreview(parsed), sendAgentMessage);
         return { handled: true };
+      };
+
+      const repeatLeadsInstructions = async (): Promise<{ handled: boolean }> => {
+        setState((prev) => ({ ...prev, status: "awaiting_leads_input" }));
+        await sendAndRecord(
+          executionId,
+          "Para importar, cole a lista de leads no formato:\n\n" +
+            LEADS_PASTE_INSTRUCTIONS +
+            "\n\n" +
+            LEADS_EXIT_HINT,
+          sendAgentMessage
+        );
+        return { handled: true };
+      };
+
+      // Handler: awaiting_leads_input (AC: #1, #2)
+      if (currentStatus === "awaiting_leads_input") {
+        conversationRef.current.push({ role: "user", content: toMemoryContent(content) });
+
+        if (looksLikeLeadPaste(content)) return processLeadPaste();
+
+        // Story 24.4: uma linha sem e-mail e CONVERSA ("prefiro que voce busque") -> LLM.
+        setState((prev) => ({ ...prev, status: "parsing" }));
+        let parsed: BriefingParseResponse;
+        try {
+          parsed = carryProductSlug(await callParseAPI(executionId), state.briefing);
+        } catch {
+          // Fallback por palavra-chave: pedido de busca sai do ramo; senao repete.
+          if (!isSearchPreference(content)) return repeatLeadsInstructions();
+          if (!state.briefing) {
+            setState((prev) => ({ ...prev, status: "awaiting_fields" }));
+            await sendAndRecord(
+              executionId,
+              "Combinado, eu busco os leads. Quais cargos e qual localizacao voce quer prospectar?",
+              sendAgentMessage
+            );
+            return { handled: true };
+          }
+          const searchBriefing = reconcileNonImportBriefing({
+            ...state.briefing,
+            importedLeads: undefined,
+          });
+          return handleParseResult(
+            {
+              briefing: searchBriefing,
+              missingFields: withRequiredMissing(searchBriefing, state.missingFields),
+              isComplete: false,
+              canProceed: Boolean(searchBriefing.jobTitles?.length && searchBriefing.location),
+              suggestions: {},
+              productMentioned: null,
+              nextAction: "confirm",
+              questionText: null,
+            },
+            executionId,
+            sendAgentMessage,
+            content,
+            state.briefing,
+            state.productMentioned
+          );
+        }
+
+        // O LLM ainda indica import ("espera, vou pegar a lista") -> continua no ramo. A
+        // ancora da 22.11 so vale para ENTRAR no ramo.
+        if (parsed.nextAction === "import_leads") return repeatLeadsInstructions();
+
+        const searchBriefing = reconcileNonImportBriefing(parsed.briefing);
+        return handleParseResult(
+          {
+            ...parsed,
+            briefing: searchBriefing,
+            missingFields: withRequiredMissing(searchBriefing, parsed.missingFields),
+            canProceed: Boolean(searchBriefing.jobTitles?.length && searchBriefing.location),
+          },
+          executionId,
+          sendAgentMessage,
+          content,
+          state.briefing,
+          state.productMentioned
+        );
       }
 
       // Handler: confirming_leads (AC: #2)
       if (currentStatus === "confirming_leads") {
+        conversationRef.current.push({ role: "user", content: toMemoryContent(content) });
+
+        // Story 24.4: parece colagem -> processa como nova lista. Vem ANTES da confirmacao:
+        // o isConfirmation casa substring, e um e-mail como "simone@..." ou "@okta.com"
+        // confirmaria a lista ANTIGA.
+        if (looksLikeLeadPaste(content)) return processLeadPaste();
+
         if (isConfirmation(content)) {
           setState((prev) => ({
             ...prev,
             status: "confirming",
           }));
           if (state.briefing) {
-            await sendAgentMessage(
+            await sendAndRecord(
               executionId,
-              generateBriefingSummary(state.briefing, state.missingFields)
+              generateBriefingSummary(state.briefing, state.missingFields),
+              sendAgentMessage
             );
           }
           return { handled: true };
@@ -1014,9 +1348,10 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
 
         // User wants to redo leads
         setState((prev) => ({ ...prev, status: "awaiting_leads_input" }));
-        await sendAgentMessage(
+        await sendAndRecord(
           executionId,
-          "Ok, cole a lista de leads novamente:"
+          `Ok, cole a lista de leads novamente. ${LEADS_EXIT_HINT}`,
+          sendAgentMessage
         );
         return { handled: true };
       }
@@ -1030,7 +1365,8 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
         setState((prev) => ({ ...prev, status: "parsing" }));
 
         try {
-          const result = await callParseAPI(executionId);
+          // Story 24.4: correcao apos cadastro mantem o produto ja resolvido.
+          const result = carryProductSlug(await callParseAPI(executionId), state.briefing);
 
           // D2: "proceed" (diante de um resumo ja apresentado) = confirmacao final.
           // canProceed prevalece (NFR1): so confirma se os campos obrigatorios existem.
@@ -1055,7 +1391,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
 
           // "confirm"/"ask" (correcao ou ajuste) = ainda conversando: aplica o briefing
           // corrigido e reapresenta o resumo (handleParseResult decide o estado).
-          return handleParseResult(result, executionId, sendAgentMessage, content, state.briefing);
+          return handleParseResult(result, executionId, sendAgentMessage, content, state.briefing, state.productMentioned);
         } catch {
           // Fail-open (AC4): LLM falhou/timeout -> keyword deterministica sobre a
           // mensagem crua. "sim"/"ok"/"bora" ainda confirmam; senao, mantem confirming.
@@ -1115,7 +1451,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
 
         try {
           const result = await callParseAPI(executionId);
-          return handleParseResult(result, executionId, sendAgentMessage, content, state.briefing);
+          return handleParseResult(result, executionId, sendAgentMessage, content, state.briefing, state.productMentioned);
         } catch {
           setState((prev) => ({ ...prev, status: "awaiting_fields" }));
           return { handled: false };
@@ -1131,7 +1467,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
 
         try {
           const result = await callParseAPI(executionId);
-          return handleParseResult(result, executionId, sendAgentMessage, content, state.briefing);
+          return handleParseResult(result, executionId, sendAgentMessage, content, state.briefing, state.productMentioned);
         } catch {
           setState({
             status: "idle",
@@ -1162,6 +1498,15 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       pendingProduct: null,
     });
     conversationRef.current = [];
+    productFlowRef.current = { nameAsked: false, detailFailures: 0 };
+  }, []);
+
+  // Story 24.4: "Cancelar" no plano reabre o briefing — a proxima mensagem volta a ser
+  // tratada como ajuste (ou "sim" reconfirma). Sem briefing, volta ao inicio.
+  const reopenBriefing = useCallback(() => {
+    setState((prev) =>
+      prev.briefing ? { ...prev, status: "confirming" } : { ...prev, status: "idle" }
+    );
   }, []);
 
   // === Story 22.13: seams do ajuste pos-rejeicao ===
@@ -1192,6 +1537,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
     state,
     processMessage,
     reset,
+    reopenBriefing,
     parseAdjustment,
     recordAgentTurn,
     recordUserTurn,

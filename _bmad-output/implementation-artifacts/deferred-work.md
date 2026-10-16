@@ -494,3 +494,18 @@ source_spec: `spec-24-3-avanco-confiavel-e-tentar-novamente.md`
 severity: medium
 reason: O aviso com "Tentar novamente" e efemero (store). Depois do F5 o step N+1 fica pending, o card ja mostra aprovado e o painel nao tem botao para step pending. Antes desta story nao havia saida nem na mesma sessao (o problema ja existia). No autopilot o auto-trigger redispara.
 status: open
+
+### DW-13: O comando anunciado "buscar leads" em awaiting_leads_input depende do LLM; se o /parse devolver import_leads, a instrucao de colar se repete.
+origin: spec-deferred ebcd3dcf5e71
+location: src/hooks/use-briefing-flow.ts (handler awaiting_leads_input)
+source_spec: `spec-24-4-conversa-sem-becos-sem-saida.md`
+reason: maybe-false. O ramo so sai para a busca quando o LLM nao devolve nextAction import_leads (use-briefing-flow.ts, handler awaiting_leads_input); o fallback por palavra-chave so roda quando o /parse falha. Para resolver: rodar o /parse real com a conversa do ramo de leads + "buscar leads" e ver o nextAction devolvido. Se o LLM devolver import_leads, decidir se "buscar leads" exato vira saida deterministica.
+status: open
+
+### DW-14: O resumo do produto diz "Cadastrei o X" antes de o produto ser salvo, e agora termina oferecendo "seguir sem produto".
+origin: spec-deferred 45f9e94fca94
+location: src/hooks/use-briefing-flow.ts:275
+source_spec: `spec-24-4-conversa-sem-becos-sem-saida.md`
+severity: low
+reason: generateProductSummary (use-briefing-flow.ts:275) usa "Cadastrei" desde antes da 24.4; o cadastro so acontece apos o "sim" em confirming_product. Com a dica de saida no fim, fica ambiguo se algo ficou salvo. Correcao: trocar por "Extrai os dados do X" e ajustar as assercoes de texto.
+status: open

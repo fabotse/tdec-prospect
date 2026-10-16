@@ -22,6 +22,9 @@ import { AgentChat } from "@/components/agent/AgentChat";
 // ==============================================
 
 const mockMutate = vi.fn();
+// Story 24.4: controla a gravacao da mensagem do usuario no ramo pos-confirmacao
+// (sem implementacao = resolve na hora).
+const mockMutateAsync = vi.fn();
 const mockSetCurrentExecutionId = vi.fn();
 const mockSetAgentProcessing = vi.fn();
 const mockSetShowModeSelector = vi.fn();
@@ -73,7 +76,15 @@ vi.mock("@/hooks/use-agent-execution", () => ({
     isConnected: false,
     refetchMessages: mockRefetchMessages,
   }),
-  useSendMessage: () => ({ mutate: mockMutate, isPending: false }),
+  useSendMessage: () => ({
+    mutate: mockMutate,
+    // Story 24.4: o ramo pos-confirmacao aguarda a gravacao da mensagem do usuario.
+    mutateAsync: (v: unknown) => {
+      mockMutate(v);
+      return mockMutateAsync(v) ?? Promise.resolve();
+    },
+    isPending: false,
+  }),
 }));
 
 vi.mock("@/hooks/use-agent-onboarding", () => ({
@@ -95,6 +106,8 @@ vi.mock("@/hooks/use-auto-trigger", () => ({
 // Story 22.10: `reset` e spy compartilhado — o botao "Nova conversa" precisa chama-lo
 // (sem isso o briefing sobrevive em memoria e o agente retoma a conversa morta).
 const mockResetBriefing = vi.fn();
+// Story 24.4: "Cancelar" no plano reabre o briefing.
+const mockReopenBriefing = vi.fn();
 // Story 22.13: seams do ajuste pos-rejeicao (memoria da 22.3 reusada, nunca duplicada).
 const mockParseAdjustment = vi.fn();
 const mockRecordAgentTurn = vi.fn();
@@ -111,6 +124,7 @@ vi.mock("@/hooks/use-briefing-flow", async (importOriginal) => {
       state: mockBriefingState,
       processMessage: mockProcessMessage,
       reset: mockResetBriefing,
+      reopenBriefing: mockReopenBriefing,
       parseAdjustment: mockParseAdjustment,
       recordAgentTurn: mockRecordAgentTurn,
       recordUserTurn: mockRecordUserTurn,
@@ -2470,6 +2484,212 @@ describe("AgentChat", () => {
         expect(summary).not.toContain("Estimativa com os filtros novos");
         expect(mockSetAdjustingStep).toHaveBeenCalledWith(adjusting("confirm"));
       });
+    });
+  });
+
+  // ==============================================
+  // Story 24.4 — conversa sem becos sem saida
+  // ==============================================
+
+  describe("conversa sem becos sem saida (Story 24.4)", () => {
+    function okFetch() {
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: {} }),
+      });
+    }
+
+    function agentMessageBodies(): string[] {
+      return (global.fetch as ReturnType<typeof vi.fn>).mock.calls
+        .filter(([url]) => typeof url === "string" && url.endsWith("/messages"))
+        .map(([, init]) => JSON.parse((init as RequestInit).body as string).content as string);
+    }
+
+    it("Cancelar no plano reabre o briefing e grava a mensagem na memoria", async () => {
+      setupDefaults({ executionId: "exec-123", showExecutionPlan: true });
+      okFetch();
+      render(<AgentChat />);
+
+      const onCancel = capturedExecutionPlanProps?.onCancel as () => Promise<void>;
+      await act(async () => {
+        await onCancel();
+      });
+
+      expect(mockReopenBriefing).toHaveBeenCalledTimes(1);
+      const [cancelText] = agentMessageBodies();
+      expect(cancelText).toContain("nada foi iniciado");
+      expect(cancelText).toContain('"sim"');
+      expect(mockRecordAgentTurn).toHaveBeenCalledWith(cancelText);
+    });
+
+    it("Cancelar reabre o briefing mesmo quando o envio falha", async () => {
+      setupDefaults({ executionId: "exec-123", showExecutionPlan: true });
+      (global.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("Network error"));
+      render(<AgentChat />);
+
+      const onCancel = capturedExecutionPlanProps?.onCancel as () => Promise<void>;
+      await act(async () => {
+        await onCancel();
+      });
+
+      expect(mockReopenBriefing).toHaveBeenCalledTimes(1);
+      expect(mockToastError).toHaveBeenCalled();
+    });
+
+    it("texto livre pos-confirmacao recebe resposta com o estado e os turnos vao a memoria", async () => {
+      setupDefaults({ executionId: "exec-run", briefingStatus: "idle" });
+      mockExecutionData = {
+        messages: [],
+        steps: [
+          { id: "s1", step_number: 1, step_type: "search_companies", status: "completed", output: null },
+          { id: "s2", step_number: 2, step_type: "search_leads", status: "awaiting_approval", output: null },
+        ],
+      };
+      okFetch();
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+      await act(async () => {
+        await capturedOnSendMessage!("e agora?");
+      });
+
+      expect(mockMutate).toHaveBeenCalledWith({ executionId: "exec-run", content: "e agora?" });
+      expect(mockProcessMessage).not.toHaveBeenCalled();
+      expect(mockRecordUserTurn).toHaveBeenCalledWith("e agora?");
+      const reply = agentMessageBodies().at(-1)!;
+      expect(reply).toContain("aguardando sua aprovacao");
+      expect(mockRecordAgentTurn).toHaveBeenCalledWith(reply);
+      expect(mockRefetchMessages).toHaveBeenCalledWith("exec-run");
+      expect(mockSetAgentProcessing).toHaveBeenCalledWith(true);
+      expect(mockSetAgentProcessing).toHaveBeenLastCalledWith(false);
+    });
+
+    it("pos-confirmacao: a resposta so e enviada depois de gravada a mensagem do usuario", async () => {
+      setupDefaults({ executionId: "exec-run", briefingStatus: "idle" });
+      mockExecutionData = {
+        messages: [],
+        steps: [{ id: "s1", step_number: 1, step_type: "search_companies", status: "running", output: null }],
+      };
+      okFetch();
+      let resolveSave!: () => void;
+      mockMutateAsync.mockImplementationOnce(
+        () => new Promise<void>((resolve) => { resolveSave = resolve; })
+      );
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+      let sending!: Promise<void>;
+      await act(async () => {
+        sending = capturedOnSendMessage!("e agora?");
+        await Promise.resolve();
+      });
+      expect(agentMessageBodies()).toHaveLength(0);
+
+      await act(async () => {
+        resolveSave();
+        await sending;
+      });
+      expect(agentMessageBodies()).toHaveLength(1);
+    });
+
+    it("pos-confirmacao: falha ao gravar a mensagem do usuario nao impede a resposta", async () => {
+      setupDefaults({ executionId: "exec-run", briefingStatus: "idle" });
+      mockExecutionData = {
+        messages: [],
+        steps: [{ id: "s1", step_number: 1, step_type: "search_companies", status: "running", output: null }],
+      };
+      okFetch();
+      mockMutateAsync.mockRejectedValueOnce(new Error("rede"));
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+      await act(async () => {
+        await capturedOnSendMessage!("e agora?");
+      });
+
+      expect(agentMessageBodies()).toHaveLength(1);
+      expect(mockToastError).not.toHaveBeenCalled();
+      expect(mockSetAgentProcessing).toHaveBeenLastCalledWith(false);
+    });
+
+    it("step failed retryable: a resposta cita 'Tentar novamente'", async () => {
+      setupDefaults({ executionId: "exec-run", briefingStatus: "idle" });
+      mockExecutionData = {
+        messages: [],
+        steps: [{ id: "s1", step_number: 1, step_type: "search_companies", status: "failed", output: null }],
+      };
+      okFetch();
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+      await act(async () => {
+        await capturedOnSendMessage!("deu ruim?");
+      });
+
+      expect(agentMessageBodies().at(-1)).toContain('"Tentar novamente"');
+    });
+
+    it("briefing confirmado com o seletor de modo visivel: responde apontando o modo", async () => {
+      setupDefaults({ executionId: "exec-123", briefingStatus: "confirmed", showModeSelector: true });
+      okFetch();
+      render(<AgentChat />);
+
+      await act(async () => {
+        await capturedOnSendMessage!("e agora?");
+      });
+
+      expect(agentMessageBodies().at(-1)).toContain("modo de operacao");
+      expect(mockRecordUserTurn).toHaveBeenCalledWith("e agora?");
+    });
+
+    it("'Briefing confirmado', modo e 'Execucao iniciada' entram na memoria", async () => {
+      setupDefaults({ executionId: "exec-123", briefingStatus: "confirming", briefing: { jobTitles: ["CTO"] } });
+      mockProcessMessage.mockResolvedValueOnce({ handled: true, confirmed: true });
+      okFetch();
+      render(<AgentChat />);
+
+      await act(async () => {
+        await capturedOnSendMessage!("sim");
+      });
+      expect(mockRecordAgentTurn).toHaveBeenCalledWith(
+        "Briefing confirmado! Agora escolha o modo de operacao:"
+      );
+
+      setupDefaults({ executionId: "exec-123", showModeSelector: true, showExecutionPlan: true });
+      render(<AgentChat />);
+      const onModeSelect = capturedModeSelectorProps?.onModeSelect as (m: string) => Promise<void>;
+      await act(async () => {
+        await onModeSelect("guided");
+      });
+      expect(mockRecordAgentTurn).toHaveBeenCalledWith(
+        "Modo Guiado selecionado. Preparando plano de execucao..."
+      );
+
+      const onConfirm = capturedExecutionPlanProps?.onConfirm as (p: boolean) => Promise<void>;
+      await act(async () => {
+        await onConfirm(false);
+      });
+      expect(mockRecordAgentTurn).toHaveBeenCalledWith(
+        "Execucao iniciada! Vou comecar pelo primeiro passo..."
+      );
+    });
+
+    it("'Desculpe...' tambem entra na memoria", async () => {
+      setupDefaults({ executionId: "exec-123", briefingStatus: "confirming", briefing: { jobTitles: ["CTO"] } });
+      mockProcessMessage.mockResolvedValueOnce({ handled: false });
+      okFetch();
+      render(<AgentChat />);
+
+      await act(async () => {
+        await capturedOnSendMessage!("???");
+      });
+      expect(mockRecordAgentTurn).toHaveBeenCalledWith(
+        "Desculpe, nao consegui processar sua mensagem. Pode tentar novamente?"
+      );
     });
   });
 });

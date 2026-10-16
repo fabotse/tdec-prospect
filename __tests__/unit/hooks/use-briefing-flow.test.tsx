@@ -13,6 +13,11 @@ import {
   generateSmartQuestion,
   messageSignalsOwnLeads,
   isConfirmation,
+  isProductSkip,
+  extractProductName,
+  isSearchPreference,
+  looksLikeLeadPaste,
+  toMemoryContent,
 } from "@/hooks/use-briefing-flow";
 import {
   createMockFetch,
@@ -873,7 +878,7 @@ describe("useBriefingFlow", () => {
       );
     });
 
-    it("deve voltar para awaiting_product_details quando usuario rejeita produto extraido", async () => {
+    it("24.4: rejeitar o produto extraido pede o NOME uma vez (sem loop de descricao)", async () => {
       createMockFetch([
         {
           url: /\/api\/agent\/briefing\/parse$/,
@@ -921,11 +926,15 @@ describe("useBriefingFlow", () => {
         await result.current.processMessage("nao", EXEC_ID, mockSendAgentMessage);
       });
 
-      expect(result.current.state.status).toBe("awaiting_product_details");
+      expect(result.current.state.status).toBe("awaiting_product_name");
       expect(result.current.state.pendingProduct).toBeNull();
       expect(mockSendAgentMessage).toHaveBeenCalledWith(
         EXEC_ID,
-        expect.stringContaining("me descreva o produto novamente")
+        expect.stringContaining("Qual e o nome do produto")
+      );
+      expect(mockSendAgentMessage).toHaveBeenCalledWith(
+        EXEC_ID,
+        expect.stringContaining("seguir sem produto")
       );
     });
 
@@ -1979,7 +1988,7 @@ describe("useBriefingFlow", () => {
       );
     });
 
-    it("deve mostrar erro quando leads invalidos (sem email) (AC: 17.11#2)", async () => {
+    it("deve mostrar erro quando leads invalidos (2+ linhas sem email) (AC: 17.11#2, 24.4)", async () => {
       createMockFetch([PARSE_ROUTE]);
 
       const { result } = renderHook(() => useBriefingFlow());
@@ -1994,7 +2003,7 @@ describe("useBriefingFlow", () => {
 
       await act(async () => {
         await result.current.processMessage(
-          "apenas texto sem email",
+          "Joao Silva, CTO\nMaria Souza, CFO",
           EXEC_ID,
           mockSendAgentMessage
         );
@@ -2004,6 +2013,11 @@ describe("useBriefingFlow", () => {
       expect(mockSendAgentMessage).toHaveBeenLastCalledWith(
         EXEC_ID,
         expect.stringContaining("Nenhum lead valido")
+      );
+      // Story 24.4: a colagem invalida tambem oferece a saida para a busca.
+      expect(mockSendAgentMessage).toHaveBeenLastCalledWith(
+        EXEC_ID,
+        expect.stringContaining("buscar leads")
       );
     });
 
@@ -3810,6 +3824,563 @@ describe("useBriefingFlow", () => {
       });
 
       expect(outcome).toEqual({ handled: false });
+    });
+  });
+
+  // ==============================================
+  // Story 24.4 — conversa sem becos sem saida
+  // ==============================================
+
+  describe("Story 24.4 — conversa sem becos sem saida", () => {
+    const PARSE_URL = /\/api\/agent\/briefing\/parse$/;
+    const PARSE_PRODUCT_URL = /\/api\/agent\/briefing\/parse-product/;
+
+    const REGISTER_WITHOUT_NAME = {
+      ...COMPLETE_PARSE_RESPONSE,
+      productMentioned: null,
+      nextAction: "register_product",
+    };
+
+    function mockRoutes(routes: { url: RegExp; response: ReturnType<typeof mockJsonResponse> }[]) {
+      restoreFetch();
+      return createMockFetch(routes.map((r) => ({ ...r, method: "POST" })));
+    }
+
+    function lastParseMessages(fetchMock: ReturnType<typeof createMockFetch>) {
+      const parseCalls = fetchMock.calls().filter((c) => PARSE_URL.test(c.url));
+      const body = parseCalls[parseCalls.length - 1].body as {
+        messages: { role: string; content: string }[];
+      };
+      return body.messages;
+    }
+
+    function lastAgentText(): string {
+      return mockSendAgentMessage.mock.lastCall?.[1] as string;
+    }
+
+    async function send(
+      result: { current: ReturnType<typeof useBriefingFlow> },
+      content: string,
+      createProduct?: (p: unknown) => Promise<string | null>
+    ) {
+      await act(async () => {
+        await result.current.processMessage(
+          content,
+          EXEC_ID,
+          mockSendAgentMessage,
+          createProduct as never
+        );
+      });
+    }
+
+    async function enterRegisterWithoutName() {
+      mockRoutes([{ url: PARSE_URL, response: mockJsonResponse(REGISTER_WITHOUT_NAME) }]);
+      const hook = renderHook(() => useBriefingFlow());
+      await send(hook.result, "quero CTOs em SP e cadastrar um produto");
+      return hook.result;
+    }
+
+    describe("helpers puros", () => {
+      it("isProductSkip: expressoes explicitas e 'nao' exato so com allowBareNo", () => {
+        expect(isProductSkip("seguir sem produto")).toBe(true);
+        expect(isProductSkip("Pode pular")).toBe(true);
+        expect(isProductSkip("não quero")).toBe(true);
+        expect(isProductSkip("nao")).toBe(false);
+        expect(isProductSkip("Não.", true)).toBe(true);
+        expect(isProductSkip("nao e SaaS, e uma consultoria")).toBe(false);
+        expect(isProductSkip("foco na populacao jovem")).toBe(false);
+        expect(isProductSkip("o cliente nao precisa instalar nada")).toBe(false);
+        expect(isProductSkip("depois de integrado, monitora os custos")).toBe(false);
+        expect(isProductSkip("nao precisa")).toBe(true);
+        expect(isProductSkip("nao sei", true)).toBe(true);
+        expect(isProductSkip("nao tem nome ainda", true)).toBe(true);
+      });
+
+      it("extractProductName remove o prefixo e limita a 100 caracteres", () => {
+        expect(extractProductName("O nome é Radar Pro")).toBe("Radar Pro");
+        expect(extractProductName("se chama Radar Pro.")).toBe("Radar Pro");
+        expect(extractProductName("Radar Pro")).toBe("Radar Pro");
+        expect(extractProductName("Chamaleon")).toBe("Chamaleon");
+        expect(extractProductName("x".repeat(150))).toHaveLength(100);
+      });
+
+      it("isSearchPreference, looksLikeLeadPaste e toMemoryContent", () => {
+        expect(isSearchPreference("prefiro que voce busque... na verdade buscar")).toBe(true);
+        expect(isSearchPreference("nao tenho a lista")).toBe(true);
+        expect(isSearchPreference("ok")).toBe(false);
+        expect(looksLikeLeadPaste("joao@acme.com")).toBe(true);
+        expect(looksLikeLeadPaste("Joao, CTO\nMaria, CFO")).toBe(true);
+        expect(looksLikeLeadPaste("prefiro que voce busque")).toBe(false);
+        const long = "a".repeat(2500);
+        expect(toMemoryContent(long)).toBe(`${"a".repeat(2000)}\n[...lista truncada]`);
+        expect(toMemoryContent("curto")).toBe("curto");
+      });
+    });
+
+    describe("produto sem nome", () => {
+      it("register_product sem nome pergunta o nome e oferece seguir sem produto (nao chama /parse-product)", async () => {
+        const result = await enterRegisterWithoutName();
+
+        expect(result.current.state.status).toBe("awaiting_product_name");
+        expect(lastAgentText()).toContain("Qual e o nome do produto");
+        expect(lastAgentText()).toContain("seguir sem produto");
+      });
+
+      it("nome informado -> awaiting_product_details e o /parse-product recebe o nome", async () => {
+        const result = await enterRegisterWithoutName();
+        const fetchMock = mockRoutes([
+          { url: PARSE_PRODUCT_URL, response: mockJsonResponse({ product: EXTRACTED_PRODUCT }) },
+        ]);
+
+        await send(result, "O nome é Radar Pro");
+        expect(result.current.state.status).toBe("awaiting_product_details");
+        expect(result.current.state.productMentioned).toBe("Radar Pro");
+        expect(lastAgentText()).toContain("seguir sem produto");
+
+        await send(result, "Plataforma de monitoramento para CFOs");
+        const call = fetchMock.calls().find((c) => PARSE_PRODUCT_URL.test(c.url));
+        expect((call?.body as { productName: string }).productName).toBe("Radar Pro");
+        expect(result.current.state.status).toBe("confirming_product");
+      });
+
+      it.each([
+        ["awaiting_product_name", "nao"],
+        ["awaiting_product_name", "pular"],
+      ])("skip em %s com '%s' sai do ramo com o resumo", async (_state, answer) => {
+        const result = await enterRegisterWithoutName();
+        await send(result, answer);
+
+        expect(result.current.state.status).toBe("confirming");
+        expect(result.current.state.productMentioned).toBeNull();
+        expect(result.current.state.pendingProduct).toBeNull();
+        expect(lastAgentText()).toContain("Vou prospectar com os seguintes parametros");
+      });
+
+      it("skip em awaiting_product_details sai do ramo", async () => {
+        const result = await enterRegisterWithoutName();
+        mockRoutes([
+          { url: PARSE_PRODUCT_URL, response: mockJsonResponse({ product: EXTRACTED_PRODUCT }) },
+        ]);
+        await send(result, "Radar Pro");
+        await send(result, "seguir sem produto");
+
+        expect(result.current.state.status).toBe("confirming");
+        expect(result.current.state.productMentioned).toBeNull();
+      });
+
+      it("'nao' exato em awaiting_product_details NAO e skip: vai ao /parse-product", async () => {
+        const result = await enterRegisterWithoutName();
+        const fetchMock = mockRoutes([
+          { url: PARSE_PRODUCT_URL, response: mockJsonResponse({ product: EXTRACTED_PRODUCT }) },
+        ]);
+        await send(result, "Radar Pro");
+        await send(result, "nao");
+
+        const call = fetchMock.calls().find((c) => PARSE_PRODUCT_URL.test(c.url));
+        expect((call?.body as { productName: string }).productName).toBe("Radar Pro");
+        expect(result.current.state.status).toBe("confirming_product");
+      });
+
+      it("descricao com 'nao precisa' NAO e skip: vai ao /parse-product", async () => {
+        const result = await enterRegisterWithoutName();
+        const fetchMock = mockRoutes([
+          { url: PARSE_PRODUCT_URL, response: mockJsonResponse({ product: EXTRACTED_PRODUCT }) },
+        ]);
+        await send(result, "Radar Pro");
+        await send(result, "Monitora custos de nuvem, o cliente nao precisa instalar nada");
+
+        const call = fetchMock.calls().find((c) => PARSE_PRODUCT_URL.test(c.url));
+        expect(call).toBeDefined();
+        expect(result.current.state.status).toBe("confirming_product");
+      });
+
+      it("'sim, nao precisa mudar nada' em confirming_product cadastra o produto", async () => {
+        const result = await enterRegisterWithoutName();
+        mockRoutes([
+          { url: PARSE_PRODUCT_URL, response: mockJsonResponse({ product: EXTRACTED_PRODUCT }) },
+        ]);
+        await send(result, "Radar Pro");
+        await send(result, "Plataforma de analytics");
+
+        const createProduct = vi.fn().mockResolvedValue("new-id");
+        await send(result, "sim, nao precisa mudar nada", createProduct);
+
+        expect(createProduct).toHaveBeenCalledWith(EXTRACTED_PRODUCT);
+        expect(result.current.state.status).toBe("confirming");
+        expect(result.current.state.briefing?.productSlug).toBe("new-id");
+      });
+
+      it("'ok, nao precisa' em confirming_product confirma e cadastra (nao e skip)", async () => {
+        const result = await enterRegisterWithoutName();
+        mockRoutes([
+          { url: PARSE_PRODUCT_URL, response: mockJsonResponse({ product: EXTRACTED_PRODUCT }) },
+        ]);
+        await send(result, "Radar Pro");
+        await send(result, "Plataforma de analytics");
+
+        const createProduct = vi.fn().mockResolvedValue("new-id");
+        await send(result, "ok, nao precisa", createProduct);
+
+        expect(createProduct).toHaveBeenCalledWith(EXTRACTED_PRODUCT);
+        expect(result.current.state.briefing?.productSlug).toBe("new-id");
+      });
+
+      it("'nao sei' no pedido de nome sai sem produto", async () => {
+        const result = await enterRegisterWithoutName();
+        await send(result, "nao sei");
+
+        expect(result.current.state.status).toBe("confirming");
+        expect(result.current.state.productMentioned).toBeNull();
+      });
+
+      it("skip em confirming_product sai do ramo sem cadastrar", async () => {
+        const result = await enterRegisterWithoutName();
+        mockRoutes([
+          { url: PARSE_PRODUCT_URL, response: mockJsonResponse({ product: EXTRACTED_PRODUCT }) },
+        ]);
+        await send(result, "Radar Pro");
+        await send(result, "Plataforma de analytics");
+        expect(result.current.state.status).toBe("confirming_product");
+
+        const createProduct = vi.fn().mockResolvedValue("id");
+        await send(result, "seguir sem produto", createProduct);
+
+        expect(createProduct).not.toHaveBeenCalled();
+        expect(result.current.state.status).toBe("confirming");
+        expect(result.current.state.pendingProduct).toBeNull();
+      });
+
+      it("'nao' na confirmacao: pede o nome uma vez; o segundo 'nao' sai sem produto", async () => {
+        mockRoutes([{ url: PARSE_URL, response: mockJsonResponse(COMPLETE_WITH_PRODUCT_NOT_FOUND) }]);
+        const { result } = renderHook(() => useBriefingFlow());
+        await send(result, "Quero prospectar pro TDEC Analytics");
+        swapParseToRegisterProduct();
+        await send(result, "sim");
+        mockRoutes([
+          { url: PARSE_PRODUCT_URL, response: mockJsonResponse({ product: EXTRACTED_PRODUCT }) },
+        ]);
+        await send(result, "Plataforma de analytics");
+
+        await send(result, "nao");
+        expect(result.current.state.status).toBe("awaiting_product_name");
+        expect(lastAgentText()).toContain("seguir sem produto");
+
+        await send(result, "Radar Pro");
+        await send(result, "Plataforma de analytics");
+        expect(result.current.state.status).toBe("confirming_product");
+
+        await send(result, "nao");
+        expect(result.current.state.status).toBe("confirming");
+        expect(result.current.state.pendingProduct).toBeNull();
+        expect(lastAgentText()).toContain("Vou prospectar com os seguintes parametros");
+      });
+
+      it("extracao falha: 1a pede de novo com a saida, 2a sai sem produto", async () => {
+        const result = await enterRegisterWithoutName();
+        mockRoutes([{ url: PARSE_PRODUCT_URL, response: mockErrorResponse(400, "invalid") }]);
+        await send(result, "Radar Pro");
+
+        await send(result, "descricao confusa");
+        expect(result.current.state.status).toBe("awaiting_product_details");
+        expect(lastAgentText()).toContain("Nao consegui extrair os dados");
+        expect(lastAgentText()).toContain("seguir sem produto");
+
+        await send(result, "outra descricao confusa");
+        expect(result.current.state.status).toBe("confirming");
+        expect(lastAgentText()).toContain("seguimos sem produto");
+      });
+    });
+
+    describe("produto preservado nas correcoes", () => {
+      it("correcao apos cadastro mantem o productSlug quando o parse nao cita produto", async () => {
+        mockRoutes([{ url: PARSE_URL, response: mockJsonResponse(COMPLETE_WITH_PRODUCT_FOUND) }]);
+        const { result } = renderHook(() => useBriefingFlow());
+        await send(result, "Quero CTOs em SP pro TDEC Analytics");
+        expect(result.current.state.briefing?.productSlug).toBe("prod-123");
+
+        mockRoutes([
+          {
+            url: PARSE_URL,
+            response: mockJsonResponse({
+              ...COMPLETE_PARSE_RESPONSE,
+              briefing: { ...COMPLETE_PARSE_RESPONSE.briefing, jobTitles: ["CFO"] },
+              productMentioned: null,
+              nextAction: "confirm",
+            }),
+          },
+        ]);
+        await send(result, "troca pra CFO");
+
+        expect(result.current.state.briefing?.jobTitles).toEqual(["CFO"]);
+        expect(result.current.state.briefing?.productSlug).toBe("prod-123");
+      });
+
+      it("'sim' com parse 'proceed' sem produto confirma mantendo o productSlug", async () => {
+        mockRoutes([{ url: PARSE_URL, response: mockJsonResponse(COMPLETE_WITH_PRODUCT_FOUND) }]);
+        const { result } = renderHook(() => useBriefingFlow());
+        await send(result, "Quero CTOs em SP pro TDEC Analytics");
+        expect(result.current.state.status).toBe("confirming");
+        expect(result.current.state.briefing?.productSlug).toBe("prod-123");
+
+        mockRoutes([
+          {
+            url: PARSE_URL,
+            response: mockJsonResponse({
+              ...COMPLETE_WITH_PRODUCT_FOUND,
+              briefing: { ...COMPLETE_WITH_PRODUCT_FOUND.briefing, productSlug: null },
+              productMentioned: null,
+              canProceed: true,
+              nextAction: "proceed",
+            }),
+          },
+        ]);
+        await send(result, "sim");
+
+        expect(result.current.state.status).toBe("confirmed");
+        expect(result.current.state.briefing?.productSlug).toBe("prod-123");
+      });
+
+      it("citar OUTRO produto troca o slug (nao preserva o antigo)", async () => {
+        mockRoutes([{ url: PARSE_URL, response: mockJsonResponse(COMPLETE_WITH_PRODUCT_FOUND) }]);
+        const { result } = renderHook(() => useBriefingFlow());
+        await send(result, "Quero CTOs em SP pro TDEC Analytics");
+
+        mockRoutes([
+          {
+            url: PARSE_URL,
+            response: mockJsonResponse({
+              ...COMPLETE_WITH_PRODUCT_FOUND,
+              briefing: { ...COMPLETE_WITH_PRODUCT_FOUND.briefing, productSlug: "prod-999" },
+              productMentioned: "Outro Produto",
+              nextAction: "confirm",
+            }),
+          },
+        ]);
+        await send(result, "na verdade e pro Outro Produto");
+        expect(result.current.state.briefing?.productSlug).toBe("prod-999");
+      });
+    });
+
+    describe("ramo de leads", () => {
+      const IMPORT_RESPONSE = {
+        briefing: {
+          technology: null,
+          jobTitles: [],
+          location: null,
+          companySize: null,
+          industry: null,
+          productSlug: null,
+          mode: "guided" as const,
+          skipSteps: ["search_companies", "search_leads"],
+        },
+        missingFields: ["technology", "jobTitles"],
+        isComplete: false,
+        canProceed: true,
+        suggestions: {},
+        productMentioned: null,
+        nextAction: "import_leads",
+      };
+
+      async function enterLeads() {
+        mockRoutes([{ url: PARSE_URL, response: mockJsonResponse(IMPORT_RESPONSE) }]);
+        const hook = renderHook(() => useBriefingFlow());
+        await send(hook.result, "Ja tenho meus leads");
+        expect(hook.result.current.state.status).toBe("awaiting_leads_input");
+        expect(lastAgentText()).toContain("buscar leads");
+        return hook.result;
+      }
+
+      it("prefere buscar (LLM sem import): briefing reconciliado para busca e segue o fluxo", async () => {
+        const result = await enterLeads();
+        mockRoutes([
+          {
+            url: PARSE_URL,
+            response: mockJsonResponse({
+              ...COMPLETE_PARSE_RESPONSE,
+              briefing: {
+                ...COMPLETE_PARSE_RESPONSE.briefing,
+                technology: null,
+                skipSteps: ["search_companies", "search_leads"],
+              },
+              nextAction: "confirm",
+            }),
+          },
+        ]);
+        await send(result, "prefiro que voce busque");
+
+        expect(result.current.state.status).toBe("confirming");
+        expect(result.current.state.briefing?.skipSteps).toEqual(["search_companies"]);
+        expect(lastAgentText()).not.toContain("leads importados");
+      });
+
+      it("prefere buscar sem cargo/local: pergunta os campos", async () => {
+        const result = await enterLeads();
+        mockRoutes([
+          {
+            url: PARSE_URL,
+            response: mockJsonResponse({ ...IMPORT_RESPONSE, nextAction: "ask", questionText: null }),
+          },
+        ]);
+        await send(result, "prefiro que voce busque");
+
+        expect(result.current.state.status).toBe("awaiting_fields");
+        expect(result.current.state.briefing?.skipSteps).not.toContain("search_leads");
+      });
+
+      it("LLM ainda indica import: continua no ramo, repete como colar e oferece buscar", async () => {
+        const result = await enterLeads();
+        mockRoutes([{ url: PARSE_URL, response: mockJsonResponse(IMPORT_RESPONSE) }]);
+        await send(result, "espera, vou pegar a lista");
+
+        expect(result.current.state.status).toBe("awaiting_leads_input");
+        expect(lastAgentText()).toContain("cole a lista");
+        expect(lastAgentText()).toContain("buscar leads");
+      });
+
+      it("/parse falha + palavra-chave de busca: sai do ramo", async () => {
+        const result = await enterLeads();
+        swapParseToFailure();
+        await send(result, "prefiro buscar");
+
+        expect(result.current.state.status).toBe("awaiting_fields");
+        expect(result.current.state.briefing?.skipSteps).not.toContain("search_leads");
+        expect(lastAgentText()).toBeTruthy();
+      });
+
+      it("/parse falha + palavra-chave com cargo/local no briefing: vai ao resumo de busca", async () => {
+        mockRoutes([
+          {
+            url: PARSE_URL,
+            response: mockJsonResponse({
+              ...IMPORT_RESPONSE,
+              briefing: { ...IMPORT_RESPONSE.briefing, jobTitles: ["CTO"], location: "SP" },
+            }),
+          },
+        ]);
+        const { result } = renderHook(() => useBriefingFlow());
+        await send(result, "Ja tenho meus leads");
+        expect(result.current.state.status).toBe("awaiting_leads_input");
+
+        swapParseToFailure();
+        await send(result, "prefiro buscar");
+
+        expect(result.current.state.status).toBe("confirming");
+        expect(result.current.state.briefing?.skipSteps).not.toContain("search_leads");
+        expect(result.current.state.briefing?.importedLeads).toBeUndefined();
+      });
+
+      it("/parse falha sem palavra-chave: repete a instrucao com as duas opcoes", async () => {
+        const result = await enterLeads();
+        swapParseToFailure();
+        await send(result, "hmm, que formato?");
+
+        expect(result.current.state.status).toBe("awaiting_leads_input");
+        expect(lastAgentText()).toContain("cole a lista");
+        expect(lastAgentText()).toContain("buscar leads");
+      });
+
+      it("confirming_leads + nova colagem: processa como nova lista", async () => {
+        const result = await enterLeads();
+        await send(result, "joao@empresa.com");
+        expect(result.current.state.status).toBe("confirming_leads");
+
+        await send(result, "maria@acme.com\npedro@acme.com");
+        expect(result.current.state.status).toBe("confirming_leads");
+        expect(result.current.state.briefing?.importedLeads).toHaveLength(2);
+      });
+
+      it("confirming_leads + nova colagem com 'sim'/'ok' no e-mail: troca a lista (nao confirma a antiga)", async () => {
+        const result = await enterLeads();
+        await send(result, "joao@empresa.com");
+        expect(result.current.state.status).toBe("confirming_leads");
+
+        await send(result, "simone@okta.com");
+        expect(result.current.state.status).toBe("confirming_leads");
+        expect(result.current.state.briefing?.importedLeads?.[0]?.email).toBe("simone@okta.com");
+      });
+
+      it("confirming_leads + texto que nao confirma: volta a colar com a oferta de buscar", async () => {
+        const result = await enterLeads();
+        await send(result, "joao@empresa.com");
+        await send(result, "errei, deixa eu refazer");
+
+        expect(result.current.state.status).toBe("awaiting_leads_input");
+        expect(lastAgentText()).toContain("cole a lista de leads novamente");
+        expect(lastAgentText()).toContain("buscar leads");
+      });
+
+      it("turnos de leads entram na memoria; colagem > 2000 chars entra truncada", async () => {
+        const result = await enterLeads();
+        const bigPaste = Array.from({ length: 120 }, (_, i) => `Lead ${i}, lead${i}@acme.com`).join("\n");
+        expect(bigPaste.length).toBeGreaterThan(2000);
+        await send(result, bigPaste);
+        expect(result.current.state.status).toBe("confirming_leads");
+
+        const fetchMock = mockRoutes([
+          { url: PARSE_URL, response: mockJsonResponse({ ...COMPLETE_PARSE_RESPONSE, nextAction: "confirm" }) },
+        ]);
+        await send(result, "sim");
+        expect(result.current.state.status).toBe("confirming");
+        await send(result, "troca pra CFO");
+
+        const messages = lastParseMessages(fetchMock);
+        const pasteTurn = messages.find((m) => m.role === "user" && m.content.startsWith("Lead 0"));
+        expect(pasteTurn?.content.endsWith("\n[...lista truncada]")).toBe(true);
+        expect(pasteTurn?.content.length).toBe(2000 + "\n[...lista truncada]".length);
+        expect(messages.some((m) => m.role === "agent" && m.content.includes("leads aceitos"))).toBe(true);
+        expect(messages.some((m) => m.role === "user" && m.content === "sim")).toBe(true);
+      });
+    });
+
+    it("turnos do ramo de produto entram na memoria do proximo /parse", async () => {
+      const result = await enterRegisterWithoutName();
+      await send(result, "pular");
+      const fetchMock = mockRoutes([
+        { url: PARSE_URL, response: mockJsonResponse({ ...COMPLETE_PARSE_RESPONSE, nextAction: "confirm" }) },
+      ]);
+      await send(result, "troca pra CFO");
+
+      const messages = lastParseMessages(fetchMock);
+      expect(messages.some((m) => m.role === "agent" && m.content.includes("Qual e o nome do produto"))).toBe(true);
+      expect(messages.some((m) => m.role === "user" && m.content === "pular")).toBe(true);
+      expect(messages[messages.length - 1]).toEqual({ role: "user", content: "troca pra CFO" });
+    });
+
+    describe("reopenBriefing", () => {
+      it("com briefing volta para confirming e a proxima mensagem e tratada como ajuste", async () => {
+        mockRoutes([
+          { url: PARSE_URL, response: mockJsonResponse({ ...COMPLETE_PARSE_RESPONSE, nextAction: "proceed" }) },
+        ]);
+        const { result } = renderHook(() => useBriefingFlow());
+        await send(result, "CTOs em SP");
+        await send(result, "sim");
+        expect(result.current.state.status).toBe("confirmed");
+
+        act(() => result.current.reopenBriefing());
+        expect(result.current.state.status).toBe("confirming");
+        expect(result.current.state.briefing).not.toBeNull();
+
+        mockRoutes([
+          {
+            url: PARSE_URL,
+            response: mockJsonResponse({
+              ...COMPLETE_PARSE_RESPONSE,
+              briefing: { ...COMPLETE_PARSE_RESPONSE.briefing, jobTitles: ["CFO"] },
+              nextAction: "confirm",
+            }),
+          },
+        ]);
+        await send(result, "troca pra CFO");
+        expect(result.current.state.status).toBe("confirming");
+        expect(result.current.state.briefing?.jobTitles).toEqual(["CFO"]);
+        expect(lastAgentText()).toContain("Confirma esses parametros?");
+      });
+
+      it("sem briefing volta para idle", () => {
+        const { result } = renderHook(() => useBriefingFlow());
+        act(() => result.current.reopenBriefing());
+        expect(result.current.state.status).toBe("idle");
+      });
     });
   });
 });
