@@ -225,3 +225,12 @@ Confirmed 2026-10-16: the external actions this story owed were carried out.
 - Rode uma execução real do agente (Guiado) até a revisão da campanha, sem exportar nem ativar, e confira que os e-mails gerados não têm 'Nome', 'Empresa', '[Sua', '[Seu', '{{follow_up_strategy}}' nem variável fora de {{first_name}}/{{company_name}}/{{title}}/{{ice_breaker}}, e que os follow-ups saem como 'Email 2 de N'... com ângulos diferentes; ou rode /private/tmp/claude-501/-Users-fabossi-Documents-Fabossi-Projects-TDec-Prospect/f6bfd665-e221-41f8-b43a-0f669a8c45b8/scratchpad/smoke-24-6.ts com uma OPENAI_API_KEY válida (a do .env.local devolve 401).
 
 _Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
+
+## Smoke com LLM real (2026-10-16)
+
+Executado pelo Claude Code, acompanhado pelo Fabossi, com `npx tsx --env-file=.env.local smoke-24-6.ts` (chave OpenAI atualizada no `.env.local`). Script: `generateEmailBlocks` com prompts code-default e LLM real, sequência de 4 e-mails (inicial + 3 follow-ups). Sem Apollo, sem Instantly, sem escrita no banco.
+
+- `findUnsupportedCopyTokens`: **0 tokens inválidos** nos 4 e-mails (assunto + corpo).
+- Sem "Nome", "Empresa", "[Sua", "[Seu" nem `{{follow_up_strategy}}`. Variáveis usadas: só `{{first_name}}`, `{{company_name}}`, `{{ice_breaker}}`.
+- Ângulos distintos: e-mail 2 = insight do setor, e-mail 3 = pergunta, e-mail 4 = encerramento ("posso encerrar por aqui?").
+- Observações de qualidade (não bloqueiam): os e-mails fecham com "Valeu,"/"Abraço," sem nome (assinatura fictícia removida; depende da assinatura da conta no Instantly); a copy ainda tem frases genéricas — escopo da 24.8/24.9.
