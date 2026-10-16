@@ -20,9 +20,14 @@ class TestStep extends BaseStep {
   public executeResult: StepOutput = { success: true, data: { test: true } };
   public shouldThrow: Error | null = null;
   public callCount = 0;
+  /** Story 24.2: parcial registrado antes de lancar/retornar. */
+  public partialToRecord: Record<string, unknown> | null = null;
 
-  protected async executeInternal(): Promise<StepOutput> {
+  protected async executeInternal(input: StepInput): Promise<StepOutput> {
     this.callCount++;
+    if (this.partialToRecord) {
+      await this.recordPartialOutput(input.executionId, this.partialToRecord);
+    }
     if (this.shouldThrow) throw this.shouldThrow;
     return this.executeResult;
   }
@@ -287,6 +292,88 @@ describe("BaseStep (AC #4)", () => {
     });
   });
 
+  // ==============================================
+  // Story 24.2: output parcial sobrevive a falha
+  // ==============================================
+  describe("recordPartialOutput() + saveFailure aditivo (Story 24.2)", () => {
+    it("grava o parcial no step ANTES de terminar", async () => {
+      step.partialToRecord = { externalCampaignId: "c1", campaignName: "X" };
+
+      await step.run(mockInput);
+
+      const updateCalls = mockSupabase.stepsChain.update.mock.calls;
+      const partialCall = updateCalls.find(
+        (call: unknown[]) =>
+          !("status" in (call[0] as Record<string, unknown>)) &&
+          (call[0] as { output?: Record<string, unknown> }).output?.externalCampaignId === "c1"
+      );
+      expect(partialCall).toBeDefined();
+      expect(partialCall![0]).toEqual({ output: { externalCampaignId: "c1", campaignName: "X" } });
+    });
+
+    it("saveFailure grava { ...parcial, error } — o id sobrevive a falha", async () => {
+      step.partialToRecord = { externalCampaignId: "c1" };
+      step.shouldThrow = new Error("upload falhou");
+
+      await expect(step.run(mockInput)).rejects.toBeDefined();
+
+      const failureCall = mockSupabase.stepsChain.update.mock.calls.find(
+        (call: unknown[]) => (call[0] as Record<string, unknown>).status === "failed"
+      );
+      expect(failureCall![0]).toMatchObject({
+        status: "failed",
+        output: {
+          externalCampaignId: "c1",
+          error: expect.objectContaining({ message: "upload falhou" }),
+        },
+      });
+    });
+
+    it("sem parcial, saveFailure continua gravando so { error } (regressao)", async () => {
+      step.shouldThrow = new Error("Failure");
+
+      await expect(step.run(mockInput)).rejects.toBeDefined();
+
+      const failureCall = mockSupabase.stepsChain.update.mock.calls.find(
+        (call: unknown[]) => (call[0] as Record<string, unknown>).status === "failed"
+      );
+      expect(Object.keys((failureCall![0] as { output: object }).output)).toEqual(["error"]);
+    });
+
+    it("erro ao gravar o parcial NAO derruba o step (loga e segue)", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      // Toda escrita em agent_steps devolve { error } — inclusive a do parcial.
+      const failingChain = createChainBuilder({ data: null, error: { message: "rls" } });
+      mockSupabase.from.mockImplementation((table: string) =>
+        table === "agent_steps" ? failingChain : mockSupabase.messagesChain
+      );
+      step.partialToRecord = { externalCampaignId: "c1" };
+
+      const result = await step.run(mockInput);
+
+      expect(result.success).toBe(true);
+      expect(errorSpy).toHaveBeenCalled();
+      errorSpy.mockRestore();
+    });
+
+    it("o parcial de uma tentativa NAO vaza para a proxima run()", async () => {
+      step.partialToRecord = { externalCampaignId: "c1" };
+      step.shouldThrow = new Error("1a falha");
+      await expect(step.run(mockInput)).rejects.toBeDefined();
+
+      mockSupabase.stepsChain.update.mockClear();
+      step.partialToRecord = null;
+      step.shouldThrow = new Error("2a falha");
+      await expect(step.run(mockInput)).rejects.toBeDefined();
+
+      const failureCall = mockSupabase.stepsChain.update.mock.calls.find(
+        (call: unknown[]) => (call[0] as Record<string, unknown>).status === "failed"
+      );
+      expect((failureCall![0] as { output: Record<string, unknown> }).output.externalCampaignId)
+        .toBeUndefined();
+    });
+  });
+
   describe("updateStepStatus() (2.6)", () => {
     it("updates agent_steps status to running at start", async () => {
       await step.run(mockInput);
@@ -311,10 +398,31 @@ describe("BaseStep (AC #4)", () => {
     // disparado). Sem lock, dois `ActivateStep` concorrentes disparavam dois
     // `POST /activate` num endpoint que e "activate (start), **or resume**".
     describe("CAS de posse ao entrar em running (D2)", () => {
-      it("a transicao para running usa .neq('status','running')", async () => {
+      // Story 24.2: o CAS so reivindica a partir dos estados EXECUTAVEIS. Com o antigo
+      // `.neq("status","running")`, o 2o POST de um clique duplo pegava o step ja
+      // `completed`/`approved` e rodava (e cobrava) de novo.
+      it("a transicao para running so reivindica pending/failed/awaiting_approval (24.2)", async () => {
         await step.run(mockInput);
 
-        expect(mockSupabase.stepsChain.neq).toHaveBeenCalledWith("status", "running");
+        expect(mockSupabase.stepsChain.in).toHaveBeenCalledWith("status", [
+          "pending",
+          "failed",
+          "awaiting_approval",
+        ]);
+        expect(mockSupabase.stepsChain.neq).not.toHaveBeenCalledWith("status", "running");
+      });
+
+      it("clique duplo: step ja concluido (CAS sem linha) -> STEP_ALREADY_RUNNING sem chamada externa (24.2)", async () => {
+        // O 1o POST ja levou o step a `completed`; o filtro `.in(...)` nao casa e o
+        // update devolve zero linhas.
+        mockSupabase.stepsChain.select = vi.fn().mockResolvedValue({ data: [], error: null });
+
+        await expect(step.run(mockInput)).rejects.toMatchObject({
+          code: "STEP_ALREADY_RUNNING",
+          message:
+            "Esta etapa ja esta em andamento ou ja foi concluida — nada foi executado de novo.",
+        });
+        expect(step.callCount).toBe(0);
       });
 
       it("perder o CAS (zero linhas) lanca STEP_ALREADY_RUNNING e NAO roda o step", async () => {

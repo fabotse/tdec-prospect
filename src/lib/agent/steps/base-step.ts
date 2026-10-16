@@ -30,6 +30,13 @@ const MAX_RETRIES = 3;
 // ==============================================
 
 export abstract class BaseStep {
+  /**
+   * Story 24.2: output parcial registrado DURANTE o executeInternal (ex.: o
+   * `externalCampaignId` logo apos criar a campanha). O `saveFailure` o preserva —
+   * e o que permite ao retry reaproveitar o que ja foi feito (e pago).
+   */
+  private partialOutput: Record<string, unknown> | null = null;
+
   constructor(
     protected readonly stepNumber: number,
     protected readonly stepType: StepType,
@@ -44,6 +51,9 @@ export abstract class BaseStep {
    */
   async run(input: StepInput): Promise<StepOutput> {
     const db = this.supabase;
+    // Story 24.2: cada tentativa comeca sem parcial em memoria; o step que reaproveita
+    // um parcial do banco o re-registra via `recordPartialOutput`.
+    this.partialOutput = null;
 
     await this.updateStepStatus(db, input.executionId, "running");
 
@@ -242,15 +252,50 @@ export abstract class BaseStep {
     executionId: string,
     pipelineError: PipelineError
   ): Promise<void> {
+    // Story 24.2: ADITIVO — o parcial sobrevive a falha (`{ ...parcial, error }`). Quem
+    // le `output.error` continua funcionando; o retry le o parcial.
     await db
       .from("agent_steps")
       .update({
         status: "failed" as StepStatus,
         error_message: pipelineError.message,
-        output: { error: pipelineError },
+        output: { ...(this.partialOutput ?? {}), error: pipelineError },
       })
       .eq("execution_id", executionId)
       .eq("step_number", this.stepNumber);
+  }
+
+  /**
+   * Story 24.2: registra um output PARCIAL do step (em memoria e no banco) antes de a
+   * etapa terminar. Usado para gravar o que ja tem efeito externo (ex.: campanha criada
+   * no Instantly) para que um retry reaproveite em vez de refazer e cobrar de novo.
+   *
+   * Nunca lanca: o efeito externo ja aconteceu, e uma falha de escrita aqui nao pode
+   * derrubar a etapa. Checa o `{ error }` que o supabase-js RETORNA em vez de lancar.
+   */
+  protected async recordPartialOutput(
+    executionId: string,
+    data: Record<string, unknown>
+  ): Promise<void> {
+    this.partialOutput = { ...(this.partialOutput ?? {}), ...data };
+    try {
+      const { error } = await this.supabase
+        .from("agent_steps")
+        .update({ output: this.partialOutput })
+        .eq("execution_id", executionId)
+        .eq("step_number", this.stepNumber);
+      if (error) {
+        console.error(
+          `[BaseStep] Falha ao gravar o output parcial do step ${this.stepNumber} (${this.stepType}, execution=${executionId}):`,
+          error
+        );
+      }
+    } catch (writeError) {
+      console.error(
+        `[BaseStep] Falha ao gravar o output parcial do step ${this.stepNumber} (${this.stepType}, execution=${executionId}):`,
+        writeError instanceof Error ? writeError.message : writeError
+      );
+    }
   }
 
   /**
@@ -286,9 +331,14 @@ export abstract class BaseStep {
     // Resultado sem esta guarda: dois `POST /activate` concorrentes num endpoint que e
     // "activate (start), **or resume**".
     //
-    // `.neq("status", "running")` faz a transicao ser a propria disputa: quem escreve
-    // primeiro roda, o segundo nao encontra linha e desiste ANTES de qualquer chamada
-    // externa. Mesmo padrao CAS dos `.neq("status","cancelled")` da 22.10.
+    // A transicao e a propria disputa: quem escreve primeiro roda, o segundo nao
+    // encontra linha e desiste ANTES de qualquer chamada externa. Mesmo padrao CAS dos
+    // `.neq("status","cancelled")` da 22.10.
+    //
+    // Story 24.2: o CAS so reivindica a partir dos estados EXECUTAVEIS
+    // (`pending`/`failed`/`awaiting_approval` do ajuste pos-rejeicao). Com o antigo
+    // `.neq("status","running")`, o 2o POST de um clique duplo encontrava o step ja
+    // `completed`/`approved` e rodava (e cobrava) de novo.
     //
     // TRADE-OFF ACEITO (decisao do Fabossi na code review): um step deixado `running`
     // por uma funcao que morreu no meio nao pode ser redisparado sem intervencao manual
@@ -299,7 +349,7 @@ export abstract class BaseStep {
       .update(updateData)
       .eq("execution_id", executionId)
       .eq("step_number", this.stepNumber)
-      .neq("status", "running")
+      .in("status", ["pending", "failed", "awaiting_approval"])
       .select("step_number");
 
     // `null` = o mock/driver nao devolveu linhas (nao sabemos) -> fail-open, mantem o
@@ -309,7 +359,7 @@ export abstract class BaseStep {
       const alreadyRunning: PipelineError = {
         code: "STEP_ALREADY_RUNNING",
         message:
-          "Esta etapa ja esta em execucao. Aguarde ela terminar antes de tentar de novo.",
+          "Esta etapa ja esta em andamento ou ja foi concluida — nada foi executado de novo.",
         stepNumber: this.stepNumber,
         stepType: this.stepType,
         isRetryable: false,

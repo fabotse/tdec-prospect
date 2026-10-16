@@ -454,3 +454,74 @@ source_spec: `spec-23-2-dependencias-sem-vulnerabilidades-criticas.md`
 reason: read-excel-file devolve as linhas/colunas vazias iniciais como null. O SheetJS antigo usava o range `!ref` da planilha: com arquivo gerado pelo próprio SheetJS (ref A1:E4) os dois parsers dão o mesmo resultado (testado no scratchpad). Falta testar um .xlsx salvo pelo Excel com dados a partir de C3, cuja tag dimension pode começar em C3 — isso decide se há divergência.
 status: resolved
 resolution: 2026-10-15, ainda na 23.2. O smoke mostrou que nenhuma coluna era detectada, no parser antigo e no novo. Agora o `xlsx-parser.ts` procura a linha de cabeçalho (a que mais casa com colunas de lead entre as 20 primeiras) e descarta linhas e colunas vazias. Teste TITULO com a fixture `import-leads-titulo.xlsx`.
+
+### DW-8: Apos F5 numa execucao em andamento, mensagem livre fora do ajuste e so persistida e ninguem responde.
+origin: spec-deferred b1eb8a9e3cef
+location: src/components/agent/AgentChat.tsx handleSendMessage
+source_spec: `spec-24-2-execucao-protegida-contra-cobranca-dupla.md`
+severity: low
+reason: O guard da 24.2 tira essa mensagem do fluxo de briefing (correto pela AC), mas cai no mesmo caminho "briefing confirmado -> so persiste" que ja existia sem resposta (AgentChat.tsx, fim do handleSendMessage). A conversa sem beco sem saida e escopo da 24.4.
+status: open
+
+### DW-9: O carimbo `rejected: true` do POST /reject ignora o `{ error }` retornado pelo supabase-js, entao uma falha nessa escrita passa em silencio.
+origin: spec-deferred b062d5da2ca3
+location: src/app/api/agent/executions/[executionId]/steps/[stepNumber]/reject/route.ts:177
+source_spec: `spec-24-2-execucao-protegida-contra-cobranca-dupla.md`
+severity: low
+reason: Codigo da 22.13 (reject/route.ts, update do metadata do gate sem checar `error`; so excecao lancada e capturada). Com a 24.2 o carimbo passou a liberar o PATCH de briefing e o execute do ajuste: se a escrita falhar, o chat entra em ajuste mas toda tentativa toma 409 ("responda sim para eu tentar de novo") sem nenhum log. Degradacao segura (sem cobranca), mas invisivel.
+status: open
+
+### DW-10: O AgentActivationGate trata o 409 superseded (STEP_ALREADY_RUNNING/STEP_NOT_EXECUTABLE) como erro e rearma o card.
+origin: spec-deferred f6bf5ad1c6c3
+location: src/components/agent/AgentActivationGate.tsx:201
+source_spec: `spec-24-3-avanco-confiavel-e-tentar-novamente.md`
+severity: low
+reason: AgentActivationGate.tsx:201 faz `if (!outcome.alreadyReported) setError(outcome.message)` sem olhar `superseded`. Num clique duplo ou numa 2a aba, a ativacao em andamento aparece como erro e o card volta clicavel. O 2o clique toma 409 de novo (o CAS da 24.2 impede a ativacao dupla), entao nao ha cobranca, so um aviso enganoso. Codigo da 22.18, intocado de proposito por esta story.
+status: open
+
+### DW-11: Um step preso em running (function morta por timeout ou crash) continua sem saida pela UI.
+origin: spec-deferred 2aab69491162
+location: src/lib/agent/client-utils.ts executeStepChecked / src/lib/agent/steps/base-step.ts
+source_spec: `spec-24-3-avanco-confiavel-e-tentar-novamente.md`
+severity: medium
+reason: O maxDuration=300 so empurra o limite. Um 504 sem corpo JSON vira aviso retryable, mas o retry toma 409 STEP_NOT_EXECUTABLE (superseded) e o aviso some, com o step girando para sempre no painel. A deteccao de running velho e escopo da 24.1 (sweeper pg_cron, FR11/FR12).
+status: open
+
+### DW-12: No modo guiado, uma falha pre-orchestrator no disparo apos aprovar um gate perde a unica saida depois de um F5.
+origin: spec-deferred 9046028e7a5b
+location: src/stores/use-agent-store.ts stepTriggerFailure / src/components/agent/AgentStepProgress.tsx
+source_spec: `spec-24-3-avanco-confiavel-e-tentar-novamente.md`
+severity: medium
+reason: O aviso com "Tentar novamente" e efemero (store). Depois do F5 o step N+1 fica pending, o card ja mostra aprovado e o painel nao tem botao para step pending. Antes desta story nao havia saida nem na mesma sessao (o problema ja existia). No autopilot o auto-trigger redispara.
+status: open
+
+### DW-13: O comando anunciado "buscar leads" em awaiting_leads_input depende do LLM; se o /parse devolver import_leads, a instrucao de colar se repete.
+origin: spec-deferred ebcd3dcf5e71
+location: src/hooks/use-briefing-flow.ts (handler awaiting_leads_input)
+source_spec: `spec-24-4-conversa-sem-becos-sem-saida.md`
+reason: maybe-false. O ramo so sai para a busca quando o LLM nao devolve nextAction import_leads (use-briefing-flow.ts, handler awaiting_leads_input); o fallback por palavra-chave so roda quando o /parse falha. Para resolver: rodar o /parse real com a conversa do ramo de leads + "buscar leads" e ver o nextAction devolvido. Se o LLM devolver import_leads, decidir se "buscar leads" exato vira saida deterministica.
+status: open
+
+### DW-14: O resumo do produto diz "Cadastrei o X" antes de o produto ser salvo, e agora termina oferecendo "seguir sem produto".
+origin: spec-deferred 45f9e94fca94
+location: src/hooks/use-briefing-flow.ts:275
+source_spec: `spec-24-4-conversa-sem-becos-sem-saida.md`
+severity: low
+reason: generateProductSummary (use-briefing-flow.ts:275) usa "Cadastrei" desde antes da 24.4; o cadastro so acontece apos o "sim" em confirming_product. Com a dica de saida no fim, fica ambiguo se algo ficou salvo. Correcao: trocar por "Extrai os dados do X" e ajustar as assercoes de texto.
+status: open
+
+### DW-15: Se o createProduct falha, o "tentar novamente" pede a descricao de novo e perde os dados ja extraidos.
+origin: spec-deferred a5260911d348
+location: src/hooks/use-briefing-flow.ts (processCardAction, case confirm_product)
+source_spec: `spec-24-5-confirmacao-por-card-com-botoes.md`
+severity: low
+reason: Preexistente (24.4 e antes): a falha leva a awaiting_product_decision. Um "sim" vai para enterProductDetails, que pede a descricao em vez de reenviar o pendingProduct. Nesse estado o card some. Para corrigir, manter confirming_product com o pendingProduct e reoferecer "Confirmar".
+status: open
+
+### DW-16: O fluxo manual de follow-up ainda usa as estratégias insistentes ("viu meu e-mail?", "RE:").
+origin: spec-deferred 65fcd87b06bc
+location: src/hooks/use-ai-full-campaign-generation.ts:313
+source_spec: `spec-24-6-e-mails-sem-dados-ficticios-e-follow-ups-com-valor.md`
+severity: medium
+reason: use-ai-full-campaign-generation.ts:313-334 e EmailBlock.tsx:335-385 montam follow_up_strategy/subject_strategy com "CONFIRMAR VISUALIZAÇÃO" e "RE: SIMPLES". A 24.6 limitou a correção ao agente; o épico põe a correção de prompt do fluxo manual na 24.8.
+status: open

@@ -13,6 +13,7 @@
 
 import { BaseStep } from "./base-step";
 import { InstantlyService } from "@/lib/services/instantly";
+import { TrackingService } from "@/lib/services/tracking";
 import { getServiceApiKey } from "./step-utils";
 import { markCampaignExported } from "@/lib/agent/campaign-persistence";
 import type {
@@ -131,6 +132,21 @@ export class ExportStep extends BaseStep {
       },
     });
 
+    // Story 24.2 (AC1): export IDEMPOTENTE. Um retry depois de falha nao pode criar uma
+    // segunda campanha (orfa) no Instantly: o `externalCampaignId` fica no output parcial
+    // do proprio step logo apos a criacao, sobrevive ao `saveFailure`, e e lido aqui,
+    // ANTES de qualquer chamada ao Instantly. Erro de leitura LANCA — seguir as cegas
+    // seria criar outra campanha.
+    const existingCampaignId = await this.readExistingCampaignId(input.executionId);
+    if (existingCampaignId) {
+      // Re-registra o parcial JA AQUI, antes da API key e do `listAccounts`: se qualquer
+      // passo desta tentativa falhar, o `saveFailure` continua preservando o id.
+      await this.recordPartialOutput(input.executionId, {
+        externalCampaignId: existingCampaignId,
+        campaignName,
+      });
+    }
+
     // 2.5 - Sub-step A: Buscar API key do Instantly
     const apiKey = await getServiceApiKey(this.tenantId, "instantly");
 
@@ -151,17 +167,24 @@ export class ExportStep extends BaseStep {
     // (user selects accounts in approval gate, ActivateStep adds them).
     // In autopilot, include all accounts (AC #3).
     const isGuided = input.mode === "guided";
-    const createResult = await service.createCampaign({
-      apiKey,
-      name: campaignName,
-      sequences,
-      sendingAccounts: isGuided ? [] : accountEmails,
-    });
-    const externalCampaignId = createResult.campaignId;
+    let externalCampaignId: string;
+    if (existingCampaignId) {
+      externalCampaignId = existingCampaignId;
+    } else {
+      const createResult = await service.createCampaign({
+        apiKey,
+        name: campaignName,
+        sequences,
+        sendingAccounts: isGuided ? [] : accountEmails,
+      });
+      externalCampaignId = createResult.campaignId;
+      // Grava ANTES do upload de leads — e o upload que costuma falhar.
+      await this.recordPartialOutput(input.executionId, { externalCampaignId, campaignName });
+    }
     const accountsAdded = isGuided ? 0 : accountEmails.length;
 
     // 2.9 - Sub-step E: Adicionar leads com icebreakers
-    const mappedLeads = leadsWithIcebreakers
+    const allMappedLeads = leadsWithIcebreakers
       .filter((lead) => lead.email)
       .map((lead) => {
         const nameParts = (lead.name || "").split(" ");
@@ -178,15 +201,39 @@ export class ExportStep extends BaseStep {
         };
       });
 
-    if (mappedLeads.length === 0) {
+    if (allMappedLeads.length === 0) {
       throw new Error("Nenhum lead com email valido para exportar");
     }
 
-    const addLeadsResult = await service.addLeadsToCampaign({
-      apiKey,
-      campaignId: externalCampaignId,
-      leads: mappedLeads,
-    });
+    // Story 24.2: no reuso, sobe so os e-mails que AINDA nao estao na campanha. Diff
+    // local em vez de `skip_if_in_campaign` (que filtra leads de QUALQUER campanha e foi
+    // desligado de proposito — ligar seria um filtro novo no caminho ate o Instantly).
+    let mappedLeads = allMappedLeads;
+    let alreadyPresent = 0;
+    if (existingCampaignId) {
+      const existingLeads = await new TrackingService().getLeadTracking({
+        apiKey,
+        externalCampaignId,
+      });
+      const presentEmails = new Set(
+        existingLeads
+          .map((lead) => (typeof lead.leadEmail === "string" ? lead.leadEmail.trim().toLowerCase() : ""))
+          .filter((email) => email.length > 0)
+      );
+      mappedLeads = allMappedLeads.filter(
+        (lead) => !presentEmails.has(lead.email.trim().toLowerCase())
+      );
+      alreadyPresent = allMappedLeads.length - mappedLeads.length;
+    }
+
+    const addLeadsResult =
+      mappedLeads.length > 0
+        ? await service.addLeadsToCampaign({
+            apiKey,
+            campaignId: externalCampaignId,
+            leads: mappedLeads,
+          })
+        : { leadsUploaded: 0, duplicatedLeads: 0, invalidEmails: 0 };
 
     // Story 22.16: carimba os quatro campos de export na linha local, pelo caminho
     // canonico do builder (`updateExportStatus`). SO AQUI o `external_campaign_id` existe.
@@ -218,7 +265,7 @@ export class ExportStep extends BaseStep {
       externalCampaignId,
       campaignName,
       totalEmails: emailBlocks.length,
-      leadsUploaded: addLeadsResult.leadsUploaded,
+      leadsUploaded: alreadyPresent + addLeadsResult.leadsUploaded,
       duplicatedLeads: addLeadsResult.duplicatedLeads,
       invalidEmails: addLeadsResult.invalidEmails,
       accountsAdded,
@@ -234,8 +281,9 @@ export class ExportStep extends BaseStep {
     };
 
     // 2.11 - Calcular custo
+    // Story 24.2: no reuso nada foi criado e so os leads novos foram enviados.
     const cost = {
-      instantly_create: 1,
+      instantly_create: existingCampaignId ? 0 : 1,
       instantly_leads: addLeadsResult.leadsUploaded,
     };
 
@@ -245,6 +293,30 @@ export class ExportStep extends BaseStep {
       data: data as unknown as Record<string, unknown>,
       cost,
     };
+  }
+
+  /**
+   * Story 24.2: le o `externalCampaignId` gravado no output (parcial ou de falha) do
+   * proprio step por uma tentativa anterior. Lanca em erro de leitura.
+   */
+  private async readExistingCampaignId(executionId: string): Promise<string | null> {
+    const { data, error } = await this.supabase
+      .from("agent_steps")
+      .select("output")
+      .eq("execution_id", executionId)
+      .eq("step_number", this.stepNumber)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(
+        "Nao consegui verificar se a campanha ja foi criada no Instantly. Tente novamente."
+      );
+    }
+
+    const output = (data as { output?: unknown } | null)?.output;
+    if (!output || typeof output !== "object") return null;
+    const id = (output as Record<string, unknown>).externalCampaignId;
+    return typeof id === "string" && id.length > 0 ? id : null;
   }
 
   /**

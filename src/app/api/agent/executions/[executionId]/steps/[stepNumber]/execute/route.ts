@@ -10,10 +10,17 @@ import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
 import { readServiceApiKey } from "@/lib/agent/service-keys";
 import { isTerminalExecutionStatus } from "@/types/agent";
+import { isStepRejected } from "@/lib/agent/step-guards";
 import {
   DeterministicOrchestrator,
   isPipelineError,
 } from "@/lib/agent/orchestrator";
+
+// Story 24.3 (AC1): um step longo (busca + enriquecimento, geracao de copy, export para
+// o Instantly) passava do limite padrao da function e morria no meio, deixando o step
+// preso em `running`. 300s cobre o pior caso observado. O `vercel.json` so limita
+// `src/app/api/ai/**` — esta rota nao e afetada por ele.
+export const maxDuration = 300;
 
 export async function POST(
   _request: NextRequest,
@@ -94,6 +101,53 @@ export async function POST(
       },
       { status: 409 }
     );
+  }
+
+  // Story 24.2 (AC2): guarda de status do STEP alvo. Sem ela, um step ja
+  // `completed`/`approved` rodava (e COBRAVA) de novo num clique duplo, numa segunda aba
+  // ou num redisparo do auto-trigger. So `pending`, `failed` e o step REJEITADO (ajuste
+  // 22.13 — `awaiting_approval` + gate carimbado) sao executaveis. Sai antes de qualquer
+  // chamada externa ou escrita. Step inexistente segue para o orchestrator, que ja
+  // responde o caso (ORCHESTRATOR_INVALID_STEP).
+  const { data: targetStep, error: stepReadError } = await supabase
+    .from("agent_steps")
+    .select("status")
+    .eq("execution_id", executionId)
+    .eq("step_number", stepNumber)
+    .maybeSingle();
+
+  if (stepReadError) {
+    return NextResponse.json(
+      {
+        error: {
+          code: "STEP_READ_ERROR",
+          message: "Erro ao ler o status da etapa",
+        },
+      },
+      { status: 500 }
+    );
+  }
+
+  if (targetStep) {
+    const stepStatus = (targetStep as { status?: string }).status;
+    const executable =
+      stepStatus === "pending" ||
+      stepStatus === "failed" ||
+      (stepStatus === "awaiting_approval" &&
+        (await isStepRejected(supabase, executionId, stepNumber)));
+
+    if (!executable) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "STEP_NOT_EXECUTABLE",
+            message:
+              "Esta etapa ja esta em andamento ou ja foi concluida — nada foi executado de novo.",
+          },
+        },
+        { status: 409 }
+      );
+    }
   }
 
   // 5.4 - Fetch API key

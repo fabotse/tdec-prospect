@@ -27,6 +27,12 @@ import {
 } from "@/lib/agent/service-keys";
 import { normalizeSegmentName, persistApprovedLeads } from "@/lib/agent/lead-persistence";
 import { persistAgentCampaign } from "@/lib/agent/campaign-persistence";
+import {
+  TEMPLATE_LEAD_VARIABLES,
+  buildFollowUpPlan,
+  cleanAgentEmailCopy,
+  cleanIcebreakerText,
+} from "@/lib/agent/campaign-copy";
 import { transformProductRow, type ProductRow } from "@/types/product";
 import { ICEBREAKER_CATEGORY_INSTRUCTIONS } from "@/types/ai-prompt";
 import type { IcebreakerCategory } from "@/types/ai-prompt";
@@ -173,7 +179,13 @@ export class CreateCampaignStep extends BaseStep {
     const product = briefing.productSlug
       ? await this.loadProduct(briefing.productSlug)
       : null;
-    const aiVars = buildAIVariables(kbContext, product);
+    // Story 24.6: buildAIVariables injeta lead ficticio ("Nome", "Empresa", "Tecnologia",
+    // "Brasil"). Estrutura e e-mails sao templates para todos os leads: variaveis de lead
+    // vazias forcam o MODO TEMPLATE dos prompts. Icebreakers sobrescrevem com o lead real.
+    const aiVars: AIContextVariables = {
+      ...buildAIVariables(kbContext, product),
+      ...TEMPLATE_LEAD_VARIABLES,
+    };
 
     // 2.7 - Get OpenAI API key
     const apiKey = await this.getOpenAIApiKey();
@@ -836,7 +848,10 @@ export class CreateCampaignStep extends BaseStep {
       lead_name: lead.name,
       lead_title: lead.title ?? "",
       lead_company: lead.companyName ?? "",
-      lead_industry: aiVars.target_industries || "Tecnologia",
+      // Story 24.6: setor/localizacao do lead nunca vem do ICP do tenant (SearchLeadResult
+      // nao tem esses campos): ficam vazios em vez de inventados.
+      lead_industry: "",
+      lead_location: "",
       linkedin_posts: CreateCampaignStep.formatLinkedInPostsForPrompt(postsResult.posts),
     };
 
@@ -856,7 +871,8 @@ export class CreateCampaignStep extends BaseStep {
         timeoutMs: 15000,
       });
 
-      return result.text.trim() || null; // vazio → fallback standard
+      // Story 24.6: sem `{{x}}`/`[...]`; vazio depois da limpeza → fallback standard
+      return cleanIcebreakerText(result.text);
     } catch {
       // Prompt/AI falha no premium → fallback standard (AC3), nunca deixa o lead sem icebreaker
       return null;
@@ -893,8 +909,9 @@ export class CreateCampaignStep extends BaseStep {
       lead_name: lead.name,
       lead_title: lead.title ?? "",
       lead_company: lead.companyName ?? "",
-      lead_industry: aiVars.target_industries || "Tecnologia",
-      lead_location: aiVars.lead_location || "Brasil",
+      // Story 24.6: setor/localizacao do lead nunca vem do ICP do tenant.
+      lead_industry: "",
+      lead_location: "",
       category_instructions: ICEBREAKER_CATEGORY_INSTRUCTIONS.lead,
       icebreaker_examples: formattedExamples,
     };
@@ -914,7 +931,8 @@ export class CreateCampaignStep extends BaseStep {
       timeoutMs: 15000,
     });
 
-    return result.text.trim() || null;
+    // Story 24.6: sem `{{x}}`/`[...]`; vazio depois da limpeza = falha (null)
+    return cleanIcebreakerText(result.text);
   }
 
   private async generateEmailBlocks(
@@ -922,13 +940,21 @@ export class CreateCampaignStep extends BaseStep {
     aiVars: AIContextVariables,
     provider: ReturnType<typeof createAIProvider>
   ): Promise<CreateCampaignOutput["emailBlocks"]> {
-    const emailItems = items.filter((item) => item.type === "email");
+    // Story 24.6: ordem por position (o JSON do LLM pode vir fora de ordem); filter ja copia.
+    const emailItems = items
+      .filter((item) => item.type === "email")
+      .sort((a, b) => a.position - b.position);
     const emailBlocks: CreateCampaignOutput["emailBlocks"] = [];
     let previousSubject = "";
     let previousBody = "";
 
-    for (const item of emailItems) {
-      const isFollowUp = item.emailMode === "follow-up" || item.position > 0;
+    // Story 24.6: angulos ja usados, para o plano de follow-up evitar repeticao.
+    const anglesUsed: string[] = [];
+
+    // Story 24.6: numeracao so entre e-mails (item.position conta os delays e gerava
+    // "Email 5 de 4"). O primeiro e-mail e sempre o inicial.
+    for (const [index, item] of emailItems.entries()) {
+      const isFollowUp = index > 0;
       let subject: string;
       let body: string;
 
@@ -964,12 +990,16 @@ export class CreateCampaignStep extends BaseStep {
           : "Corpo do email";
       } else {
         // Follow-up email — separate prompts for subject and body
+        const plan = buildFollowUpPlan(index + 1, emailItems.length, anglesUsed);
+        anglesUsed.push(plan.angle);
         const followUpVars = {
           ...aiVars,
           previous_email_subject: previousSubject,
           previous_email_body: previousBody,
           email_objective: item.context ?? aiVars.email_objective,
-          sequence_position: `Email ${item.position + 1} de ${emailItems.length}`,
+          sequence_position: plan.sequencePosition,
+          follow_up_strategy: plan.followUpStrategy,
+          subject_strategy: plan.subjectStrategy,
         };
 
         const subjectPrompt = await promptManager.renderPrompt(
@@ -1000,6 +1030,22 @@ export class CreateCampaignStep extends BaseStep {
               timeoutMs: 20000,
             })).text.trim()
           : "Corpo do follow-up";
+      }
+
+      // Story 24.6: limpeza deterministica antes de virar template do Instantly
+      // (e antes de servir de contexto ao proximo follow-up). Sem regenerar.
+      // Assunto que so tinha placeholder ganha fallback fixo e valido; corpo vazio nao vai
+      // ao Instantly: falha retryable, no mesmo padrao da "estrutura sem emails".
+      subject =
+        cleanAgentEmailCopy(subject, "subject") ||
+        (isFollowUp ? "{{first_name}}, uma pergunta rápida" : "Uma ideia para {{company_name}}");
+      body = cleanAgentEmailCopy(body, "body");
+      if (!body) {
+        throw new ExternalServiceError(
+          "openai",
+          502,
+          `Formato invalido na resposta do AI: email ${index + 1} sem conteudo`
+        );
       }
 
       emailBlocks.push({

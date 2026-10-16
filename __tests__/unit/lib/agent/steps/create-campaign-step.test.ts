@@ -12,6 +12,7 @@ import { createChainBuilder } from "../../../../helpers/mock-supabase";
 import { FakeDb, createFakeSupabase } from "../../../../helpers/fake-leads-db";
 import type { StepInput, SearchLeadResult } from "@/types/agent";
 import { ExternalServiceError } from "@/lib/services/base-service";
+import { findUnsupportedCopyTokens } from "@/lib/agent/campaign-copy";
 
 // ==============================================
 // MOCKS
@@ -766,6 +767,248 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
       expect(bodyVars.previous_email_subject).toBeDefined();
       expect(bodyVars.previous_email_body).toBeDefined();
       expect(bodyVars.email_objective).toBeDefined();
+    });
+  });
+
+  // Story 24.6: e-mails sem dados ficticios e follow-ups com valor
+  describe("copy honesta (Story 24.6)", () => {
+    const FOUR_EMAILS_STRUCTURE = JSON.stringify({
+      items: [
+        { position: 0, type: "email", context: "Primeiro contato", emailMode: "initial" },
+        { position: 1, type: "delay", days: 3 },
+        { position: 2, type: "email", context: "Follow-up 1", emailMode: "follow-up" },
+        { position: 3, type: "delay", days: 3 },
+        { position: 4, type: "email", context: "Follow-up 2", emailMode: "follow-up" },
+        { position: 5, type: "delay", days: 4 },
+        { position: 6, type: "email", context: "Ultimo", emailMode: "follow-up" },
+      ],
+    });
+
+    function structureThen(structure: string, content: (call: number) => string) {
+      let callCount = 0;
+      mockGenerateText.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ text: structure, model: "gpt-4o", usage: {} });
+        }
+        return Promise.resolve({ text: content(callCount), model: "gpt-4o", usage: {} });
+      });
+    }
+
+    function varsOf(promptKey: string): Array<Record<string, string>> {
+      return mockRenderPrompt.mock.calls
+        .filter((call: unknown[]) => call[0] === promptKey)
+        .map((call: unknown[]) => call[1] as Record<string, string>);
+    }
+
+    it("estrutura e e-mails recebem variaveis de lead vazias (MODO TEMPLATE), nunca as ficticias", async () => {
+      structureThen(VALID_STRUCTURE_JSON, (n) => `Content ${n}`);
+
+      await step.run(createInput());
+
+      const keys = [
+        "campaign_structure_generation",
+        "email_subject_generation",
+        "email_body_generation",
+        "follow_up_subject_generation",
+        "follow_up_email_generation",
+      ];
+      for (const key of keys) {
+        const calls = varsOf(key);
+        expect(calls.length).toBeGreaterThanOrEqual(1);
+        for (const vars of calls) {
+          expect(vars.lead_name).toBe("");
+          expect(vars.lead_title).toBe("");
+          expect(vars.lead_company).toBe("");
+          expect(vars.lead_industry).toBe("");
+          expect(vars.lead_location).toBe("");
+          expect(vars.icebreaker).toBe("");
+        }
+      }
+    });
+
+    it("icebreaker padrao usa o lead real e nunca o setor/localizacao do ICP", async () => {
+      structureThen(VALID_STRUCTURE_JSON, (n) => `Content ${n}`);
+      const leads: SearchLeadResult[] = [
+        { name: "Ana Souza", title: null, companyName: "Acme", email: "ana@acme.com", linkedinUrl: null, apolloId: "apollo-ana" },
+      ];
+
+      await step.run(createInput({}, { leads, totalFound: 1, jobTitles: ["CTO"], domainsSearched: ["acme.com"] }));
+
+      const [vars] = varsOf("icebreaker_generation");
+      expect(vars).toMatchObject({
+        lead_name: "Ana Souza",
+        lead_title: "",
+        lead_company: "Acme",
+        lead_industry: "",
+        lead_location: "",
+      });
+    });
+
+    it("icebreaker premium tambem nao recebe setor/localizacao do ICP", async () => {
+      structureThen(VALID_STRUCTURE_JSON, (n) => `Content ${n}`);
+      mockFetchLinkedInPosts.mockResolvedValue({
+        success: true,
+        posts: MOCK_POSTS,
+        profileUrl: "https://linkedin.com/in/jane",
+        fetchedAt: "2026-01-10T00:00:00Z",
+      });
+
+      await step.run(createInput({ premiumIcebreakers: true }));
+
+      const [vars] = varsOf("icebreaker_premium_generation");
+      expect(vars).toMatchObject({
+        lead_name: "Jane Smith",
+        lead_company: "Beta Inc",
+        lead_industry: "",
+        lead_location: "",
+      });
+    });
+
+    it("4 e-mails intercalados com delays: 'Email n de 4' e estrategias explicitas e distintas", async () => {
+      structureThen(FOUR_EMAILS_STRUCTURE, (n) => `Content ${n}`);
+
+      const result = await step.run(createInput());
+
+      const bodyVars = varsOf("follow_up_email_generation");
+      const subjectVars = varsOf("follow_up_subject_generation");
+      expect(bodyVars).toHaveLength(3);
+      expect(subjectVars).toHaveLength(3);
+      expect(bodyVars.map((v) => v.sequence_position)).toEqual([
+        expect.stringContaining("Email 2 de 4"),
+        expect.stringContaining("Email 3 de 4"),
+        expect.stringContaining("Email 4 de 4"),
+      ]);
+      expect(bodyVars[2].sequence_position).toContain("ÚLTIMO");
+
+      for (const vars of [...bodyVars, ...subjectVars]) {
+        expect(vars.follow_up_strategy.trim()).not.toBe("");
+        expect(vars.subject_strategy.trim()).not.toBe("");
+      }
+      expect(new Set(bodyVars.map((v) => v.follow_up_strategy)).size).toBe(3);
+      expect(new Set(subjectVars.map((v) => v.subject_strategy)).size).toBe(3);
+      expect(bodyVars[0].follow_up_strategy).toContain("INSIGHT DO SETOR");
+      expect(bodyVars[1].follow_up_strategy).toContain("PERGUNTA");
+      expect(bodyVars[2].follow_up_strategy).toContain("ENCERRAMENTO");
+
+      const data = result.data as { emailBlocks: Array<{ position: number; emailMode: string }> };
+      expect(data.emailBlocks.map((b) => b.position)).toEqual([0, 2, 4, 6]);
+      expect(data.emailBlocks.map((b) => b.emailMode)).toEqual([
+        "initial",
+        "follow-up",
+        "follow-up",
+        "follow-up",
+      ]);
+    });
+
+    it("saida suja do LLM: emailBlocks finais sem placeholders, literais ou 'Nome'/'Empresa'", async () => {
+      structureThen(
+        FOUR_EMAILS_STRUCTURE,
+        () =>
+          "Assunto: Oi Nome,\n\n[Sua empresa] ajuda a Empresa. {{lead_name}} {{follow_up_strategy}}\n\nAbs,\n[Seu nome]\n{{subject_strategy}}"
+      );
+
+      const result = await step.run(createInput());
+
+      const data = result.data as { emailBlocks: Array<{ subject: string; body: string }> };
+      expect(data.emailBlocks).toHaveLength(4);
+      for (const block of data.emailBlocks) {
+        expect(findUnsupportedCopyTokens(block.subject)).toEqual([]);
+        expect(findUnsupportedCopyTokens(block.body)).toEqual([]);
+        for (const text of [block.subject, block.body]) {
+          expect(text).not.toMatch(/\bNome\b|\bEmpresa\b|\[Sua|\[Seu|follow_up_strategy|subject_strategy/);
+        }
+      }
+
+      // O que foi limpo e o que alimenta o follow-up seguinte.
+      const [firstFollowUp] = varsOf("follow_up_email_generation");
+      expect(findUnsupportedCopyTokens(firstFollowUp.previous_email_body)).toEqual([]);
+    });
+
+    it("primeiro item de e-mail e sempre o inicial (estrutura comeca com delay e follow-up)", async () => {
+      structureThen(
+        JSON.stringify({
+          items: [
+            { position: 0, type: "delay", days: 2 },
+            { position: 1, type: "email", context: "Abertura", emailMode: "follow-up" },
+            { position: 2, type: "delay", days: 3 },
+            { position: 3, type: "email", context: "Seguimento", emailMode: "follow-up" },
+          ],
+        }),
+        (n) => `Content ${n}`
+      );
+
+      const result = await step.run(createInput());
+
+      expect(result.success).toBe(true);
+      const data = result.data as { emailBlocks: Array<{ position: number; emailMode: string }> };
+      expect(data.emailBlocks.map((b) => b.emailMode)).toEqual(["initial", "follow-up"]);
+      expect(varsOf("email_subject_generation")).toHaveLength(1);
+      expect(varsOf("email_body_generation")).toHaveLength(1);
+      const followUps = varsOf("follow_up_email_generation");
+      expect(followUps).toHaveLength(1);
+      expect(followUps[0].sequence_position).toContain("Email 2 de 2");
+    });
+
+    it("estrutura fora de ordem: o e-mail de menor position e o inicial", async () => {
+      structureThen(
+        JSON.stringify({
+          items: [
+            { position: 2, type: "email", context: "Seguimento", emailMode: "follow-up" },
+            { position: 1, type: "delay", days: 3 },
+            { position: 0, type: "email", context: "Abertura", emailMode: "initial" },
+          ],
+        }),
+        (n) => `Content ${n}`
+      );
+
+      const result = await step.run(createInput());
+
+      const data = result.data as { emailBlocks: Array<{ position: number; emailMode: string }> };
+      expect(data.emailBlocks.map((b) => [b.position, b.emailMode])).toEqual([
+        [0, "initial"],
+        [2, "follow-up"],
+      ]);
+    });
+
+    it("assunto so com placeholder ganha fallback fixo e valido", async () => {
+      // chamadas: 1 estrutura, 2-3 icebreakers, 4 assunto inicial, 5 corpo, 6 assunto follow-up, 7 corpo
+      structureThen(VALID_STRUCTURE_JSON, (n) => (n === 4 || n === 6 ? "[Assunto]" : `Content ${n}`));
+
+      const result = await step.run(createInput());
+
+      const data = result.data as { emailBlocks: Array<{ subject: string }> };
+      expect(data.emailBlocks.map((b) => b.subject)).toEqual([
+        "Uma ideia para {{company_name}}",
+        "{{first_name}}, uma pergunta rápida",
+      ]);
+    });
+
+    it("corpo vazio depois da limpeza: falha retryable em vez de ir vazio ao Instantly", async () => {
+      structureThen(VALID_STRUCTURE_JSON, (n) => (n === 5 ? "[Seu texto aqui]\n{{follow_up_strategy}}" : `Content ${n}`));
+
+      await expect(step.run(createInput())).rejects.toMatchObject({
+        message: expect.stringContaining("sem conteudo"),
+        isRetryable: true,
+        externalService: "openai",
+        code: "STEP_CREATE_CAMPAIGN_ERROR",
+      });
+    });
+
+    it("icebreaker limpo de [...] e {{x}}; so-placeholder conta como falha", async () => {
+      structureThen(VALID_STRUCTURE_JSON, (n) =>
+        n === 2 ? "Vi que a {{company_name}} cresceu com [proposta de valor]." : n === 3 ? "[DETALHE]" : `Content ${n}`
+      );
+
+      const result = await step.run(createInput());
+
+      const data = result.data as {
+        leadsWithIcebreakers: Array<{ icebreaker: string | null }>;
+        icebreakerStats: { generated: number; failed: number };
+      };
+      expect(data.leadsWithIcebreakers[0].icebreaker).toBe("Vi que a cresceu com.");
+      expect(data.leadsWithIcebreakers[1].icebreaker).toBeNull();
+      expect(data.icebreakerStats.failed).toBe(1);
     });
   });
 

@@ -10,6 +10,10 @@ vi.mock("@/lib/services/instantly", () => ({
   InstantlyService: vi.fn(),
   textToEmailHtml: vi.fn((t: string) => t),
 }));
+// Story 24.2: o ExportStep passou a importar o TrackingService (diff de leads no retry).
+vi.mock("@/lib/services/tracking", () => ({
+  TrackingService: vi.fn(),
+}));
 vi.mock("@/lib/services/base-service", () => ({
   ExternalServiceError: class extends Error {
     serviceName: string;

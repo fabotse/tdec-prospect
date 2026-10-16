@@ -60,6 +60,24 @@ function createParams() {
   return { params: Promise.resolve({ executionId: EXEC_ID }) };
 }
 
+/**
+ * Story 24.2: execucao `running`/`paused` so aceita PATCH no ajuste pos-rejeicao —
+ * ha um step `awaiting_approval` cujo gate mais recente esta carimbado `rejected`.
+ */
+function routeWithRejectedStep(executionChain: ReturnType<typeof createChainBuilder>) {
+  const stepsChain = createChainBuilder({ data: [{ step_number: 2 }], error: null });
+  const messagesChain = createChainBuilder({
+    data: [{ id: "gate-2", metadata: { messageType: "approval_gate", stepNumber: 2, rejected: true } }],
+    error: null,
+  });
+  mockFrom.mockImplementation((table: string) => {
+    if (table === "agent_steps") return stepsChain;
+    if (table === "agent_messages") return messagesChain;
+    return executionChain;
+  });
+  return { stepsChain, messagesChain };
+}
+
 // ==============================================
 // TESTS
 // ==============================================
@@ -344,7 +362,7 @@ describe("PATCH /api/agent/executions/[executionId]/briefing", () => {
       data: { id: EXEC_ID, briefing: persisted, status: "running" },
       error: null,
     });
-    mockFrom.mockImplementation(() => chain);
+    routeWithRejectedStep(chain);
 
     // Payload de ajuste: so filtros (o cliente nunca reenvia premiumIcebreakers,
     // escrito pelo servidor no confirm)
@@ -370,7 +388,7 @@ describe("PATCH /api/agent/executions/[executionId]/briefing", () => {
       data: { id: EXEC_ID, briefing: { ...VALID_BRIEFING, premiumIcebreakers: false }, status: "running" },
       error: null,
     });
-    mockFrom.mockImplementation(() => chain);
+    routeWithRejectedStep(chain);
 
     const response = await PATCH(
       createRequest({ ...VALID_BRIEFING, premiumIcebreakers: true }),
@@ -393,7 +411,7 @@ describe("PATCH /api/agent/executions/[executionId]/briefing", () => {
       },
       error: null,
     });
-    mockFrom.mockImplementation(() => chain);
+    routeWithRejectedStep(chain);
 
     await PATCH(
       createRequest({ ...VALID_BRIEFING, jobTitles: ["CFO"], location: "Sao Paulo" }),
@@ -417,6 +435,148 @@ describe("PATCH /api/agent/executions/[executionId]/briefing", () => {
     expect(response.status).toBe(500);
     // o ponto do teste: nada foi gravado por cima do briefing persistido
     expect(chain.update).not.toHaveBeenCalled();
+  });
+
+  // ==============================================
+  // Story 24.2 (AC3): briefing so e sobrescrito com a execucao `pending`
+  // ==============================================
+
+  it.each(["running", "paused"])(
+    "24.2: execucao '%s' SEM step rejeitado -> 409 EXECUTION_NOT_PENDING, briefing intacto",
+    async (status) => {
+      mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+      const chain = createChainBuilder({
+        data: { id: EXEC_ID, briefing: VALID_BRIEFING, status },
+        error: null,
+      });
+      const stepsChain = createChainBuilder({ data: [], error: null });
+      mockFrom.mockImplementation((table: string) =>
+        table === "agent_steps" ? stepsChain : chain
+      );
+
+      const response = await PATCH(
+        createRequest({ ...VALID_BRIEFING, location: "Curitiba" }),
+        createParams()
+      );
+      const json = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(json.error.code).toBe("EXECUTION_NOT_PENDING");
+      expect(chain.update).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(["completed", "cancelled", "failed"])(
+    "24.2: execucao terminal '%s' -> 409 sem update",
+    async (status) => {
+      mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+      const chain = createChainBuilder({
+        data: { id: EXEC_ID, briefing: VALID_BRIEFING, status },
+        error: null,
+      });
+      routeWithRejectedStep(chain); // nem o ajuste abre excecao para execucao terminal
+
+      const response = await PATCH(createRequest(VALID_BRIEFING), createParams());
+
+      expect(response.status).toBe(409);
+      expect((await response.json()).error.code).toBe("EXECUTION_NOT_PENDING");
+      expect(chain.update).not.toHaveBeenCalled();
+    }
+  );
+
+  it("24.2: running com step awaiting_approval NAO carimbado -> 409", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing: VALID_BRIEFING, status: "running" },
+      error: null,
+    });
+    const stepsChain = createChainBuilder({ data: [{ step_number: 2 }], error: null });
+    const messagesChain = createChainBuilder({
+      data: [{ id: "gate-2", metadata: { messageType: "approval_gate", stepNumber: 2 } }],
+      error: null,
+    });
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "agent_steps") return stepsChain;
+      if (table === "agent_messages") return messagesChain;
+      return chain;
+    });
+
+    const response = await PATCH(createRequest(VALID_BRIEFING), createParams());
+
+    expect(response.status).toBe(409);
+    expect(chain.update).not.toHaveBeenCalled();
+  });
+
+  it.each(["running", "paused"])(
+    "24.2: ajuste pos-rejeicao ('%s' + step rejeitado) -> 200 com merge e CAS running/paused",
+    async (status) => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing: { ...VALID_BRIEFING, premiumIcebreakers: true }, status },
+      error: null,
+    });
+    const { stepsChain } = routeWithRejectedStep(chain);
+
+    const response = await PATCH(
+      createRequest({ ...VALID_BRIEFING, location: "Curitiba" }),
+      createParams()
+    );
+
+    expect(response.status).toBe(200);
+    expect(stepsChain.eq).toHaveBeenCalledWith("status", "awaiting_approval");
+    expect(chain.in).toHaveBeenCalledWith("status", ["running", "paused"]);
+    const updateArg = chain.update.mock.calls[0][0] as { briefing: Record<string, unknown> };
+    expect(updateArg.briefing.location).toBe("Curitiba");
+    // merge: o persistido que o payload nao traz sobrevive
+    expect(updateArg.briefing.premiumIcebreakers).toBe(true);
+    }
+  );
+
+  it("24.2: execucao pending -> update com CAS de status pending", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing: {}, status: "pending" },
+      error: null,
+    });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(createRequest(VALID_BRIEFING), createParams());
+
+    expect(response.status).toBe(200);
+    expect(chain.in).toHaveBeenCalledWith("status", ["pending"]);
+    expect(chain.select).toHaveBeenCalledWith("briefing, status");
+  });
+
+  it("24.2: status mudou entre leitura e escrita (update com 0 linhas) -> 409", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing: {}, status: "pending" },
+      error: null,
+    });
+    // a leitura (.single) ve `pending`; o update com CAS nao casa nenhuma linha.
+    chain.maybeSingle.mockResolvedValue({ data: null, error: null });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(createRequest(VALID_BRIEFING), createParams());
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe("EXECUTION_NOT_PENDING");
+  });
+
+  it("24.2: leitura ok e update com erro de banco -> 500 (nao 409)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing: {}, status: "pending" },
+      error: null,
+    });
+    chain.maybeSingle.mockResolvedValue({ data: null, error: { message: "DB error" } });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(createRequest(VALID_BRIEFING), createParams());
+
+    expect(response.status).toBe(500);
+    expect((await response.json()).error.code).toBe("UPDATE_ERROR");
+    expect(chain.update).toHaveBeenCalled();
   });
 
   it("deve retornar 500 quando update falha", async () => {
