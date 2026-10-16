@@ -9,6 +9,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
+import { hasRejectedStep } from "@/lib/agent/step-guards";
 
 // ==============================================
 // REQUEST VALIDATION
@@ -126,7 +127,7 @@ export async function PATCH(
   // ainda vazio.
   const { data: currentExecution, error: readError } = await supabase
     .from("agent_executions")
-    .select("briefing")
+    .select("briefing, status")
     .eq("id", executionId)
     .eq("tenant_id", profile.tenant_id)
     .single();
@@ -147,6 +148,27 @@ export async function PATCH(
     );
   }
 
+  // Story 24.2 (AC3): o briefing so pode ser sobrescrito com a execucao `pending`.
+  // Sem esta guarda, apos um F5 uma mensagem livre + "sim" PATCHava o briefing de uma
+  // execucao ja confirmada (e paga). Unica excecao: o ajuste pos-rejeicao (22.13/22.14),
+  // que PATCHa uma execucao `running`/`paused` com um step rejeitado — o FR14 mantem
+  // esse fluxo. O status vira CAS no update abaixo: 0 linhas = alguem mudou o status
+  // entre a leitura e a escrita -> 409, briefing intacto.
+  const executionStatus = (currentExecution as { status?: string }).status;
+  let allowedStatuses: string[] | null = null;
+  if (executionStatus === "pending") {
+    allowedStatuses = ["pending"];
+  } else if (
+    (executionStatus === "running" || executionStatus === "paused") &&
+    (await hasRejectedStep(supabase, executionId))
+  ) {
+    allowedStatuses = ["running", "paused"];
+  }
+
+  if (!allowedStatuses) {
+    return executionNotPending(executionStatus);
+  }
+
   const currentBriefing =
     currentExecution?.briefing && typeof currentExecution.briefing === "object"
       ? (currentExecution.briefing as Record<string, unknown>)
@@ -162,10 +184,11 @@ export async function PATCH(
     })
     .eq("id", executionId)
     .eq("tenant_id", profile.tenant_id)
+    .in("status", allowedStatuses)
     .select()
-    .single();
+    .maybeSingle();
 
-  if (error || !execution) {
+  if (error) {
     return NextResponse.json(
       {
         error: {
@@ -177,5 +200,21 @@ export async function PATCH(
     );
   }
 
+  if (!execution) {
+    return executionNotPending(executionStatus);
+  }
+
   return NextResponse.json({ data: execution });
+}
+
+function executionNotPending(status: string | undefined) {
+  return NextResponse.json(
+    {
+      error: {
+        code: "EXECUTION_NOT_PENDING",
+        message: `O briefing desta execucao nao pode mais ser alterado (status: ${status ?? "desconhecido"}).`,
+      },
+    },
+    { status: 409 }
+  );
 }

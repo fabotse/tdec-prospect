@@ -1091,6 +1091,71 @@ describe("AgentChat", () => {
       expect(mockSetExecutionMode).toHaveBeenCalledWith("autopilot");
     });
 
+    // Story 24.2 (AC3 — chat): apos F5 o useBriefingFlow renasce `idle`. Sem a guarda,
+    // uma mensagem livre (+ "sim") caia no fluxo de briefing e o PATCH sobrescrevia o
+    // briefing de uma execucao ja confirmada e paga.
+    it.each(["running", "paused"])(
+      "24.2: execucao reatachada '%s' (sem steps carregados) — mensagem livre NAO vira briefing",
+      async (status) => {
+        setupDefaults({ executionId: "exec-run", briefingStatus: "idle" });
+        mockUserState = { profile: { id: USER_ID } };
+        mockExecutionsList([{ id: "exec-run", user_id: USER_ID, status }]);
+
+        await act(async () => {
+          render(<AgentChat />);
+        });
+        await act(async () => {
+          await capturedOnSendMessage!("sim, pode mudar para Curitiba");
+        });
+
+        // so persistida
+        expect(mockMutate).toHaveBeenCalledWith({
+          executionId: "exec-run",
+          content: "sim, pode mudar para Curitiba",
+        });
+        expect(mockProcessMessage).not.toHaveBeenCalled();
+        // nenhum PATCH de briefing
+        const patchCalls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
+          ([url, init]) =>
+            typeof url === "string" &&
+            url.includes("/briefing") &&
+            (init as RequestInit | undefined)?.method === "PATCH"
+        );
+        expect(patchCalls).toHaveLength(0);
+      }
+    );
+
+    it("24.2: steps ja carregados (execucao pos-confirm) — mensagem livre NAO vira briefing", async () => {
+      setupDefaults({ executionId: "exec-run", briefingStatus: "idle" });
+      mockExecutionData = {
+        messages: [],
+        steps: [{ id: "s1", step_number: 1, status: "completed" }],
+      };
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+      await act(async () => {
+        await capturedOnSendMessage!("oi");
+      });
+
+      expect(mockMutate).toHaveBeenCalledWith({ executionId: "exec-run", content: "oi" });
+      expect(mockProcessMessage).not.toHaveBeenCalled();
+    });
+
+    it("24.2: execucao PRE-confirm (sem steps, sem reattach ativo) continua no fluxo de briefing", async () => {
+      setupDefaults({ executionId: "exec-new", briefingStatus: "idle" });
+
+      await act(async () => {
+        render(<AgentChat />);
+      });
+      await act(async () => {
+        await capturedOnSendMessage!("quero CTOs em SP");
+      });
+
+      expect(mockProcessMessage).toHaveBeenCalled();
+    });
+
     it("first-time / sem id persistido: nao valida nem descarta (zero regressao, NFR4)", async () => {
       setupDefaults({ executionId: null });
       mockUserState = { profile: { id: USER_ID } };

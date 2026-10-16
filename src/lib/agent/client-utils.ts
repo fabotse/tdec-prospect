@@ -48,7 +48,8 @@ const TRIGGER_FALLBACK_MESSAGE =
  * `alreadyReported` distingue as duas classes de erro do `POST .../execute`:
  * - **pos-orchestrator**: o `executeStep` ja chamou `sendErrorMessage` e a bolha de erro
  *   ja esta no chat → `true`, o gate nao deve duplicar.
- * - **pre-orchestrator** (409 `EXECUTION_NOT_ACTIVE`, 422 `API_KEY_NOT_FOUND`,
+ * - **pre-orchestrator** (409 `EXECUTION_NOT_ACTIVE`, 409 `STEP_NOT_EXECUTABLE`
+ *   (Story 24.2), 422 `API_KEY_NOT_FOUND`,
  *   500 `API_KEY_ERROR`, 401/400/404...): nada e escrito em `agent_messages` → `false`,
  *   o gate PRECISA renderizar a mensagem, senao o usuario nao ve nada.
  *

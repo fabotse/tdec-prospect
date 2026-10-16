@@ -257,6 +257,163 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/execute", 
     expect(mockExecuteStep).toHaveBeenCalled();
   });
 
+  // ==============================================
+  // Story 24.2 (AC2) — guarda de status do STEP alvo
+  // ==============================================
+
+  /** agent_steps devolve o status do alvo; agent_messages devolve o gate mais recente. */
+  function mockTargetStep(stepStatus: string | null, latestGateMetadata?: Record<string, unknown>) {
+    const stepsChain = createChainBuilder({
+      data: stepStatus === null ? null : { status: stepStatus },
+      error: null,
+    });
+    const messagesChain = createChainBuilder({
+      data: latestGateMetadata ? [{ id: "gate-1", metadata: latestGateMetadata }] : [],
+      error: null,
+    });
+    const executionChain = createChainBuilder({
+      data: { id: EXEC_ID, tenant_id: "tenant-456", status: "running" },
+      error: null,
+    });
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "agent_executions") return executionChain;
+      if (table === "agent_steps") return stepsChain;
+      if (table === "agent_messages") return messagesChain;
+      return createChainBuilder();
+    });
+    return { stepsChain, messagesChain };
+  }
+
+  it.each(["completed", "approved", "running", "skipped"])(
+    "24.2: step '%s' -> 409 STEP_NOT_EXECUTABLE sem instanciar o orchestrator nem ler a chave",
+    async (stepStatus) => {
+      setupDefaultMocks();
+      mockTargetStep(stepStatus);
+
+      const response = await POST(createRequest(), createParams());
+      const json = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(json.error.code).toBe("STEP_NOT_EXECUTABLE");
+      // texto para o usuario, sem o valor cru do enum
+      expect(json.error.message).toBe(
+        "Esta etapa ja esta em andamento ou ja foi concluida — nada foi executado de novo."
+      );
+      expect(json.error.message).not.toContain(stepStatus);
+      expect(mockExecuteStep).not.toHaveBeenCalled();
+      // 409 sai ANTES da leitura da chave (nenhuma chamada externa)
+      expect(mockCreateAdminClient).not.toHaveBeenCalled();
+    }
+  );
+
+  it("24.2: awaiting_approval SEM carimbo rejected -> 409", async () => {
+    setupDefaultMocks();
+    mockTargetStep("awaiting_approval", { messageType: "approval_gate", stepNumber: 1 });
+
+    const response = await POST(createRequest(), createParams());
+    const json = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(json.error.code).toBe("STEP_NOT_EXECUTABLE");
+    expect(mockExecuteStep).not.toHaveBeenCalled();
+  });
+
+  it("24.2: awaiting_approval com gate mais recente rejected:true -> executa (ajuste 22.13)", async () => {
+    setupDefaultMocks();
+    const { messagesChain } = mockTargetStep("awaiting_approval", {
+      messageType: "approval_gate",
+      stepNumber: 1,
+      rejected: true,
+    });
+
+    const response = await POST(createRequest(), createParams());
+
+    expect(response.status).toBe(200);
+    expect(mockExecuteStep).toHaveBeenCalledWith(EXEC_ID, 1);
+    // mesma query do carimbo do /reject: gate mais recente DESTE step
+    expect(messagesChain.eq).toHaveBeenCalledWith("metadata->>messageType", "approval_gate");
+    expect(messagesChain.eq).toHaveBeenCalledWith("metadata->>stepNumber", "1");
+    expect(messagesChain.order).toHaveBeenCalledWith("created_at", { ascending: false });
+    expect(messagesChain.limit).toHaveBeenCalledWith(1);
+  });
+
+  it("24.2: erro ao ler o gate (rejeitado?) e fail-closed -> 409", async () => {
+    setupDefaultMocks();
+    const execChain = createChainBuilder({
+      data: { id: EXEC_ID, tenant_id: "tenant-456", status: "running" },
+      error: null,
+    });
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "agent_executions") return execChain;
+      if (table === "agent_steps")
+        return createChainBuilder({ data: { status: "awaiting_approval" }, error: null });
+      if (table === "agent_messages")
+        return createChainBuilder({ data: null, error: { message: "boom" } });
+      return createChainBuilder();
+    });
+
+    const response = await POST(createRequest(), createParams());
+
+    expect(response.status).toBe(409);
+    expect(mockExecuteStep).not.toHaveBeenCalled();
+  });
+
+  it.each(["pending", "failed"])("24.2: step '%s' executa normalmente", async (stepStatus) => {
+    setupDefaultMocks();
+    const { stepsChain } = mockTargetStep(stepStatus);
+
+    const response = await POST(createRequest(), createParams());
+
+    expect(response.status).toBe(200);
+    expect(mockExecuteStep).toHaveBeenCalledWith(EXEC_ID, 1);
+    // A leitura do status e do step ALVO desta execucao.
+    expect(stepsChain.eq).toHaveBeenCalledWith("execution_id", EXEC_ID);
+    expect(stepsChain.eq).toHaveBeenCalledWith("step_number", 1);
+  });
+
+  it("24.2: step inexistente segue para o orchestrator (404 logico ja existente)", async () => {
+    setupDefaultMocks();
+    mockTargetStep(null);
+
+    const response = await POST(createRequest(), createParams());
+
+    expect(response.status).toBe(200);
+    expect(mockExecuteStep).toHaveBeenCalled();
+  });
+
+  it("24.2: erro ao ler o step alvo -> 500 sem executar", async () => {
+    setupDefaultMocks();
+    const execChain = createChainBuilder({
+      data: { id: EXEC_ID, tenant_id: "tenant-456", status: "running" },
+      error: null,
+    });
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "agent_executions") return execChain;
+      if (table === "agent_steps") return createChainBuilder({ data: null, error: { message: "x" } });
+      return createChainBuilder();
+    });
+
+    const response = await POST(createRequest(), createParams());
+
+    expect(response.status).toBe(500);
+    expect(mockExecuteStep).not.toHaveBeenCalled();
+  });
+
+  it("24.2: clique duplo — 2o POST com o step ja concluido recebe 409 sem chamada externa", async () => {
+    setupDefaultMocks();
+    // 1o POST: step pending, roda.
+    mockTargetStep("pending");
+    const first = await POST(createRequest(), createParams());
+    expect(first.status).toBe(200);
+    expect(mockExecuteStep).toHaveBeenCalledTimes(1);
+
+    // 2o POST: o 1o ja concluiu.
+    mockTargetStep("completed");
+    const second = await POST(createRequest(), createParams());
+    expect(second.status).toBe(409);
+    expect(mockExecuteStep).toHaveBeenCalledTimes(1);
+  });
+
   it("deve retornar 404 quando execucao pertence a outro tenant (5.3)", async () => {
     setupDefaultMocks();
     mockFrom.mockImplementation((table: string) => {

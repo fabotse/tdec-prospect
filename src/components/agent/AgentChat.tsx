@@ -710,6 +710,20 @@ export function AgentChat() {
     applyChipAdjustment,
   ]);
 
+  // A execucao ja passou pelo confirm? Dois sinais, ambos confiaveis:
+  // - steps existem: SO o POST /confirm cria agent_steps;
+  // - status validado no mount e running/paused: idem (running so e escrito pelo confirm),
+  //   e cobre a janela em que a execucao reatachada ainda nao carregou os steps.
+  // `executionMode` NAO serve: e escolhido ANTES do confirm (mode selector), quando nada
+  // foi gasto ainda e o cancelamento deve ser sem fricção.
+  // Story 24.2: definido ANTES do `handleSendMessage`, que tambem o usa — uma execucao ja
+  // confirmada nunca volta ao fluxo de briefing (o useBriefingFlow renasce `idle` no F5).
+  const isPostConfirmExecution =
+    steps.length > 0 ||
+    reattachedStatus === "running" ||
+    reattachedStatus === "paused" ||
+    confirmedThisSession;
+
   const handleSendMessage = useCallback(
     async (content: string) => {
       let execId = currentExecutionId;
@@ -752,8 +766,11 @@ export function AgentChat() {
         clearAdjustingStep();
       }
 
-      // Story 16.3: Rotear para fluxo de briefing se nao confirmado
-      if (briefingState.status !== "confirmed") {
+      // Story 16.3: Rotear para fluxo de briefing se nao confirmado.
+      // Story 24.2 (AC3): NUNCA para uma execucao que ja passou pelo confirm. Apos um F5
+      // o briefing renasce `idle` e uma mensagem livre + "sim" sobrescrevia o briefing de
+      // uma execucao ja paga. Fora do ajuste (tratado acima), a mensagem so e persistida.
+      if (briefingState.status !== "confirmed" && !isPostConfirmExecution) {
         // Enviar mensagem do usuario primeiro
         sendMessageMutation.mutate({ executionId: execId, content });
 
@@ -807,6 +824,7 @@ export function AgentChat() {
       adjustingStep,
       clearAdjustingStep,
       handleAdjustmentMessage,
+      isPostConfirmExecution,
     ]
   );
 
@@ -904,18 +922,6 @@ export function AgentChat() {
   // ============================================================
   // Story 22.10 — "Nova conversa"
   // ============================================================
-
-  // A execucao ja passou pelo confirm? Dois sinais, ambos confiaveis:
-  // - steps existem: SO o POST /confirm cria agent_steps;
-  // - status validado no mount e running/paused: idem (running so e escrito pelo confirm),
-  //   e cobre a janela em que a execucao reatachada ainda nao carregou os steps.
-  // `executionMode` NAO serve: e escolhido ANTES do confirm (mode selector), quando nada
-  // foi gasto ainda e o cancelamento deve ser sem fricção.
-  const isPostConfirmExecution =
-    steps.length > 0 ||
-    reattachedStatus === "running" ||
-    reattachedStatus === "paused" ||
-    confirmedThisSession;
 
   // Cancela no servidor e — SO em caso de sucesso — zera o cliente inteiro.
   // Tudo-ou-nada de proposito: limpar a UI com a execucao viva no servidor recriaria a

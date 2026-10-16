@@ -584,7 +584,7 @@ development_status:
   #
   epic-24: backlog
   24-1-etapa-travada-e-destravada-sozinha: backlog
-  24-2-execucao-protegida-contra-cobranca-dupla: backlog
+  24-2-execucao-protegida-contra-cobranca-dupla: done
   24-3-avanco-confiavel-e-tentar-novamente: backlog
   24-4-conversa-sem-becos-sem-saida: backlog
   24-5-confirmacao-por-card-com-botoes: backlog

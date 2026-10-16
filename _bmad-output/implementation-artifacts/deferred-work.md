@@ -454,3 +454,19 @@ source_spec: `spec-23-2-dependencias-sem-vulnerabilidades-criticas.md`
 reason: read-excel-file devolve as linhas/colunas vazias iniciais como null. O SheetJS antigo usava o range `!ref` da planilha: com arquivo gerado pelo próprio SheetJS (ref A1:E4) os dois parsers dão o mesmo resultado (testado no scratchpad). Falta testar um .xlsx salvo pelo Excel com dados a partir de C3, cuja tag dimension pode começar em C3 — isso decide se há divergência.
 status: resolved
 resolution: 2026-10-15, ainda na 23.2. O smoke mostrou que nenhuma coluna era detectada, no parser antigo e no novo. Agora o `xlsx-parser.ts` procura a linha de cabeçalho (a que mais casa com colunas de lead entre as 20 primeiras) e descarta linhas e colunas vazias. Teste TITULO com a fixture `import-leads-titulo.xlsx`.
+
+### DW-8: Apos F5 numa execucao em andamento, mensagem livre fora do ajuste e so persistida e ninguem responde.
+origin: spec-deferred b1eb8a9e3cef
+location: src/components/agent/AgentChat.tsx handleSendMessage
+source_spec: `spec-24-2-execucao-protegida-contra-cobranca-dupla.md`
+severity: low
+reason: O guard da 24.2 tira essa mensagem do fluxo de briefing (correto pela AC), mas cai no mesmo caminho "briefing confirmado -> so persiste" que ja existia sem resposta (AgentChat.tsx, fim do handleSendMessage). A conversa sem beco sem saida e escopo da 24.4.
+status: open
+
+### DW-9: O carimbo `rejected: true` do POST /reject ignora o `{ error }` retornado pelo supabase-js, entao uma falha nessa escrita passa em silencio.
+origin: spec-deferred b062d5da2ca3
+location: src/app/api/agent/executions/[executionId]/steps/[stepNumber]/reject/route.ts:177
+source_spec: `spec-24-2-execucao-protegida-contra-cobranca-dupla.md`
+severity: low
+reason: Codigo da 22.13 (reject/route.ts, update do metadata do gate sem checar `error`; so excecao lancada e capturada). Com a 24.2 o carimbo passou a liberar o PATCH de briefing e o execute do ajuste: se a escrita falhar, o chat entra em ajuste mas toda tentativa toma 409 ("responda sim para eu tentar de novo") sem nenhum log. Degradacao segura (sem cobranca), mas invisivel.
+status: open

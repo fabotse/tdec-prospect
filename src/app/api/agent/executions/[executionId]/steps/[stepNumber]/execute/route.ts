@@ -10,6 +10,7 @@ import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
 import { readServiceApiKey } from "@/lib/agent/service-keys";
 import { isTerminalExecutionStatus } from "@/types/agent";
+import { isStepRejected } from "@/lib/agent/step-guards";
 import {
   DeterministicOrchestrator,
   isPipelineError,
@@ -94,6 +95,53 @@ export async function POST(
       },
       { status: 409 }
     );
+  }
+
+  // Story 24.2 (AC2): guarda de status do STEP alvo. Sem ela, um step ja
+  // `completed`/`approved` rodava (e COBRAVA) de novo num clique duplo, numa segunda aba
+  // ou num redisparo do auto-trigger. So `pending`, `failed` e o step REJEITADO (ajuste
+  // 22.13 — `awaiting_approval` + gate carimbado) sao executaveis. Sai antes de qualquer
+  // chamada externa ou escrita. Step inexistente segue para o orchestrator, que ja
+  // responde o caso (ORCHESTRATOR_INVALID_STEP).
+  const { data: targetStep, error: stepReadError } = await supabase
+    .from("agent_steps")
+    .select("status")
+    .eq("execution_id", executionId)
+    .eq("step_number", stepNumber)
+    .maybeSingle();
+
+  if (stepReadError) {
+    return NextResponse.json(
+      {
+        error: {
+          code: "STEP_READ_ERROR",
+          message: "Erro ao ler o status da etapa",
+        },
+      },
+      { status: 500 }
+    );
+  }
+
+  if (targetStep) {
+    const stepStatus = (targetStep as { status?: string }).status;
+    const executable =
+      stepStatus === "pending" ||
+      stepStatus === "failed" ||
+      (stepStatus === "awaiting_approval" &&
+        (await isStepRejected(supabase, executionId, stepNumber)));
+
+    if (!executable) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "STEP_NOT_EXECUTABLE",
+            message:
+              "Esta etapa ja esta em andamento ou ja foi concluida — nada foi executado de novo.",
+          },
+        },
+        { status: 409 }
+      );
+    }
   }
 
   // 5.4 - Fetch API key
