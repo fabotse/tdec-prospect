@@ -517,3 +517,11 @@ source_spec: `spec-24-5-confirmacao-por-card-com-botoes.md`
 severity: low
 reason: Preexistente (24.4 e antes): a falha leva a awaiting_product_decision. Um "sim" vai para enterProductDetails, que pede a descricao em vez de reenviar o pendingProduct. Nesse estado o card some. Para corrigir, manter confirming_product com o pendingProduct e reoferecer "Confirmar".
 status: open
+
+### DW-16: O fluxo manual de follow-up ainda usa as estratégias insistentes ("viu meu e-mail?", "RE:").
+origin: spec-deferred 65fcd87b06bc
+location: src/hooks/use-ai-full-campaign-generation.ts:313
+source_spec: `spec-24-6-e-mails-sem-dados-ficticios-e-follow-ups-com-valor.md`
+severity: medium
+reason: use-ai-full-campaign-generation.ts:313-334 e EmailBlock.tsx:335-385 montam follow_up_strategy/subject_strategy com "CONFIRMAR VISUALIZAÇÃO" e "RE: SIMPLES". A 24.6 limitou a correção ao agente; o épico põe a correção de prompt do fluxo manual na 24.8.
+status: open
