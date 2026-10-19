@@ -143,6 +143,22 @@ describe("useAgentStore", () => {
       expect(parsed.state).not.toHaveProperty("totalSteps");
     });
 
+    it("NAO persiste stepTriggerFailure (aviso efemero, Story 24.3)", () => {
+      act(() => {
+        useAgentStore.getState().setCurrentExecutionId("exec-1");
+        useAgentStore.getState().setStepTriggerFailure({
+          executionId: "exec-1",
+          stepNumber: 2,
+          message: "x",
+          retryable: true,
+        });
+      });
+
+      const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) as string);
+      expect(parsed.state).not.toHaveProperty("stepTriggerFailure");
+      act(() => useAgentStore.getState().clearStepTriggerFailure());
+    });
+
     it("limpa o id persistido quando setado para null (AC5)", () => {
       act(() => {
         useAgentStore.getState().setCurrentExecutionId("exec-1");
@@ -189,5 +205,19 @@ describe("useAgentStore", () => {
       expect(useAgentStore.getState().currentExecutionId).toBeNull();
       expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
     });
+  });
+});
+
+describe("stepTriggerFailure (Story 24.3)", () => {
+  it("comeca null, grava e limpa", () => {
+    act(() => useAgentStore.getState().clearStepTriggerFailure());
+    expect(useAgentStore.getState().stepTriggerFailure).toBeNull();
+
+    const failure = { executionId: "exec-1", stepNumber: 3, message: "falhou", retryable: false };
+    act(() => useAgentStore.getState().setStepTriggerFailure(failure));
+    expect(useAgentStore.getState().stepTriggerFailure).toEqual(failure);
+
+    act(() => useAgentStore.getState().clearStepTriggerFailure());
+    expect(useAgentStore.getState().stepTriggerFailure).toBeNull();
   });
 });

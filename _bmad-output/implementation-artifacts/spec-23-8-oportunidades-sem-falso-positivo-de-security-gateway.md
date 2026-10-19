@@ -193,3 +193,18 @@ Status: done
 2. Fazer merge da `fix/23-8-esg-persistido` na branch do épico e o deploy.
 3. Esperar um ciclo do `reply-sweep` (até 5 min) e conferir que `lead_security_gateways` tem 1 linha (Mimecast).
 4. Rodar `__tests__/e2e/smoke-23-8.spec.ts`. O esperado é 1 badge na Central e 0 escritas.
+
+## Deploy em produção (2026-10-16)
+
+- **Migration `00064`:** aplicada pelo Fabossi no SQL Editor do projeto `kdgogyqyaxncqoyklyxx`. Conferido por leitura: a tabela existe e, sem login (anon), retorna 0 linhas (RLS ativa).
+  - Antes disso, a `00063` (backfill da 22.10) foi rodada por engano. Ela estava pendente desde julho e é idempotente. Atualizou as 12 execuções do agente previstas, todas em modo `guided` e paradas aguardando aprovação, então nenhuma avança sozinha. Não toca campanha, lead nem Instantly.
+- **Deploy:** o fix entrou na `epic/23-plataforma-higiene` (fast-forward `18c469c`). O CI do PR #7 (Lint, Typecheck, Tests e preview da Vercel) ficou verde, e o merge do PR #7 na `main` (`266fc24`, 10:14 UTC) gerou o deploy de produção `https://tdec-prospect.vercel.app` às 10:16 UTC. O pacote incluiu as stories 23.4, 23.2 e 23.8 com o fix. O deploy anterior (`c109771`) fica disponível para rollback.
+- **Cron:** o `reply-sweep` das 10:20 gravou **61 linhas** em `lead_security_gateways` (Proofpoint, Mimecast e Cisco), cobrindo todos os leads das campanhas exportadas, e não só os que têm oportunidade. Por isso o número é maior que a "1 linha" prevista no passo 3 acima. O ciclo completou normalmente.
+- **Smoke 23.8 em produção (somente leitura):** 72 oportunidades, 70 de engajamento e exatamente 1 com o selo (Mimecast, `2e14c40a`). Sem erros de página e sem escritas.
+- **Smoke 23.2 em produção (somente leitura):** 17 passaram e 1 foi pulado (a busca no Apollo, que só roda com `SMOKE_APOLLO=1`). Nenhuma error boundary, nenhum erro de página e nenhuma resposta ≥ 400.
+  - Os erros de console em 8 telas vieram das Server Actions de leitura (`getConfiguredIntegrations`, `getApiConfigs`, `get*` da base de conhecimento e da equipe), que a trava do smoke bloqueia por serem POST. Não são erros do app.
+  - Verificação humana recomendada: em Configurações → Integrações, Instantly e Apollo devem aparecer conectados.
+- **Os 3 pontos do CLAUDE.md:**
+  1. **Campanhas rodando, webhook e `reply-sweep`:** verificado por smoke real (o cron rodou e gravou). Nenhuma chamada de export ou ativação, e nenhuma alteração no Instantly.
+  2. **Busca de leads:** coberta pelo smoke da 23.2 em 15/10 (busca real no Apollo). O código não mudou desde então.
+  3. **Export e ativação:** o diálogo de export abre com o Instantly conectado. O código desse caminho não mudou.

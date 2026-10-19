@@ -26,6 +26,7 @@ import { InstantlyService } from "@/lib/services/instantly";
 import { PlanGeneratorService } from "@/lib/services/agent-plan-generator";
 import { getServiceApiKey } from "./steps/step-utils";
 import { stampLatestApprovalGate } from "@/lib/agent/gate-metadata";
+import { formatStepErrorMessage, NON_RETRYABLE_SUFFIX } from "@/lib/agent/step-error-display";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ==============================================
@@ -182,6 +183,24 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
 
     const executionData = execution as AgentExecution;
 
+    // Story 24.3 (AC3): reexecutar um step de uma execucao `paused` (parada por erro) a
+    // tira de `paused`. CAS em `paused` — nunca sobrescreve cancel/completed concorrente.
+    // Uma falha de escrita so e logada: nao bloqueia o retry (uma nova falha do step
+    // volta a gravar `paused` de qualquer jeito).
+    if (executionData.status === "paused") {
+      const { error: resumeError } = await this.supabase
+        .from("agent_executions")
+        .update({ status: "running" })
+        .eq("id", executionId)
+        .eq("status", "paused");
+      if (resumeError) {
+        console.error(
+          `[Orchestrator] Falha ao retomar execucao paused -> running (execution=${executionId}, step=${stepNumber}):`,
+          resumeError.message ?? resumeError
+        );
+      }
+    }
+
     // Story 17.7 Task 1.2: Generic skip based on briefing.skipSteps
     if (this.shouldSkip(stepType, executionData.briefing)) {
       try {
@@ -227,7 +246,8 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
             );
         await this.updateExecutionStatus(executionId, "paused");
         await this.sendErrorMessage(executionId, pipelineError);
-        throw pipelineError;
+        // Story 24.3: bolha escrita — o cliente nao deve duplicar o aviso.
+        throw { ...pipelineError, reportedInChat: true } as PipelineError;
       }
     }
 
@@ -539,22 +559,15 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
     const servicePart = error.externalService
       ? ` (servico: ${error.externalService})`
       : "";
+    // Story 24.3: o retryable aponta para o botao "Tentar novamente" da linha do step.
     const retryPart = error.isRetryable
-      ? " Voce pode tentar novamente."
-      : " Entre em contato com o suporte.";
+      ? ' Clique em "Tentar novamente" na etapa para refazer.'
+      : ` ${NON_RETRYABLE_SUFFIX}`;
 
     // Story 22.12 (AC5): coerencia mensagem <-> flag. Um erro NAO-retryable nao pode
-    // exibir "Tente novamente" embutido (ex.: o INTERNAL_ERROR generico do base-service
-    // carrega esse texto) — contradiz o retryPart "Entre em contato com o suporte.".
-    // Sanitizamos so no caso nao-retryable; retryable mantem a mensagem original.
-    // Removemos tambem a pontuacao terminal residual para o template nao gerar ".."
-    // e caimos num fallback se a sanitizacao esvaziar a mensagem.
-    const displayMessage = error.isRetryable
-      ? error.message.replace(/[.!?]+$/, "")
-      : error.message
-          .replace(/\s*tente novamente\.?/gi, "")
-          .replace(/[.!?]+$/, "")
-          .trim() || "Erro ao processar a etapa";
+    // exibir "Tente novamente" embutido. Story 24.3: a sanitizacao mora agora em
+    // `step-error-display.ts`, compartilhada com a UI.
+    const displayMessage = formatStepErrorMessage(error.message, error.isRetryable);
 
     const content = `Erro na etapa "${stepLabel}"${servicePart}: ${displayMessage}.${retryPart}`;
 

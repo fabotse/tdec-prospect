@@ -5,8 +5,8 @@
  * Tests: rendering by status, correct labels
  */
 
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { AgentStepProgress } from "@/components/agent/AgentStepProgress";
 import type { AgentStep } from "@/types/agent";
 
@@ -186,5 +186,97 @@ describe("AgentStepProgress (AC #2)", () => {
       expect(screen.getByText(/Exportacao/)).toBeDefined();
       expect(screen.getByText(/Ativacao/)).toBeDefined();
     });
+  });
+});
+
+// ==============================================
+// Story 24.3 (AC3/AC4) — "Tentar novamente" na linha do step failed
+// ==============================================
+
+describe("AgentStepProgress — retry de step failed (Story 24.3)", () => {
+  const failedStep = (error: Record<string, unknown> | null, message = "Rate limited") =>
+    createStep({
+      status: "failed",
+      step_number: 2,
+      step_type: "search_leads",
+      error_message: message,
+      output: error ? { error } : null,
+    });
+
+  it("step failed retryable mostra o botao e o clique chama onRetryStep(n)", async () => {
+    const onRetryStep = vi.fn().mockResolvedValue(undefined);
+    render(
+      <AgentStepProgress
+        steps={[failedStep({ isRetryable: true })]}
+        currentStep={0}
+        onRetryStep={onRetryStep}
+      />
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("step-retry-2"));
+    });
+
+    expect(onRetryStep).toHaveBeenCalledWith(2);
+  });
+
+  it("campo isRetryable ausente (falha legada) conta como retryable", () => {
+    render(
+      <AgentStepProgress steps={[failedStep(null)]} currentStep={0} onRetryStep={vi.fn()} />
+    );
+    expect(screen.getByTestId("step-retry-2")).toBeInTheDocument();
+  });
+
+  it("botao fica desabilitado enquanto o retry roda", async () => {
+    let resolve!: () => void;
+    const onRetryStep = vi.fn(() => new Promise<void>((r) => (resolve = r)));
+    render(
+      <AgentStepProgress
+        steps={[failedStep({ isRetryable: true })]}
+        currentStep={0}
+        onRetryStep={onRetryStep}
+      />
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("step-retry-2"));
+    });
+    expect(screen.getByTestId("step-retry-2")).toBeDisabled();
+
+    await act(async () => {
+      resolve();
+    });
+    expect(screen.getByTestId("step-retry-2")).not.toBeDisabled();
+  });
+
+  it("nao retryable: sem botao e sem 'tente novamente' na mensagem", () => {
+    render(
+      <AgentStepProgress
+        steps={[failedStep({ isRetryable: false }, "Erro interno. Tente novamente.")]}
+        currentStep={0}
+        onRetryStep={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByTestId("step-retry-2")).not.toBeInTheDocument();
+    const text = screen.getByTestId("step-error-2").textContent ?? "";
+    expect(text.toLowerCase()).not.toContain("tente novamente");
+    expect(text).toContain("Entre em contato com o suporte.");
+  });
+
+  it("sem onRetryStep nao ha botao (painel so leitura)", () => {
+    render(<AgentStepProgress steps={[failedStep({ isRetryable: true })]} currentStep={0} />);
+    expect(screen.queryByTestId("step-retry-2")).not.toBeInTheDocument();
+  });
+
+  it("step nao failed nunca mostra o botao", () => {
+    render(
+      <AgentStepProgress
+        steps={[createStep({ status: "completed", step_number: 2 })]}
+        currentStep={0}
+        onRetryStep={vi.fn()}
+      />
+    );
+    expect(screen.queryByTestId("step-retry-2")).not.toBeInTheDocument();
   });
 });

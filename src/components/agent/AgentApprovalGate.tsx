@@ -10,7 +10,8 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { triggerNextStep } from "@/lib/agent/client-utils";
+import { triggerNextStepChecked } from "@/lib/agent/client-utils";
+import { reportTriggerFailure } from "@/lib/agent/report-trigger-failure";
 import { useAgentStore } from "@/stores/use-agent-store";
 import type { EmptyCompanySearchDiagnosis } from "@/lib/agent/empty-search-diagnosis";
 
@@ -76,8 +77,12 @@ export function AgentApprovalGate({
       setLocalActionTaken("approved");
       onAction?.();
       // Story 17.7 - AC #6: Auto-advance to next step after approval
-      // Fire-and-forget: approval already saved, don't let trigger failure affect UI
-      triggerNextStep(executionId, stepNumber, totalSteps).catch(() => {});
+      // Nao aguardado: a aprovacao ja foi salva e o card continua "aprovado". Story 24.3
+      // (AC2): a resposta e VERIFICADA — falha que nao virou bolha no chat vira aviso
+      // com "Tentar novamente" (via store), em vez de sumir em silencio.
+      void triggerNextStepChecked(executionId, stepNumber, totalSteps).then((outcome) =>
+        reportTriggerFailure(outcome, executionId, stepNumber + 1)
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao aprovar");
       setLoading(null);

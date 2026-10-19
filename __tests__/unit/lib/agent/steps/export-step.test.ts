@@ -32,6 +32,15 @@ vi.mock("@/lib/services/instantly", () => ({
   },
 }));
 
+// Story 24.2: lista os leads ja presentes na campanha reaproveitada.
+const mockGetLeadTracking = vi.fn();
+
+vi.mock("@/lib/services/tracking", () => ({
+  TrackingService: class MockTrackingService {
+    getLeadTracking = mockGetLeadTracking;
+  },
+}));
+
 const mockGetServiceApiKey = vi.fn().mockResolvedValue("decrypted-instantly-key");
 
 vi.mock("@/lib/agent/steps/step-utils", () => ({
@@ -653,6 +662,190 @@ describe("ExportStep (Story 17.4 AC #1, #2)", () => {
       // Export incompleto: a campanha local nao pode dizer "exportada com sucesso".
       expect(db.campaigns[0].external_campaign_id).toBeNull();
       expect(db.campaigns[0].export_status).toBeNull();
+    });
+  });
+
+  // ==============================================
+  // Story 24.2 (AC1): export idempotente
+  // ==============================================
+  describe("export idempotente (Story 24.2)", () => {
+    /** O step ja tem output de uma tentativa anterior (parcial ou de falha). */
+    function withPreviousOutput(output: unknown, error: unknown = null) {
+      mockSupabase.stepsChain.maybeSingle = vi
+        .fn()
+        .mockResolvedValue({ data: output === undefined ? null : { output }, error });
+    }
+
+    function stepUpdates() {
+      return mockSupabase.stepsChain.update.mock.calls.map(
+        (call: unknown[]) => call[0] as Record<string, unknown>
+      );
+    }
+
+    it("retry apos falha no upload: NAO cria outra campanha e sobe so os e-mails ausentes", async () => {
+      withPreviousOutput({
+        externalCampaignId: "c1",
+        campaignName: "Campanha React Outbound",
+        error: { code: "STEP_EXPORT_ERROR", message: "timeout" },
+      });
+      // joao ja entrou (com caixa diferente), maria nao.
+      mockGetLeadTracking.mockResolvedValue([{ leadEmail: "JOAO@acme.com" }]);
+      mockAddLeadsToCampaign.mockResolvedValue({
+        leadsUploaded: 1,
+        duplicatedLeads: 0,
+        invalidEmails: 0,
+        remainingInPlan: 997,
+      });
+
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+      const result = await step.run(createDefaultInput());
+
+      expect(mockCreateCampaign).not.toHaveBeenCalled();
+      expect(mockGetLeadTracking).toHaveBeenCalledWith({
+        apiKey: "decrypted-instantly-key",
+        externalCampaignId: "c1",
+      });
+      expect(mockAddLeadsToCampaign).toHaveBeenCalledTimes(1);
+      const leads = mockAddLeadsToCampaign.mock.calls[0][0].leads as Array<{ email: string }>;
+      expect(leads.map((l) => l.email)).toEqual(["maria@beta.io"]);
+      expect(mockAddLeadsToCampaign.mock.calls[0][0].campaignId).toBe("c1");
+
+      // A leitura e do output do PROPRIO step (execucao + numero do step).
+      expect(mockSupabase.stepsChain.select).toHaveBeenCalledWith("output");
+      expect(mockSupabase.stepsChain.eq).toHaveBeenCalledWith("execution_id", EXECUTION_ID);
+      expect(mockSupabase.stepsChain.eq).toHaveBeenCalledWith("step_number", 4);
+
+      const data = result.data as Record<string, unknown>;
+      expect(data.externalCampaignId).toBe("c1");
+      expect(data.leadsUploaded).toBe(2); // 1 ja presente + 1 novo
+      expect(result.cost).toEqual({ instantly_create: 0, instantly_leads: 1 });
+    });
+
+    it("todos os leads ja estao na campanha: nao chama addLeadsToCampaign", async () => {
+      withPreviousOutput({ externalCampaignId: "c1", error: { message: "x" } });
+      mockGetLeadTracking.mockResolvedValue([
+        { leadEmail: "joao@acme.com" },
+        { leadEmail: "maria@beta.io" },
+      ]);
+
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+      const result = await step.run(createDefaultInput());
+
+      expect(mockCreateCampaign).not.toHaveBeenCalled();
+      expect(mockAddLeadsToCampaign).not.toHaveBeenCalled();
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data.leadsUploaded).toBe(2);
+      expect(data.externalCampaignId).toBe("c1");
+      expect(result.cost).toEqual({ instantly_create: 0, instantly_leads: 0 });
+    });
+
+    it("falha ao listar leads: step falha sem criar nada e o parcial e preservado", async () => {
+      withPreviousOutput({ externalCampaignId: "c1", error: { message: "x" } });
+      mockGetLeadTracking.mockRejectedValue(new ExternalServiceError("instantly", 503, "fora"));
+
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+      await expect(step.run(createDefaultInput())).rejects.toMatchObject({
+        isRetryable: true,
+      });
+
+      expect(mockCreateCampaign).not.toHaveBeenCalled();
+      expect(mockAddLeadsToCampaign).not.toHaveBeenCalled();
+      const failure = stepUpdates().find((u) => u.status === "failed");
+      expect((failure!.output as Record<string, unknown>).externalCampaignId).toBe("c1");
+    });
+
+    it.each([
+      ["API key", () => mockGetServiceApiKey.mockRejectedValueOnce(new Error("sem chave"))],
+      ["listAccounts", () => mockListAccounts.mockRejectedValueOnce(new ExternalServiceError("instantly", 503, "fora"))],
+    ])("retry que falha em %s: o id da campanha continua no output de falha", async (_label, failSetup) => {
+      withPreviousOutput({ externalCampaignId: "c1", error: { message: "x" } });
+      failSetup();
+
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+      await expect(step.run(createDefaultInput())).rejects.toBeDefined();
+
+      expect(mockCreateCampaign).not.toHaveBeenCalled();
+      const failure = stepUpdates().find((u) => u.status === "failed");
+      expect((failure!.output as Record<string, unknown>).externalCampaignId).toBe("c1");
+    });
+
+    it("primeira execucao: cria e grava o parcial ANTES de subir os leads", async () => {
+      withPreviousOutput(undefined);
+      const order: string[] = [];
+      mockSupabase.stepsChain.update.mockImplementation((payload: Record<string, unknown>) => {
+        const output = payload.output as Record<string, unknown> | undefined;
+        if (!("status" in payload) && output?.externalCampaignId) order.push("partial");
+        return mockSupabase.stepsChain;
+      });
+      mockAddLeadsToCampaign.mockImplementation(async () => {
+        order.push("upload");
+        return { leadsUploaded: 2, duplicatedLeads: 0, invalidEmails: 0, remainingInPlan: 1 };
+      });
+
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+      await step.run(createDefaultInput());
+
+      expect(mockCreateCampaign).toHaveBeenCalledTimes(1);
+      expect(mockGetLeadTracking).not.toHaveBeenCalled();
+      expect(order).toEqual(["partial", "upload"]);
+      expect(stepUpdates()).toContainEqual({
+        output: { externalCampaignId: "instantly-camp-123", campaignName: "Campanha React Outbound" },
+      });
+    });
+
+    it("upload falha na 1a execucao: o id da campanha sobrevive no output de falha", async () => {
+      withPreviousOutput(undefined);
+      mockAddLeadsToCampaign.mockRejectedValue(new ExternalServiceError("instantly", 504, "timeout"));
+
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+      await expect(step.run(createDefaultInput())).rejects.toBeDefined();
+
+      const failure = stepUpdates().find((u) => u.status === "failed");
+      expect(failure!.output).toMatchObject({
+        externalCampaignId: "instantly-camp-123",
+        error: expect.objectContaining({ code: "STEP_EXPORT_ERROR" }),
+      });
+    });
+
+    it("erro ao gravar o parcial: loga e segue (a campanha ja existe)", async () => {
+      withPreviousOutput(undefined);
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      mockSupabase.stepsChain.update.mockImplementation((payload: Record<string, unknown>) => {
+        if (!("status" in payload)) {
+          return createChainBuilder({ data: null, error: { message: "rls" } });
+        }
+        return mockSupabase.stepsChain;
+      });
+
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+      const result = await step.run(createDefaultInput());
+
+      expect(result.success).toBe(true);
+      expect(mockAddLeadsToCampaign).toHaveBeenCalledTimes(1);
+      expect(errorSpy).toHaveBeenCalled();
+      errorSpy.mockRestore();
+    });
+
+    it("erro ao LER o output anterior: lanca ANTES de qualquer chamada ao Instantly", async () => {
+      withPreviousOutput(undefined, { message: "read failed" });
+
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+      await expect(step.run(createDefaultInput())).rejects.toBeDefined();
+
+      expect(mockListAccounts).not.toHaveBeenCalled();
+      expect(mockCreateCampaign).not.toHaveBeenCalled();
+      expect(mockAddLeadsToCampaign).not.toHaveBeenCalled();
+    });
+
+    it("output anterior SEM externalCampaignId (so { error }): cria normalmente", async () => {
+      withPreviousOutput({ error: { message: "falhou antes de criar" } });
+
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+      await step.run(createDefaultInput());
+
+      expect(mockCreateCampaign).toHaveBeenCalledTimes(1);
+      expect(mockGetLeadTracking).not.toHaveBeenCalled();
     });
   });
 });
