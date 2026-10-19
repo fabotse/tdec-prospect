@@ -267,6 +267,57 @@ describe("useAIFullCampaignGeneration", () => {
     });
   });
 
+  describe("Follow-up plan shared with the agent (Story 24.8)", () => {
+    it("follow-ups 2/3/4 de 4 recebem numeracao e estrategias do buildFollowUpPlan", async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { text: "Generated" } }),
+      });
+      global.fetch = mockFetch;
+
+      const fourEmails: BuilderBlock[] = [1, 2, 3, 4].map((n) => ({
+        id: `email-${n}`,
+        type: "email" as const,
+        position: n - 1,
+        data: {
+          subject: "",
+          body: "",
+          emailMode: n === 1 ? ("initial" as const) : ("follow-up" as const),
+          strategicContext: `Contexto ${n}`,
+        },
+      }));
+
+      const { result } = renderHook(() => useAIFullCampaignGeneration());
+      await act(async () => {
+        await result.current.generate({
+          ...defaultParams,
+          blocks: fourEmails,
+        });
+      });
+
+      expect(mockFetch).toHaveBeenCalledTimes(8);
+      const expected = [
+        { n: 2, angle: "INSIGHT DO SETOR" },
+        { n: 3, angle: "PERGUNTA" },
+        { n: 4, angle: "ENCERRAMENTO" },
+      ];
+      for (const { n, angle } of expected) {
+        const subjectVars = JSON.parse(mockFetch.mock.calls[(n - 1) * 2][1].body).variables;
+        const bodyVars = JSON.parse(mockFetch.mock.calls[(n - 1) * 2 + 1][1].body).variables;
+        expect(bodyVars.sequence_position).toContain(`Email ${n} de 4`);
+        expect(bodyVars.follow_up_strategy).toContain(`${angle}:`);
+        expect(bodyVars.follow_up_strategy).not.toContain("CONFIRMAR VISUALIZAÇÃO");
+        expect(bodyVars.follow_up_strategy).not.toContain("case de sucesso");
+        expect(subjectVars.subject_strategy).not.toContain("RE: SIMPLES");
+        expect(subjectVars.subject_strategy).not.toMatch(/Use 'RE: '/);
+      }
+      const thirdBody = JSON.parse(mockFetch.mock.calls[5][1].body).variables;
+      expect(thirdBody.follow_up_strategy).toContain(
+        "Ângulos já usados nesta sequência: INSIGHT DO SETOR."
+      );
+    });
+  });
+
   describe("Template Mode - Personalization Variables (Story 7.1)", () => {
     it("never passes lead variables (always template mode)", async () => {
       const mockFetch = vi.fn().mockResolvedValue({

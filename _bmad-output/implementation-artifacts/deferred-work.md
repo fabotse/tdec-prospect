@@ -525,3 +525,11 @@ source_spec: `spec-24-6-e-mails-sem-dados-ficticios-e-follow-ups-com-valor.md`
 severity: medium
 reason: use-ai-full-campaign-generation.ts:313-334 e EmailBlock.tsx:335-385 montam follow_up_strategy/subject_strategy com "CONFIRMAR VISUALIZAÇÃO" e "RE: SIMPLES". A 24.6 limitou a correção ao agente; o épico põe a correção de prompt do fluxo manual na 24.8.
 status: open
+
+### DW-17: As 8 linhas inativas de ai_prompts ainda carregam as instruções antigas (40%, RE:, sem REGRA DE PROVAS) e voltariam se fossem reativadas.
+origin: spec-deferred 81a85b854ff7
+location: ai_prompts (produção kdgogyqyaxncqoyklyxx)
+source_spec: `spec-24-8-prompts-honestos-problema-primeiro-provas-so-da-kb.md`
+severity: low
+reason: Consulta somente leitura em 2026-10-19: email_body_generation v5 contém "40%", todas is_active = false e tenant_id nulo. Não há UI que altere is_active; atualizar ou apagar exige escrita em produção, que só pode ser feita com OK do Fabossi.
+status: open

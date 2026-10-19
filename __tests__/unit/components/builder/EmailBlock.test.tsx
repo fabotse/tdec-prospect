@@ -1619,6 +1619,61 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
       );
     });
 
+    // Story 24.8: o editor usa o mesmo plano de follow-up do agente
+    it.each([
+      { index: 2, angle: "INSIGHT DO SETOR", used: null },
+      { index: 3, angle: "PERGUNTA", used: "INSIGHT DO SETOR" },
+      { index: 4, angle: "ENCERRAMENTO", used: "INSIGHT DO SETOR, PERGUNTA" },
+    ])(
+      "follow-up $index de 4 usa buildFollowUpPlan ($angle)",
+      async ({ index, angle, used }) => {
+        const blocks: BuilderBlock[] = [1, 2, 3, 4].map((n) => ({
+          id: `email-${n}`,
+          type: "email" as const,
+          position: n - 1,
+          data:
+            n === 1
+              ? { subject: "First Subject", body: "First Body" }
+              : n === index
+                ? { subject: "", body: "", emailMode: "follow-up" as const }
+                : { subject: `S${n}`, body: `B${n}`, emailMode: "follow-up" as const },
+        }));
+        mockBlocks = blocks;
+        mockGenerate.mockResolvedValue("Generated follow-up text");
+
+        render(<EmailBlock block={blocks[index - 1]} stepNumber={index} />);
+        fireEvent.click(screen.getByText("Gerar com IA"));
+
+        await waitFor(
+          () => {
+            expect(
+              mockGenerate.mock.calls.find((c) => c[0]?.promptKey === "follow_up_email_generation")
+            ).toBeDefined();
+          },
+          { timeout: 3000 }
+        );
+
+        const subjectVars = mockGenerate.mock.calls.find(
+          (c) => c[0]?.promptKey === "follow_up_subject_generation"
+        )![0].variables;
+        const bodyVars = mockGenerate.mock.calls.find(
+          (c) => c[0]?.promptKey === "follow_up_email_generation"
+        )![0].variables;
+
+        expect(bodyVars.sequence_position).toContain(`Email ${index} de 4`);
+        expect(subjectVars.sequence_position).toContain(`Email ${index} de 4`);
+        expect(bodyVars.follow_up_strategy).toContain(`${angle}:`);
+        if (used) {
+          expect(bodyVars.follow_up_strategy).toContain(`Ângulos já usados nesta sequência: ${used}.`);
+        }
+        expect(bodyVars.follow_up_strategy).not.toContain("CONFIRMAR VISUALIZAÇÃO");
+        expect(bodyVars.follow_up_strategy).not.toContain("case de sucesso");
+        expect(subjectVars.subject_strategy).not.toContain("RE: SIMPLES");
+        expect(subjectVars.subject_strategy).not.toMatch(/Use 'RE: '/);
+        expect(subjectVars.subject_strategy).toContain("Não use 'RE:'");
+      }
+    );
+
     it("does NOT generate icebreaker for follow-up emails", async () => {
       mockBlocks = [
         {

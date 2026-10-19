@@ -10,6 +10,24 @@ import type { PromptKey, AIPromptMetadata } from "@/types/ai-prompt";
 import { FILTER_EXTRACTION_PROMPT, FILTER_EXTRACTION_MODEL } from "./filter-extraction";
 
 // ==============================================
+// REGRA DE PROVAS (Story 24.8)
+// ==============================================
+
+/**
+ * Bloco unico de provas, identico em todos os prompts de copy.
+ * `authorized_proofs` e uma lista fechada (preenchida pela Story 24.7); vazia ou ausente
+ * cai no `{{else}}` e proibe citar qualquer prova. Fica em nivel de topo do template:
+ * o `interpolateTemplate` nao suporta `{{#if}}` aninhado.
+ */
+export const PROOF_RULE_BLOCK = `{{#if authorized_proofs}}
+PROVAS AUTORIZADAS (LISTA FECHADA — ÚNICAS QUE PODEM SER CITADAS):
+{{authorized_proofs}}
+REGRA DE PROVAS: só cite números, cases, clientes ou certificações que estejam EXATAMENTE nesta lista, sem alterar valores. Se nenhuma for relevante, não cite nenhuma. A REGRA DE PROVAS prevalece sobre os exemplos e as diretrizes de escrita: números, porcentagens e cases que aparecerem nos exemplos NÃO podem ser copiados.
+{{else}}
+REGRA DE PROVAS: nenhuma prova foi fornecida. NÃO cite números, porcentagens, cases, clientes, resultados nem certificações. A REGRA DE PROVAS prevalece sobre os exemplos e as diretrizes de escrita: números, porcentagens e cases que aparecerem nos exemplos NÃO podem ser copiados.
+{{/if}}`;
+
+// ==============================================
 // CODE DEFAULT PROMPTS
 // ==============================================
 
@@ -52,7 +70,7 @@ PRODUTO EM FOCO (USE ESTE CONTEXTO OBRIGATORIAMENTE):
 - Diferenciais: {{product_differentials}}
 - Público-alvo: {{product_target_audience}}
 
-IMPORTANTE: O assunto DEVE mencionar ou fazer referência ao produto "{{product_name}}" de forma natural.
+IMPORTANTE: O assunto parte do problema ou do contexto do lead, não do produto. Nunca abra o assunto pelo produto; mencionar o produto "{{product_name}}" é opcional.
 {{else}}
 Produtos/Serviços da empresa: {{products_services}}
 {{/if}}
@@ -94,13 +112,13 @@ GUIA DE TOM - SIGA O ESTILO "{{tone_style}}":
 - Use linguagem corporativa e respeitosa
 - Evite gírias e expressões coloquiais
 - Estrutura mais rígida e profissional
-- Exemplo: "Proposta de parceria estratégica para {{lead_company}}"
+- Exemplo: "Uma questão sobre o planejamento da {{lead_company}}"
 
 [TÉCNICO]
 - Use terminologia técnica do setor {{lead_industry}}
 - Seja preciso e objetivo
-- Mencione métricas ou KPIs quando relevante
-- Exemplo: "ROI comprovado em {{lead_industry}}: case para {{lead_company}}"
+- Cite métricas ou KPIs SOMENTE se estiverem na lista de provas autorizadas (REGRA DE PROVAS abaixo)
+- Exemplo: "Gargalos de {{lead_industry}} na {{lead_company}}"
 
 OBJETIVO DO EMAIL:
 {{email_objective}}
@@ -118,11 +136,13 @@ EXEMPLOS DE ASSUNTOS QUE FUNCIONARAM (APRENDA COM ELES):
 - Observe como os exemplos mencionam a empresa do lead e faça similar
 {{/if}}
 
+${PROOF_RULE_BLOCK}
+
 REGRAS:
 1. Máximo 60 caracteres
 2. Evite palavras que disparam filtros de spam (grátis, urgente, promoção)
 3. Use personalização quando possível
-4. Seja direto e gere curiosidade
+4. Parta do problema ou do contexto do lead (cargo, empresa, desafio do setor), nunca do produto, e gere curiosidade
 5. OBRIGATÓRIO: Siga o estilo de tom "{{tone_style}}" conforme guia acima
 6. Se houver diretrizes de escrita, elas têm prioridade sobre o guia
 7. {{#if successful_examples}}PRIORIDADE MÁXIMA: Imite o estilo dos exemplos fornecidos{{else}}Use melhores práticas de cold email{{/if}}
@@ -153,7 +173,7 @@ PRODUTO EM FOCO (FALE ESPECIFICAMENTE SOBRE ESTE PRODUTO):
 - Diferenciais: {{product_differentials}}
 - Público-alvo: {{product_target_audience}}
 
-IMPORTANTE: O email DEVE apresentar o produto "{{product_name}}" como a solução principal. Mencione suas características e benefícios específicos.
+IMPORTANTE: O email abre pelo problema do lead. O produto "{{product_name}}" entra DEPOIS, em no máximo 2 frases, como resposta à dor. Não liste características.
 {{else}}
 Produtos/Serviços oferecidos: {{products_services}}
 {{/if}}
@@ -210,11 +230,10 @@ GUIA DE TOM - SIGA RIGOROSAMENTE O ESTILO "{{tone_style}}":
 [TÉCNICO]
 - Use terminologia técnica apropriada ao setor {{lead_industry}}
 - Seja preciso, objetivo e direto ao ponto
-- Mencione métricas, KPIs, ROI quando relevante
+- Cite métricas, KPIs ou ROI SOMENTE se estiverem na lista de provas autorizadas (REGRA DE PROVAS abaixo)
 - Tom de especialista falando com especialista
 - Evite simplificações excessivas - o lead entende o jargão
-- Use dados e evidências quando possível
-- Exemplo: "Nosso sistema reduz o tempo de processamento em 40%..."
+- Exemplo: "Em operações de {{lead_industry}}, o gargalo costuma aparecer quando o volume cresce e o processo continua manual..."
 
 OBJETIVO DO EMAIL:
 {{email_objective}}
@@ -241,13 +260,18 @@ EXEMPLOS DE EMAILS QUE FUNCIONARAM (APRENDA COM ELES):
 - O email gerado DEVE parecer escrito pela mesma pessoa que escreveu os exemplos
 - Se os exemplos usam bullet points, use bullet points. Se são parágrafos corridos, use parágrafos corridos.
 - Observe a CTA dos exemplos e crie CTA similar em tom e estilo
+- Exceção: a ordem dos blocos (problema do lead antes do produto) e o CTA de baixo atrito valem mesmo que os exemplos façam diferente
 {{/if}}
+
+${PROOF_RULE_BLOCK}
 
 REGRAS GERAIS:
 1. Máximo 150 palavras no email completo
 2. CRÍTICO: Siga o guia de tom "{{tone_style}}" — saudação, vocabulário e fechamento devem corresponder
 3. Se houver diretrizes de escrita (writing_guidelines), elas têm PRIORIDADE sobre o guia de tom
 4. {{#if successful_examples}}PRIORIDADE MÁXIMA: Imite a estrutura e estilo dos exemplos fornecidos{{else}}Use melhores práticas de cold email{{/if}}
+5. O email fala do lead antes de falar de você: o primeiro bloco de conteúdo depois da saudação/quebra-gelo é o problema do lead, nunca o produto. Esta ordem e o CTA de baixo atrito prevalecem sobre os exemplos e as diretrizes de escrita
+6. Siga a REGRA DE PROVAS acima
 
 ESTRUTURA OBRIGATÓRIA DO EMAIL — SIGA ESTA SEQUÊNCIA DE BLOCOS:
 
@@ -263,21 +287,26 @@ ESTRUTURA OBRIGATÓRIA DO EMAIL — SIGA ESTA SEQUÊNCIA DE BLOCOS:
 - Se houver variável {{ice_breaker}} literal: inclua-a EXATAMENTE como está, sem modificações
 - NÃO misture o assunto do quebra-gelo com o conteúdo do produto
 
+[PROBLEMA DO LEAD]
+- 1-2 frases sobre o problema ou contexto do lead: uma dor do ICP ("Dores comuns" acima) ligada ao cargo e à empresa dele
+- Se "Dores comuns" estiver vazio, use um desafio típico do cargo/setor em tom de hipótese ("costuma", "é comum"), sem afirmar fatos
+- Escreva como observação sobre a realidade do lead, sem afirmar fatos que você não conhece
+- NÃO fale do produto neste bloco
+
 [TRANSIÇÃO]
-- 1 frase conectando o quebra-gelo ao produto/proposta
+- 1 frase conectando o problema do lead à proposta
 - Transição rápida — não "viaje" no assunto do quebra-gelo
-- Se o quebra-gelo menciona um post sobre IA, NÃO fique discutindo IA — passe direto ao produto
+- Se o quebra-gelo menciona um post sobre IA, NÃO fique discutindo IA — volte à dor do lead
 
 [CONTEÚDO PRODUTO]
-- 2-3 frases focadas 100% no PRODUTO e seus benefícios
-- {{#if product_name}}Dedique 70% do email ao produto "{{product_name}}"{{else}}Apresente valor claramente{{/if}}
-- Parágrafos curtos (2-3 frases)
+- No máximo 2 frases, apresentando {{#if product_name}}o produto "{{product_name}}"{{else}}a solução{{/if}} como resposta à dor descrita acima
+- Nada de lista de características nem de benefícios genéricos
 - Evite clichês de vendas
 - Não mencione preços
 
 [CTA]
-- Call-to-action claro mas não agressivo
-- Sugira conversa rápida (10 min, bate-papo, ligação)
+- Baixo atrito: termine com UMA pergunta de sim/não ou de interesse (ex.: "Faz sentido para vocês?", "Vale eu te mandar mais detalhes?")
+- NÃO peça reunião, ligação de 30 minutos nem horário na agenda
 
 [FECHAMENTO]
 - Conforme tom de voz "{{tone_style}}"
@@ -347,10 +376,10 @@ ANÁLISE OBRIGATÓRIA DOS POSTS:
 3. Note CONQUISTAS, PROJETOS ou RESULTADOS mencionados
 4. Preste atenção em TENDÊNCIAS ou TECNOLOGIAS que ele comenta
 
-EXEMPLOS DE BONS QUEBRA-GELOS BASEADOS EM POSTS:
-- "Li seu post sobre a importância de dados em tempo real para decisões de negócio. Na TDec, ajudamos empresas a transformar dados brutos em insights acionáveis - algo que parece alinhar bem com sua visão."
-- "Curti sua análise sobre os desafios de escalar equipes de vendas. É exatamente o tipo de problema que nosso produto resolve com automação inteligente."
-- "Seu post sobre IA aplicada a vendas B2B me chamou atenção. A abordagem que você descreve é muito próxima do que implementamos aqui."
+EXEMPLOS DE BONS QUEBRA-GELOS BASEADOS EM POSTS (o foco é o lead, não o produto):
+- "Li seu post sobre a importância de dados em tempo real para decisões de negócio. O ponto sobre decisões travadas esperando o fechamento do mês é um problema que muita gente na sua posição ainda vive."
+- "Curti sua análise sobre os desafios de escalar equipes de vendas. A parte sobre perder ritmo quando o time dobra de tamanho foi bem honesta."
+- "Seu post sobre IA aplicada a vendas B2B me chamou atenção, principalmente a ressalva de que ferramenta nenhuma resolve processo mal desenhado."
 
 REGRAS OBRIGATÓRIAS:
 1. Máximo 2 frases (50 palavras)
@@ -366,13 +395,16 @@ REGRAS OBRIGATÓRIAS:
    - "Vi no seu perfil que..."
    - Qualquer frase que NÃO mencione um tema específico de um post real
 4. USE referências ESPECÍFICAS aos dados reais dos posts:
-   - "Li seu post sobre [TEMA ESPECÍFICO DO POST]. A forma como você abordou [INSIGHT CONCRETO]..."
-   - "Curti sua perspectiva sobre [TEMA DO POST]. Na [empresa], temos visto..."
-   - "Seu post sobre [TEMA] trouxe um ponto relevante sobre [DETALHE]. Empresas como a {{lead_company}}..."
+   - Cite o tema concreto do post e o insight ou opinião que o lead defendeu
+   - Conecte esse ponto ao desafio do cargo de {{lead_title}} ou ao momento da {{lead_company}}
+   - Escreva o texto final pronto, sem colchetes nem placeholders
 5. Mantenha tom profissional mas casual
-6. {{#if product_name}}Se fizer sentido, conecte o interesse do lead com o valor do produto "{{product_name}}"{{/if}}
+6. {{#if product_name}}O foco é o lead: não apresente o produto "{{product_name}}"; no máximo, aponte o desafio que ele aborda{{else}}O foco é o lead: não fale do que a sua empresa vende{{/if}}
 7. NÃO faça perguntas — afirme algo relevante baseado nos posts
 8. Siga o estilo de tom "{{tone_style}}"
+9. Siga a REGRA DE PROVAS abaixo (ela vale para provas da sua empresa; o conteúdo dos posts do lead pode ser citado)
+
+${PROOF_RULE_BLOCK}
 
 Responda APENAS com o quebra-gelo, sem explicações.`,
     modelPreference: "gpt-4o-mini",
@@ -399,7 +431,7 @@ PRODUTO EM FOCO (conecte o lead com este produto):
 - Diferenciais: {{product_differentials}}
 - Público-alvo: {{product_target_audience}}
 
-IMPORTANTE: O quebra-gelo deve conectar a situação do lead com uma necessidade que o produto "{{product_name}}" resolve.
+IMPORTANTE: O quebra-gelo parte da situação do lead (cargo, empresa, setor). Não apresente o produto "{{product_name}}"; no máximo, aponte o desafio que ele aborda.
 {{else}}
 Produtos/Serviços oferecidos: {{products_services}}
 {{/if}}
@@ -467,7 +499,7 @@ REGRAS OBRIGATÓRIAS:
 1. Máximo 2 frases
 2. USE O NOME REAL DA EMPRESA "{{lead_company}}" — não use placeholders
 3. SIGA O FOCO DA CATEGORIA indicado acima — ele define o ângulo principal
-4. {{#if product_name}}Conecte a situação da "{{lead_company}}" com o valor do produto "{{product_name}}"{{else}}Mencione algo relevante sobre "{{lead_company}}"{{/if}}
+4. {{#if product_name}}Fale da situação da "{{lead_company}}" e do desafio do cargo, não do produto "{{product_name}}"{{else}}Mencione algo relevante sobre "{{lead_company}}"{{/if}}
 5. FRASES PROIBIDAS (NUNCA use estas ou variações similares):
    - "Vi que você é ativo no LinkedIn"
    - "Tenho acompanhado seus posts"
@@ -484,11 +516,13 @@ REGRAS OBRIGATÓRIAS:
 9. Não faça perguntas — afirme algo relevante
 10. {{#if icebreaker_examples}}PRIORIDADE MÁXIMA: Imite o estilo dos exemplos de ice breaker fornecidos{{/if}}{{#if successful_examples}}PRIORIDADE MÁXIMA: Imite o estilo dos exemplos fornecidos{{/if}}
 
-ABORDAGENS EFICAZES POR CONTEXTO (use APENAS se nenhum exemplo foi fornecido acima):
-- Oportunidade de negócio: "A expansão da {{lead_company}} no mercado de {{lead_industry}} abre espaço para [proposta de valor]..."
-- Trajetória profissional: "Sua experiência como {{lead_title}} na {{lead_company}} traz uma perspectiva única sobre {{lead_industry}}..."
-- Desafio do cargo: "Profissionais na posição de {{lead_title}} frequentemente buscam [solução]. Na {{lead_company}}, isso deve ser especialmente relevante..."
-- Crescimento da empresa: "O momento da {{lead_company}} no setor de {{lead_industry}} chamou minha atenção..."
+ABORDAGENS EFICAZES POR CONTEXTO (use APENAS se nenhum exemplo foi fornecido acima; escreva o texto final, sem colchetes):
+- Desafio do cargo: "Quem responde por {{lead_title}} em {{lead_industry}} costuma carregar a pressão de entregar mais com a mesma equipe, e na {{lead_company}} isso não deve ser diferente."
+- Trajetória profissional: "Sua experiência como {{lead_title}} na {{lead_company}} traz uma perspectiva única sobre {{lead_industry}}."
+- Contexto do setor: "O setor de {{lead_industry}} está exigindo decisões mais rápidas, e isso pesa direto na rotina de quem lidera a área na {{lead_company}}."
+- NÃO afirme fatos sobre a empresa que não estão nos dados acima (expansão, crescimento, contratações)
+
+${PROOF_RULE_BLOCK}
 
 Responda APENAS com o quebra-gelo, sem explicações.`,
     modelPreference: "gpt-4o-mini",
@@ -560,7 +594,7 @@ GUIA DE TOM — SIGA O ESTILO "{{tone_style}}":
 [TÉCNICO]
 - Terminologia técnica do setor {{lead_industry}}
 - Preciso e objetivo, sem simplificações
-- Mencione métricas e resultados quando relevante
+- Cite métricas e resultados SOMENTE se estiverem na lista de provas autorizadas (REGRA DE PROVAS abaixo)
 - Fechamento: neutro e objetivo
 
 OBJETIVO DO FOLLOW-UP:
@@ -585,6 +619,8 @@ FRASES PROIBIDAS (NUNCA use estas ou variações):
 - "Conforme conversamos..."
 - Qualquer frase que comece referenciando o email anterior diretamente
 
+${PROOF_RULE_BLOCK}
+
 ANTI-REPETIÇÃO:
 - Leia o email anterior (acima) e NÃO repita informações já mencionadas
 - NÃO copie a estrutura do email anterior
@@ -596,11 +632,13 @@ REGRAS:
 3. Mantenha o tom de voz "{{tone_style}}"
 4. NUNCA seja passivo-agressivo
 5. Seja empático — a pessoa está ocupada, não te ignorando
+6. Fale do problema ou do contexto do lead, não do produto
+7. Siga a REGRA DE PROVAS acima
 
 ESTRUTURA (4 blocos curtos):
 1. Saudação (1 linha, conforme tom)
 2. Conteúdo (seguindo a estratégia obrigatória acima)
-3. CTA (conversa rápida, sem pressão)
+3. CTA (baixo atrito: uma pergunta de sim/não ou de interesse; NÃO peça reunião nem horário na agenda)
 4. Fechamento (1 linha, conforme tom)
 
 FORMATO: Comece DIRETAMENTE com a saudação. NÃO inclua "Assunto:". Gere APENAS o corpo.`,
@@ -638,7 +676,7 @@ MODO TEMPLATE — VARIÁVEIS DE PERSONALIZAÇÃO:
 Nenhum lead específico selecionado. Use variáveis de personalização no assunto:
 - No lugar do nome: use EXATAMENTE "{{first_name}}" (com chaves duplas)
 - No lugar da empresa: use EXATAMENTE "{{company_name}}" (com chaves duplas)
-Exemplo: "{{first_name}}, viu meu email?"
+Exemplo: "{{first_name}}, uma pergunta rápida"
 {{/if}}
 
 TOM DE VOZ:
@@ -649,26 +687,27 @@ GUIA DE TOM — SIGA O ESTILO "{{tone_style}}":
 
 [CASUAL]
 - Assuntos curtos e conversacionais
-- Use o primeiro nome: "{{lead_name}}, viu meu email?"
-- Vocabulário: "rápido", "bate-papo", "dá uma olhada"
+- Use o primeiro nome: "{{lead_name}}, uma ideia rápida"
+- Vocabulário: "rápido", "uma ideia", "uma pergunta"
 
 [FORMAL]
 - Assuntos profissionais e respeitosos
-- Use "RE:" para manter formalidade: "RE: Proposta para {{lead_company}}"
+- Exemplo: "Planejamento da {{lead_company}}"
 - Evite gírias e abreviações
 
 [TÉCNICO]
 - Assuntos objetivos com terminologia do setor {{lead_industry}}
-- Foque em dados e resultados: "ROI para {{lead_company}}"
+- Foque no desafio técnico do lead: "Gargalos de {{lead_industry}}"
 - Seja preciso e direto
 
 ⚠️ ESTRATÉGIA OBRIGATÓRIA DE ASSUNTO (SIGA EXATAMENTE):
 {{subject_strategy}}
 
-REGRA ANTI-DUPLICAÇÃO DE RE:
-- Se o assunto anterior JÁ começa com "RE:", NÃO adicione outro "RE:". Nesse caso, mude a abordagem ou use o assunto sem prefixo.
-- ERRADO: "RE: RE: Proposta comercial"
-- CERTO: "RE: Proposta comercial" ou "{{first_name}}, viu meu email?"
+PREFIXOS PROIBIDOS:
+- NUNCA use "RE:", "FW:", "FWD:" ou "ENC:" no assunto
+- NÃO pergunte se o lead viu, leu ou recebeu o e-mail anterior
+
+${PROOF_RULE_BLOCK}
 
 {{#if successful_examples}}
 EXEMPLOS DE ASSUNTOS DE FOLLOW-UP QUE FUNCIONARAM:
@@ -677,10 +716,10 @@ EXEMPLOS DE ASSUNTOS DE FOLLOW-UP QUE FUNCIONARAM:
 
 REGRAS CRÍTICAS:
 1. Máximo 50 caracteres
-2. Se usar "RE:", inclua o espaço após os dois pontos
+2. Sem prefixo de resposta ou encaminhamento
 3. Mantenha consistência com o tom de voz
 4. EVITE assuntos genéricos como "Seguindo", "Follow-up", "Checking in"
-5. Prefira assuntos que gerem curiosidade ou sensação de conversa pessoal
+5. Prefira assuntos que gerem curiosidade sobre o problema ou o contexto do lead
 
 Responda APENAS com o assunto do email.`,
     modelPreference: "gpt-4o-mini",
@@ -755,26 +794,34 @@ REGRAS POR OBJETIVO:
 [COLD_OUTREACH]
 - 4-5 emails tipicamente
 - Intervalos: 3, 4, 5, 7 dias
-- Estrutura: Introducao -> Valor -> Prova Social -> Escassez -> Ultimo Contato
+- Estrutura: Problema -> Insight -> Pergunta -> Recurso util -> Encerramento
 - Todos os emails sao iniciais (nao referenciam emails anteriores)
 
 [REENGAGEMENT]
 - 3 emails tipicamente
 - Intervalos: 2, 3 dias (mais curtos)
-- Estrutura: Lembrete -> Novo Valor -> Ultima Chance
-- Email 2+ sao follow-ups (referenciam contato anterior)
+- Estrutura: Novo contexto do problema -> Pergunta -> Encerramento
+- Email 2+ sao follow-ups
 
 [FOLLOW_UP]
 - 3-4 emails tipicamente
 - Intervalos: 2, 3, 4 dias
-- Estrutura: Checkin -> Valor Adicional -> Oferta Direta -> Despedida
+- Estrutura: Problema -> Recurso util -> Outra perspectiva -> Encerramento
 - Email 2+ sao follow-ups
 
 [NURTURE]
 - 5-7 emails tipicamente
 - Intervalos: 5, 7, 7, 10, 14 dias (mais longos)
-- Estrutura: Educacao -> Insight -> Case -> Dica -> Convite -> Check-in -> Despedida
+- Estrutura: Educacao -> Insight -> Dica -> Pergunta -> Recurso util -> Outra perspectiva -> Encerramento
+- Inclua um email de "Case" SOMENTE se houver prova autorizada (REGRA DE PROVAS abaixo)
 - Email 2+ sao follow-ups
+
+PRINCIPIOS DA SEQUENCIA:
+- Todo email parte do problema ou do contexto do lead; o produto aparece como resposta, nunca como abertura
+- NAO apele para depoimentos de clientes, falta de vagas, urgencia artificial nem oferta comercial direta
+- CTAs de baixo atrito (pergunta de sim/nao ou de interesse)
+
+${PROOF_RULE_BLOCK}
 
 AJUSTES POR URGENCIA:
 - LOW: Intervalos maiores (+2 dias cada)
@@ -790,7 +837,7 @@ FORMATO DE RESPOSTA (JSON VALIDO):
       {
         "position": 0,
         "type": "email",
-        "context": "Introducao e gancho inicial",
+        "context": "Problema do lead e contexto do setor",
         "emailMode": "initial"
       },
       {
@@ -801,7 +848,7 @@ FORMATO DE RESPOSTA (JSON VALIDO):
       {
         "position": 2,
         "type": "email",
-        "context": "Proposta de valor e diferenciais",
+        "context": "Insight sobre o desafio do lead",
         "emailMode": "initial" | "follow-up"
       }
     ]

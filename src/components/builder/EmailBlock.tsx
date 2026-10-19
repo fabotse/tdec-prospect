@@ -69,6 +69,7 @@ import type { EmailBlockData, EmailMode, IcebreakerSourceType } from "@/types/em
 import { useAIGenerate } from "@/hooks/use-ai-generate";
 import { useKnowledgeBaseContext } from "@/hooks/use-knowledge-base-context";
 import { useDebouncedCallback } from "@/hooks/use-debounce";
+import { buildSequenceFollowUpPlan } from "@/lib/agent/campaign-copy";
 import { AIGenerateButton } from "./AIGenerateButton";
 import { ExamplesHint } from "./ExamplesHint";
 import { PremiumIcebreakerBadge } from "./PremiumIcebreakerBadge";
@@ -333,26 +334,12 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
             .sort((a, b) => a.position - b.position);
           const emailIndex = emailBlocks.findIndex((b) => b.id === block.id) + 1;
           const totalEmails = emailBlocks.length;
-          const isLastEmail = emailIndex === totalEmails;
-
-          // Select the SPECIFIC strategy for this position — don't give AI a choice
-          const bodyStrategy = isLastEmail || emailIndex >= 5
-            ? "DESPEDIDA: Ser direto, dar 'última chance' sem pressão. Diga que vai parar de escrever, deixe a porta aberta. Tom amigável de encerramento. NÃO referencie emails anteriores."
-            : emailIndex === 2
-            ? "CONFIRMAR VISUALIZAÇÃO: Pergunte gentilmente se o lead conseguiu ver o email anterior. Ofereça uma conversa rápida. NÃO repita o conteúdo do email anterior."
-            : emailIndex === 3
-            ? "AGENDA CORRIDA: Assuma que o lead está ocupado. Mostre empatia. Ofereça flexibilidade total de horário. NÃO mencione o email anterior diretamente."
-            : "NOVO ÂNGULO/VALOR: Traga um dado novo, case de sucesso ou insight do setor. NÃO referencie os emails anteriores. Foque 100% em valor novo.";
-
-          const subjectStrategy = isLastEmail || emailIndex >= 5
-            ? "CURTO E DIRETO: Assunto pessoal sem RE:. Exemplo: '{{first_name}}, última mensagem' ou 'Encerramento'"
-            : emailIndex === 2
-            ? "RE: SIMPLES: Use 'RE: ' + assunto anterior. Exemplo: 'RE: {{previous_email_subject}}'"
-            : emailIndex === 3
-            ? "RE: COM VARIAÇÃO: Use 'RE: ' + algo novo. Exemplo: 'RE: Bate-papo rápido?' ou 'RE: Sobre a {{company_name}}'"
-            : "CURTO E DIRETO: Assunto pessoal sem RE:. Exemplo: '{{first_name}}, conseguiu ver?' ou 'Rápida pergunta'";
-
-          const sequencePosition = `Este é o ${emailIndex}º email de ${totalEmails} na sequência. ${isLastEmail ? "Este é o ÚLTIMO email da sequência." : ""}`;
+          // Story 24.8: mesmo plano de follow-up do agente (angulo, numeracao e regras).
+          const {
+            sequencePosition,
+            followUpStrategy: bodyStrategy,
+            subjectStrategy,
+          } = buildSequenceFollowUpPlan(emailIndex, totalEmails);
 
           // Skip icebreaker generation for follow-ups
           setGeneratingField("subject");
