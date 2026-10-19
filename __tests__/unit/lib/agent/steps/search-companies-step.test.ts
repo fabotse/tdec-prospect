@@ -28,6 +28,12 @@ vi.mock("@/lib/services/theirstack", () => {
   };
 });
 
+// Story 24.10: log de uso do agente (agent-usage -> usage-logger).
+const mockLogApiUsage = vi.fn();
+vi.mock("@/lib/services/usage-logger", () => ({
+  logApiUsage: (...args: unknown[]) => mockLogApiUsage(...args),
+}));
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -414,6 +420,47 @@ describe("SearchCompaniesStep (AC #1, #3)", () => {
         isRetryable: false,
         stepType: "search_companies",
       });
+    });
+  });
+
+  describe("Story 24.10 - log de uso TheirStack", () => {
+    it("loga 1 linha company_search com tenant e executionId", async () => {
+      const logged = new SearchCompaniesStep(1, mockSupabase as never, API_KEY, "tenant-1");
+      await logged.run(createInput());
+
+      expect(mockLogApiUsage).toHaveBeenCalledTimes(1);
+      expect(mockLogApiUsage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: "tenant-1",
+          serviceName: "theirstack",
+          requestType: "company_search",
+          status: "success",
+          metadata: expect.objectContaining({
+            executionId: "exec-001",
+            stepType: "search_companies",
+            calls: 1,
+            source: "agent",
+            companies: 2,
+            credits: 6,
+          }),
+        })
+      );
+    });
+
+    it("loga failed quando a busca falha e o erro segue igual", async () => {
+      mockSearchCompanies.mockRejectedValue(new ExternalServiceError("theirstack", 429, "Rate limited"));
+      const logged = new SearchCompaniesStep(1, mockSupabase as never, API_KEY, "tenant-1");
+
+      await expect(logged.run(createInput())).rejects.toMatchObject({ isRetryable: true });
+      expect(mockLogApiUsage).toHaveBeenCalledWith(
+        expect.objectContaining({ serviceName: "theirstack", status: "failed" })
+      );
+    });
+
+    it("sem tenantId nao loga (o step roda igual)", async () => {
+      const result = await step.run(createInput());
+      expect(result.success).toBe(true);
+      expect(mockLogApiUsage).not.toHaveBeenCalled();
     });
   });
 });

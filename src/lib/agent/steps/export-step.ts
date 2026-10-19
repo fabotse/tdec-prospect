@@ -16,6 +16,7 @@ import { InstantlyService } from "@/lib/services/instantly";
 import { TrackingService } from "@/lib/services/tracking";
 import { getServiceApiKey } from "./step-utils";
 import { markCampaignExported } from "@/lib/agent/campaign-persistence";
+import { logAgentUsage } from "@/lib/agent/agent-usage";
 import type {
   StepInput,
   StepOutput,
@@ -156,143 +157,186 @@ export class ExportStep extends BaseStep {
     // 2.7 - Sub-step C: Buscar sending accounts + Criar campanha no Instantly
     const service = new InstantlyService();
 
-    const accountsResult = await service.listAccounts({ apiKey });
-    if (accountsResult.accounts.length === 0) {
-      throw new Error("Nenhuma conta de envio encontrada no Instantly. Configure ao menos uma conta antes de exportar.");
-    }
-    const accounts = accountsResult.accounts;
-    const accountEmails = accounts.map((a) => a.email);
+    // Story 24.10: chamadas ao Instantly desta tentativa, para o log `campaign_export`
+    // (1 linha por step). O log nunca lanca e nao muda as chamadas.
+    let instantlyCalls = 0;
+    const exportStart = Date.now();
+    try {
+      instantlyCalls++;
+      const accountsResult = await service.listAccounts({ apiKey });
+      if (accountsResult.accounts.length === 0) {
+        throw new Error("Nenhuma conta de envio encontrada no Instantly. Configure ao menos uma conta antes de exportar.");
+      }
+      const accounts = accountsResult.accounts;
+      const accountEmails = accounts.map((a) => a.email);
 
-    // Story 17.9 AC #1/#3: In guided mode, create campaign WITHOUT accounts
-    // (user selects accounts in approval gate, ActivateStep adds them).
-    // In autopilot, include all accounts (AC #3).
-    const isGuided = input.mode === "guided";
-    let externalCampaignId: string;
-    if (existingCampaignId) {
-      externalCampaignId = existingCampaignId;
-    } else {
-      const createResult = await service.createCampaign({
-        apiKey,
-        name: campaignName,
-        sequences,
-        sendingAccounts: isGuided ? [] : accountEmails,
-      });
-      externalCampaignId = createResult.campaignId;
-      // Grava ANTES do upload de leads — e o upload que costuma falhar.
-      await this.recordPartialOutput(input.executionId, { externalCampaignId, campaignName });
-    }
-    const accountsAdded = isGuided ? 0 : accountEmails.length;
+      // Story 17.9 AC #1/#3: In guided mode, create campaign WITHOUT accounts
+      // (user selects accounts in approval gate, ActivateStep adds them).
+      // In autopilot, include all accounts (AC #3).
+      const isGuided = input.mode === "guided";
+      let externalCampaignId: string;
+      if (existingCampaignId) {
+        externalCampaignId = existingCampaignId;
+      } else {
+        instantlyCalls++;
+        const createResult = await service.createCampaign({
+          apiKey,
+          name: campaignName,
+          sequences,
+          sendingAccounts: isGuided ? [] : accountEmails,
+        });
+        externalCampaignId = createResult.campaignId;
+        // Grava ANTES do upload de leads — e o upload que costuma falhar.
+        await this.recordPartialOutput(input.executionId, { externalCampaignId, campaignName });
+      }
+      const accountsAdded = isGuided ? 0 : accountEmails.length;
 
-    // 2.9 - Sub-step E: Adicionar leads com icebreakers
-    const allMappedLeads = leadsWithIcebreakers
-      .filter((lead) => lead.email)
-      .map((lead) => {
-        const nameParts = (lead.name || "").split(" ");
-        const firstName = nameParts[0] || "";
-        const lastName = nameParts.slice(1).join(" ") || undefined;
+      // 2.9 - Sub-step E: Adicionar leads com icebreakers
+      const allMappedLeads = leadsWithIcebreakers
+        .filter((lead) => lead.email)
+        .map((lead) => {
+          const nameParts = (lead.name || "").split(" ");
+          const firstName = nameParts[0] || "";
+          const lastName = nameParts.slice(1).join(" ") || undefined;
 
-        return {
-          email: lead.email as string,
-          firstName: firstName || undefined,
-          lastName,
-          companyName: lead.companyName ?? undefined,
-          title: lead.title ?? undefined,
-          icebreaker: lead.icebreaker ?? undefined,
-        };
-      });
+          return {
+            email: lead.email as string,
+            firstName: firstName || undefined,
+            lastName,
+            companyName: lead.companyName ?? undefined,
+            title: lead.title ?? undefined,
+            icebreaker: lead.icebreaker ?? undefined,
+          };
+        });
 
-    if (allMappedLeads.length === 0) {
-      throw new Error("Nenhum lead com email valido para exportar");
-    }
+      if (allMappedLeads.length === 0) {
+        throw new Error("Nenhum lead com email valido para exportar");
+      }
 
-    // Story 24.2: no reuso, sobe so os e-mails que AINDA nao estao na campanha. Diff
-    // local em vez de `skip_if_in_campaign` (que filtra leads de QUALQUER campanha e foi
-    // desligado de proposito — ligar seria um filtro novo no caminho ate o Instantly).
-    let mappedLeads = allMappedLeads;
-    let alreadyPresent = 0;
-    if (existingCampaignId) {
-      const existingLeads = await new TrackingService().getLeadTracking({
-        apiKey,
-        externalCampaignId,
-      });
-      const presentEmails = new Set(
-        existingLeads
-          .map((lead) => (typeof lead.leadEmail === "string" ? lead.leadEmail.trim().toLowerCase() : ""))
-          .filter((email) => email.length > 0)
-      );
-      mappedLeads = allMappedLeads.filter(
-        (lead) => !presentEmails.has(lead.email.trim().toLowerCase())
-      );
-      alreadyPresent = allMappedLeads.length - mappedLeads.length;
-    }
-
-    const addLeadsResult =
-      mappedLeads.length > 0
-        ? await service.addLeadsToCampaign({
-            apiKey,
-            campaignId: externalCampaignId,
-            leads: mappedLeads,
-          })
-        : { leadsUploaded: 0, duplicatedLeads: 0, invalidEmails: 0 };
-
-    // Story 22.16: carimba os quatro campos de export na linha local, pelo caminho
-    // canonico do builder (`updateExportStatus`). SO AQUI o `external_campaign_id` existe.
-    //
-    // Fail-open TOTAL: o export ja gastou credito no Instantly e a campanha ja esta la
-    // com os leads dentro — uma falha de RLS/rede nesta escrita local nao pode transformar
-    // isso numa execucao falha. Falha => bolha + log, e o export segue como sucesso.
-    if (campaignId) {
-      try {
-        await markCampaignExported({
-          supabase: this.supabase,
-          campaignId,
+      // Story 24.2: no reuso, sobe so os e-mails que AINDA nao estao na campanha. Diff
+      // local em vez de `skip_if_in_campaign` (que filtra leads de QUALQUER campanha e foi
+      // desligado de proposito — ligar seria um filtro novo no caminho ate o Instantly).
+      let mappedLeads = allMappedLeads;
+      let alreadyPresent = 0;
+      if (existingCampaignId) {
+        instantlyCalls++;
+        const existingLeads = await new TrackingService().getLeadTracking({
+          apiKey,
           externalCampaignId,
         });
-      } catch (persistError) {
-        console.error(
-          "[ExportStep] Falha ao registrar o export na campanha local:",
-          persistError
+        const presentEmails = new Set(
+          existingLeads
+            .map((lead) => (typeof lead.leadEmail === "string" ? lead.leadEmail.trim().toLowerCase() : ""))
+            .filter((email) => email.length > 0)
         );
-        await this.sendCampaignNotice(
-          input.executionId,
-          "A campanha foi exportada para o Instantly, mas nao consegui registrar isso na sua lista de Campanhas — as metricas dela podem nao aparecer por aqui."
+        mappedLeads = allMappedLeads.filter(
+          (lead) => !presentEmails.has(lead.email.trim().toLowerCase())
         );
+        alreadyPresent = allMappedLeads.length - mappedLeads.length;
       }
+
+      if (mappedLeads.length > 0) instantlyCalls++;
+      const addLeadsResult =
+        mappedLeads.length > 0
+          ? await service.addLeadsToCampaign({
+              apiKey,
+              campaignId: externalCampaignId,
+              leads: mappedLeads,
+            })
+          : { leadsUploaded: 0, duplicatedLeads: 0, invalidEmails: 0 };
+
+      // Story 22.16: carimba os quatro campos de export na linha local, pelo caminho
+      // canonico do builder (`updateExportStatus`). SO AQUI o `external_campaign_id` existe.
+      //
+      // Fail-open TOTAL: o export ja gastou credito no Instantly e a campanha ja esta la
+      // com os leads dentro — uma falha de RLS/rede nesta escrita local nao pode transformar
+      // isso numa execucao falha. Falha => bolha + log, e o export segue como sucesso.
+      if (campaignId) {
+        try {
+          await markCampaignExported({
+            supabase: this.supabase,
+            campaignId,
+            externalCampaignId,
+          });
+        } catch (persistError) {
+          console.error(
+            "[ExportStep] Falha ao registrar o export na campanha local:",
+            persistError
+          );
+          await this.sendCampaignNotice(
+            input.executionId,
+            "A campanha foi exportada para o Instantly, mas nao consegui registrar isso na sua lista de Campanhas — as metricas dela podem nao aparecer por aqui."
+          );
+        }
+      }
+
+      // 2.10 - Sub-step F: Montar output
+      const data: ExportStepOutput = {
+        externalCampaignId,
+        campaignName,
+        totalEmails: emailBlocks.length,
+        leadsUploaded: alreadyPresent + addLeadsResult.leadsUploaded,
+        duplicatedLeads: addLeadsResult.duplicatedLeads,
+        invalidEmails: addLeadsResult.invalidEmails,
+        accountsAdded,
+        platform: "instantly",
+        accounts: accounts.map((a) => ({
+          email: a.email,
+          first_name: a.first_name,
+          last_name: a.last_name,
+        })),
+        // Sem propagar, o activate perde a referencia da linha local e nunca marcaria
+        // `status: "active"`.
+        campaignId: campaignId ?? null,
+      };
+
+      // 2.11 - Calcular custo
+      // Story 24.2: no reuso nada foi criado e so os leads novos foram enviados.
+      const cost = {
+        instantly_create: existingCampaignId ? 0 : 1,
+        instantly_leads: addLeadsResult.leadsUploaded,
+      };
+
+      await this.logExport(input.executionId, "success", instantlyCalls, Date.now() - exportStart, {
+        externalCampaignId,
+        reused: Boolean(existingCampaignId),
+        leadsUploaded: addLeadsResult.leadsUploaded,
+      });
+
+      // 2.12 - Retornar StepOutput
+      return {
+        success: true,
+        data: data as unknown as Record<string, unknown>,
+        cost,
+      };
+    } catch (exportError) {
+      await this.logExport(input.executionId, "failed", instantlyCalls, Date.now() - exportStart, {}, exportError);
+      throw exportError;
     }
+  }
 
-    // 2.10 - Sub-step F: Montar output
-    const data: ExportStepOutput = {
-      externalCampaignId,
-      campaignName,
-      totalEmails: emailBlocks.length,
-      leadsUploaded: alreadyPresent + addLeadsResult.leadsUploaded,
-      duplicatedLeads: addLeadsResult.duplicatedLeads,
-      invalidEmails: addLeadsResult.invalidEmails,
-      accountsAdded,
-      platform: "instantly",
-      accounts: accounts.map((a) => ({
-        email: a.email,
-        first_name: a.first_name,
-        last_name: a.last_name,
-      })),
-      // Sem propagar, o activate perde a referencia da linha local e nunca marcaria
-      // `status: "active"`.
-      campaignId: campaignId ?? null,
-    };
-
-    // 2.11 - Calcular custo
-    // Story 24.2: no reuso nada foi criado e so os leads novos foram enviados.
-    const cost = {
-      instantly_create: existingCampaignId ? 0 : 1,
-      instantly_leads: addLeadsResult.leadsUploaded,
-    };
-
-    // 2.12 - Retornar StepOutput
-    return {
-      success: true,
-      data: data as unknown as Record<string, unknown>,
-      cost,
-    };
+  /** Story 24.10: 1 linha `campaign_export` por tentativa com chamada ao Instantly. Nunca lanca. */
+  private async logExport(
+    executionId: string,
+    status: "success" | "failed",
+    calls: number,
+    durationMs: number,
+    metadata: Record<string, unknown>,
+    error?: unknown
+  ): Promise<void> {
+    if (calls === 0) return;
+    await logAgentUsage({
+      tenantId: this.tenantId,
+      executionId,
+      stepType: "export",
+      serviceName: "instantly",
+      requestType: "campaign_export",
+      status,
+      calls,
+      durationMs,
+      errorMessage: status === "failed" ? (error instanceof Error ? error.message : "Erro Instantly") : undefined,
+      metadata,
+    });
   }
 
   /**

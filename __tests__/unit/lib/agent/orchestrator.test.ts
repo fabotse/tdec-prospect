@@ -16,6 +16,8 @@ import type { PipelineError, ParsedBriefing } from "@/types/agent";
 // ==============================================
 
 const mockSearchCompaniesRun = vi.fn();
+// Story 24.10: argumentos do construtor (o 4o e o tenantId para o log de uso).
+const searchCompaniesCtorArgs: unknown[][] = [];
 const mockSearchLeadsRun = vi.fn();
 const mockCreateCampaignRun = vi.fn();
 const mockExportRun = vi.fn();
@@ -29,7 +31,8 @@ vi.mock("@/lib/agent/steps/search-companies-step", () => {
       stepType: string;
       // Story 22.17: espelha o contrato publico do BaseStep.
       requiresPostApproval = () => true;
-      constructor(stepNumber: number) {
+      constructor(stepNumber: number, ...rest: unknown[]) {
+        searchCompaniesCtorArgs.push([stepNumber, ...rest]);
         this.stepNumber = stepNumber;
         this.stepType = "search_companies";
       }
@@ -118,6 +121,17 @@ vi.mock("@/lib/services/instantly", () => ({
 }));
 
 const mockGetServiceApiKey = vi.fn().mockResolvedValue("decrypted-instantly-key");
+
+// Story 24.10: custo real e log de uso tem suites proprias (execution-cost / agent-usage).
+const mockRecordExecutionCost = vi.fn().mockResolvedValue(null);
+vi.mock("@/lib/agent/execution-cost", () => ({
+  recordExecutionCost: (...args: unknown[]) => mockRecordExecutionCost(...args),
+}));
+
+const mockLogAgentUsage = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/agent/agent-usage", () => ({
+  logAgentUsage: (...args: unknown[]) => mockLogAgentUsage(...args),
+}));
 
 vi.mock("@/lib/agent/steps/step-utils", () => ({
   getServiceApiKey: (...args: unknown[]) => mockGetServiceApiKey(...args),
@@ -272,6 +286,120 @@ describe("DeterministicOrchestrator (AC #5)", () => {
 
       // sendErrorMessage called (4.6)
       expect(mockSupabase.from).toHaveBeenCalledWith("agent_messages");
+    });
+
+    it("Story 24.10: passa o tenant_id da execucao ao SearchCompaniesStep", async () => {
+      searchCompaniesCtorArgs.length = 0;
+
+      await orchestrator.executeStep("exec-001", 1);
+
+      expect(searchCompaniesCtorArgs).toHaveLength(1);
+      expect(searchCompaniesCtorArgs[0][3]).toBe("tenant-1");
+    });
+
+    it("Story 24.10: grava current_step ao comecar o step", async () => {
+      await orchestrator.executeStep("exec-001", 1);
+
+      expect(mockSupabase.executionsChain.update).toHaveBeenCalledWith({ current_step: 1 });
+      expect(mockSupabase.executionsChain.neq).toHaveBeenCalledWith("status", "cancelled");
+      // antes de o step rodar
+      const currentStepCall = mockSupabase.executionsChain.update.mock.calls.findIndex(
+        (call: unknown[]) => (call[0] as Record<string, unknown>).current_step === 1
+      );
+      expect(mockSupabase.executionsChain.update.mock.invocationCallOrder[currentStepCall]).toBeLessThan(
+        mockSearchCompaniesRun.mock.invocationCallOrder[0]
+      );
+    });
+
+    it("Story 24.10: grava current_step tambem no step pulado pelo briefing", async () => {
+      const skipExecChain = createChainBuilder({
+        data: {
+          id: "exec-001",
+          tenant_id: "tenant-1",
+          status: "running",
+          mode: "guided",
+          briefing: { ...mockBriefing, skipSteps: ["search_companies"] },
+          total_steps: 5,
+        },
+        error: null,
+      });
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") return skipExecChain;
+        if (table === "agent_steps") return mockSupabase.stepsChain;
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+
+      const result = await orchestrator.executeStep("exec-001", 1);
+
+      expect(result.data).toMatchObject({ skipped: true });
+      expect(skipExecChain.update).toHaveBeenCalledWith({ current_step: 1 });
+      expect(mockSearchCompaniesRun).not.toHaveBeenCalled();
+    });
+
+    it("Story 24.10: na pausa grava error_message com o texto da bolha e registra o custo depois dela", async () => {
+      const pipelineError: PipelineError = {
+        code: "STEP_SEARCH_COMPANIES_ERROR",
+        message: "Rate limited",
+        stepNumber: 1,
+        stepType: "search_companies",
+        isRetryable: true,
+        externalService: "theirstack",
+      };
+      mockSearchCompaniesRun.mockRejectedValue(pipelineError);
+
+      await expect(orchestrator.executeStep("exec-001", 1)).rejects.toMatchObject({
+        reportedInChat: true,
+      });
+
+      const bubble = mockSupabase.messagesChain.insert.mock.calls
+        .map((call: unknown[]) => call[0] as Record<string, unknown>)
+        .find((arg) => (arg.metadata as Record<string, unknown>)?.messageType === "error");
+      expect(bubble).toBeDefined();
+
+      expect(mockSupabase.executionsChain.update).toHaveBeenCalledWith({
+        status: "paused",
+        error_message: bubble!.content,
+      });
+      expect(mockRecordExecutionCost).toHaveBeenCalledWith(mockSupabase, "exec-001", {
+        phase: "paused",
+        stepNumber: 1,
+      });
+      const bubbleIndex = mockSupabase.messagesChain.insert.mock.calls.findIndex(
+        (call: unknown[]) => (call[0] as Record<string, unknown>) === bubble
+      );
+      expect(mockSupabase.messagesChain.insert.mock.invocationCallOrder[bubbleIndex]).toBeLessThan(
+        mockRecordExecutionCost.mock.invocationCallOrder[0]
+      );
+    });
+
+    it("Story 24.10: falha ao gravar o paused so loga e a bolha sai mesmo assim", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const execChain = createChainBuilder({
+        data: { id: "exec-001", tenant_id: "tenant-1", status: "running", mode: "guided", briefing: mockBriefing, total_steps: 5 },
+        error: null,
+      });
+      const failingWrite = createChainBuilder({ data: null, error: { message: "db down" } });
+      let execCalls = 0;
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === "agent_executions") {
+          execCalls++;
+          return execCalls === 1 ? execChain : failingWrite;
+        }
+        if (table === "agent_steps") return mockSupabase.stepsChain;
+        if (table === "agent_messages") return mockSupabase.messagesChain;
+        return createChainBuilder();
+      });
+      mockSearchCompaniesRun.mockRejectedValue(new Error("boom"));
+
+      await expect(orchestrator.executeStep("exec-001", 1)).rejects.toMatchObject({
+        code: "STEP_EXECUTION_ERROR",
+        reportedInChat: true,
+      });
+
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("status 'paused'"), "db down");
+      expect(mockSupabase.messagesChain.insert).toHaveBeenCalled();
+      errorSpy.mockRestore();
     });
   });
 
@@ -430,7 +558,8 @@ describe("DeterministicOrchestrator (AC #5)", () => {
 
       await orchestrator.executeStep("exec-001", 1);
 
-      expect(writeChain.update).toHaveBeenCalledWith({ status: "running" });
+      // Story 24.10: o mesmo update limpa o error_message da pausa.
+      expect(writeChain.update).toHaveBeenCalledWith({ status: "running", error_message: null });
       expect(writeChain.eq).toHaveBeenCalledWith("id", "exec-001");
       expect(writeChain.eq).toHaveBeenCalledWith("status", "paused");
       expect(mockSearchCompaniesRun).toHaveBeenCalled();
@@ -458,7 +587,7 @@ describe("DeterministicOrchestrator (AC #5)", () => {
     it("execucao running: nao escreve status antes do step", async () => {
       await orchestrator.executeStep("exec-001", 1);
 
-      expect(mockSupabase.executionsChain.update).not.toHaveBeenCalledWith({ status: "running" });
+      expect(mockSupabase.executionsChain.update).not.toHaveBeenCalledWith({ status: "running", error_message: null });
     });
   });
 
@@ -865,8 +994,15 @@ describe("DeterministicOrchestrator (AC #5)", () => {
         expect.objectContaining({
           status: "completed",
           completed_at: expect.any(String),
+          error_message: null,
         })
       );
+
+      // Story 24.10: custo real + mensagem de custo na conclusao, depois do resumo.
+      expect(mockRecordExecutionCost).toHaveBeenCalledWith(mockSupabase, "exec-001", {
+        phase: "completed",
+        stepNumber: 5,
+      });
     });
 
     /**
@@ -974,9 +1110,10 @@ describe("DeterministicOrchestrator (AC #5)", () => {
       mockSupabase.from.mockImplementation((table: string) => {
         if (table === "agent_executions") {
           execCallCount++;
-          // 1: fetch da execucao | 2: escrita de completed (falha) | 3+: paused
+          // 1: fetch da execucao | 2: current_step (24.10) | 3: escrita de completed (falha) | 4+: paused
           if (execCallCount === 1) return mockSupabase.executionsChain;
-          if (execCallCount === 2) return failingCompletion;
+          if (execCallCount === 2) return pausedChain;
+          if (execCallCount === 3) return failingCompletion;
           return pausedChain;
         }
         if (table === "agent_steps") {
@@ -1242,6 +1379,15 @@ describe("DeterministicOrchestrator (AC #5)", () => {
       // ActivateStep.run() should NOT have been called
       expect(mockActivateRun).not.toHaveBeenCalled();
       expect(result.data).toMatchObject({ skipped: true, reason: "activation_deferred" });
+
+      // Story 24.10: conclusao pelo defer grava custo real e limpa error_message.
+      expect(mockSupabase.executionsChain.update).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "completed", error_message: null })
+      );
+      expect(mockRecordExecutionCost).toHaveBeenCalledWith(mockSupabase, "exec-001", {
+        phase: "completed",
+        stepNumber: 5,
+      });
     });
 
     // Story 22.16: o defer NAO escreve na campanha local.
@@ -1599,6 +1745,16 @@ describe("DeterministicOrchestrator (AC #5)", () => {
 
       // ActivateStep.run() should NOT have been called (still skipped)
       expect(mockActivateRun).not.toHaveBeenCalled();
+
+      // Story 24.10: attach logado com a execucao
+      expect(mockLogAgentUsage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestType: "add_accounts",
+          status: "success",
+          executionId: "exec-001",
+          calls: 1,
+        })
+      );
     });
 
     it("degrades gracefully when addAccountsToCampaign fails in defer path (Story 22.12 AC3)", async () => {
@@ -1654,6 +1810,16 @@ describe("DeterministicOrchestrator (AC #5)", () => {
         reason: "activation_deferred",
         accountsAttachFailed: true,
       });
+
+      // Story 24.10: attach que falhou tambem e logado
+      expect(mockLogAgentUsage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestType: "add_accounts",
+          status: "failed",
+          executionId: "exec-001",
+          calls: 1,
+        })
+      );
 
       // step skipped carrega a flag
       expect(stepsUpdateFn).toHaveBeenCalledWith(
@@ -1891,6 +2057,19 @@ describe("DeterministicOrchestrator (AC #5)", () => {
       });
       expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
         expect.objectContaining({ metadata: expect.objectContaining({ messageType: "error" }) })
+      );
+
+      // Story 24.10: pausa com error_message preenchido e custo ate aqui
+      expect(executionWithSkip.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "paused",
+          error_message: expect.stringMatching(/\S/),
+        })
+      );
+      expect(mockRecordExecutionCost).toHaveBeenCalledWith(
+        mockSupabase,
+        "exec-001",
+        expect.objectContaining({ phase: "paused" })
       );
     });
 

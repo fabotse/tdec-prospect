@@ -199,4 +199,18 @@ describe("ProductParserService", () => {
     expect(callArgs).not.toHaveProperty("temperature");
     expect(callArgs.response_format).toEqual({ type: "json_object" });
   });
+
+  // Story 24.10: o parser devolve o uso de tokens para a rota logar
+  it("devolve usage com tokens da completion (Story 24.10)", async () => {
+    mockCreate.mockResolvedValue({
+      ...mockCompletionResponse(VALID_PRODUCT),
+      model: "gpt-5.4-mini",
+      usage: { prompt_tokens: 50, completion_tokens: 10 },
+    });
+
+    const result = await ProductParserService.parse("texto", "TDEC Analytics", "sk-test");
+
+    expect(result.usage).toEqual({ promptTokens: 50, completionTokens: 10, model: "gpt-5.4-mini" });
+    expect(result.name).toBe("TDEC Analytics");
+  });
 });

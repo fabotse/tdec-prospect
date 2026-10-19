@@ -27,6 +27,8 @@ import { PlanGeneratorService } from "@/lib/services/agent-plan-generator";
 import { getServiceApiKey } from "./steps/step-utils";
 import { stampLatestApprovalGate } from "@/lib/agent/gate-metadata";
 import { formatStepErrorMessage, NON_RETRYABLE_SUFFIX } from "@/lib/agent/step-error-display";
+import { recordExecutionCost } from "@/lib/agent/execution-cost";
+import { logAgentUsage } from "@/lib/agent/agent-usage";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ==============================================
@@ -187,10 +189,11 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
     // tira de `paused`. CAS em `paused` — nunca sobrescreve cancel/completed concorrente.
     // Uma falha de escrita so e logada: nao bloqueia o retry (uma nova falha do step
     // volta a gravar `paused` de qualquer jeito).
+    // Story 24.10: o mesmo update limpa o `error_message` da pausa.
     if (executionData.status === "paused") {
       const { error: resumeError } = await this.supabase
         .from("agent_executions")
-        .update({ status: "running" })
+        .update({ status: "running", error_message: null })
         .eq("id", executionId)
         .eq("status", "paused");
       if (resumeError) {
@@ -200,6 +203,9 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
         );
       }
     }
+
+    // Story 24.10: `current_step` acompanha o orquestrador (inclusive step pulado).
+    await this.markCurrentStep(executionId, stepNumber);
 
     // Story 17.7 Task 1.2: Generic skip based on briefing.skipSteps
     if (this.shouldSkip(stepType, executionData.briefing)) {
@@ -244,8 +250,7 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
               stepNumber,
               stepType
             );
-        await this.updateExecutionStatus(executionId, "paused");
-        await this.sendErrorMessage(executionId, pipelineError);
+        await this.pauseWithError(executionId, pipelineError);
         // Story 24.3: bolha escrita — o cliente nao deve duplicar o aviso.
         throw { ...pipelineError, reportedInChat: true } as PipelineError;
       }
@@ -272,15 +277,43 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
         let accountsAttachFailed = false;
         const selectedAccounts = previousStepOutput.selectedAccounts as string[] | undefined;
         if (selectedAccounts && selectedAccounts.length > 0 && previousStepOutput.externalCampaignId) {
+          // Story 24.10: so loga se a chamada ao Instantly chegou a acontecer.
+          let attachStart: number | null = null;
           try {
             const apiKey = await getServiceApiKey(tenantId, "instantly");
             const service = new InstantlyService();
+            attachStart = Date.now();
             await service.addAccountsToCampaign({
               apiKey,
               campaignId: previousStepOutput.externalCampaignId as string,
               accountEmails: selectedAccounts,
             });
+            await logAgentUsage({
+              tenantId,
+              executionId,
+              stepType,
+              serviceName: "instantly",
+              requestType: "add_accounts",
+              status: "success",
+              calls: 1,
+              durationMs: Date.now() - attachStart,
+              metadata: { accounts: selectedAccounts.length, origin: "activation_deferred" },
+            });
           } catch (attachError) {
+            if (attachStart !== null) {
+              await logAgentUsage({
+                tenantId,
+                executionId,
+                stepType,
+                serviceName: "instantly",
+                requestType: "add_accounts",
+                status: "failed",
+                calls: 1,
+                durationMs: Date.now() - attachStart,
+                errorMessage: attachError instanceof Error ? attachError.message : "Erro Instantly",
+                metadata: { accounts: selectedAccounts.length, origin: "activation_deferred" },
+              });
+            }
             accountsAttachFailed = true;
             console.error(
               `[Orchestrator] Falha ao anexar contas de envio no defer (execution=${executionId}, campaign=${previousStepOutput.externalCampaignId}):`,
@@ -327,6 +360,7 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
             status: "completed",
             completed_at: new Date().toISOString(),
             result_summary: { activationDeferred: true, ...attachFlag },
+            error_message: null,
           })
           .eq("id", executionId)
           .neq("status", "cancelled");
@@ -377,6 +411,9 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
           { stepType: "export" as StepType }
         );
 
+        // Story 24.10: custo real + mensagem de custo. Fail-open (nunca lanca).
+        await recordExecutionCost(this.supabase, executionId, { phase: "completed", stepNumber });
+
         return { success: true, data: { skipped: true, reason: "activation_deferred", ...attachFlag } };
       } catch (error) {
         const pipelineError = isPipelineError(error)
@@ -387,8 +424,7 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
               stepNumber,
               stepType
             );
-        await this.updateExecutionStatus(executionId, "paused");
-        await this.sendErrorMessage(executionId, pipelineError);
+        await this.pauseWithError(executionId, pipelineError);
         // Story 22.18 (code review, P2): bolha escrita — o gate nao deve duplicar.
         throw { ...pipelineError, reportedInChat: true } as PipelineError;
       }
@@ -428,6 +464,7 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
           .update({
             status: "completed",
             completed_at: new Date().toISOString(),
+            error_message: null,
           })
           .eq("id", executionId)
           .neq("status", "cancelled");
@@ -455,6 +492,9 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
             summaryError instanceof Error ? summaryError.message : summaryError
           );
         }
+
+        // Story 24.10: custo real + mensagem de custo, depois do resumo. Fail-open.
+        await recordExecutionCost(this.supabase, executionId, { phase: "completed", stepNumber });
       }
 
       return result;
@@ -478,8 +518,7 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
       }
 
       // 4.7 - NEVER 'failed' directly, always 'paused'
-      await this.updateExecutionStatus(executionId, "paused");
-      await this.sendErrorMessage(executionId, pipelineError);
+      await this.pauseWithError(executionId, pipelineError);
 
       // Story 22.18 (code review, P2): so DEPOIS de a bolha existir. O cliente le este
       // flag em vez de inferir "ja reportado" da presenca de `stepType` — que tambem
@@ -510,7 +549,7 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
   private getStepInstance(stepNumber: number, stepType: StepType, tenantId: string) {
     switch (stepType) {
       case "search_companies":
-        return new SearchCompaniesStep(stepNumber, this.supabase, this.apiKey);
+        return new SearchCompaniesStep(stepNumber, this.supabase, this.apiKey, tenantId);
       case "search_leads":
         return new SearchLeadsStep(stepNumber, this.supabase, tenantId);
       case "create_campaign":
@@ -531,30 +570,80 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
 
   /**
    * Update execution status.
+   * Story 24.10: grava tambem o `error_message` (quando informado) e checa o `{ error }`
+   * — so loga, nunca lanca.
    */
   private async updateExecutionStatus(
     executionId: string,
-    status: string
+    status: string,
+    errorMessage?: string | null
   ): Promise<void> {
     // Story 22.10 (code review): CAS. Este metodo escreve 'paused' nos caminhos de erro;
     // sem a guarda, um step que falha DEPOIS de um cancel concorrente escreveria 'paused'
     // por cima de 'cancelled' — e 'paused' reataca ({running,paused}), recriando a fantasma
     // que a story combate. `.neq("status","cancelled")` mantem o cancel terminal.
-    await this.supabase
-      .from("agent_executions")
-      .update({ status })
-      .eq("id", executionId)
-      .neq("status", "cancelled");
+    const update: Record<string, unknown> = { status };
+    if (errorMessage !== undefined) update.error_message = errorMessage;
+    try {
+      const { error } = await this.supabase
+        .from("agent_executions")
+        .update(update)
+        .eq("id", executionId)
+        .neq("status", "cancelled");
+      if (error) {
+        console.error(
+          `[Orchestrator] Falha ao gravar status '${status}' (execution=${executionId}):`,
+          error.message ?? error
+        );
+      }
+    } catch (writeError) {
+      console.error(
+        `[Orchestrator] Falha ao gravar status '${status}' (execution=${executionId}):`,
+        writeError instanceof Error ? writeError.message : writeError
+      );
+    }
   }
 
   /**
-   * Send error message to agent_messages in PT-BR.
-   * (4.6)
+   * Story 24.10: `current_step` = step que esta comecando. CAS contra `cancelled`; so loga.
    */
-  private async sendErrorMessage(
-    executionId: string,
-    error: PipelineError
-  ): Promise<void> {
+  private async markCurrentStep(executionId: string, stepNumber: number): Promise<void> {
+    try {
+      const { error } = await this.supabase
+        .from("agent_executions")
+        .update({ current_step: stepNumber })
+        .eq("id", executionId)
+        .neq("status", "cancelled");
+      if (error) {
+        console.error(
+          `[Orchestrator] Falha ao gravar current_step=${stepNumber} (execution=${executionId}):`,
+          error.message ?? error
+        );
+      }
+    } catch (writeError) {
+      console.error(
+        `[Orchestrator] Falha ao gravar current_step=${stepNumber} (execution=${executionId}):`,
+        writeError instanceof Error ? writeError.message : writeError
+      );
+    }
+  }
+
+  /**
+   * Story 24.10: pausa a execucao com o texto da bolha em `error_message`, escreve a bolha
+   * e registra o custo ate aqui (fail-open).
+   */
+  private async pauseWithError(executionId: string, error: PipelineError): Promise<void> {
+    const content = this.buildErrorContent(error);
+    await this.updateExecutionStatus(executionId, "paused", content);
+    await this.sendErrorMessage(executionId, error, content);
+    await recordExecutionCost(this.supabase, executionId, {
+      phase: "paused",
+      stepNumber: error.stepNumber,
+    });
+  }
+
+  /** Texto PT-BR da bolha de erro (tambem gravado em `error_message`). */
+  private buildErrorContent(error: PipelineError): string {
     const stepLabel = STEP_LABELS[error.stepType] ?? error.stepType;
     const servicePart = error.externalService
       ? ` (servico: ${error.externalService})`
@@ -569,8 +658,18 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
     // `step-error-display.ts`, compartilhada com a UI.
     const displayMessage = formatStepErrorMessage(error.message, error.isRetryable);
 
-    const content = `Erro na etapa "${stepLabel}"${servicePart}: ${displayMessage}.${retryPart}`;
+    return `Erro na etapa "${stepLabel}"${servicePart}: ${displayMessage}.${retryPart}`;
+  }
 
+  /**
+   * Send error message to agent_messages in PT-BR.
+   * (4.6)
+   */
+  private async sendErrorMessage(
+    executionId: string,
+    error: PipelineError,
+    content: string = this.buildErrorContent(error)
+  ): Promise<void> {
     await this.supabase.from("agent_messages").insert({
       execution_id: executionId,
       role: "system",

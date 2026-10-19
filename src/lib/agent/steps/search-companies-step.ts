@@ -8,6 +8,11 @@
 import { BaseStep } from "./base-step";
 import { TheirStackService } from "@/lib/services/theirstack";
 import { diagnoseEmptyCompanySearch } from "@/lib/agent/empty-search-diagnosis";
+import {
+  AGENT_PIPELINE_VOLUMES,
+  THEIRSTACK_CREDITS_PER_COMPANY,
+} from "@/lib/agent/agent-pricing";
+import { logAgentUsage } from "@/lib/agent/agent-usage";
 import type { StepInput, StepOutput, StepType } from "@/types/agent";
 import type { TheirStackSearchFilters } from "@/types/theirstack";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -99,7 +104,8 @@ const INDUSTRY_MAP: Record<string, number> = {
   logistica: 18,
 };
 
-const MVP_LIMIT = 2;
+// Story 24.10: volume da fonte unica (a estimativa do plano usa o mesmo numero).
+const MVP_LIMIT = AGENT_PIPELINE_VOLUMES.companies;
 
 // ==============================================
 // SEARCH COMPANIES STEP
@@ -107,10 +113,14 @@ const MVP_LIMIT = 2;
 
 export class SearchCompaniesStep extends BaseStep {
   private readonly apiKey: string;
+  // Story 24.10: tenant para o log de uso (`api_usage_logs`). Opcional: sem ele o step
+  // roda igual, so nao loga.
+  private readonly tenantId: string | undefined;
 
-  constructor(stepNumber: number, supabase: SupabaseClient, apiKey: string) {
+  constructor(stepNumber: number, supabase: SupabaseClient, apiKey: string, tenantId?: string) {
     super(stepNumber, "search_companies" as StepType, supabase);
     this.apiKey = apiKey;
+    this.tenantId = tenantId;
   }
 
   /**
@@ -171,12 +181,19 @@ export class SearchCompaniesStep extends BaseStep {
     };
 
     // 3.3 - Call TheirStackService
-    const result = await service.searchCompanies(this.apiKey, filters);
+    const searchStart = Date.now();
+    let result: Awaited<ReturnType<TheirStackService["searchCompanies"]>>;
+    try {
+      result = await service.searchCompanies(this.apiKey, filters);
+    } catch (error) {
+      await this.logSearch(input.executionId, "failed", 0, Date.now() - searchStart, error);
+      throw error;
+    }
 
     // 3.5 - Calculate cost (3 credits per company)
-    const CREDITS_PER_COMPANY = 3;
     const companiesCount = result.data.length;
-    const cost = { theirstack_search: companiesCount * CREDITS_PER_COMPANY };
+    const cost = { theirstack_search: companiesCount * THEIRSTACK_CREDITS_PER_COMPANY };
+    await this.logSearch(input.executionId, "success", companiesCount, Date.now() - searchStart);
 
     const baseData = {
       companies: result.data,
@@ -211,5 +228,28 @@ export class SearchCompaniesStep extends BaseStep {
       data: baseData,
       cost,
     };
+  }
+
+  /** Story 24.10: 1 linha `company_search` por chamada ao TheirStack. Nunca lanca. */
+  private async logSearch(
+    executionId: string,
+    status: "success" | "failed",
+    companies: number,
+    durationMs: number,
+    error?: unknown
+  ): Promise<void> {
+    if (!this.tenantId) return;
+    await logAgentUsage({
+      tenantId: this.tenantId,
+      executionId,
+      stepType: "search_companies",
+      serviceName: "theirstack",
+      requestType: "company_search",
+      status,
+      calls: 1,
+      durationMs,
+      errorMessage: status === "failed" ? (error instanceof Error ? error.message : "Erro TheirStack") : undefined,
+      metadata: { companies, credits: companies * THEIRSTACK_CREDITS_PER_COMPANY },
+    });
   }
 }

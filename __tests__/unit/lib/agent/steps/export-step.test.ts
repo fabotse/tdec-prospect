@@ -47,6 +47,12 @@ vi.mock("@/lib/agent/steps/step-utils", () => ({
   getServiceApiKey: (...args: unknown[]) => mockGetServiceApiKey(...args),
 }));
 
+// Story 24.10: log de uso do agente (agent-usage -> usage-logger).
+const mockLogApiUsage = vi.fn();
+vi.mock("@/lib/services/usage-logger", () => ({
+  logApiUsage: (...args: unknown[]) => mockLogApiUsage(...args),
+}));
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -911,5 +917,51 @@ describe("convertToInstantlySequences", () => {
     expect(result[0].subject).toBe("Email 1");
     expect(result[1].subject).toBe("Email 2");
     expect(result[2].subject).toBe("Email 3");
+  });
+});
+
+describe("Story 24.10 - log de uso Instantly campaign_export", () => {
+  let mockSupabase: ReturnType<typeof createMockSupabase>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSupabase = createMockSupabase();
+    setupHappyPathMocks();
+  });
+
+  it("loga 1 linha campaign_export com as chamadas do export", async () => {
+    const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+    await step.run({ ...createDefaultInput(), mode: "autopilot" });
+
+    const exportLogs = mockLogApiUsage.mock.calls
+      .map((call: unknown[]) => call[0] as Record<string, unknown>)
+      .filter((arg) => arg.requestType === "campaign_export");
+    expect(exportLogs).toHaveLength(1);
+    expect(exportLogs[0]).toMatchObject({
+      tenantId: TENANT_ID,
+      serviceName: "instantly",
+      status: "success",
+      metadata: expect.objectContaining({
+        executionId: EXECUTION_ID,
+        stepType: "export",
+        // listAccounts + createCampaign + addLeadsToCampaign
+        calls: 3,
+        source: "agent",
+      }),
+    });
+  });
+
+  it("loga failed quando o Instantly falha e o erro segue igual", async () => {
+    mockCreateCampaign.mockRejectedValue(new Error("Instantly down"));
+    const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+
+    await expect(step.run(createDefaultInput())).rejects.toBeDefined();
+    expect(mockLogApiUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestType: "campaign_export",
+        status: "failed",
+        metadata: expect.objectContaining({ executionId: EXECUTION_ID, calls: 2 }),
+      })
+    );
   });
 });

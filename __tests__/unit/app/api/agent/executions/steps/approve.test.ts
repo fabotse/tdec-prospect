@@ -59,6 +59,12 @@ vi.mock("@/lib/supabase/server", () => ({
 
 import { POST } from "@/app/api/agent/executions/[executionId]/steps/[stepNumber]/approve/route";
 
+// Story 24.10: custo real na conclusao (suite propria em execution-cost.test.ts).
+const mockRecordExecutionCost = vi.fn().mockResolvedValue(null);
+vi.mock("@/lib/agent/execution-cost", () => ({
+  recordExecutionCost: (...args: unknown[]) => mockRecordExecutionCost(...args),
+}));
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -212,6 +218,8 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/approve", 
 
     const res = await POST(createRequest(), createParams());
     expect(res.status).toBe(200);
+    // Story 24.10: nao e o ultimo step — nada de custo final
+    expect(mockRecordExecutionCost).not.toHaveBeenCalled();
   });
 
   it("aprova normalmente quando a execucao esta PAUSED (retry de erro segue valido)", async () => {
@@ -565,8 +573,15 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/approve", 
       expect.objectContaining({
         status: "completed",
         completed_at: expect.any(String),
+        error_message: null,
       })
     );
+
+    // Story 24.10: conclusao pelo approve grava o custo real (fail-open)
+    expect(mockRecordExecutionCost).toHaveBeenCalledWith(expect.anything(), VALID_UUID, {
+      phase: "completed",
+      stepNumber: 1,
+    });
   });
 
   // Task 4.2 - Activation deferred in result_summary

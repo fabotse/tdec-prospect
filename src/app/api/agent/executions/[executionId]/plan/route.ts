@@ -15,6 +15,7 @@ import { PlanGeneratorService } from "@/lib/services/agent-plan-generator";
 import { ApolloService } from "@/lib/services/apollo";
 import { getInjectableServiceApiKey } from "@/lib/agent/service-keys";
 import { buildDirectSearchFilters } from "@/lib/agent/search-defaults";
+import { logAgentUsage } from "@/lib/agent/agent-usage";
 import type { ParsedBriefing } from "@/types/agent";
 
 // ==============================================
@@ -58,7 +59,8 @@ export interface SearchViability {
  */
 async function estimateSearchViability(
   tenantId: string,
-  briefing: ParsedBriefing
+  briefing: ParsedBriefing,
+  executionId: string
 ): Promise<SearchViability | null> {
   try {
     const hasImportedLeads = Boolean(briefing.importedLeads?.length);
@@ -83,8 +85,34 @@ async function estimateSearchViability(
     // Corrida contra o prazo: o que vier primeiro. A promise perdedora continua rodando ate
     // o proprio timeout do service (nao ha custo em credito — o search da Apollo nao consome),
     // mas ninguem mais espera por ela.
+    // Story 24.10: 1 linha `people_search` quando a chamada termina (mesmo depois do
+    // prazo — ela aconteceu). O log nunca lanca.
+    const searchStart = Date.now();
+    const logSearch = (status: "success" | "failed", error?: unknown) =>
+      logAgentUsage({
+        tenantId,
+        executionId,
+        serviceName: "apollo",
+        requestType: "people_search",
+        status,
+        calls: 1,
+        durationMs: Date.now() - searchStart,
+        errorMessage:
+          status === "failed" ? (error instanceof Error ? error.message : "Erro Apollo") : undefined,
+        metadata: { origin: "plan_viability" },
+      });
+    const search = service.searchPeople(buildDirectSearchFilters(briefing, 1)).then(
+      async (searchResult) => {
+        await logSearch("success");
+        return searchResult;
+      },
+      async (searchError: unknown) => {
+        await logSearch("failed", searchError);
+        throw searchError;
+      }
+    );
     const result = await Promise.race([
-      service.searchPeople(buildDirectSearchFilters(briefing, 1)),
+      search,
       new Promise<null>((resolve) => setTimeout(() => resolve(null), VIABILITY_DEADLINE_MS)),
     ]);
     if (!result) return null;
@@ -156,7 +184,7 @@ export async function GET(
   // comentário de `estimateSearchViability` (Trap #7).
   const wantsViability = request.nextUrl.searchParams.get("viability") === "1";
   const viability = wantsViability
-    ? await estimateSearchViability(profile.tenant_id, briefing)
+    ? await estimateSearchViability(profile.tenant_id, briefing, executionId)
     : null;
 
   return NextResponse.json({

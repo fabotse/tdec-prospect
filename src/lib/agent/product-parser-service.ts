@@ -11,7 +11,12 @@ import type { ExtractedProduct } from "@/types/agent";
 import { AGENT_ERROR_CODES } from "@/types/agent";
 // Story 22.11 (Frente B, AC7): mesmo modelo/compat do parser de briefing via SSOT
 // (parser-config) — evita drift de modelo entre os dois parsers de intencao.
-import { PARSER_TIMEOUT_MS, buildParserRequest } from "./parser-config";
+import {
+  PARSER_TIMEOUT_MS,
+  buildParserRequest,
+  toParserUsage,
+  type ParserUsage,
+} from "./parser-config";
 
 // ==============================================
 // ZOD SCHEMA — Validates OpenAI response
@@ -54,7 +59,7 @@ export class ProductParserService {
     message: string,
     productName: string,
     apiKey: string
-  ): Promise<ExtractedProduct> {
+  ): Promise<ExtractedProduct & { usage?: ParserUsage }> {
     const client = new OpenAI({ apiKey });
 
     const controller = new AbortController();
@@ -92,7 +97,8 @@ export class ProductParserService {
         throw new Error(AGENT_ERROR_CODES.PRODUCT_PARSE_ERROR);
       }
 
-      return validated.data;
+      // Story 24.10: tokens da chamada, para a rota logar (a rota tira `usage` da resposta).
+      return { ...validated.data, usage: toParserUsage(completion) };
     } catch (error) {
       clearTimeout(timeoutId);
 

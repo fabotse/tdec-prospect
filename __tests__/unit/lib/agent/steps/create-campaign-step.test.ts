@@ -724,6 +724,119 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
       expect(result.cost?.openai_emails).toBe(2); // 2 emails in structure
       expect(result.cost?.openai_icebreakers).toBe(2); // 2 leads, both succeed
     });
+
+    // Story 24.10: chamadas de geracao contadas pelo proxy do provider
+    it("grava openai_calls = chamadas de geracao e loga campaign_generation com tokens", async () => {
+      let callCount = 0;
+      mockGenerateText.mockImplementation(() => {
+        callCount++;
+        const usage = { promptTokens: 100, completionTokens: 20, totalTokens: 120 };
+        if (callCount === 1) {
+          return Promise.resolve({ text: VALID_STRUCTURE_JSON, model: "gpt-4o", usage });
+        }
+        return Promise.resolve({ text: `Content ${callCount}`, model: "gpt-4o", usage });
+      });
+
+      const result = await step.run(createInput());
+      const generationCalls = mockGenerateText.mock.calls.length;
+
+      expect(result.cost?.openai_calls).toBe(generationCalls);
+      const generationLogs = mockLogApiUsage.mock.calls
+        .map((call: unknown[]) => call[0] as Record<string, unknown>)
+        .filter((arg) => arg.requestType === "campaign_generation");
+      expect(generationLogs).toHaveLength(1);
+      expect(generationLogs[0]).toMatchObject({
+        tenantId: TENANT_ID,
+        serviceName: "openai",
+        status: "success",
+        metadata: expect.objectContaining({
+          executionId: "exec-001",
+          stepType: "create_campaign",
+          calls: generationCalls,
+          promptTokens: 100 * generationCalls,
+          completionTokens: 20 * generationCalls,
+          models: ["gpt-4o"],
+          source: "agent",
+        }),
+      });
+    });
+
+    it("loga campaign_generation failed quando a geracao quebra e o erro segue", async () => {
+      mockGenerateText.mockResolvedValue({ text: "nao e json", model: "gpt-4o", usage: {} });
+
+      await expect(step.run(createInput())).rejects.toBeDefined();
+      expect(mockLogApiUsage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestType: "campaign_generation",
+          status: "failed",
+          metadata: expect.objectContaining({ executionId: "exec-001", calls: 1 }),
+        })
+      );
+    });
+
+    it("loga 1 linha people_enrichment com tentativas e creditos", async () => {
+      let callCount = 0;
+      mockGenerateText.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ text: VALID_STRUCTURE_JSON, model: "gpt-4o", usage: {} });
+        }
+        return Promise.resolve({ text: `Content ${callCount}`, model: "gpt-4o", usage: {} });
+      });
+      mockEnrichPerson
+        .mockResolvedValueOnce({ person: { email: "a@acme.com", first_name: "A", last_name: "B" } })
+        .mockRejectedValueOnce(new Error("apollo 500"));
+
+      const masked = (name: string, apolloId: string) => ({
+        name,
+        title: "CTO",
+        companyName: "Acme",
+        email: null,
+        linkedinUrl: null,
+        apolloId,
+      });
+      const result = await step.run(
+        createInput({}, {
+          leads: [masked("A***", "apollo-a"), masked("C***", "apollo-c")],
+          totalFound: 2,
+          jobTitles: ["CTO"],
+          domainsSearched: [],
+        })
+      );
+
+      expect(result.cost?.apollo_enrich).toBe(1);
+      expect(mockLogApiUsage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: TENANT_ID,
+          serviceName: "apollo",
+          requestType: "people_enrichment",
+          status: "partial",
+          metadata: expect.objectContaining({
+            executionId: "exec-001",
+            calls: 2,
+            succeeded: 1,
+            failed: 1,
+          }),
+        })
+      );
+    });
+
+    it("nao loga enrichment quando nenhum lead precisa", async () => {
+      let callCount = 0;
+      mockGenerateText.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ text: VALID_STRUCTURE_JSON, model: "gpt-4o", usage: {} });
+        }
+        return Promise.resolve({ text: `Content ${callCount}`, model: "gpt-4o", usage: {} });
+      });
+
+      await step.run(createInput());
+
+      expect(mockLogApiUsage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ requestType: "people_enrichment" })
+      );
+    });
   });
 
   // Story 24.9: revisor automatico de copy
@@ -1553,6 +1666,14 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
 
       // custo real conta a chamada Apify
       expect(result.cost?.apify).toBe(1);
+
+      // Story 24.10: o log Apify leva a execucao
+      expect(mockLogApifySuccess).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: TENANT_ID,
+          metadata: expect.objectContaining({ executionId: "exec-001", source: "agent" }),
+        })
+      );
     });
 
     // AC5: toggle desligado (default) → ZERO Apify, comportamento standard

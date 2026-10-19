@@ -42,7 +42,8 @@ const MESSAGE_TYPE_LABELS: Record<string, string> = {
   progress: "Processando...",
   step_complete: "Concluido",
   error: "Erro",
-  cost_estimate: "Estimativa de Custo",
+  // Story 24.10: a bolha mostra estimado E real.
+  cost_estimate: "Custo",
   summary: "Resumo",
   approval_gate: "Aprovacao",
   skip: "Etapa Pulada",

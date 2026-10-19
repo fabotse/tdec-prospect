@@ -35,6 +35,12 @@ vi.mock("@/lib/agent/steps/step-utils", () => ({
   getServiceApiKey: (...args: unknown[]) => mockGetServiceApiKey(...args),
 }));
 
+// Story 24.10: log de uso do agente (agent-usage -> usage-logger).
+const mockLogApiUsage = vi.fn();
+vi.mock("@/lib/services/usage-logger", () => ({
+  logApiUsage: (...args: unknown[]) => mockLogApiUsage(...args),
+}));
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -1057,6 +1063,82 @@ describe("ActivateStep (Story 17.4 AC #3, #4)", () => {
       expect(messages).toHaveLength(1);
       expect(messages[0]).toMatch(/rascunho/i);
       expect(db.campaigns[0].status).toBe("draft");
+    });
+  });
+
+  describe("Story 24.10 - log de uso Instantly campaign_activation", () => {
+    function activationLogs() {
+      return mockLogApiUsage.mock.calls
+        .map((call: unknown[]) => call[0] as Record<string, unknown>)
+        .filter((arg) => arg.requestType === "campaign_activation");
+    }
+
+    it("loga 1 linha com todas as chamadas da tentativa (status + activate)", async () => {
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      await step.run(createDefaultInput());
+
+      const logs = activationLogs();
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toMatchObject({
+        tenantId: TENANT_ID,
+        serviceName: "instantly",
+        status: "success",
+        metadata: expect.objectContaining({
+          executionId: EXECUTION_ID,
+          stepType: "activate",
+          calls: 2,
+          source: "agent",
+        }),
+      });
+    });
+
+    it("guiado com contas selecionadas: conta tambem o addAccountsToCampaign", async () => {
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      const prevOutput = {
+        ...createPreviousStepOutput(),
+        selectedAccounts: ["sender1@company.com"],
+      };
+      await step.run(createDefaultInput(prevOutput as unknown as Record<string, unknown>));
+
+      const logs = activationLogs();
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toMatchObject({
+        status: "success",
+        metadata: expect.objectContaining({ executionId: EXECUTION_ID, calls: 3 }),
+      });
+    });
+
+    it("loga failed com as chamadas feitas quando a ativacao falha", async () => {
+      mockActivateCampaign.mockRejectedValue(new ExternalServiceError("instantly", 502, "Bad gateway"));
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+
+      await expect(step.run(createDefaultInput())).rejects.toMatchObject({ isRetryable: true });
+      const logs = activationLogs();
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toMatchObject({
+        status: "failed",
+        metadata: expect.objectContaining({ executionId: EXECUTION_ID, calls: 2 }),
+      });
+    });
+
+    it("campanha ja ativa (mustNotActivate): loga a leitura de status, sem activate", async () => {
+      mockGetCampaignStatus.mockResolvedValue({
+        campaignId: "instantly-camp-123",
+        name: "Campanha React Outbound",
+        status: 1,
+        statusLabel: "Ativa",
+        emailList: ["sender1@company.com"],
+      });
+      const step = new ActivateStep(5, mockSupabase as never, TENANT_ID);
+      await step.run(createDefaultInput());
+
+      expect(mockActivateCampaign).not.toHaveBeenCalled();
+      const logs = activationLogs();
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toMatchObject({
+        status: "success",
+        metadata: expect.objectContaining({ executionId: EXECUTION_ID, calls: 1, activated: false }),
+      });
     });
   });
 });

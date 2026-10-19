@@ -541,3 +541,27 @@ source_spec: `spec-24-9-revisor-automatico-de-copy.md`
 severity: low
 reason: PATCH /api/campaigns/[campaignId] monta as linhas de email_blocks só com subject, body e email_mode, e email_blocks não tem coluna livre. Persistir exige migration aditiva (ex.: email_blocks.review_status + review_reasons jsonb), que só pode ser aplicada com OK do Fabossi, e o código não pode subir antes dela. No agente o status fica no output do step e não se perde.
 status: open
+
+### DW-19: A estimativa assume 3 e-mails quando o usuario nao informa a quantidade, mas o prompt de estrutura gera 4-5 no COLD_OUTREACH e 5-7 no NURTURE; o teto de chamadas de IA fica abaixo do real.
+origin: spec-deferred beffd13f8db6
+location: src/lib/services/agent-cost-estimator.ts (emails = briefing.emailCount ?? defaultEmails)
+source_spec: `spec-24-10-custo-real-e-estimativa-honesta.md`
+severity: low
+reason: src/lib/ai/prompts/defaults.ts:794-818 (heuristica por objetivo). A suposicao de 3 e anterior a esta story (22.5, "Sem emailCount, mantem a heuristica de 3") e foi mantida no intent-contract. Diferenca no default: 47 vs 61 chamadas (~R$ 0,28 a R$ 0,02/chamada).
+status: open
+
+### DW-20: O fetch-leads pode buscar mais de 25 leads depois do plano, entao o "ate 25 leads" da estimativa deixa de ser teto nesses casos.
+origin: spec-deferred b52075066044
+location: src/app/api/agent/executions/[executionId]/steps/[stepNumber]/fetch-leads/route.ts
+source_spec: `spec-24-10-custo-real-e-estimativa-honesta.md`
+severity: low
+reason: fetch-leads/route.ts pagina a Apollo ate a quantidade pedida na revisao. O volume pedido pelo usuario so passa a existir com o leadCount (N) da 24.13, que deve alimentar a estimativa.
+status: open
+
+### DW-21: Com o briefing ja salvo com premiumIcebreakers=true, a UI do plano soma o premium de novo quando o toggle e ligado (dupla contagem).
+origin: spec-deferred bca6ac9f8b5a
+location: src/components/agent/AgentExecutionPlan.tsx (displayedTotal)
+source_spec: `spec-24-10-custo-real-e-estimativa-honesta.md`
+severity: low
+reason: Comportamento anterior a esta story (a UI ja somava ESTIMATED_LEADS x APIFY_COST_PER_LEAD sobre um total que podia incluir o premium). Hoje o GET /plan roda antes de o toggle ser persistido, entao o caso e raro.
+status: open

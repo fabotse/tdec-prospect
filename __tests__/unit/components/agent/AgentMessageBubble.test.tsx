@@ -237,12 +237,13 @@ describe("AgentMessageBubble (AC: #3)", () => {
       <AgentMessageBubble
         message={createMessage({
           role: "agent",
-          content: "Custo estimado: R$ 50",
+          content: "Custo da execução — estimado R$ 2,79 · real R$ 1,50",
           metadata: { messageType: "cost_estimate" },
         })}
       />
     );
-    expect(screen.getByText("Estimativa de Custo")).toBeInTheDocument();
+    // Story 24.10: rotulo "Custo" (a bolha mostra estimado E real).
+    expect(screen.getByText("Custo")).toBeInTheDocument();
   });
 
   it("renders summary message type with label", () => {

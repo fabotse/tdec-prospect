@@ -65,6 +65,8 @@ const mockPlanData = {
       steps: {},
       total: 7.30,
       currency: "BRL",
+      // Story 24.10: valor do premium vem do servidor (leads × apify).
+      premiumIcebreakers: { perLead: 0.15, total: 3.75 },
     },
     totalActiveSteps: 4,
   },
@@ -339,13 +341,50 @@ describe("AgentExecutionPlan", () => {
 
     await user.click(screen.getByTestId("plan-premium-switch"));
 
-    // apos ligar: 7,30 + 60 * 0,15 = 16,30
+    // Story 24.10: apos ligar soma o premiumIcebreakers.total do servidor: 7,30 + 3,75 = 11,05
     await waitFor(() => {
-      expect(screen.getByTestId("plan-total-cost")).toHaveTextContent("16,30");
+      expect(screen.getByTestId("plan-total-cost")).toHaveTextContent("11,05");
     });
 
     await user.click(screen.getByTestId("plan-confirm-btn"));
     expect(mockOnConfirm).toHaveBeenCalledWith(true);
+  });
+
+  it("Story 24.10: texto do premium usa o valor do servidor, sem constante local", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(mockPlanData),
+    });
+
+    renderPlan();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("plan-premium-toggle")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("plan-premium-toggle")).toHaveTextContent("3,75");
+    expect(screen.getByTestId("plan-premium-toggle")).toHaveTextContent("0,15 por lead");
+  });
+
+  it("Story 24.10: sem premiumIcebreakers no plano (estimativa antiga), o toggle nao soma nada", async () => {
+    const user = userEvent.setup();
+    const legacy = {
+      data: {
+        ...mockPlanData.data,
+        costEstimate: { steps: {}, total: 7.3, currency: "BRL" },
+      },
+    };
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(legacy),
+    });
+
+    renderPlan();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("plan-premium-switch")).toBeInTheDocument();
+    });
+    await user.click(screen.getByTestId("plan-premium-switch"));
+    expect(screen.getByTestId("plan-total-cost")).toHaveTextContent("7,30");
   });
 
   it("faz fetch para URL correta com executionId", async () => {

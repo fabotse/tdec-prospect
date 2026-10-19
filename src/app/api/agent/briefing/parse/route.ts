@@ -11,6 +11,7 @@ import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
 import { readServiceApiKey } from "@/lib/agent/service-keys";
 import { BriefingParserService } from "@/lib/agent/briefing-parser-service";
+import { logAgentUsage } from "@/lib/agent/agent-usage";
 import type { ChatTurn, NextAction, ParsedBriefing } from "@/types/agent";
 import { AGENT_ERROR_CODES } from "@/types/agent";
 import { resolveContextualSuggestions } from "@/lib/agent/contextual-suggestions";
@@ -237,8 +238,27 @@ export async function POST(request: Request) {
 
   // Parse briefing
   try {
-    const { briefing, rawResponse, nextAction, questionText } =
+    const parseStart = Date.now();
+    const { briefing, rawResponse, nextAction, questionText, usage } =
       await BriefingParserService.parse(history, apiKey);
+
+    // Story 24.10: 1 linha `briefing_parse` por parse. Nunca lanca.
+    if (usage) {
+      await logAgentUsage({
+        tenantId: profile.tenant_id,
+        executionId,
+        serviceName: "openai",
+        requestType: "briefing_parse",
+        status: "success",
+        calls: 1,
+        durationMs: Date.now() - parseStart,
+        metadata: {
+          promptTokens: usage.promptTokens,
+          completionTokens: usage.completionTokens,
+          model: usage.model,
+        },
+      });
+    }
 
     // Resolve product slug via KB (no mutation of original object)
     const resolvedProductSlug = await resolveProduct(
