@@ -2,7 +2,7 @@
 title: '24.10 — Custo real e estimativa honesta'
 type: 'feature'
 created: '2026-10-19'
-status: 'awaiting-operator'
+status: done
 baseline_revision: '0d55a30f735f6876479e9e8051fc8fd82a8c4d0c'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -243,3 +243,12 @@ Status: awaiting-operator
 - Migration `00065_add_theirstack_to_api_usage_logs_check.sql` aplicada por Fabossi no SQL Editor. Conferido com `scripts/db-ro.sh`: o CHECK de `api_usage_logs.service_name` aceita apify, apollo, signalhire, snovio, instantly, openai e theirstack; nenhuma linha existente mudou (apify 75, openai 61).
 - Verificação da linha `theirstack` com `metadata.executionId` após uma execução real: dispensada por Fabossi, porque a busca por empresa é pouco usada pelo cliente. Fica para quando esse fluxo for usado.
 - Revisão de código feita fora do loop (o loop pulou a review por estar em awaiting-operator): sem bloqueios; export, ativação e busca de leads inalterados além do registro de uso, que engole falhas. Ponto aberto: o preço da TheirStack em `cost_models` do tenant ainda diz "por busca", mas o código passou a tratá-lo como por crédito (3 por empresa), então a estimativa da TheirStack aparece 6x maior.
+
+## Operator Confirmation
+
+Confirmed 2026-10-19: the external actions this story owed were carried out.
+
+- Revise e aplique supabase/migrations/00065_add_theirstack_to_api_usage_logs_check.sql no SQL Editor do Supabase de producao (kdgogyqyaxncqoyklyxx). Ela faz DROP/ADD do CHECK de api_usage_logs.service_name so para incluir 'theirstack' (mesmo padrao da 00058, nenhuma linha alterada); confirme que aceita esse DROP CONSTRAINT antes de aplicar.
+- Depois de aplicar a 00065, confirme no banco que uma execucao do agente com busca de empresas gera uma linha em api_usage_logs com service_name='theirstack' e metadata.executionId preenchido.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
