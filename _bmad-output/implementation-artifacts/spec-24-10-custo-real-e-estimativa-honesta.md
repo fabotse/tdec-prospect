@@ -252,3 +252,14 @@ Confirmed 2026-10-19: the external actions this story owed were carried out.
 - Depois de aplicar a 00065, confirme no banco que uma execucao do agente com busca de empresas gera uma linha em api_usage_logs com service_name='theirstack' e metadata.executionId preenchido.
 
 _Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
+
+
+## Smoke em produção (2026-10-19)
+
+Deploy via PR #9 (merge `5aee72c` na `main`, Vercel prod OK). Fabossi rodou o agente em produção no modo Guiado (execução `ade2e314-2a7a-441b-956e-7da53a6bdfd0`, cargo CISO em São Paulo, 1 lead aprovado de 25) e confirmou na tela: estimativa no plano, e-mails abrindo pelo problema do lead sem números/cases inventados, CTA de sim/não e status do revisor por e-mail. Conferido no banco com `scripts/db-ro.sh`:
+
+- `agent_steps.cost` gravado em todos os steps (`apollo_search` 25, `apollo_enrich` 1, `openai_emails` 5, `openai_review` 13, `openai_structure` 1, `openai_icebreakers` 1, `instantly_create` 1, `instantly_leads` 1).
+- `api_usage_logs` com `metadata.executionId` para cada chamada paga: OpenAI (parse do briefing, geração, 5 revisões de copy com custo), Apollo (busca e enrichment) e Instantly (export).
+- `cost_actual` ficou vazio: a execução foi cancelada e o custo real só era gravado na conclusão ou na pausa. Corrigido em seguida: o cancelamento também grava o custo real ("Custo até o cancelamento").
+
+**Efeito no cliente:** aprovar a etapa "Criação de Campanha" dispara o export. Este smoke e o do Marco 1 (execução `e4721592-…`, 09:42) criaram duas campanhas "Campanha Outbound - 19/10/2026" no Instantly (`55b91cdb-728a-4256-b4a9-6fe52d285c55` com 1 lead e `9d0624b0-9a3a-48c1-9a98-45deade6df84` com 20), **nenhuma ativada** (activate pendente, execuções canceladas). Limpeza no Instantly fica com Fabossi. Os leads foram para o segmento "Campanha Outbound - 19/10/2026". Próximos smokes param na etapa "Criação de Campanha", sem aprovar.

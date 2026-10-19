@@ -26,6 +26,12 @@ vi.mock("@/lib/supabase/server", () => ({
   })),
 }));
 
+const mockRecordExecutionCost = vi.fn();
+
+vi.mock("@/lib/agent/execution-cost", () => ({
+  recordExecutionCost: (...args: unknown[]) => mockRecordExecutionCost(...args),
+}));
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -230,6 +236,32 @@ describe("PATCH /api/agent/executions/[executionId]", () => {
       expect(payload.status).toBe("cancelled");
       expect(typeof payload.completed_at).toBe("string");
       expect(Number.isNaN(Date.parse(payload.completed_at as string))).toBe(false);
+    });
+
+    it("grava o custo real ao cancelar (Story 24.10 follow-up)", async () => {
+      mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+      mockExecution(
+        { id: EXEC_ID, user_id: mockProfile.id, status: "running" },
+        { data: [{ id: EXEC_ID, status: "cancelled" }], error: null }
+      );
+
+      const response = await PATCH(createRequest({ status: "cancelled" }), createParams());
+      expect(response.status).toBe(200);
+      expect(mockRecordExecutionCost).toHaveBeenCalledWith(expect.anything(), EXEC_ID, {
+        phase: "cancelled",
+      });
+    });
+
+    it("nao grava custo quando o cancel nao afeta linha (409)", async () => {
+      mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+      mockExecution(
+        { id: EXEC_ID, user_id: mockProfile.id, status: "running" },
+        { data: [], error: null }
+      );
+
+      const response = await PATCH(createRequest({ status: "cancelled" }), createParams());
+      expect(response.status).toBe(409);
+      expect(mockRecordExecutionCost).not.toHaveBeenCalled();
     });
 
     it("cancela execucao RUNNING do proprio usuario (confirmada em andamento)", async () => {

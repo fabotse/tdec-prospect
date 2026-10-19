@@ -3,7 +3,8 @@
  *
  * Grava o custo REAL da execucao em `agent_executions.cost_actual` e manda para o chat a
  * mensagem "Custo — estimado R$ X · real R$ Y". Chamado na conclusao (orquestrador,
- * ramo defer e approve do ultimo step) e na pausa (depois da bolha de erro).
+ * ramo defer e approve do ultimo step), na pausa (depois da bolha de erro) e no cancelamento
+ * (rota PATCH da execucao).
  *
  * Fail-open TOTAL: nunca lanca e nunca muda o status da execucao. O custo e recalculado
  * do zero a cada chamada, a partir dos steps concluidos — retry nunca duplica.
