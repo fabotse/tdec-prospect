@@ -33,6 +33,8 @@ import {
   cleanAgentEmailCopy,
   cleanIcebreakerText,
 } from "@/lib/agent/campaign-copy";
+import { reviewEmailCopy, logCopyReview } from "@/lib/ai/copy-reviewer";
+import { REVIEW_BUDGET_MS } from "@/lib/ai/copy-review-config";
 import { transformProductRow, type ProductRow } from "@/types/product";
 import { ICEBREAKER_CATEGORY_INSTRUCTIONS } from "@/types/ai-prompt";
 import type { IcebreakerCategory } from "@/types/ai-prompt";
@@ -231,8 +233,15 @@ export class CreateCampaignStep extends BaseStep {
     );
 
     // 2.11 - Sub-step D: Generate email content
-    const emailBlocks = await this.generateEmailBlocks(
+    const generatedEmailBlocks = await this.generateEmailBlocks(
       structure.items, aiVars, provider
+    );
+
+    // Story 24.9: revisor automatico de copy. Roda DEPOIS da geracao, em paralelo por
+    // e-mail (cabe no maxDuration de 300s). Nunca lanca: falha = `not_reviewed` com o
+    // texto original, e a campanha segue igual.
+    const { emailBlocks, reviewCalls } = await this.reviewEmailBlocks(
+      generatedEmailBlocks, aiVars, briefing, apiKey, input.executionId
     );
 
     // 2.12 - Sub-step E: Build output
@@ -276,6 +285,9 @@ export class CreateCampaignStep extends BaseStep {
     };
     if (apifyCalls > 0) {
       cost.apify = apifyCalls;
+    }
+    if (reviewCalls > 0) {
+      cost.openai_review = reviewCalls;
     }
 
     // Story 22.15: persiste em "Meus Leads" os leads APROVADOS — aqui e o unico ponto do
@@ -933,6 +945,86 @@ export class CreateCampaignStep extends BaseStep {
 
     // Story 24.6: sem `{{x}}`/`[...]`; vazio depois da limpeza = falha (null)
     return cleanIcebreakerText(result.text);
+  }
+
+  /**
+   * Story 24.9: revisa todos os e-mails em paralelo, grava `review` em cada bloco e loga o
+   * custo (uma linha `copy_review` por e-mail). Devolve o total de chamadas ao LLM.
+   */
+  private async reviewEmailBlocks(
+    blocks: CreateCampaignOutput["emailBlocks"],
+    aiVars: AIContextVariables,
+    briefing: ParsedBriefing,
+    apiKey: string,
+    executionId: string
+  ): Promise<{ emailBlocks: CreateCampaignOutput["emailBlocks"]; reviewCalls: number }> {
+    const audience = [
+      briefing.jobTitles?.length ? `Cargos: ${briefing.jobTitles.join(", ")}` : "",
+      briefing.industry ? `Setor: ${briefing.industry}` : "",
+      briefing.location ? `Local: ${briefing.location}` : "",
+    ]
+      .filter(Boolean)
+      .join(" | ");
+    const context = {
+      audience: audience || aiVars.target_titles || "",
+      productName: aiVars.product_name ?? "",
+      productDescription: aiVars.product_description ?? "",
+      targetIndustries: aiVars.target_industries ?? "",
+      painPoints: aiVars.pain_points ?? "",
+      icpSummary: aiVars.icp_summary ?? "",
+      authorizedProofs: aiVars.authorized_proofs ?? "",
+    };
+    const clean = (subject: string, body: string) => ({
+      subject: cleanAgentEmailCopy(subject, "subject"),
+      body: cleanAgentEmailCopy(body, "body"),
+    });
+
+    // Cada e-mail grava o resultado no seu slot assim que termina; se o orcamento estourar,
+    // os que ja terminaram ficam e so os atrasados seguem com o texto gerado e `not_reviewed`.
+    const finished: Array<{ block: CreateCampaignOutput["emailBlocks"][number]; calls: number } | undefined> =
+      blocks.map(() => undefined);
+    const reviewAll = Promise.all(
+      blocks.map(async (block, index) => {
+        const result = await reviewEmailCopy(
+          { subject: block.subject, body: block.body, emailMode: block.emailMode, context },
+          { apiKey, clean }
+        );
+        await logCopyReview(result, {
+          tenantId: this.tenantId,
+          source: "agent",
+          executionId,
+          emailPosition: index + 1,
+        });
+        finished[index] = {
+          block: {
+            ...block,
+            subject: result.subject,
+            body: result.body,
+            review: { status: result.status, reasons: result.reasons },
+          },
+          calls: result.calls,
+        };
+      })
+    );
+
+    // Orcamento total: so espera ate REVIEW_BUDGET_MS.
+    let budgetTimer: ReturnType<typeof setTimeout> | undefined;
+    const budget = new Promise<"expired">((resolve) => {
+      budgetTimer = setTimeout(() => resolve("expired"), REVIEW_BUDGET_MS);
+    });
+    const outcome = await Promise.race([reviewAll, budget]);
+    clearTimeout(budgetTimer);
+    if (outcome === "expired") {
+      console.warn("[CreateCampaignStep] revisao de copy excedeu o orcamento; atrasados seguem sem revisao");
+    }
+
+    return {
+      emailBlocks: blocks.map(
+        (block, index) =>
+          finished[index]?.block ?? { ...block, review: { status: "not_reviewed" as const, reasons: [] } }
+      ),
+      reviewCalls: finished.reduce((sum, r) => sum + (r?.calls ?? 0), 0),
+    };
   }
 
   private async generateEmailBlocks(

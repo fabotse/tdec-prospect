@@ -14,6 +14,7 @@ import type { BuilderBlock } from "@/stores/use-builder-store";
 import type { CampaignObjective } from "@/components/campaigns/AICampaignWizard";
 import { sanitizeGeneratedSubject, sanitizeGeneratedBody } from "@/lib/ai/sanitize-ai-output";
 import { buildSequenceFollowUpPlan } from "@/lib/agent/campaign-copy";
+import { requestEmailReview } from "@/lib/ai/review-email-client";
 
 // ==============================================
 // TYPES
@@ -336,7 +337,7 @@ export function useAIFullCampaignGeneration(): UseAIFullCampaignGenerationReturn
               productId,
               abortControllerRef.current!.signal
             );
-            const subject = sanitizeGeneratedSubject(rawSubject);
+            const generatedSubject = sanitizeGeneratedSubject(rawSubject);
 
             // Check cancellation between subject and body
             if (cancelledRef.current) {
@@ -347,13 +348,30 @@ export function useAIFullCampaignGeneration(): UseAIFullCampaignGenerationReturn
             // Generate body
             const rawBody = await generateEmailContent(
               bodyKey,
-              { ...baseVariables, subject },
+              { ...baseVariables, subject: generatedSubject },
               productId,
               abortControllerRef.current!.signal
             );
-            const body = sanitizeGeneratedBody(rawBody);
+            const generatedBody = sanitizeGeneratedBody(rawBody);
 
             clearTimeout(timeoutId);
+
+            // Story 24.9: revisor automatico em linha (o proximo follow-up ja usa o texto
+            // revisado). Nunca lanca: falha = not_reviewed com o texto gerado. O resultado
+            // passa pela mesma limpeza da geracao.
+            const review = await requestEmailReview(
+              {
+                subject: generatedSubject,
+                body: generatedBody,
+                emailMode: emailMode === "follow-up" ? "follow-up" : "initial",
+                productId,
+                variables: baseVariables,
+                emailPosition: i + 1,
+              },
+              abortControllerRef.current?.signal
+            );
+            const subject = sanitizeGeneratedSubject(review.subject) || generatedSubject;
+            const body = sanitizeGeneratedBody(review.body) || generatedBody;
 
             // Store completed email
             const generatedEmail: GeneratedEmail = {
@@ -379,6 +397,8 @@ export function useAIFullCampaignGeneration(): UseAIFullCampaignGenerationReturn
                   ...resultBlocks[blockIndex].data,
                   subject,
                   body,
+                  reviewStatus: review.status,
+                  reviewReasons: review.reasons,
                 },
               };
             }

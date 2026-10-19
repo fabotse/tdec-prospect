@@ -7,6 +7,7 @@
  */
 
 import { z } from "zod";
+import type { CopyReviewStatus } from "./copy-review";
 
 /**
  * Source of icebreaker used in email generation
@@ -99,6 +100,10 @@ export interface EmailBlockData {
   icebreakerSource?: IcebreakerSourceType;
   /** Story 6.5.7: Cached LinkedIn posts for tooltip display */
   icebreakerPosts?: LinkedInPostSummary[] | null;
+  /** Story 24.9: status do revisor automatico (so na sessao, nao e persistido no save). */
+  reviewStatus?: CopyReviewStatus;
+  /** Story 24.9: motivos da ultima revisao. */
+  reviewReasons?: string[];
 }
 
 /**

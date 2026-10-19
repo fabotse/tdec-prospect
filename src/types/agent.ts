@@ -5,6 +5,8 @@
  * AC: #3 - Tipos do agente disponiveis para importacao
  */
 
+import type { CopyReviewStatus } from "./copy-review";
+
 // === Enums / Unions ===
 
 // Story 22.10: 'cancelled' e TERMINAL — o usuario abandonou a execucao pelo botao
@@ -290,6 +292,8 @@ export interface CreateCampaignOutput {
     subject: string;
     body: string;
     emailMode: 'initial' | 'follow-up';
+    // Story 24.9: status do revisor automatico de copy. Ausente em execucoes antigas.
+    review?: { status: CopyReviewStatus; reasons: string[] };
   }>;
   delayBlocks: Array<{
     position: number;

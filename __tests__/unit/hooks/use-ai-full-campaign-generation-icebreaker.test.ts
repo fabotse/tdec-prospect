@@ -11,6 +11,12 @@ import { renderHook, act } from "@testing-library/react";
 import { useAIFullCampaignGeneration } from "@/hooks/use-ai-full-campaign-generation";
 import type { BuilderBlock } from "@/stores/use-builder-store";
 
+// Story 24.9: o revisor e mockado por modulo (os testes usam global.fetch encadeado).
+const mockRequestEmailReview = vi.fn();
+vi.mock("@/lib/ai/review-email-client", () => ({
+  requestEmailReview: (...args: unknown[]) => mockRequestEmailReview(...args),
+}));
+
 // Track all fetch calls to inspect variables
 const fetchCalls: { promptKey: string; variables: Record<string, string> }[] = [];
 
@@ -45,6 +51,13 @@ function createEmailBlock(id: string, position: number, emailMode: "initial" | "
 describe("useAIFullCampaignGeneration - Icebreaker Variable", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Story 24.9: padrao = revisor indisponivel (devolve o texto enviado).
+    mockRequestEmailReview.mockImplementation(async (p: { subject: string; body: string }) => ({
+      subject: p.subject,
+      body: p.body,
+      status: "not_reviewed",
+      reasons: [],
+    }));
     fetchCalls.length = 0;
   });
 

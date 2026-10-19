@@ -533,3 +533,11 @@ source_spec: `spec-24-8-prompts-honestos-problema-primeiro-provas-so-da-kb.md`
 severity: low
 reason: Consulta somente leitura em 2026-10-19: email_body_generation v5 contém "40%", todas is_active = false e tenant_id nulo. Não há UI que altere is_active; atualizar ou apagar exige escrita em produção, que só pode ser feita com OK do Fabossi.
 status: open
+
+### DW-18: O status do revisor no editor manual some depois de salvar e recarregar a campanha, porque o save grava só subject/body/email_mode.
+origin: spec-deferred c6259cd1dc0f
+location: src/app/api/campaigns/[campaignId]/route.ts (mapeamento das linhas de email_blocks)
+source_spec: `spec-24-9-revisor-automatico-de-copy.md`
+severity: low
+reason: PATCH /api/campaigns/[campaignId] monta as linhas de email_blocks só com subject, body e email_mode, e email_blocks não tem coluna livre. Persistir exige migration aditiva (ex.: email_blocks.review_status + review_reasons jsonb), que só pode ser aplicada com OK do Fabossi, e o código não pode subir antes dela. No agente o status fica no output do step e não se perde.
+status: open

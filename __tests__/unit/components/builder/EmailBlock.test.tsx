@@ -146,6 +146,16 @@ vi.mock("@/stores/use-builder-store", () => ({
   }),
 }));
 
+// Story 24.9: revisor automatico (cliente da rota) mockado por modulo.
+// Padrao = revisor indisponivel (devolve o texto enviado com not_reviewed).
+const mockRequestEmailReview = vi.fn();
+function defaultReviewImpl(p: { subject: string; body: string }) {
+  return Promise.resolve({ subject: p.subject, body: p.body, status: "not_reviewed", reasons: [] });
+}
+vi.mock("@/lib/ai/review-email-client", () => ({
+  requestEmailReview: (...args: unknown[]) => mockRequestEmailReview(...args),
+}));
+
 // Mock AI generation state (Story 6.2)
 const mockGenerate = vi.fn();
 const mockResetAI = vi.fn();
@@ -228,6 +238,9 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
     mockPreviewLead = null;
     // Reset Story 6.11 mocks
     mockBlocks = [];
+    // Story 24.9
+    mockRequestEmailReview.mockReset();
+    mockRequestEmailReview.mockImplementation(defaultReviewImpl);
   });
 
   describe("Visual Style (AC: #2)", () => {
@@ -2089,6 +2102,153 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
 
       // Toast should NOT have been called
       expect(mockToastInfo).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==============================================
+  // Story 24.9: revisor automatico de copy
+  // ==============================================
+
+  describe("Copy review (Story 24.9)", () => {
+    it("email inicial: revisa depois da geracao, grava o texto revisado e o status", async () => {
+      mockGenerate.mockImplementation((params: { promptKey: string }) =>
+        Promise.resolve(params.promptKey.includes("subject") ? "Assunto gerado" : "Corpo gerado")
+      );
+      mockRequestEmailReview.mockResolvedValue({
+        subject: "Assunto revisado",
+        body: "Corpo revisado",
+        status: "rewritten",
+        reasons: [],
+      });
+
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+      fireEvent.click(screen.getByText("Gerar com IA"));
+
+      await waitFor(() => expect(mockUpdateBlock).toHaveBeenCalled(), { timeout: 3000 });
+
+      expect(mockRequestEmailReview).toHaveBeenCalledTimes(1);
+      expect(mockRequestEmailReview.mock.calls[0][0]).toMatchObject({
+        subject: "Assunto gerado",
+        emailMode: "initial",
+        emailPosition: 1,
+      });
+      expect(mockRequestEmailReview.mock.calls[0][0].body).toContain("Corpo gerado");
+
+      const data = mockUpdateBlock.mock.calls.at(-1)![1].data;
+      expect(data.subject).toBe("Assunto revisado");
+      // mesma limpeza da geracao: {{ice_breaker}} garantido no corpo do inicial
+      expect(data.body).toContain("Corpo revisado");
+      expect(data.body).toContain("{{ice_breaker}}");
+      expect(data.reviewStatus).toBe("rewritten");
+      expect(data.reviewReasons).toEqual([]);
+    });
+
+    it("follow-up: grava o texto revisado e o status needs_human_review", async () => {
+      mockBlocks = [
+        { id: "email-1", type: "email", position: 0, data: { subject: "S1", body: "B1" } },
+        { id: "email-2", type: "email", position: 1, data: { subject: "", body: "", emailMode: "follow-up" } },
+      ];
+      mockGenerate.mockResolvedValue("Gerado");
+      mockRequestEmailReview.mockResolvedValue({
+        subject: "FU revisado",
+        body: "Corpo FU revisado",
+        status: "needs_human_review",
+        reasons: ["Clichê: frase feita"],
+      });
+      const followUpBlock: BuilderBlock = {
+        id: "email-2",
+        type: "email",
+        position: 1,
+        data: { subject: "", body: "", emailMode: "follow-up" },
+      };
+
+      render(<EmailBlock block={followUpBlock} stepNumber={2} />);
+      fireEvent.click(screen.getByText("Gerar com IA"));
+
+      await waitFor(() => expect(mockUpdateBlock).toHaveBeenCalled(), { timeout: 3000 });
+      expect(mockRequestEmailReview.mock.calls[0][0]).toMatchObject({
+        emailMode: "follow-up",
+        emailPosition: 2,
+      });
+      const data = mockUpdateBlock.mock.calls.at(-1)![1].data;
+      expect(data).toMatchObject({
+        subject: "FU revisado",
+        body: "Corpo FU revisado",
+        reviewStatus: "needs_human_review",
+        reviewReasons: ["Clichê: frase feita"],
+      });
+    });
+
+    it("enquanto a revisao esta pendente mostra 'Revisando copy...' e desabilita o botao", async () => {
+      mockGenerate.mockResolvedValue("Gerado");
+      let resolveReview: (v: unknown) => void = () => {};
+      mockRequestEmailReview.mockImplementation(
+        () => new Promise((resolve) => { resolveReview = resolve; })
+      );
+
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+      fireEvent.click(screen.getByText("Gerar com IA"));
+
+      await waitFor(() => expect(screen.getByTestId("ai-reviewing-status")).toBeInTheDocument(), {
+        timeout: 3000,
+      });
+      expect(screen.getByTestId("ai-reviewing-status")).toHaveTextContent("Revisando copy...");
+      expect(screen.getByRole("button", { name: /gerar com ia|regenerar/i })).toBeDisabled();
+
+      await act(async () => {
+        resolveReview({ subject: "S", body: "B", status: "approved", reasons: [] });
+      });
+      await waitFor(() =>
+        expect(screen.queryByTestId("ai-reviewing-status")).not.toBeInTheDocument()
+      );
+      expect(screen.getByRole("button", { name: /gerar com ia|regenerar/i })).not.toBeDisabled();
+    });
+
+    it("revisor indisponivel: mantem o texto gerado com not_reviewed", async () => {
+      mockGenerate.mockResolvedValue("Gerado");
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+      fireEvent.click(screen.getByText("Gerar com IA"));
+      await waitFor(() => expect(mockUpdateBlock).toHaveBeenCalled(), { timeout: 3000 });
+      const data = mockUpdateBlock.mock.calls.at(-1)![1].data;
+      expect(data.subject).toBe("Gerado");
+      expect(data.reviewStatus).toBe("not_reviewed");
+    });
+
+    it("mostra o badge quando o bloco tem reviewStatus, com motivos se precisa revisao humana", () => {
+      const reviewed: BuilderBlock = {
+        ...mockBlock,
+        data: {
+          subject: "A",
+          body: "B",
+          reviewStatus: "needs_human_review",
+          reviewReasons: ["CTA pede reunião: agenda"],
+        },
+      };
+      render(<EmailBlock block={reviewed} stepNumber={1} />);
+      expect(screen.getByTestId("copy-review-badge")).toHaveTextContent("Precisa revisão humana");
+      expect(screen.getByTestId("copy-review-reasons")).toHaveTextContent("CTA pede reunião: agenda");
+    });
+
+    it("sem reviewStatus nao mostra badge", () => {
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+      expect(screen.queryByTestId("copy-review-badge")).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ["assunto", "email-subject-input"],
+      ["corpo", "email-body-input"],
+    ])("editar o %s remove o status da revisao", (_label, testId) => {
+      const reviewed: BuilderBlock = {
+        ...mockBlock,
+        data: { subject: "A", body: "B", reviewStatus: "approved", reviewReasons: [] },
+      };
+      render(<EmailBlock block={reviewed} stepNumber={1} />);
+      const input = screen.getByTestId(testId);
+      fireEvent.change(input, { target: { value: "Editado pelo usuario" } });
+      fireEvent.blur(input);
+      const data = mockUpdateBlock.mock.calls.at(-1)![1].data;
+      expect(data).not.toHaveProperty("reviewStatus");
+      expect(data).not.toHaveProperty("reviewReasons");
     });
   });
 });
