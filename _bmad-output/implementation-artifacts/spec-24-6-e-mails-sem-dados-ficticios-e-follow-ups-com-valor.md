@@ -234,3 +234,7 @@ Executado pelo Claude Code, acompanhado pelo Fabossi, com `npx tsx --env-file=.e
 - Sem "Nome", "Empresa", "[Sua", "[Seu" nem `{{follow_up_strategy}}`. Variáveis usadas: só `{{first_name}}`, `{{company_name}}`, `{{ice_breaker}}`.
 - Ângulos distintos: e-mail 2 = insight do setor, e-mail 3 = pergunta, e-mail 4 = encerramento ("posso encerrar por aqui?").
 - Observações de qualidade (não bloqueiam): os e-mails fecham com "Valeu,"/"Abraço," sem nome (assinatura fictícia removida; depende da assinatura da conta no Instantly); a copy ainda tem frases genéricas — escopo da 24.8/24.9.
+
+## Smoke em produção (2026-10-19)
+
+Deploy via PR #8 (merge `9d61b30` na `main`, Vercel prod OK). Fabossi rodou o agente em produção no modo Guiado até a revisão da campanha, sem exportar para o Instantly, e confirmou que está funcionando. Nenhuma campanha foi criada no Instantly nem ativada pelo smoke.

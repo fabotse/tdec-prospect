@@ -194,3 +194,7 @@ Status: done
 - No modo guiado, apos F5, uma falha pre-orchestrator no disparo pos-aprovacao fica sem botao (deferred).
 - O gate de ativacao mostra o 409 de concorrencia como erro (deferred, sem cobranca).
 - `sprint-status.yaml` ficou como o orquestrador deixou.
+
+## Smoke em produção (2026-10-19)
+
+Deploy via PR #8 (merge `9d61b30` na `main`, Vercel prod OK). Fabossi rodou o agente em produção no modo Guiado até a revisão da campanha, sem exportar para o Instantly, e confirmou que está funcionando. Nenhuma campanha foi criada no Instantly nem ativada pelo smoke.

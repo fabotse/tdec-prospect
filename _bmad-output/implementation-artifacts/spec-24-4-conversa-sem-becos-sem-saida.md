@@ -214,3 +214,7 @@ Status: done
 - Confirmacao por substring (`isConfirmation`) segue preexistente: em `confirming_leads`, "pode buscar voce" confirma o import (24.5 troca por botoes).
 - Os riscos residuais da 1a passada continuam: remover o produto por correcao, "sim"/"ok" como nome e memoria do chat so no cliente.
 - `sprint-status.yaml` ficou como o orquestrador deixou.
+
+## Smoke em produção (2026-10-19)
+
+Deploy via PR #8 (merge `9d61b30` na `main`, Vercel prod OK). Fabossi rodou o agente em produção no modo Guiado até a revisão da campanha, sem exportar para o Instantly, e confirmou que está funcionando. Nenhuma campanha foi criada no Instantly nem ativada pelo smoke.
