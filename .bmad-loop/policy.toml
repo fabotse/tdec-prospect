@@ -136,3 +136,4 @@ enabled = []                 # e.g. ["unity", "my-lint-plugin"]
 # over slow/high-latency links (SSH, Tailscale). Equivalent to launching with
 # `bmad-loop tui --low-frame-rate`. Takes effect the next time the TUI starts.
 low_frame_rate = false
+left_width = 39
