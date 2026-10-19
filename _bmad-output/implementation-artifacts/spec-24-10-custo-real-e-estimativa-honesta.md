@@ -237,3 +237,9 @@ Status: awaiting-operator
 **Operador (owed):** aplicar a 00065 com OK explicito (ela usa DROP/ADD CONSTRAINT para ampliar o CHECK) e conferir a primeira linha `theirstack` em `api_usage_logs`. Ate la, o log TheirStack e rejeitado em silencio, sem efeito no fluxo.
 
 **Riscos residuais:** os logs usam a sessao via `createClient` (mesmo caminho da 24.9). Se um step rodar fora de uma request com cookies, a linha se perde em silencio. Os precos semeados continuam aproximacoes, e so o significado da unidade mudou.
+
+## Ações do operador (2026-10-19)
+
+- Migration `00065_add_theirstack_to_api_usage_logs_check.sql` aplicada por Fabossi no SQL Editor. Conferido com `scripts/db-ro.sh`: o CHECK de `api_usage_logs.service_name` aceita apify, apollo, signalhire, snovio, instantly, openai e theirstack; nenhuma linha existente mudou (apify 75, openai 61).
+- Verificação da linha `theirstack` com `metadata.executionId` após uma execução real: dispensada por Fabossi, porque a busca por empresa é pouco usada pelo cliente. Fica para quando esse fluxo for usado.
+- Revisão de código feita fora do loop (o loop pulou a review por estar em awaiting-operator): sem bloqueios; export, ativação e busca de leads inalterados além do registro de uso, que engole falhas. Ponto aberto: o preço da TheirStack em `cost_models` do tenant ainda diz "por busca", mas o código passou a tratá-lo como por crédito (3 por empresa), então a estimativa da TheirStack aparece 6x maior.
