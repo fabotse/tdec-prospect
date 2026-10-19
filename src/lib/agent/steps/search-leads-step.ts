@@ -11,6 +11,8 @@ import { ApolloService } from "@/lib/services/apollo";
 import { getInjectableServiceApiKey } from "@/lib/agent/service-keys";
 import { buildDirectSearchFilters } from "@/lib/agent/search-defaults";
 import { diagnoseEmptySearch } from "@/lib/agent/empty-search-diagnosis";
+import { AGENT_PIPELINE_VOLUMES } from "@/lib/agent/agent-pricing";
+import { logAgentUsage } from "@/lib/agent/agent-usage";
 import type {
   StepInput,
   StepOutput,
@@ -27,7 +29,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // ==============================================
 
 const CREDITS_PER_LEAD = 1;
-const LEADS_PER_PAGE = 25;
+// Story 24.10: volume da fonte unica (a estimativa do plano usa o mesmo numero).
+const LEADS_PER_PAGE = AGENT_PIPELINE_VOLUMES.leadsPerSearch;
 
 /**
  * Story 22.14 (AC6): mensagem do autopilot quando a busca volta vazia.
@@ -130,7 +133,7 @@ export class SearchLeadsStep extends BaseStep {
       // viabilidade pre-execucao (AC7) usa a MESMA funcao, so mudando o `perPage`.
       const filters = buildDirectSearchFilters(briefing, LEADS_PER_PAGE);
 
-      const result = await service.searchPeople(filters);
+      const result = await this.searchPeopleLogged(service, filters, input.executionId);
       return this.buildSearchOutput(result, jobTitles, [], filters, briefing, input.mode);
     }
 
@@ -163,8 +166,49 @@ export class SearchLeadsStep extends BaseStep {
       page: 1,
     };
 
-    const result = await service.searchPeople(filters);
+    const result = await this.searchPeopleLogged(service, filters, input.executionId);
     return this.buildSearchOutput(result, jobTitles, domains, filters, briefing, input.mode);
+  }
+
+  /**
+   * Story 24.10: `searchPeople` + 1 linha `people_search` em `api_usage_logs` (a busca
+   * nao consome credito; o log e para rastrear o volume). O log nunca lanca e a chamada
+   * em si nao muda.
+   */
+  private async searchPeopleLogged(
+    service: ApolloService,
+    filters: Parameters<ApolloService["searchPeople"]>[0],
+    executionId: string
+  ): Promise<Awaited<ReturnType<ApolloService["searchPeople"]>>> {
+    const start = Date.now();
+    try {
+      const result = await service.searchPeople(filters);
+      await logAgentUsage({
+        tenantId: this.tenantId,
+        executionId,
+        stepType: "search_leads",
+        serviceName: "apollo",
+        requestType: "people_search",
+        status: "success",
+        calls: 1,
+        durationMs: Date.now() - start,
+        metadata: { leads: result.leads.length },
+      });
+      return result;
+    } catch (error) {
+      await logAgentUsage({
+        tenantId: this.tenantId,
+        executionId,
+        stepType: "search_leads",
+        serviceName: "apollo",
+        requestType: "people_search",
+        status: "failed",
+        calls: 1,
+        durationMs: Date.now() - start,
+        errorMessage: error instanceof Error ? error.message : "Erro Apollo",
+      });
+      throw error;
+    }
   }
 
   /**

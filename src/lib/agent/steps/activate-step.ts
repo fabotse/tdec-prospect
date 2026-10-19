@@ -15,6 +15,7 @@ import { ExternalServiceError } from "@/lib/services/base-service";
 import { getServiceApiKey } from "./step-utils";
 import { stampLatestApprovalGate } from "@/lib/agent/gate-metadata";
 import { markCampaignActive } from "@/lib/agent/campaign-persistence";
+import { logAgentUsage } from "@/lib/agent/agent-usage";
 import type {
   StepInput,
   StepOutput,
@@ -168,143 +169,192 @@ export class ActivateStep extends BaseStep {
 
     const service = new InstantlyService();
 
-    // Story 17.9 AC #2: Add selected accounts before activating (guided mode).
-    // In autopilot mode accounts were already included during createCampaign.
-    const selectedAccounts = previousStepOutput.selectedAccounts as string[] | undefined;
-    if (selectedAccounts && selectedAccounts.length > 0) {
-      // Story 22.12 (AC4): na ativacao REAL a falha de attach CONTINUA bloqueando —
-      // ativar sem conta de envio dispararia uma campanha inerte. Mas trocamos a
-      // mensagem generica ("Erro interno. Tente novamente.") por uma especifica,
-      // preservando a retryabilidade do erro externo original (statusCode).
-      try {
-        await service.addAccountsToCampaign({
-          apiKey,
-          campaignId: externalCampaignId,
-          accountEmails: selectedAccounts,
-        });
-      } catch (attachError) {
-        const specificMessage = "Não consegui anexar as contas de envio no Instantly";
-        if (attachError instanceof ExternalServiceError) {
-          throw new ExternalServiceError(
-            attachError.serviceName,
-            attachError.statusCode,
-            specificMessage,
-            attachError.details
+    // Story 24.10: chamadas ao Instantly desta tentativa (attach, status, activate), para
+    // o log `campaign_activation` (1 linha por tentativa). O log nunca lanca.
+    let instantlyCalls = 0;
+    const activateStart = Date.now();
+    try {
+
+      // Story 17.9 AC #2: Add selected accounts before activating (guided mode).
+      // In autopilot mode accounts were already included during createCampaign.
+      const selectedAccounts = previousStepOutput.selectedAccounts as string[] | undefined;
+      if (selectedAccounts && selectedAccounts.length > 0) {
+        // Story 22.12 (AC4): na ativacao REAL a falha de attach CONTINUA bloqueando —
+        // ativar sem conta de envio dispararia uma campanha inerte. Mas trocamos a
+        // mensagem generica ("Erro interno. Tente novamente.") por uma especifica,
+        // preservando a retryabilidade do erro externo original (statusCode).
+        try {
+          instantlyCalls++;
+          await service.addAccountsToCampaign({
+            apiKey,
+            campaignId: externalCampaignId,
+            accountEmails: selectedAccounts,
+          });
+        } catch (attachError) {
+          const specificMessage = "Não consegui anexar as contas de envio no Instantly";
+          if (attachError instanceof ExternalServiceError) {
+            throw new ExternalServiceError(
+              attachError.serviceName,
+              attachError.statusCode,
+              specificMessage,
+              attachError.details
+            );
+          }
+          throw new Error(specificMessage);
+        }
+      }
+
+      // Story 22.18 (AC4b + AC6): UMA leitura, DUAS guardas.
+      //
+      // Roda DEPOIS do attach, para enxergar as contas que acabamos de anexar.
+      //
+      // (AC4b) A guarda que realmente importa e o ERRO PARCIAL: o Instantly ativa e a
+      // resposta volta 502/timeout — o `saveFailure` grava `output: { error }`, ou seja,
+      // o `activated: true` NUNCA chegou a ser gravado e a guarda (4a) nao protege. Ler o
+      // status resolve: se a campanha ja esta Ativa, nao disparamos o activate de novo.
+      //
+      // (AC6) A mesma leitura traz o `email_list`. Ativar uma campanha sem remetente
+      // fecha a execucao com "Pipeline concluido com sucesso!" sobre uma campanha que
+      // nunca vai enviar nada — desabilitar o botao no cliente nao basta, porque o
+      // `execute` direto/retry (AC1/AC2) tornou esse caminho MAIS comum, nao menos.
+      //
+      // Decisao registrada (a AC4b pedia escolher entre pre-flight e verificacao
+      // pos-erro-de-gateway): PRE-FLIGHT. O argumento de custo do pre-flight ("1 GET a
+      // mais sempre") desaparece aqui, porque a AC6 exige esse GET de qualquer forma —
+      // e so o pre-flight cobre a campanha que ficou ativa numa tentativa anterior.
+      instantlyCalls++;
+      const campaignState = await this.readCampaignState(
+        service,
+        apiKey,
+        externalCampaignId
+      );
+
+      if (campaignState) {
+        if (campaignState.emailList !== undefined && campaignState.emailList.length === 0) {
+          throw new Error(
+            "A campanha nao tem nenhuma conta de envio no Instantly. Anexe ao menos uma conta de envio antes de ativar — sem remetente a campanha nao envia nada."
           );
         }
-        throw new Error(specificMessage);
       }
-    }
 
-    // Story 22.18 (AC4b + AC6): UMA leitura, DUAS guardas.
-    //
-    // Roda DEPOIS do attach, para enxergar as contas que acabamos de anexar.
-    //
-    // (AC4b) A guarda que realmente importa e o ERRO PARCIAL: o Instantly ativa e a
-    // resposta volta 502/timeout — o `saveFailure` grava `output: { error }`, ou seja,
-    // o `activated: true` NUNCA chegou a ser gravado e a guarda (4a) nao protege. Ler o
-    // status resolve: se a campanha ja esta Ativa, nao disparamos o activate de novo.
-    //
-    // (AC6) A mesma leitura traz o `email_list`. Ativar uma campanha sem remetente
-    // fecha a execucao com "Pipeline concluido com sucesso!" sobre uma campanha que
-    // nunca vai enviar nada — desabilitar o botao no cliente nao basta, porque o
-    // `execute` direto/retry (AC1/AC2) tornou esse caminho MAIS comum, nao menos.
-    //
-    // Decisao registrada (a AC4b pedia escolher entre pre-flight e verificacao
-    // pos-erro-de-gateway): PRE-FLIGHT. O argumento de custo do pre-flight ("1 GET a
-    // mais sempre") desaparece aqui, porque a AC6 exige esse GET de qualquer forma —
-    // e so o pre-flight cobre a campanha que ficou ativa numa tentativa anterior.
-    const campaignState = await this.readCampaignState(
-      service,
-      apiKey,
-      externalCampaignId
-    );
+      // 3.6 - Sub-step B: Ativar campanha
+      const mustNotActivate =
+        campaignState !== null && DO_NOT_ACTIVATE_STATUSES.has(campaignState.status);
 
-    if (campaignState) {
-      if (campaignState.emailList !== undefined && campaignState.emailList.length === 0) {
-        throw new Error(
-          "A campanha nao tem nenhuma conta de envio no Instantly. Anexe ao menos uma conta de envio antes de ativar — sem remetente a campanha nao envia nada."
+      if (mustNotActivate) {
+        console.error(
+          `[ActivateStep] Campanha ${externalCampaignId} esta ${campaignState.statusLabel} no Instantly (status=${campaignState.status}, execution=${input.executionId}); activate NAO disparado (o endpoint e activate-or-resume).`
         );
+      } else {
+        instantlyCalls++;
+        await service.activateCampaign({
+          apiKey,
+          campaignId: externalCampaignId,
+        });
       }
-    }
 
-    // 3.6 - Sub-step B: Ativar campanha
-    const mustNotActivate =
-      campaignState !== null && DO_NOT_ACTIVATE_STATUSES.has(campaignState.status);
-
-    if (mustNotActivate) {
-      console.error(
-        `[ActivateStep] Campanha ${externalCampaignId} esta ${campaignState.statusLabel} no Instantly (status=${campaignState.status}, execution=${input.executionId}); activate NAO disparado (o endpoint e activate-or-resume).`
-      );
-    } else {
-      await service.activateCampaign({
-        apiKey,
-        campaignId: externalCampaignId,
+      // 3.7 - Sub-step C: Enviar mensagem de confirmacao
+      // Story 22.17 (AC4): "com 1 leads" era o texto da mensagem de MAIOR sucesso do fluxo.
+      const leadsCount = totalLeads ?? 0;
+      const leadsLabel = leadsCount === 1 ? "1 lead" : `${leadsCount} leads`;
+      await this.supabase.from("agent_messages").insert({
+        execution_id: input.executionId,
+        role: "agent",
+        content: `Campanha '${campaignName}' ativa no Instantly com ${leadsLabel}`,
+        metadata: {
+          stepNumber: this.stepNumber,
+          messageType: "summary",
+        },
       });
+
+      // Story 22.18 (AC3): carimbo DURAVEL do gate de ativacao — SO AQUI.
+      //
+      // Este e o unico ponto do fluxo em que "ativada" e verdade: a campanha ja esta
+      // ativa no Instantly. O approve nao pode carimbar (retorna antes de o `execute`
+      // disparar) e uma ativacao que falha nunca chega ate aqui — o card volta re-armado,
+      // que e o que mantem a retomada da AC2 alcancavel. Fail-open: auditoria nao derruba
+      // uma ativacao bem-sucedida.
+      //
+      // O gate vive no step do EXPORT (o anterior), entao filtramos por tipo de step e
+      // nao por numero.
+      await stampLatestApprovalGate(
+        this.supabase,
+        input.executionId,
+        { activationOutcome: "activated" },
+        { stepType: "export" as StepType }
+      );
+
+      // Story 22.16: `campaigns.status = 'active'` — SO AQUI "ativa" e verdade (mesmo
+      // raciocinio do carimbo de gate acima). Escrever antes deixaria a lista mentindo
+      // sobre uma campanha que ainda esta em rascunho no Instantly.
+      //
+      // Fail-open TOTAL: a campanha JA esta ativa no Instantly quando chegamos aqui; uma
+      // falha de RLS/rede nesta escrita local nao pode derrubar a ativacao.
+      await this.markLocalCampaignActive(input.executionId, campaignId);
+
+      // 3.8 - Sub-step D: Montar output
+      const data: ActivateStepOutput = {
+        externalCampaignId,
+        campaignName,
+        activated: true,
+        activatedAt: new Date().toISOString(),
+        campaignId: campaignId ?? null,
+      };
+
+      // 3.9 - Calcular custo
+      // Story 22.18 (code review, P5): contar 1 quando o activate comprovadamente NAO
+      // disparou registrava uma chamada que nunca existiu — incoerente com o proprio
+      // atalho da guarda 4a, que zera pelo mesmo motivo.
+      const cost = {
+        instantly_activate: mustNotActivate ? 0 : 1,
+      };
+
+      await this.logActivation(input.executionId, "success", instantlyCalls, Date.now() - activateStart, {
+        externalCampaignId,
+        activated: !mustNotActivate,
+      });
+
+      // 3.10 - Retornar StepOutput
+      return {
+        success: true,
+        data: data as unknown as Record<string, unknown>,
+        cost,
+      };
+    } catch (activateError) {
+      await this.logActivation(
+        input.executionId,
+        "failed",
+        instantlyCalls,
+        Date.now() - activateStart,
+        { externalCampaignId },
+        activateError
+      );
+      throw activateError;
     }
+  }
 
-    // 3.7 - Sub-step C: Enviar mensagem de confirmacao
-    // Story 22.17 (AC4): "com 1 leads" era o texto da mensagem de MAIOR sucesso do fluxo.
-    const leadsCount = totalLeads ?? 0;
-    const leadsLabel = leadsCount === 1 ? "1 lead" : `${leadsCount} leads`;
-    await this.supabase.from("agent_messages").insert({
-      execution_id: input.executionId,
-      role: "agent",
-      content: `Campanha '${campaignName}' ativa no Instantly com ${leadsLabel}`,
-      metadata: {
-        stepNumber: this.stepNumber,
-        messageType: "summary",
-      },
+  /** Story 24.10: 1 linha `campaign_activation` por tentativa com chamada ao Instantly. Nunca lanca. */
+  private async logActivation(
+    executionId: string,
+    status: "success" | "failed",
+    calls: number,
+    durationMs: number,
+    metadata: Record<string, unknown>,
+    error?: unknown
+  ): Promise<void> {
+    if (calls === 0) return;
+    await logAgentUsage({
+      tenantId: this.tenantId,
+      executionId,
+      stepType: "activate",
+      serviceName: "instantly",
+      requestType: "campaign_activation",
+      status,
+      calls,
+      durationMs,
+      errorMessage: status === "failed" ? (error instanceof Error ? error.message : "Erro Instantly") : undefined,
+      metadata,
     });
-
-    // Story 22.18 (AC3): carimbo DURAVEL do gate de ativacao — SO AQUI.
-    //
-    // Este e o unico ponto do fluxo em que "ativada" e verdade: a campanha ja esta
-    // ativa no Instantly. O approve nao pode carimbar (retorna antes de o `execute`
-    // disparar) e uma ativacao que falha nunca chega ate aqui — o card volta re-armado,
-    // que e o que mantem a retomada da AC2 alcancavel. Fail-open: auditoria nao derruba
-    // uma ativacao bem-sucedida.
-    //
-    // O gate vive no step do EXPORT (o anterior), entao filtramos por tipo de step e
-    // nao por numero.
-    await stampLatestApprovalGate(
-      this.supabase,
-      input.executionId,
-      { activationOutcome: "activated" },
-      { stepType: "export" as StepType }
-    );
-
-    // Story 22.16: `campaigns.status = 'active'` — SO AQUI "ativa" e verdade (mesmo
-    // raciocinio do carimbo de gate acima). Escrever antes deixaria a lista mentindo
-    // sobre uma campanha que ainda esta em rascunho no Instantly.
-    //
-    // Fail-open TOTAL: a campanha JA esta ativa no Instantly quando chegamos aqui; uma
-    // falha de RLS/rede nesta escrita local nao pode derrubar a ativacao.
-    await this.markLocalCampaignActive(input.executionId, campaignId);
-
-    // 3.8 - Sub-step D: Montar output
-    const data: ActivateStepOutput = {
-      externalCampaignId,
-      campaignName,
-      activated: true,
-      activatedAt: new Date().toISOString(),
-      campaignId: campaignId ?? null,
-    };
-
-    // 3.9 - Calcular custo
-    // Story 22.18 (code review, P5): contar 1 quando o activate comprovadamente NAO
-    // disparou registrava uma chamada que nunca existiu — incoerente com o proprio
-    // atalho da guarda 4a, que zera pelo mesmo motivo.
-    const cost = {
-      instantly_activate: mustNotActivate ? 0 : 1,
-    };
-
-    // 3.10 - Retornar StepOutput
-    return {
-      success: true,
-      data: data as unknown as Record<string, unknown>,
-      cost,
-    };
   }
 
   /**

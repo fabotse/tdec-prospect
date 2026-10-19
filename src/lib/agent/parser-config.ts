@@ -56,3 +56,25 @@ export function buildParserRequest(
   }
   return params;
 }
+
+/**
+ * Story 24.10: uso de tokens de uma chamada de parser (`completion.usage`), devolvido
+ * pelos parsers para as rotas logarem em `api_usage_logs`.
+ */
+export interface ParserUsage {
+  promptTokens: number;
+  completionTokens: number;
+  model: string;
+}
+
+/** Extrai o uso de tokens de uma completion (ausente = zeros). */
+export function toParserUsage(
+  completion: { usage?: { prompt_tokens?: number; completion_tokens?: number } | null; model?: string },
+  fallbackModel: string = PARSER_MODEL
+): ParserUsage {
+  return {
+    promptTokens: completion.usage?.prompt_tokens ?? 0,
+    completionTokens: completion.usage?.completion_tokens ?? 0,
+    model: completion.model ?? fallbackModel,
+  };
+}

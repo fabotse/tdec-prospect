@@ -278,6 +278,13 @@ describe("knowledge-base-context service", () => {
       });
     });
 
+    describe("authorized_proofs (Story 24.8)", () => {
+      it("is always an empty string until Story 24.7 fills it", () => {
+        expect(buildAIVariables(null).authorized_proofs).toBe("");
+        expect(getDefaultAIVariables().authorized_proofs).toBe("");
+      });
+    });
+
     describe("edge cases", () => {
       it("should handle company with only name (no description)", () => {
         const context: KnowledgeBaseContext = {

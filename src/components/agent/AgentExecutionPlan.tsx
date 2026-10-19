@@ -15,13 +15,8 @@ import { Building2, Users, Mail, Upload, Play, Loader2, AlertCircle, RotateCcw, 
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { formatBRL } from "@/lib/agent/agent-pricing";
 import type { PlannedStep, CostEstimate } from "@/types/agent";
-
-// Story 22.2: custo Apify estimado por lead (espelha DEFAULT_COSTS.apify no cost estimator).
-// Valor autoritativo e recomputado no confirm; aqui e apenas a estimativa exibida ao usuario.
-const APIFY_COST_PER_LEAD = 0.15;
-// Story 22.2: volume estimado de leads (espelha ESTIMATED_COMPANIES × ESTIMATED_LEADS_PER_COMPANY do cost estimator).
-const ESTIMATED_LEADS = 60;
 
 interface AgentExecutionPlanProps {
   executionId: string;
@@ -49,13 +44,6 @@ const STEP_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   export: Upload,
   activate: Play,
 };
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(value);
-}
 
 export function AgentExecutionPlan({
   executionId,
@@ -139,9 +127,11 @@ export function AgentExecutionPlan({
 
   if (!plan) return null;
 
-  // Story 22.2: total exibido inclui a estimativa Apify quando o toggle esta ligado.
-  // Este numero e uma ESTIMATIVA client-side; o valor autoritativo e recomputado no confirm (route).
-  const estimatedApifyCost = premiumIcebreakers ? ESTIMATED_LEADS * APIFY_COST_PER_LEAD : 0;
+  // Story 22.2: total exibido inclui o icebreaker premium quando o toggle esta ligado.
+  // Story 24.10: o valor vem do servidor (`costEstimate.premiumIcebreakers`, leads × apify),
+  // sem constantes locais. O valor autoritativo continua recomputado no confirm.
+  const premiumEstimate = plan.costEstimate.premiumIcebreakers;
+  const estimatedApifyCost = premiumIcebreakers ? (premiumEstimate?.total ?? 0) : 0;
   const displayedTotal = plan.costEstimate.total + estimatedApifyCost;
 
   return (
@@ -236,7 +226,7 @@ export function AgentExecutionPlan({
                   ? "Pulado"
                   : step.estimatedCost === 0
                     ? "Gratuito"
-                    : formatCurrency(step.estimatedCost)}
+                    : formatBRL(step.estimatedCost)}
               </span>
             </div>
           );
@@ -257,7 +247,10 @@ export function AgentExecutionPlan({
           </div>
           <p className="text-caption text-muted-foreground">
             Consulta posts reais do LinkedIn via Apify para personalizar a abertura de
-            cada email — custo extra de aproximadamente R$ 0,15 por lead.
+            cada email
+            {premiumEstimate
+              ? ` — custo extra de até ${formatBRL(premiumEstimate.total)} (${formatBRL(premiumEstimate.perLead)} por lead).`
+              : "."}
           </p>
         </div>
         <Switch
@@ -278,7 +271,7 @@ export function AgentExecutionPlan({
           Custo estimado
         </span>
         <span className="text-body-small font-medium text-foreground">
-          {formatCurrency(displayedTotal)}
+          {formatBRL(displayedTotal)}
         </span>
       </div>
 

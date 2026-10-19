@@ -61,6 +61,12 @@ vi.mock("@/lib/agent/product-parser-service", () => ({
   },
 }));
 
+// Story 24.10: log de uso do agente (suite propria em agent-usage.test.ts).
+const mockLogAgentUsage = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/agent/agent-usage", () => ({
+  logAgentUsage: (...args: unknown[]) => mockLogAgentUsage(...args),
+}));
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -289,6 +295,32 @@ describe("POST /api/agent/briefing/parse-product", () => {
       VALID_BODY.message,
       VALID_BODY.productName,
       "decrypted-key"
+    );
+  });
+
+  // Story 24.10: 1 linha product_parse por parse; `usage` nao vaza na resposta
+  it("Story 24.10: loga product_parse com tokens e nao devolve usage ao cliente", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      ...EXTRACTED_PRODUCT,
+      usage: { promptTokens: 120, completionTokens: 30, model: "gpt-5.4-mini" },
+    });
+
+    const response = await POST(createRequest(VALID_BODY));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.product).toEqual(EXTRACTED_PRODUCT);
+    expect(mockLogAgentUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: mockProfile.tenant_id,
+        executionId: VALID_BODY.executionId,
+        serviceName: "openai",
+        requestType: "product_parse",
+        status: "success",
+        calls: 1,
+        metadata: { promptTokens: 120, completionTokens: 30, model: "gpt-5.4-mini" },
+      })
     );
   });
 });

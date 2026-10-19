@@ -103,9 +103,9 @@ const MIDDLE_ANGLES: AngleSpec[] = [
   {
     angle: "RECURSO ÚTIL",
     body:
-      "RECURSO ÚTIL: ofereça algo de valor sem pedir nada em troca (um checklist, um passo prático ou uma ideia aplicável) ligado à dor do lead. Descreva o recurso em 1 frase e pergunte se faz sentido enviar.",
+      "RECURSO ÚTIL: entregue no próprio e-mail, em 1-2 frases, uma ideia ou um passo prático aplicável à dor do lead, sem pedir nada em troca. NÃO prometa anexo, checklist nem material para enviar depois.",
     subject:
-      "Assunto que ofereça algo útil, sem RE:, até 50 caracteres (ex.: 'Um checklist para {{company_name}}').",
+      "Assunto que antecipe a ideia prática, sem RE:, até 50 caracteres (ex.: 'Uma ideia para {{company_name}}'). Não cite checklist nem material.",
   },
   {
     angle: "CUSTO DE NÃO AGIR",
@@ -130,7 +130,7 @@ const CLOSING_ANGLE: AngleSpec = {
 };
 
 const COMMON_RULES =
-  "Regras obrigatórias: NÃO mencione nem pergunte sobre e-mails anteriores (nada de 'viu meu e-mail?', 'conseguiu ver?', 'retomando', 'como falei'). NÃO invente números, porcentagens, cases, clientes ou resultados. NÃO use colchetes nem placeholders como [Seu nome] ou [Empresa]. As únicas variáveis permitidas são {{first_name}}, {{company_name}} e {{title}}; não use {{ice_breaker}} (ele é só do primeiro e-mail) nem nenhuma outra. Não assine com nome inventado.";
+  "Regras obrigatórias: NÃO mencione nem pergunte sobre e-mails anteriores (nada de 'viu meu e-mail?', 'conseguiu ver?', 'retomando', 'como falei'). NÃO invente números, porcentagens, cases, clientes ou resultados; só cite provas que estejam na REGRA DE PROVAS do prompt, se houver. NÃO use colchetes nem placeholders como [Seu nome] ou [Empresa]. As únicas variáveis permitidas são {{first_name}}, {{company_name}} e {{title}}; não use {{ice_breaker}} (ele é só do primeiro e-mail) nem nenhuma outra. Não assine com nome inventado.";
 
 const COMMON_SUBJECT_RULES =
   "Não use 'RE:' nem 'FW:'. Não pergunte se o lead viu o e-mail anterior. Sem colchetes e sem variáveis além de {{first_name}}, {{company_name}} e {{title}}.";
@@ -163,7 +163,7 @@ export function buildFollowUpPlan(
 
   // O angulo atual sai da lista (sequencias longas o repetem no ciclo): sem isso o texto
   // mandaria usar e nao repetir o mesmo angulo.
-  const used = anglesUsed.filter((a) => a.trim() !== "" && a !== spec.angle);
+  const used = [...new Set(anglesUsed)].filter((a) => a.trim() !== "" && a !== spec.angle);
   const usedText =
     used.length > 0
       ? ` Ângulos já usados nesta sequência: ${used.join(", ")}. Não repita a abordagem, os argumentos nem as frases deles.`
@@ -175,6 +175,19 @@ export function buildFollowUpPlan(
     followUpStrategy: `${spec.body}${usedText} ${COMMON_RULES}`,
     subjectStrategy: `${spec.subject} ${COMMON_SUBJECT_RULES}`,
   };
+}
+
+/**
+ * Plano do follow-up na posicao `n` de `total` calculando sozinho os angulos ja usados
+ * pelos follow-ups anteriores (posicoes 2..n-1). Story 24.8: usado pelo editor manual (bloco a
+ * bloco e geracao completa); o agente acumula a mesma lista ao chamar `buildFollowUpPlan`.
+ */
+export function buildSequenceFollowUpPlan(n: number, total: number): FollowUpPlan {
+  const anglesUsed: FollowUpAngle[] = [];
+  for (let k = 2; k < n; k++) {
+    anglesUsed.push(buildFollowUpPlan(k, total).angle);
+  }
+  return buildFollowUpPlan(n, total, anglesUsed);
 }
 
 // ==============================================

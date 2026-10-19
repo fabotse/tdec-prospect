@@ -62,6 +62,12 @@ vi.mock("@/lib/agent/steps/search-leads-step", () => ({
   }),
 }));
 
+// Story 24.10: log de uso do agente (suite propria em agent-usage.test.ts).
+const mockLogAgentUsage = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/agent/agent-usage", () => ({
+  logAgentUsage: (...args: unknown[]) => mockLogAgentUsage(...args),
+}));
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -410,5 +416,39 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/fetch-lead
     // Initial cost was 25 (1 lead in baseStepOutput). Fetched 25 new leads = 24 net new.
     // Cost = 25 (existing) + 24 * 1 = 49
     expect(json.data.cost.apollo_search).toBe(49);
+  });
+
+  // --- Story 24.10: log de uso ---
+  it("Story 24.10: loga 1 linha people_search por pagina com tenant e executionId", async () => {
+    for (let page = 1; page <= 2; page++) {
+      const leads = Array.from({ length: 25 }, (_, i) => makeLead((page - 1) * 25 + i + 1));
+      mockSearchPeople.mockResolvedValueOnce(makePageResponse(leads, page, 20, 500));
+    }
+
+    await POST(createRequest({ desiredCount: 50 }), createParams());
+
+    expect(mockLogAgentUsage).toHaveBeenCalledTimes(2);
+    expect(mockLogAgentUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: mockProfile.tenant_id,
+        executionId: EXEC_ID,
+        stepType: "search_leads",
+        serviceName: "apollo",
+        requestType: "people_search",
+        status: "success",
+        calls: 1,
+      })
+    );
+  });
+
+  it("Story 24.10: falha do Apollo loga failed e segue 502", async () => {
+    mockSearchPeople.mockRejectedValueOnce(new Error("Apollo down"));
+
+    const response = await POST(createRequest({ desiredCount: 25 }), createParams());
+
+    expect(response.status).toBe(502);
+    expect(mockLogAgentUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ requestType: "people_search", status: "failed", executionId: EXEC_ID })
+    );
   });
 });

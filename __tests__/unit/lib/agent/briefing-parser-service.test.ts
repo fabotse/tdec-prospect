@@ -697,4 +697,27 @@ describe("BriefingParserService", () => {
       expect(result.success).toBe(false);
     });
   });
+
+  // Story 24.10: o parser devolve o uso de tokens para a rota logar
+  describe("usage (Story 24.10)", () => {
+    it("devolve tokens e modelo da completion", async () => {
+      mockCreate.mockResolvedValueOnce({
+        model: "gpt-5.4-mini-2026",
+        usage: { prompt_tokens: 321, completion_tokens: 45 },
+        choices: [{ message: { content: JSON.stringify(FULL_BRIEFING_RESPONSE) } }],
+      });
+
+      const result = await BriefingParserService.parse("briefing", "sk-test");
+
+      expect(result.usage).toEqual({ promptTokens: 321, completionTokens: 45, model: "gpt-5.4-mini-2026" });
+    });
+
+    it("sem usage na completion devolve zeros com o modelo do parser", async () => {
+      mockOpenAIResponse(FULL_BRIEFING_RESPONSE);
+
+      const result = await BriefingParserService.parse("briefing", "sk-test");
+
+      expect(result.usage).toEqual({ promptTokens: 0, completionTokens: 0, model: "gpt-5.4-mini" });
+    });
+  });
 });

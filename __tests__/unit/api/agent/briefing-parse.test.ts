@@ -74,6 +74,12 @@ vi.mock("@/lib/agent/briefing-parser-service", () => ({
   },
 }));
 
+// Story 24.10: log de uso do agente (suite propria em agent-usage.test.ts).
+const mockLogAgentUsage = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/agent/agent-usage", () => ({
+  logAgentUsage: (...args: unknown[]) => mockLogAgentUsage(...args),
+}));
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -1055,5 +1061,38 @@ describe("POST /api/agent/briefing/parse", () => {
     expect(json.canProceed).toBe(false);
     expect(json.missingFields).toContain("location");
     expect(json.briefing.skipSteps).toContain("search_companies");
+  });
+
+  // Story 24.10: 1 linha briefing_parse por parse
+  it("Story 24.10: loga briefing_parse com tokens, tenant e executionId", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockResolvedValue({
+      ...FULL_PARSE_RESULT,
+      usage: { promptTokens: 300, completionTokens: 40, model: "gpt-5.4-mini" },
+    });
+
+    const response = await POST(createRequest(VALID_BODY));
+
+    expect(response.status).toBe(200);
+    expect(mockLogAgentUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: mockProfile.tenant_id,
+        executionId: VALID_BODY.executionId,
+        serviceName: "openai",
+        requestType: "briefing_parse",
+        status: "success",
+        calls: 1,
+        metadata: { promptTokens: 300, completionTokens: 40, model: "gpt-5.4-mini" },
+      })
+    );
+  });
+
+  it("Story 24.10: sem usage (parse falhou) nao loga", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    mockParse.mockRejectedValue(new Error("boom"));
+
+    await POST(createRequest(VALID_BODY));
+
+    expect(mockLogAgentUsage).not.toHaveBeenCalled();
   });
 });

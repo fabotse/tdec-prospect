@@ -86,6 +86,10 @@ export interface AIContextVariables {
   // Email context
   email_objective: string;
   icebreaker: string;
+
+  // Story 24.8: lista fechada de provas autorizadas (numeros, cases, clientes,
+  // certificacoes). Vazia = os prompts proibem citar qualquer prova.
+  authorized_proofs: string;
 }
 
 // ==============================================
@@ -335,6 +339,9 @@ export function buildAIVariables(
     // Email context
     email_objective: "Prospecção inicial para apresentar soluções",
     icebreaker: "",
+
+    // Story 24.8: sempre vazio por enquanto; a Story 24.7 (Provas na KB) preenche.
+    authorized_proofs: "",
   };
 }
 

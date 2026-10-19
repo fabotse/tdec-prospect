@@ -7,6 +7,7 @@ import {
   TEMPLATE_LEAD_VARIABLES,
   SUPPORTED_EMAIL_VARIABLES,
   buildFollowUpPlan,
+  buildSequenceFollowUpPlan,
   cleanAgentEmailCopy,
   cleanIcebreakerText,
   findUnsupportedCopyTokens,
@@ -117,6 +118,53 @@ describe("buildFollowUpPlan", () => {
     expect(planSequence(1)).toEqual([]);
     expect(() => buildFollowUpPlan(1, 1)).toThrow(RangeError);
     expect(() => buildFollowUpPlan(5, 4)).toThrow(RangeError);
+  });
+});
+
+describe("buildSequenceFollowUpPlan (Story 24.8)", () => {
+  it("n=3, total=4: lista INSIGHT DO SETOR como angulo ja usado", () => {
+    const plan = buildSequenceFollowUpPlan(3, 4);
+    expect(plan.angle).toBe("PERGUNTA");
+    expect(plan.sequencePosition).toBe("Email 3 de 4");
+    expect(plan.followUpStrategy).toContain("Ângulos já usados nesta sequência: INSIGHT DO SETOR.");
+  });
+
+  it("e igual a buildFollowUpPlan com os angulos calculados em sequencia", () => {
+    for (const total of [2, 4, 8]) {
+      const plans = planSequence(total);
+      plans.forEach((expected, idx) => {
+        expect(buildSequenceFollowUpPlan(idx + 2, total)).toEqual(expected);
+      });
+    }
+  });
+
+  it("9 e-mails: o encerramento lista cada angulo usado uma vez so", () => {
+    const used =
+      buildSequenceFollowUpPlan(9, 9).followUpStrategy.match(
+        /Ângulos já usados nesta sequência: ([^.]*)\./
+      )?.[1] ?? "";
+    expect(used.split(", ")).toEqual([
+      "INSIGHT DO SETOR",
+      "PERGUNTA",
+      "RECURSO ÚTIL",
+      "CUSTO DE NÃO AGIR",
+      "OUTRA PERSPECTIVA",
+    ]);
+  });
+
+  it("n=2 nao tem angulos usados", () => {
+    expect(buildSequenceFollowUpPlan(2, 4)).toEqual(buildFollowUpPlan(2, 4));
+  });
+
+  it("posicao invalida continua lancando RangeError", () => {
+    expect(() => buildSequenceFollowUpPlan(1, 4)).toThrow(RangeError);
+    expect(() => buildSequenceFollowUpPlan(5, 4)).toThrow(RangeError);
+  });
+
+  it("regras comuns mandam usar so provas da REGRA DE PROVAS", () => {
+    expect(buildSequenceFollowUpPlan(2, 3).followUpStrategy).toContain(
+      "só cite provas que estejam na REGRA DE PROVAS do prompt, se houver"
+    );
   });
 });
 

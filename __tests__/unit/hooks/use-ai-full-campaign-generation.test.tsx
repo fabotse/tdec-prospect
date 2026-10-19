@@ -12,6 +12,12 @@ import { renderHook, act, waitFor } from "@testing-library/react";
 import { useAIFullCampaignGeneration } from "@/hooks/use-ai-full-campaign-generation";
 import type { BuilderBlock } from "@/stores/use-builder-store";
 
+// Story 24.9: o revisor e mockado por modulo (os testes usam global.fetch encadeado).
+const mockRequestEmailReview = vi.fn();
+vi.mock("@/lib/ai/review-email-client", () => ({
+  requestEmailReview: (...args: unknown[]) => mockRequestEmailReview(...args),
+}));
+
 // Mock fetch
 global.fetch = vi.fn();
 
@@ -60,6 +66,13 @@ describe("useAIFullCampaignGeneration", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Story 24.9: padrao = revisor indisponivel (devolve o texto enviado).
+    mockRequestEmailReview.mockImplementation(async (p: { subject: string; body: string }) => ({
+      subject: p.subject,
+      body: p.body,
+      status: "not_reviewed",
+      reasons: [],
+    }));
     vi.useFakeTimers({ shouldAdvanceTime: true });
   });
 
@@ -267,6 +280,57 @@ describe("useAIFullCampaignGeneration", () => {
     });
   });
 
+  describe("Follow-up plan shared with the agent (Story 24.8)", () => {
+    it("follow-ups 2/3/4 de 4 recebem numeracao e estrategias do buildFollowUpPlan", async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { text: "Generated" } }),
+      });
+      global.fetch = mockFetch;
+
+      const fourEmails: BuilderBlock[] = [1, 2, 3, 4].map((n) => ({
+        id: `email-${n}`,
+        type: "email" as const,
+        position: n - 1,
+        data: {
+          subject: "",
+          body: "",
+          emailMode: n === 1 ? ("initial" as const) : ("follow-up" as const),
+          strategicContext: `Contexto ${n}`,
+        },
+      }));
+
+      const { result } = renderHook(() => useAIFullCampaignGeneration());
+      await act(async () => {
+        await result.current.generate({
+          ...defaultParams,
+          blocks: fourEmails,
+        });
+      });
+
+      expect(mockFetch).toHaveBeenCalledTimes(8);
+      const expected = [
+        { n: 2, angle: "INSIGHT DO SETOR" },
+        { n: 3, angle: "PERGUNTA" },
+        { n: 4, angle: "ENCERRAMENTO" },
+      ];
+      for (const { n, angle } of expected) {
+        const subjectVars = JSON.parse(mockFetch.mock.calls[(n - 1) * 2][1].body).variables;
+        const bodyVars = JSON.parse(mockFetch.mock.calls[(n - 1) * 2 + 1][1].body).variables;
+        expect(bodyVars.sequence_position).toContain(`Email ${n} de 4`);
+        expect(bodyVars.follow_up_strategy).toContain(`${angle}:`);
+        expect(bodyVars.follow_up_strategy).not.toContain("CONFIRMAR VISUALIZAÇÃO");
+        expect(bodyVars.follow_up_strategy).not.toContain("case de sucesso");
+        expect(subjectVars.subject_strategy).not.toContain("RE: SIMPLES");
+        expect(subjectVars.subject_strategy).not.toMatch(/Use 'RE: '/);
+      }
+      const thirdBody = JSON.parse(mockFetch.mock.calls[5][1].body).variables;
+      expect(thirdBody.follow_up_strategy).toContain(
+        "Ângulos já usados nesta sequência: INSIGHT DO SETOR."
+      );
+    });
+  });
+
   describe("Template Mode - Personalization Variables (Story 7.1)", () => {
     it("never passes lead variables (always template mode)", async () => {
       const mockFetch = vi.fn().mockResolvedValue({
@@ -308,6 +372,83 @@ describe("useAIFullCampaignGeneration", () => {
       const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(callBody.variables.tone_style).toBe("formal");
       expect(callBody.variables.email_objective).toBeDefined();
+    });
+  });
+
+  describe("Copy review (Story 24.9)", () => {
+    it("grava o texto revisado e o status, e o follow-up usa o texto revisado como contexto", async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { text: "Generated" } }),
+      });
+      global.fetch = mockFetch;
+      mockRequestEmailReview.mockImplementation(async (p: { emailPosition: number }) => ({
+        subject: `Revisado ${p.emailPosition}`,
+        body: `Corpo revisado ${p.emailPosition}`,
+        status: p.emailPosition === 1 ? "rewritten" : "needs_human_review",
+        reasons: p.emailPosition === 1 ? [] : ["Clichê: frase feita"],
+      }));
+
+      const { result } = renderHook(() => useAIFullCampaignGeneration());
+      let generatedBlocks: BuilderBlock[] | undefined;
+      await act(async () => {
+        generatedBlocks = await result.current.generate({
+          ...defaultParams,
+          kbVariables: {
+            company_context: "Empresa KB",
+            target_titles: "CTO",
+            authorized_proofs: "- Case X",
+          },
+        });
+      });
+
+      expect(mockRequestEmailReview).toHaveBeenCalledTimes(3);
+      expect(mockRequestEmailReview.mock.calls[0][0]).toMatchObject({
+        subject: "Generated",
+        body: "Generated",
+        emailMode: "initial",
+        productId: "product-456",
+        emailPosition: 1,
+      });
+      const followUpArgs = mockRequestEmailReview.mock.calls[1][0];
+      expect(followUpArgs).toMatchObject({ emailMode: "follow-up", emailPosition: 2 });
+      expect(followUpArgs.variables).toMatchObject({
+        company_context: "Empresa KB",
+        target_titles: "CTO",
+        authorized_proofs: "- Case X",
+      });
+      const emails = generatedBlocks!.filter((b) => b.type === "email");
+      expect(emails[0].data).toMatchObject({
+        subject: "Revisado 1",
+        body: "Corpo revisado 1",
+        reviewStatus: "rewritten",
+        reviewReasons: [],
+      });
+      expect(emails[1].data).toMatchObject({
+        reviewStatus: "needs_human_review",
+        reviewReasons: ["Clichê: frase feita"],
+      });
+      // 3a chamada de fetch = assunto do follow-up 2, com o e-mail 1 JA revisado como contexto
+      const thirdBody = JSON.parse(mockFetch.mock.calls[2][1].body);
+      expect(thirdBody.variables.previous_email_subject).toBe("Revisado 1");
+    });
+
+    it("revisor indisponivel mantem o texto gerado com not_reviewed", async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { text: "Generated" } }),
+      });
+      const { result } = renderHook(() => useAIFullCampaignGeneration());
+      let generatedBlocks: BuilderBlock[] | undefined;
+      await act(async () => {
+        generatedBlocks = await result.current.generate(defaultParams);
+      });
+      const emails = generatedBlocks!.filter((b) => b.type === "email");
+      expect(emails[0].data).toMatchObject({
+        subject: "Generated",
+        body: "Generated",
+        reviewStatus: "not_reviewed",
+      });
     });
   });
 

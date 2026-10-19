@@ -69,6 +69,7 @@ import type { EmailBlockData, EmailMode, IcebreakerSourceType } from "@/types/em
 import { useAIGenerate } from "@/hooks/use-ai-generate";
 import { useKnowledgeBaseContext } from "@/hooks/use-knowledge-base-context";
 import { useDebouncedCallback } from "@/hooks/use-debounce";
+import { buildSequenceFollowUpPlan } from "@/lib/agent/campaign-copy";
 import { AIGenerateButton } from "./AIGenerateButton";
 import { ExamplesHint } from "./ExamplesHint";
 import { PremiumIcebreakerBadge } from "./PremiumIcebreakerBadge";
@@ -79,6 +80,9 @@ import {
   normalizeTemplateVariables,
   ensureIceBreakerVariable,
 } from "@/lib/ai/sanitize-ai-output";
+import { requestEmailReview } from "@/lib/ai/review-email-client";
+import { isCopyReviewStatus } from "@/types/copy-review";
+import { CopyReviewBadge } from "./CopyReviewBadge";
 
 /**
  * Story 9.4 AC #3: Detect {{ice_breaker}} variable in email body text
@@ -129,6 +133,12 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- blockData is reconstructed from rawData on every render by design
   const blockData: EmailBlockData = { ...baseBlockData, ...icebreakerFields };
+
+  // Story 24.9: status do revisor automatico (so na sessao; o save nao persiste).
+  const reviewStatus = isCopyReviewStatus(rawData.reviewStatus) ? rawData.reviewStatus : null;
+  const reviewReasons = Array.isArray(rawData.reviewReasons)
+    ? (rawData.reviewReasons as unknown[]).filter((r): r is string => typeof r === "string")
+    : [];
 
   // Story 6.12 AC #4: Strategic context from AI campaign structure generation
   const strategicContext = typeof rawData.strategicContext === "string" ? rawData.strategicContext : null;
@@ -193,6 +203,9 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
   // Track which field is being generated
   // Story 6.6 AC #3: Added "icebreaker" phase for 3-phase generation
   const [generatingField, setGeneratingField] = useState<"icebreaker" | "subject" | "body" | null>(null);
+
+  // Story 24.9: revisao de copy pendente (a geracao ja terminou, mas o bloco nao esta livre).
+  const [isReviewing, setIsReviewing] = useState(false);
 
   // Story 6.5.7 AC #3: Track icebreaker source for premium badge display
   const [usedIcebreakerSource, setUsedIcebreakerSource] = useState<IcebreakerSourceType>("none");
@@ -333,26 +346,12 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
             .sort((a, b) => a.position - b.position);
           const emailIndex = emailBlocks.findIndex((b) => b.id === block.id) + 1;
           const totalEmails = emailBlocks.length;
-          const isLastEmail = emailIndex === totalEmails;
-
-          // Select the SPECIFIC strategy for this position — don't give AI a choice
-          const bodyStrategy = isLastEmail || emailIndex >= 5
-            ? "DESPEDIDA: Ser direto, dar 'última chance' sem pressão. Diga que vai parar de escrever, deixe a porta aberta. Tom amigável de encerramento. NÃO referencie emails anteriores."
-            : emailIndex === 2
-            ? "CONFIRMAR VISUALIZAÇÃO: Pergunte gentilmente se o lead conseguiu ver o email anterior. Ofereça uma conversa rápida. NÃO repita o conteúdo do email anterior."
-            : emailIndex === 3
-            ? "AGENDA CORRIDA: Assuma que o lead está ocupado. Mostre empatia. Ofereça flexibilidade total de horário. NÃO mencione o email anterior diretamente."
-            : "NOVO ÂNGULO/VALOR: Traga um dado novo, case de sucesso ou insight do setor. NÃO referencie os emails anteriores. Foque 100% em valor novo.";
-
-          const subjectStrategy = isLastEmail || emailIndex >= 5
-            ? "CURTO E DIRETO: Assunto pessoal sem RE:. Exemplo: '{{first_name}}, última mensagem' ou 'Encerramento'"
-            : emailIndex === 2
-            ? "RE: SIMPLES: Use 'RE: ' + assunto anterior. Exemplo: 'RE: {{previous_email_subject}}'"
-            : emailIndex === 3
-            ? "RE: COM VARIAÇÃO: Use 'RE: ' + algo novo. Exemplo: 'RE: Bate-papo rápido?' ou 'RE: Sobre a {{company_name}}'"
-            : "CURTO E DIRETO: Assunto pessoal sem RE:. Exemplo: '{{first_name}}, conseguiu ver?' ou 'Rápida pergunta'";
-
-          const sequencePosition = `Este é o ${emailIndex}º email de ${totalEmails} na sequência. ${isLastEmail ? "Este é o ÚLTIMO email da sequência." : ""}`;
+          // Story 24.8: mesmo plano de follow-up do agente (angulo, numeracao e regras).
+          const {
+            sequencePosition,
+            followUpStrategy: bodyStrategy,
+            subjectStrategy,
+          } = buildSequenceFollowUpPlan(emailIndex, totalEmails);
 
           // Skip icebreaker generation for follow-ups
           setGeneratingField("subject");
@@ -391,14 +390,40 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
           // Follow-ups: normalize variables but do NOT inject ice_breaker
           const cleanBody = normalizeTemplateVariables(sanitizeGeneratedBody(generatedBody));
           setBody(cleanBody);
+
+          // Story 24.9: revisor automatico. Nunca lanca (falha = not_reviewed + texto original).
+          // O texto devolvido passa pela mesma limpeza da geracao.
+          setIsReviewing(true);
+          let review: Awaited<ReturnType<typeof requestEmailReview>>;
+          try {
+            review = await requestEmailReview({
+              subject: cleanSubject,
+              body: cleanBody,
+              emailMode: "follow-up",
+              productId,
+              variables: mergedVariables,
+              emailPosition: emailIndex,
+            });
+          } finally {
+            setIsReviewing(false);
+          }
+          const reviewedSubject =
+            normalizeTemplateVariables(sanitizeGeneratedSubject(review.subject)) || cleanSubject;
+          const reviewedBody =
+            normalizeTemplateVariables(sanitizeGeneratedBody(review.body)) || cleanBody;
+          setSubject(reviewedSubject);
+          setBody(reviewedBody);
+
           // Story 6.5.7: Follow-up emails don't use icebreakers
           updateBlock(block.id, {
             data: {
               ...blockData,
-              subject: cleanSubject,
-              body: cleanBody,
+              subject: reviewedSubject,
+              body: reviewedBody,
               icebreakerSource: "none",
               icebreakerPosts: null,
+              reviewStatus: review.status,
+              reviewReasons: review.reasons,
             },
           });
 
@@ -451,11 +476,38 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
         normalizeTemplateVariables(sanitizeGeneratedBody(generatedBody))
       );
       setBody(cleanBody);
+
+      // Story 24.9: revisor automatico. Nunca lanca (falha = not_reviewed + texto original).
+      // O texto devolvido passa pela mesma limpeza da geracao.
+      setIsReviewing(true);
+      let review: Awaited<ReturnType<typeof requestEmailReview>>;
+      try {
+        review = await requestEmailReview({
+          subject: cleanSubject,
+          body: cleanBody,
+          emailMode: "initial",
+          productId,
+          variables: mergedVariables,
+          emailPosition: emailNumber,
+        });
+      } finally {
+        setIsReviewing(false);
+      }
+      const reviewedSubject =
+        normalizeTemplateVariables(sanitizeGeneratedSubject(review.subject)) || cleanSubject;
+      const reviewedBody =
+        ensureIceBreakerVariable(normalizeTemplateVariables(sanitizeGeneratedBody(review.body))) ||
+        cleanBody;
+      setSubject(reviewedSubject);
+      setBody(reviewedBody);
+
       updateBlock(block.id, {
         data: {
           ...blockData,
-          subject: cleanSubject,
-          body: cleanBody,
+          subject: reviewedSubject,
+          body: reviewedBody,
+          reviewStatus: review.status,
+          reviewReasons: review.reasons,
           icebreakerSource: hasPremiumIcebreaker ? "premium" : "none",
           icebreakerPosts: hasPremiumIcebreaker
             ? (previewLead?.linkedinPostsCache?.posts || null)
@@ -468,7 +520,7 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
       // Error is handled by the hook (AC 6.2 #2)
       setGeneratingField(null);
     }
-  }, [generate, resetAI, block.id, block.position, updateBlock, mergedVariables, productId, blockData, canBeFollowUp, blocks, hasPremiumIcebreaker, previewLead]);
+  }, [generate, resetAI, block.id, block.position, updateBlock, mergedVariables, productId, blockData, canBeFollowUp, blocks, hasPremiumIcebreaker, previewLead, emailNumber]);
 
   return (
     <motion.div
@@ -526,7 +578,16 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
         {/* Title and Mode Selector */}
         <div className="flex-1 flex items-center justify-between">
           <div>
-            <p className="font-medium text-sm">Step {stepNumber}</p>
+            <div className="flex items-center gap-2">
+              <p className="font-medium text-sm">Step {stepNumber}</p>
+              {reviewStatus && (
+                <CopyReviewBadge
+                  status={reviewStatus}
+                  reasons={reviewReasons}
+                  showReasons={reviewStatus === "needs_human_review"}
+                />
+              )}
+            </div>
             <p className="text-xs text-muted-foreground">
               {/* Story 6.12 AC #4: Show strategic context if present, otherwise show mode */}
               {strategicContext ? (
@@ -682,7 +743,7 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
               phase={aiPhase}
               error={aiError}
               onClick={handleGenerate}
-              disabled={isGenerating || kbLoading}
+              disabled={isGenerating || isReviewing || kbLoading}
               hasContent={hasContent}
             />
           </div>
@@ -694,6 +755,16 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
               className="text-xs text-muted-foreground"
             >
               Carregando contexto...
+            </p>
+          )}
+
+          {/* Story 24.9: revisao de copy em andamento */}
+          {isReviewing && (
+            <p
+              data-testid="ai-reviewing-status"
+              className="text-xs text-muted-foreground"
+            >
+              Revisando copy...
             </p>
           )}
 

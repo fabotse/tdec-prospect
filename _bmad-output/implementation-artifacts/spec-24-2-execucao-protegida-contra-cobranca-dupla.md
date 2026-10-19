@@ -210,3 +210,7 @@ Status: done
 - Campanha apagada manualmente no Instantly entre a falha e o retry deixa o retry falhando; a saida e "Nova conversa".
 - `deferred-work.md` e `sprint-status.yaml` ficaram como o orquestrador deixou (nao commitados por esta passada, que nao escreve neles).
 
+
+## Smoke em produção (2026-10-19)
+
+Deploy via PR #8 (merge `9d61b30` na `main`, Vercel prod OK). Fabossi rodou o agente em produção no modo Guiado até a revisão da campanha, sem exportar para o Instantly, e confirmou que está funcionando. Nenhuma campanha foi criada no Instantly nem ativada pelo smoke.

@@ -14,7 +14,8 @@ export type UsageServiceName =
   | "signalhire"
   | "snovio"
   | "instantly"
-  | "openai";
+  | "openai"
+  | "theirstack"; // Story 24.10 (migration 00065)
 
 /**
  * Status of an API usage log entry
@@ -102,6 +103,7 @@ export const SERVICE_COST_RATES: Record<UsageServiceName, number> = {
   snovio: 0, // Not tracked yet
   instantly: 0, // Not tracked yet
   openai: 0, // Not tracked yet
+  theirstack: 0, // Story 24.10: custo em BRL vem de cost_models, nao daqui
 };
 
 /**

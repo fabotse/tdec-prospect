@@ -5,6 +5,8 @@
  * AC: #3 - Tipos do agente disponiveis para importacao
  */
 
+import type { CopyReviewStatus } from "./copy-review";
+
 // === Enums / Unions ===
 
 // Story 22.10: 'cancelled' e TERMINAL — o usuario abandonou a execucao pelo botao
@@ -52,7 +54,7 @@ export interface AgentExecution {
   current_step: number;
   total_steps: number;
   cost_estimate: CostEstimate | null;
-  cost_actual: Record<string, number> | null;
+  cost_actual: CostActual | null;
   result_summary: Record<string, unknown> | null;
   error_message: string | null;
   started_at: string | null;
@@ -143,6 +145,22 @@ export interface CostModel {
 
 export interface CostEstimate {
   steps: Record<string, { estimated: number; description: string }>;
+  total: number;
+  currency: 'BRL';
+  /**
+   * Story 24.10: custo do icebreaker premium (LinkedIn via Apify), calculado no servidor.
+   * `total` = leads x apify (0 com `create_campaign` pulado). A UI soma este valor quando o
+   * toggle esta ligado. Ausente em estimativas antigas gravadas no banco.
+   */
+  premiumIcebreakers?: { perLead: number; total: number };
+}
+
+/**
+ * Story 24.10: custo REAL da execucao (BRL), recalculado do zero a partir de
+ * `agent_steps.cost` dos steps concluidos. Gravado em `agent_executions.cost_actual`.
+ */
+export interface CostActual {
+  steps: Record<string, number>;
   total: number;
   currency: 'BRL';
 }
@@ -290,6 +308,8 @@ export interface CreateCampaignOutput {
     subject: string;
     body: string;
     emailMode: 'initial' | 'follow-up';
+    // Story 24.9: status do revisor automatico de copy. Ausente em execucoes antigas.
+    review?: { status: CopyReviewStatus; reasons: string[] };
   }>;
   delayBlocks: Array<{
     position: number;

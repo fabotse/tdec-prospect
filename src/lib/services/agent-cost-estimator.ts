@@ -8,25 +8,25 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CostEstimate, CostModel, ParsedBriefing } from "@/types/agent";
+import {
+  AGENT_DEFAULT_COSTS,
+  AGENT_PIPELINE_VOLUMES,
+  THEIRSTACK_CREDITS_PER_COMPANY,
+  estimateAICallsForCampaign,
+  formatBRL,
+  resolveUnitPrices,
+} from "@/lib/agent/agent-pricing";
 
 // ==============================================
 // CONSTANTS
 // ==============================================
 
-export const DEFAULT_COSTS: Record<string, { unitPrice: number; unitDescription: string }> = {
-  theirstack: { unitPrice: 0.10, unitDescription: "por busca" },
-  apollo: { unitPrice: 0.05, unitDescription: "por lead" },
-  apify: { unitPrice: 0.15, unitDescription: "por perfil LinkedIn" },
-  openai: { unitPrice: 0.02, unitDescription: "por prompt medio" },
-  instantly: { unitPrice: 0.00, unitDescription: "por export (free tier)" },
-};
-
-export const DEFAULT_VOLUMES = {
-  ESTIMATED_COMPANIES: 30,
-  ESTIMATED_LEADS_PER_COMPANY: 2,
-  ESTIMATED_EMAILS_PER_LEAD: 3,
-  ESTIMATED_ICEBREAKER_RATIO: 0.5,
-} as const;
+/**
+ * Story 24.10: os defaults (e a unidade de cada preco) moram na fonte unica
+ * `agent-pricing.ts`. Re-exportado para o lazy seed e para os chamadores antigos.
+ */
+export const DEFAULT_COSTS: Record<string, { unitPrice: number; unitDescription: string }> =
+  AGENT_DEFAULT_COSTS;
 
 // ==============================================
 // SERVICE
@@ -88,57 +88,60 @@ export class CostEstimatorService {
   /**
    * Calculate cost per step and total based on cost models and briefing.
    * AC: #2
+   *
+   * Story 24.10: estimativa HONESTA, com os volumes reais do pipeline como TETO ("ate").
+   * - search_companies: empresas x 3 creditos x theirstack
+   * - search_leads: 0 (a busca Apollo nao consome credito)
+   * - create_campaign: leads x apollo (enrichment) + chamadas de IA x openai
+   *   (+ leads x apify com icebreaker premium)
+   * - export: 1 x instantly; activate: 0
+   * O pior caso e de proposito (22.5: "custo nao pode errar; cliente precifica em cima").
    */
   static estimateCosts(
     costModels: Map<string, number>,
     briefing: ParsedBriefing
   ): CostEstimate {
-    const theirstack = costModels.get("theirstack") ?? DEFAULT_COSTS.theirstack.unitPrice;
-    const apollo = costModels.get("apollo") ?? DEFAULT_COSTS.apollo.unitPrice;
-    const openai = costModels.get("openai") ?? DEFAULT_COSTS.openai.unitPrice;
-    const instantly = costModels.get("instantly") ?? DEFAULT_COSTS.instantly.unitPrice;
-    const apify = costModels.get("apify") ?? DEFAULT_COSTS.apify.unitPrice;
-
+    const prices = resolveUnitPrices(costModels);
     const skipSet = new Set(briefing.skipSteps ?? []);
 
-    const totalLeads = DEFAULT_VOLUMES.ESTIMATED_COMPANIES * DEFAULT_VOLUMES.ESTIMATED_LEADS_PER_COMPANY;
+    const companies = AGENT_PIPELINE_VOLUMES.companies;
+    const importedCount = Array.isArray(briefing.importedLeads) ? briefing.importedLeads.length : 0;
+    const leads = importedCount > 0 ? importedCount : AGENT_PIPELINE_VOLUMES.leadsPerSearch;
+    const emails = briefing.emailCount ?? AGENT_PIPELINE_VOLUMES.defaultEmails;
+    const aiCalls = estimateAICallsForCampaign(leads, emails);
+    const credits = companies * THEIRSTACK_CREDITS_PER_COMPANY;
 
-    // Story 22.2: quando o toggle de icebreaker premium esta ligado, cada lead pode gerar 1 consulta Apify.
-    // Somamos o custo Apify ao step create_campaign. Toggle desligado/ausente = comportamento atual (AC5).
+    const createCampaignSkipped = skipSet.has("create_campaign");
+    const premiumTotal = createCampaignSkipped ? 0 : leads * prices.apify;
     const usePremiumIcebreakers = briefing.premiumIcebreakers === true;
-    const apifyCost = usePremiumIcebreakers && !skipSet.has("create_campaign")
-      ? totalLeads * apify
-      : 0;
-    // Story 22.5: quando o usuario pediu uma quantidade de e-mails, a sequencia gerada escala
-    // com ela (cada lead recebe a sequencia inteira) — a estimativa acompanha para nao subprecificar
-    // (custo nao pode errar; cliente precifica em cima). Sem emailCount, mantem a heuristica de 3.
-    const emailsPerLead = briefing.emailCount ?? DEFAULT_VOLUMES.ESTIMATED_EMAILS_PER_LEAD;
-    const createCampaignAiCost =
-      (totalLeads * emailsPerLead * openai) +
-      (totalLeads * DEFAULT_VOLUMES.ESTIMATED_ICEBREAKER_RATIO * openai);
-    const createCampaignPromptCount =
-      totalLeads * emailsPerLead + totalLeads * DEFAULT_VOLUMES.ESTIMATED_ICEBREAKER_RATIO;
+
+    const enrichCost = leads * prices.apollo;
+    const aiCost = aiCalls * prices.openai;
+    const createCampaignDescription =
+      `até ${leads} enriquecimentos Apollo × ${formatBRL(prices.apollo)} + ` +
+      `até ${aiCalls} chamadas de IA × ${formatBRL(prices.openai)}` +
+      (usePremiumIcebreakers
+        ? ` + ${leads} perfis LinkedIn × ${formatBRL(prices.apify)} (icebreakers premium)`
+        : "");
 
     const stepCosts: Record<string, { estimated: number; description: string }> = {
       search_companies: {
-        estimated: skipSet.has("search_companies") ? 0 : 1 * theirstack,
-        description: `1 busca × ${CostEstimatorService.formatBRL(theirstack)}`,
+        estimated: skipSet.has("search_companies") ? 0 : credits * prices.theirstack,
+        description: `até ${companies} empresas × ${THEIRSTACK_CREDITS_PER_COMPANY} créditos × ${formatBRL(prices.theirstack)}`,
       },
       search_leads: {
-        estimated: skipSet.has("search_leads") ? 0 : totalLeads * apollo,
-        description: `${totalLeads} leads × ${CostEstimatorService.formatBRL(apollo)}`,
+        estimated: 0,
+        description: "Busca Apollo não consome créditos",
       },
       create_campaign: {
-        estimated: skipSet.has("create_campaign")
+        estimated: createCampaignSkipped
           ? 0
-          : createCampaignAiCost + apifyCost,
-        description: usePremiumIcebreakers
-          ? `${createCampaignPromptCount} prompts × ${CostEstimatorService.formatBRL(openai)} + ${totalLeads} perfis LinkedIn × ${CostEstimatorService.formatBRL(apify)} (icebreakers premium)`
-          : `${createCampaignPromptCount} prompts × ${CostEstimatorService.formatBRL(openai)}`,
+          : enrichCost + aiCost + (usePremiumIcebreakers ? premiumTotal : 0),
+        description: createCampaignDescription,
       },
       export: {
-        estimated: skipSet.has("export") ? 0 : 1 * instantly,
-        description: `1 export × ${CostEstimatorService.formatBRL(instantly)}`,
+        estimated: skipSet.has("export") ? 0 : 1 * prices.instantly,
+        description: `1 export × ${formatBRL(prices.instantly)}`,
       },
       activate: {
         estimated: 0,
@@ -155,13 +158,7 @@ export class CostEstimatorService {
       steps: stepCosts,
       total,
       currency: "BRL",
+      premiumIcebreakers: { perLead: prices.apify, total: premiumTotal },
     };
-  }
-
-  private static formatBRL(value: number): string {
-    return new Intl.NumberFormat("pt-BR", {
-      style: "currency",
-      currency: "BRL",
-    }).format(value);
   }
 }

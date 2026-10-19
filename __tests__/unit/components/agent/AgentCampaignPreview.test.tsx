@@ -378,3 +378,85 @@ describe("AgentCampaignPreview — falha no disparo do proximo step (Story 24.3)
     expect(useAgentStore.getState().stepTriggerFailure).toBeNull();
   });
 });
+
+// ==============================================
+// Story 24.9 — status do revisor automatico de copy
+// ==============================================
+
+describe("AgentCampaignPreview — status do revisor (Story 24.9)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { stepNumber: 3, status: "approved", nextStep: 4 } }),
+    });
+  });
+
+  function dataWithReview() {
+    const data = createDefaultData();
+    return {
+      ...data,
+      emailBlocks: [
+        { ...data.emailBlocks[0], review: { status: "rewritten" as const, reasons: [] } },
+        {
+          ...data.emailBlocks[1],
+          review: {
+            status: "needs_human_review" as const,
+            reasons: ["CTA pede reunião: pede 30 min na agenda"],
+          },
+        },
+      ],
+    };
+  }
+
+  it("mostra o badge de status por e-mail e os motivos quando precisa revisao humana", () => {
+    render(<AgentCampaignPreview data={dataWithReview()} {...defaultProps} />);
+    const badges = screen.getAllByTestId("copy-review-badge");
+    expect(badges).toHaveLength(2);
+    expect(badges[0]).toHaveTextContent("Reescrito");
+    expect(badges[1]).toHaveTextContent("Precisa revisão humana");
+    expect(screen.getByTestId("copy-review-reasons-1")).toHaveTextContent(
+      "CTA pede reunião: pede 30 min na agenda"
+    );
+    expect(screen.queryByTestId("copy-review-reasons-0")).not.toBeInTheDocument();
+  });
+
+  it("execucao antiga (sem review) nao mostra badge", () => {
+    renderComponent();
+    expect(screen.queryByTestId("copy-review-badge")).not.toBeInTheDocument();
+  });
+
+  it("editar o texto remove o badge e o approve nao envia o review do bloco editado", async () => {
+    render(<AgentCampaignPreview data={dataWithReview()} {...defaultProps} />);
+    fireEvent.click(screen.getByTestId("email-subject-0"));
+    fireEvent.change(screen.getByTestId("email-subject-input-0"), {
+      target: { value: "Assunto editado" },
+    });
+    fireEvent.blur(screen.getByTestId("email-subject-input-0"));
+
+    const badges = screen.getAllByTestId("copy-review-badge");
+    expect(badges).toHaveLength(1);
+    expect(badges[0]).toHaveTextContent("Precisa revisão humana");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /aprovar/i }));
+    });
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    const approveCall = mockFetch.mock.calls.find((c) => String(c[0]).includes("/approve"));
+    const sent = JSON.parse(approveCall![1].body);
+    expect(sent.approvedData.emailBlocks[0].subject).toBe("Assunto editado");
+    expect(sent.approvedData.emailBlocks[0]).not.toHaveProperty("review");
+    expect(sent.approvedData.emailBlocks[1].review.status).toBe("needs_human_review");
+  });
+
+  it("approve reenvia os blocos com o review", async () => {
+    render(<AgentCampaignPreview data={dataWithReview()} {...defaultProps} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /aprovar/i }));
+    });
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    const approveCall = mockFetch.mock.calls.find((c) => String(c[0]).includes("/approve"));
+    const sent = JSON.parse(approveCall![1].body);
+    expect(sent.approvedData.emailBlocks[1].review.status).toBe("needs_human_review");
+  });
+});

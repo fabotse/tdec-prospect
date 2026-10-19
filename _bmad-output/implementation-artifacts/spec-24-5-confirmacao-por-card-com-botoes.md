@@ -180,3 +180,7 @@ Status: done
 - Keywords ainda decidem caminhos que nao confirmam nada: o skip do produto, "sim" nos leads apontando o card e a reapresentacao do resumo.
 - No fluxo de leads importados, o card do briefing mostra chips de busca.
 - `sprint-status.yaml` ficou como o orquestrador deixou.
+
+## Smoke em produção (2026-10-19)
+
+Deploy via PR #8 (merge `9d61b30` na `main`, Vercel prod OK). Fabossi rodou o agente em produção no modo Guiado até a revisão da campanha, sem exportar para o Instantly, e confirmou que está funcionando. Nenhuma campanha foi criada no Instantly nem ativada pelo smoke.

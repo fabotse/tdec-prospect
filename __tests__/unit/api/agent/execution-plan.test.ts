@@ -47,6 +47,12 @@ vi.mock("@/lib/agent/service-keys", () => ({
   getInjectableServiceApiKey: (...args: unknown[]) => mockGetInjectableServiceApiKey(...args),
 }));
 
+// Story 24.10: log de uso do agente (suite propria em agent-usage.test.ts).
+const mockLogAgentUsage = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/agent/agent-usage", () => ({
+  logAgentUsage: (...args: unknown[]) => mockLogAgentUsage(...args),
+}));
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -205,6 +211,9 @@ describe("GET /api/agent/executions/[executionId]/plan", () => {
     expect(json.data.costEstimate).toBeDefined();
     expect(json.data.costEstimate.currency).toBe("BRL");
     expect(json.data.totalActiveSteps).toBe(5);
+    // Story 24.10: premium vem do servidor (leads × apify)
+    expect(json.data.costEstimate.premiumIcebreakers).toEqual({ perLead: 0.15, total: 25 * 0.15 });
+    expect(json.data.costEstimate.steps.search_leads.estimated).toBe(0);
   });
 
   it("deve retornar totalActiveSteps menor quando ha skipSteps", async () => {
@@ -334,6 +343,36 @@ describe("GET /api/agent/executions/[executionId]/plan", () => {
         expect.objectContaining({ perPage: 1, page: 1, titles: ["Owner"] })
       );
       expect(json.data.viability).toEqual({ estimatedResults: 248, isLow: false });
+    });
+
+    it("Story 24.10: loga 1 linha people_search da viabilidade com tenant e executionId", async () => {
+      mockExecution(DIRECT_BRIEFING);
+      mockSearchPeople.mockResolvedValue({
+        leads: [],
+        pagination: { totalEntries: 248, page: 1, perPage: 1, totalPages: 248 },
+      });
+
+      await GET(createRequest("?viability=1"), createParams());
+
+      expect(mockLogAgentUsage).toHaveBeenCalledTimes(1);
+      expect(mockLogAgentUsage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: mockProfile.tenant_id,
+          executionId: EXEC_ID,
+          serviceName: "apollo",
+          requestType: "people_search",
+          status: "success",
+          calls: 1,
+        })
+      );
+    });
+
+    it("Story 24.10: sem ?viability=1 nao loga nada", async () => {
+      mockExecution(DIRECT_BRIEFING);
+
+      await GET(createRequest(), createParams());
+
+      expect(mockLogAgentUsage).not.toHaveBeenCalled();
     });
 
     it("marca isLow quando a estimativa e 0 (o caso Atibaia, antes de gastar)", async () => {

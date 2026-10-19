@@ -107,9 +107,19 @@ vi.mock("@/lib/agent/lead-persistence", async (importOriginal) => {
 
 const mockLogApifySuccess = vi.fn().mockResolvedValue(undefined);
 const mockLogApifyFailure = vi.fn().mockResolvedValue(undefined);
+const mockLogApiUsage = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/lib/services/usage-logger", () => ({
   logApifySuccess: (...args: unknown[]) => mockLogApifySuccess(...args),
   logApifyFailure: (...args: unknown[]) => mockLogApifyFailure(...args),
+  logApiUsage: (...args: unknown[]) => mockLogApiUsage(...args),
+}));
+
+// Story 24.9: revisor automatico de copy (suite propria em copy-reviewer.test.ts).
+const mockReviewEmailCopy = vi.fn();
+const mockLogCopyReview = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/ai/copy-reviewer", () => ({
+  reviewEmailCopy: (...args: unknown[]) => mockReviewEmailCopy(...args),
+  logCopyReview: (...args: unknown[]) => mockLogCopyReview(...args),
 }));
 
 // ==============================================
@@ -386,6 +396,18 @@ function setupDefaultMocks() {
     error: null,
   });
   mockCreateAIProvider.mockReturnValue({ generateText: mockGenerateText });
+  // Story 24.9: padrao = revisor indisponivel (texto original, sem chamadas).
+  mockReviewEmailCopy.mockImplementation(async (input: { subject: string; body: string }) => ({
+    subject: input.subject,
+    body: input.body,
+    status: "not_reviewed",
+    reasons: [],
+    calls: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+    estimatedCost: 0,
+  }));
+  mockLogCopyReview.mockResolvedValue(undefined);
 
   // Structure generation
   mockGenerateText.mockResolvedValue({
@@ -701,6 +723,283 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
       expect(result.cost?.openai_structure).toBe(1);
       expect(result.cost?.openai_emails).toBe(2); // 2 emails in structure
       expect(result.cost?.openai_icebreakers).toBe(2); // 2 leads, both succeed
+    });
+
+    // Story 24.10: chamadas de geracao contadas pelo proxy do provider
+    it("grava openai_calls = chamadas de geracao e loga campaign_generation com tokens", async () => {
+      let callCount = 0;
+      mockGenerateText.mockImplementation(() => {
+        callCount++;
+        const usage = { promptTokens: 100, completionTokens: 20, totalTokens: 120 };
+        if (callCount === 1) {
+          return Promise.resolve({ text: VALID_STRUCTURE_JSON, model: "gpt-4o", usage });
+        }
+        return Promise.resolve({ text: `Content ${callCount}`, model: "gpt-4o", usage });
+      });
+
+      const result = await step.run(createInput());
+      const generationCalls = mockGenerateText.mock.calls.length;
+
+      expect(result.cost?.openai_calls).toBe(generationCalls);
+      const generationLogs = mockLogApiUsage.mock.calls
+        .map((call: unknown[]) => call[0] as Record<string, unknown>)
+        .filter((arg) => arg.requestType === "campaign_generation");
+      expect(generationLogs).toHaveLength(1);
+      expect(generationLogs[0]).toMatchObject({
+        tenantId: TENANT_ID,
+        serviceName: "openai",
+        status: "success",
+        metadata: expect.objectContaining({
+          executionId: "exec-001",
+          stepType: "create_campaign",
+          calls: generationCalls,
+          promptTokens: 100 * generationCalls,
+          completionTokens: 20 * generationCalls,
+          models: ["gpt-4o"],
+          source: "agent",
+        }),
+      });
+    });
+
+    it("loga campaign_generation failed quando a geracao quebra e o erro segue", async () => {
+      mockGenerateText.mockResolvedValue({ text: "nao e json", model: "gpt-4o", usage: {} });
+
+      await expect(step.run(createInput())).rejects.toBeDefined();
+      expect(mockLogApiUsage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestType: "campaign_generation",
+          status: "failed",
+          metadata: expect.objectContaining({ executionId: "exec-001", calls: 1 }),
+        })
+      );
+    });
+
+    it("loga 1 linha people_enrichment com tentativas e creditos", async () => {
+      let callCount = 0;
+      mockGenerateText.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ text: VALID_STRUCTURE_JSON, model: "gpt-4o", usage: {} });
+        }
+        return Promise.resolve({ text: `Content ${callCount}`, model: "gpt-4o", usage: {} });
+      });
+      mockEnrichPerson
+        .mockResolvedValueOnce({ person: { email: "a@acme.com", first_name: "A", last_name: "B" } })
+        .mockRejectedValueOnce(new Error("apollo 500"));
+
+      const masked = (name: string, apolloId: string) => ({
+        name,
+        title: "CTO",
+        companyName: "Acme",
+        email: null,
+        linkedinUrl: null,
+        apolloId,
+      });
+      const result = await step.run(
+        createInput({}, {
+          leads: [masked("A***", "apollo-a"), masked("C***", "apollo-c")],
+          totalFound: 2,
+          jobTitles: ["CTO"],
+          domainsSearched: [],
+        })
+      );
+
+      expect(result.cost?.apollo_enrich).toBe(1);
+      expect(mockLogApiUsage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: TENANT_ID,
+          serviceName: "apollo",
+          requestType: "people_enrichment",
+          status: "partial",
+          metadata: expect.objectContaining({
+            executionId: "exec-001",
+            calls: 2,
+            succeeded: 1,
+            failed: 1,
+          }),
+        })
+      );
+    });
+
+    it("nao loga enrichment quando nenhum lead precisa", async () => {
+      let callCount = 0;
+      mockGenerateText.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ text: VALID_STRUCTURE_JSON, model: "gpt-4o", usage: {} });
+        }
+        return Promise.resolve({ text: `Content ${callCount}`, model: "gpt-4o", usage: {} });
+      });
+
+      await step.run(createInput());
+
+      expect(mockLogApiUsage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ requestType: "people_enrichment" })
+      );
+    });
+  });
+
+  // Story 24.9: revisor automatico de copy
+  describe("copy review (Story 24.9)", () => {
+    function mockGeneration() {
+      let callCount = 0;
+      mockGenerateText.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ text: VALID_STRUCTURE_JSON, model: "gpt-4o", usage: {} });
+        }
+        return Promise.resolve({ text: `Content ${callCount}`, model: "gpt-4o", usage: {} });
+      });
+    }
+
+    it("grava review em cada bloco, usa o texto revisado, loga o custo e soma openai_review", async () => {
+      mockGeneration();
+      mockReviewEmailCopy
+        .mockResolvedValueOnce({
+          subject: "Assunto revisado",
+          body: "Corpo revisado {{first_name}}",
+          status: "rewritten",
+          reasons: [],
+          calls: 3,
+          promptTokens: 900,
+          completionTokens: 300,
+          estimatedCost: 0.002,
+        })
+        .mockResolvedValueOnce({
+          subject: "Follow-up revisado",
+          body: "Corpo follow-up revisado",
+          status: "needs_human_review",
+          reasons: ["Clichê: frase feita"],
+          calls: 5,
+          promptTokens: 1500,
+          completionTokens: 500,
+          estimatedCost: 0.003,
+        });
+
+      const result = await step.run(createInput());
+      expect(result.success).toBe(true);
+      const data = result.data as unknown as {
+        emailBlocks: Array<{ subject: string; body: string; review?: { status: string; reasons: string[] } }>;
+      };
+
+      expect(data.emailBlocks[0]).toMatchObject({
+        subject: "Assunto revisado",
+        body: "Corpo revisado {{first_name}}",
+        review: { status: "rewritten", reasons: [] },
+      });
+      expect(data.emailBlocks[1]).toMatchObject({
+        subject: "Follow-up revisado",
+        review: { status: "needs_human_review", reasons: ["Clichê: frase feita"] },
+      });
+      expect(result.cost?.openai_review).toBe(8);
+
+      // contexto + clean + chave
+      const [firstInput, firstOptions] = mockReviewEmailCopy.mock.calls[0] as [
+        { emailMode: string; context: Record<string, string> },
+        { apiKey: string; clean: (s: string, b: string) => { subject: string; body: string } },
+      ];
+      expect(firstInput.emailMode).toBe("initial");
+      expect(firstInput.context).toHaveProperty("authorizedProofs");
+      expect(firstInput.context.audience).toContain("Cargos: CTO, VP Engineering");
+      expect(firstInput.context.audience).toContain("Setor: saas");
+      expect(firstInput.context.productName).toBe(DEFAULT_AI_VARS.product_name);
+      expect(firstInput.context.painPoints).toBe(DEFAULT_AI_VARS.pain_points);
+      expect(firstInput.context.icpSummary).toBe(DEFAULT_AI_VARS.icp_summary);
+      expect((mockReviewEmailCopy.mock.calls[1][0] as { emailMode: string }).emailMode).toBe("follow-up");
+      expect(firstOptions.apiKey).toBe("decrypted-openai-key");
+      expect(firstOptions.clean("Assunto [Seu Nome]", "Oi {{firstName}}, [Empresa]").body).not.toContain("[");
+
+      expect(mockLogCopyReview).toHaveBeenCalledTimes(2);
+      expect(mockLogCopyReview).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "rewritten" }),
+        expect.objectContaining({
+          tenantId: TENANT_ID,
+          source: "agent",
+          executionId: "exec-001",
+          emailPosition: 1,
+        })
+      );
+    });
+
+    it("revisao que estoura o orcamento segue com o texto gerado e not_reviewed", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        mockGeneration();
+        // revisor que nunca responde
+        mockReviewEmailCopy.mockImplementation(() => new Promise(() => {}));
+
+        const runPromise = step.run(createInput());
+        await vi.waitFor(() => expect(mockReviewEmailCopy).toHaveBeenCalledTimes(2));
+        await vi.advanceTimersByTimeAsync(60000);
+        const result = await runPromise;
+
+        expect(result.success).toBe(true);
+        const data = result.data as unknown as {
+          emailBlocks: Array<{ subject: string; body: string; review?: { status: string; reasons: string[] } }>;
+        };
+        expect(data.emailBlocks).toHaveLength(2);
+        for (const block of data.emailBlocks) {
+          expect(block.review).toEqual({ status: "not_reviewed", reasons: [] });
+          expect(block.body).toBeTruthy();
+        }
+        expect(result.cost?.openai_review).toBeUndefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("orcamento estourado mantem as revisoes que ja terminaram", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        mockGeneration();
+        mockReviewEmailCopy
+          .mockResolvedValueOnce({
+            subject: "Assunto revisado",
+            body: "Corpo revisado {{first_name}}",
+            status: "rewritten",
+            reasons: [],
+            calls: 3,
+            promptTokens: 900,
+            completionTokens: 300,
+            estimatedCost: 0.002,
+          })
+          // segundo e-mail nunca responde
+          .mockImplementationOnce(() => new Promise(() => {}));
+
+        const runPromise = step.run(createInput());
+        await vi.waitFor(() => expect(mockReviewEmailCopy).toHaveBeenCalledTimes(2));
+        await vi.advanceTimersByTimeAsync(60000);
+        const result = await runPromise;
+
+        expect(result.success).toBe(true);
+        const data = result.data as unknown as {
+          emailBlocks: Array<{ subject: string; body: string; review?: { status: string; reasons: string[] } }>;
+        };
+        expect(data.emailBlocks[0]).toMatchObject({
+          subject: "Assunto revisado",
+          review: { status: "rewritten", reasons: [] },
+        });
+        expect(data.emailBlocks[1].review).toEqual({ status: "not_reviewed", reasons: [] });
+        expect(data.emailBlocks[1].body).toBeTruthy();
+        expect(result.cost?.openai_review).toBe(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("segue gerando quando o revisor devolve not_reviewed (texto original, sem openai_review)", async () => {
+      mockGeneration();
+      const result = await step.run(createInput());
+      expect(result.success).toBe(true);
+      const data = result.data as unknown as {
+        emailBlocks: Array<{ subject: string; body: string; review?: { status: string } }>;
+      };
+      expect(data.emailBlocks).toHaveLength(2);
+      for (const block of data.emailBlocks) {
+        expect(block.review?.status).toBe("not_reviewed");
+        expect(block.body).toBeTruthy();
+      }
+      expect(result.cost?.openai_review).toBeUndefined();
     });
   });
 
@@ -1367,6 +1666,14 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
 
       // custo real conta a chamada Apify
       expect(result.cost?.apify).toBe(1);
+
+      // Story 24.10: o log Apify leva a execucao
+      expect(mockLogApifySuccess).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: TENANT_ID,
+          metadata: expect.objectContaining({ executionId: "exec-001", source: "agent" }),
+        })
+      );
     });
 
     // AC5: toggle desligado (default) → ZERO Apify, comportamento standard

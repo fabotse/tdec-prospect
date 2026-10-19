@@ -11,6 +11,7 @@ import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
 import { readServiceApiKey } from "@/lib/agent/service-keys";
 import { ProductParserService } from "@/lib/agent/product-parser-service";
+import { logAgentUsage } from "@/lib/agent/agent-usage";
 
 // ==============================================
 // REQUEST VALIDATION
@@ -115,11 +116,30 @@ export async function POST(request: Request) {
   const apiKey = keyLookup.apiKey;
 
   try {
-    const product = await ProductParserService.parse(
+    const parseStart = Date.now();
+    const { usage, ...product } = await ProductParserService.parse(
       message,
       productName,
       apiKey
     );
+
+    // Story 24.10: 1 linha `product_parse` por parse. Nunca lanca.
+    if (usage) {
+      await logAgentUsage({
+        tenantId: profile.tenant_id,
+        executionId,
+        serviceName: "openai",
+        requestType: "product_parse",
+        status: "success",
+        calls: 1,
+        durationMs: Date.now() - parseStart,
+        metadata: {
+          promptTokens: usage.promptTokens,
+          completionTokens: usage.completionTokens,
+          model: usage.model,
+        },
+      });
+    }
 
     return NextResponse.json({ product });
   } catch {

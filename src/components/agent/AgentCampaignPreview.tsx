@@ -15,6 +15,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { triggerNextStepChecked } from "@/lib/agent/client-utils";
 import { reportTriggerFailure } from "@/lib/agent/report-trigger-failure";
 import { useAgentStore } from "@/stores/use-agent-store";
+import { CopyReviewBadge } from "@/components/builder/CopyReviewBadge";
+import type { CopyReviewStatus } from "@/types/copy-review";
 
 // === Types ===
 
@@ -23,6 +25,8 @@ interface EmailBlock {
   subject: string;
   body: string;
   emailMode: string;
+  // Story 24.9: status do revisor. Ausente em execucoes antigas (sem badge).
+  review?: { status: CopyReviewStatus; reasons: string[] };
 }
 
 interface LeadIcebreaker {
@@ -101,7 +105,13 @@ export function AgentCampaignPreview({
 
   const handleFieldChange = (index: number, field: "subject" | "body", value: string) => {
     setEditedBlocks((prev) =>
-      prev.map((block, i) => (i === index ? { ...block, [field]: value } : block))
+      prev.map((block, i) => {
+        if (i !== index) return block;
+        // Story 24.9: texto editado por humano deixa de ter o status do revisor.
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { review: _review, ...rest } = block;
+        return { ...rest, [field]: value };
+      })
     );
   };
 
@@ -190,9 +200,25 @@ export function AgentCampaignPreview({
           {editedBlocks.map((block, index) => (
             <Card key={block.position} className="border-muted">
               <CardContent className="flex flex-col gap-2 p-3">
-                <p className="text-xs text-muted-foreground font-medium">
-                  Email {index + 1} ({block.emailMode === "initial" ? "Inicial" : "Follow-up"})
-                </p>
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-muted-foreground font-medium">
+                      Email {index + 1} ({block.emailMode === "initial" ? "Inicial" : "Follow-up"})
+                    </p>
+                    {block.review && <CopyReviewBadge status={block.review.status} />}
+                  </div>
+                  {block.review?.status === "needs_human_review" &&
+                    block.review.reasons.length > 0 && (
+                      <ul
+                        className="text-xs text-muted-foreground list-disc pl-4"
+                        data-testid={`copy-review-reasons-${index}`}
+                      >
+                        {block.review.reasons.map((reason, i) => (
+                          <li key={i}>{reason}</li>
+                        ))}
+                      </ul>
+                    )}
+                </div>
 
                 {/* Subject */}
                 {editingIndex === index && editingField === "subject" ? (

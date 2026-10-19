@@ -14,7 +14,12 @@ import type { ChatTurn, NextAction, ParsedBriefing } from "@/types/agent";
 import { AGENT_ERROR_CODES } from "@/types/agent";
 // Story 22.11 (Frente B, AC6/AC7): modelo e montagem de request centralizados no SSOT
 // (parser-config) — compat-safe para a familia gpt-5 e sem drift com o parser de produto.
-import { PARSER_TIMEOUT_MS, buildParserRequest } from "./parser-config";
+import {
+  PARSER_TIMEOUT_MS,
+  buildParserRequest,
+  toParserUsage,
+  type ParserUsage,
+} from "./parser-config";
 
 // ==============================================
 // ZOD SCHEMA — Validates OpenAI response
@@ -169,6 +174,8 @@ export interface ParseResult {
   // Story 22.3: campos de conversa (nao vao no briefing/pipeline).
   nextAction: NextAction;
   questionText: string | null;
+  // Story 24.10: tokens da chamada, para a rota logar em api_usage_logs.
+  usage?: ParserUsage;
 }
 
 // Story 22.3: mapeia o historico de conversa (roles do banco) para os roles da OpenAI.
@@ -261,6 +268,7 @@ export class BriefingParserService {
         rawResponse: raw,
         nextAction: raw.nextAction,
         questionText: raw.questionText,
+        usage: toParserUsage(completion),
       };
     } catch (error) {
       clearTimeout(timeoutId);

@@ -53,6 +53,12 @@ vi.mock("@/lib/agent/service-keys", () => ({
     mockGetInjectableServiceApiKey(...args),
 }));
 
+// Story 24.10: log de uso do agente (agent-usage -> usage-logger).
+const mockLogApiUsage = vi.fn();
+vi.mock("@/lib/services/usage-logger", () => ({
+  logApiUsage: (...args: unknown[]) => mockLogApiUsage(...args),
+}));
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -828,6 +834,33 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
         linkedinUrl: "https://linkedin.com/in/jane",
         apolloId: "apollo-2",
       });
+    });
+  });
+
+  describe("Story 24.10 - log de uso Apollo people_search", () => {
+    it("loga 1 linha por searchPeople com tenant e executionId", async () => {
+      await step.run(createInput());
+
+      expect(mockLogApiUsage).toHaveBeenCalledTimes(1);
+      expect(mockLogApiUsage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: TENANT_ID,
+          serviceName: "apollo",
+          requestType: "people_search",
+          status: "success",
+          metadata: expect.objectContaining({
+            executionId: "exec-001",
+            stepType: "search_leads",
+            calls: 1,
+            source: "agent",
+          }),
+        })
+      );
+    });
+
+    it("cost.apollo_search continua sendo gravado (o custo real o ignora)", async () => {
+      const result = await step.run(createInput());
+      expect(result.cost).toHaveProperty("apollo_search");
     });
   });
 });

@@ -10,6 +10,7 @@ import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
 import { STEP_LABELS, isTerminalExecutionStatus } from "@/types/agent";
 import type { StepType } from "@/types/agent";
+import { recordExecutionCost } from "@/lib/agent/execution-cost";
 
 export async function POST(
   request: NextRequest,
@@ -219,6 +220,7 @@ export async function POST(
         status: "completed",
         completed_at: new Date().toISOString(),
         result_summary: resultSummary,
+        error_message: null,
       })
       .eq("id", executionId)
       .neq("status", "cancelled");
@@ -266,6 +268,12 @@ export async function POST(
         messageType: "summary",
       },
     });
+  }
+
+  // Story 24.10: execucao concluida pelo approve do ultimo step — custo real + mensagem
+  // de custo. Fail-open total: nunca lanca nem muda o status.
+  if (isLastStep) {
+    await recordExecutionCost(supabase, executionId, { phase: "completed", stepNumber });
   }
 
   // Story 22.18 (AC3): carimbo DURAVEL do gate de ativacao — so o ADIAMENTO.

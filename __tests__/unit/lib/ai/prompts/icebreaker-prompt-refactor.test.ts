@@ -102,10 +102,12 @@ describe("Story 9.3: icebreaker_generation prompt template", () => {
   it("contains fallback examples with Lead-specific approach", () => {
     expect(template).toContain("ABORDAGENS EFICAZES POR CONTEXTO");
     expect(template).toContain("use APENAS se nenhum exemplo");
-    expect(template).toContain("Oportunidade de negócio:");
-    expect(template).toContain("Trajetória profissional:");
+    // Story 24.8: abordagens centradas no contexto do lead, sem colchetes
     expect(template).toContain("Desafio do cargo:");
-    expect(template).toContain("Crescimento da empresa:");
+    expect(template).toContain("Trajetória profissional:");
+    expect(template).toContain("Contexto do setor:");
+    expect(template).not.toContain("[proposta de valor]");
+    expect(template).not.toContain("[solução]");
   });
 
   it("reinforces category focus in rules section", () => {
@@ -300,6 +302,8 @@ describe("Story 9.3: icebreaker_premium_generation blacklist", () => {
 
   it("reinforces specific data references from posts", () => {
     expect(premiumTemplate).toContain("TEMA, OPINIÃO ou INSIGHT concreto");
-    expect(premiumTemplate).toContain("TEMA ESPECÍFICO DO POST");
+    // Story 24.8: orientação sem colchetes/placeholders
+    expect(premiumTemplate).toContain("Cite o tema concreto do post");
+    expect(premiumTemplate).not.toContain("[TEMA ESPECÍFICO DO POST]");
   });
 });

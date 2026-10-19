@@ -13,6 +13,8 @@ import { useState, useCallback, useRef } from "react";
 import type { BuilderBlock } from "@/stores/use-builder-store";
 import type { CampaignObjective } from "@/components/campaigns/AICampaignWizard";
 import { sanitizeGeneratedSubject, sanitizeGeneratedBody } from "@/lib/ai/sanitize-ai-output";
+import { buildSequenceFollowUpPlan } from "@/lib/agent/campaign-copy";
+import { requestEmailReview } from "@/lib/ai/review-email-client";
 
 // ==============================================
 // TYPES
@@ -311,28 +313,12 @@ export function useAIFullCampaignGeneration(): UseAIFullCampaignGenerationReturn
                 .join("\n");
             }
 
-            // Sequence position for strategy selection
+            // Story 24.8: mesmo plano de follow-up do agente (angulo, numeracao e regras).
             const emailPosition = i + 1; // 1-indexed
-            const isLastEmail = emailPosition === totalEmails || emailPosition >= 5;
-            baseVariables.sequence_position = `Este é o ${emailPosition}º email de ${totalEmails} na sequência.${isLastEmail ? " Este é o ÚLTIMO email da sequência." : ""}`;
-
-            // Body strategy based on position (same logic as EmailBlock.tsx)
-            baseVariables.follow_up_strategy = isLastEmail
-              ? "DESPEDIDA: Ser direto, dar 'última chance' sem pressão. Diga que vai parar de escrever, deixe a porta aberta. Tom amigável de encerramento. NÃO referencie emails anteriores."
-              : emailPosition === 2
-              ? "CONFIRMAR VISUALIZAÇÃO: Pergunte gentilmente se o lead conseguiu ver o email anterior. Ofereça uma conversa rápida. NÃO repita o conteúdo do email anterior."
-              : emailPosition === 3
-              ? "AGENDA CORRIDA: Assuma que o lead está ocupado. Mostre empatia. Ofereça flexibilidade total de horário. NÃO mencione o email anterior diretamente."
-              : "NOVO ÂNGULO/VALOR: Traga um dado novo, case de sucesso ou insight do setor. NÃO referencie os emails anteriores. Foque 100% em valor novo.";
-
-            // Subject strategy based on position
-            baseVariables.subject_strategy = isLastEmail
-              ? "CURTO E DIRETO: Assunto pessoal sem RE:. Exemplo: '{{first_name}}, última mensagem' ou 'Encerramento'"
-              : emailPosition === 2
-              ? "RE: SIMPLES: Use 'RE: ' + assunto anterior. Exemplo: 'RE: {{previous_email_subject}}'"
-              : emailPosition === 3
-              ? "RE: COM VARIAÇÃO: Use 'RE: ' + algo novo. Exemplo: 'RE: Bate-papo rápido?' ou 'RE: Sobre a {{company_name}}'"
-              : "CURTO E DIRETO: Assunto pessoal sem RE:. Exemplo: '{{first_name}}, conseguiu ver?' ou 'Rápida pergunta'";
+            const plan = buildSequenceFollowUpPlan(emailPosition, totalEmails);
+            baseVariables.sequence_position = plan.sequencePosition;
+            baseVariables.follow_up_strategy = plan.followUpStrategy;
+            baseVariables.subject_strategy = plan.subjectStrategy;
           }
 
           // Set up timeout
@@ -351,7 +337,7 @@ export function useAIFullCampaignGeneration(): UseAIFullCampaignGenerationReturn
               productId,
               abortControllerRef.current!.signal
             );
-            const subject = sanitizeGeneratedSubject(rawSubject);
+            const generatedSubject = sanitizeGeneratedSubject(rawSubject);
 
             // Check cancellation between subject and body
             if (cancelledRef.current) {
@@ -362,13 +348,30 @@ export function useAIFullCampaignGeneration(): UseAIFullCampaignGenerationReturn
             // Generate body
             const rawBody = await generateEmailContent(
               bodyKey,
-              { ...baseVariables, subject },
+              { ...baseVariables, subject: generatedSubject },
               productId,
               abortControllerRef.current!.signal
             );
-            const body = sanitizeGeneratedBody(rawBody);
+            const generatedBody = sanitizeGeneratedBody(rawBody);
 
             clearTimeout(timeoutId);
+
+            // Story 24.9: revisor automatico em linha (o proximo follow-up ja usa o texto
+            // revisado). Nunca lanca: falha = not_reviewed com o texto gerado. O resultado
+            // passa pela mesma limpeza da geracao.
+            const review = await requestEmailReview(
+              {
+                subject: generatedSubject,
+                body: generatedBody,
+                emailMode: emailMode === "follow-up" ? "follow-up" : "initial",
+                productId,
+                variables: baseVariables,
+                emailPosition: i + 1,
+              },
+              abortControllerRef.current?.signal
+            );
+            const subject = sanitizeGeneratedSubject(review.subject) || generatedSubject;
+            const body = sanitizeGeneratedBody(review.body) || generatedBody;
 
             // Store completed email
             const generatedEmail: GeneratedEmail = {
@@ -394,6 +397,8 @@ export function useAIFullCampaignGeneration(): UseAIFullCampaignGenerationReturn
                   ...resultBlocks[blockIndex].data,
                   subject,
                   body,
+                  reviewStatus: review.status,
+                  reviewReasons: review.reasons,
                 },
               };
             }

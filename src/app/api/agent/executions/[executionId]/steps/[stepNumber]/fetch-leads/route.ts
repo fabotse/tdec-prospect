@@ -13,6 +13,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ApolloService } from "@/lib/services/apollo";
 import { readServiceApiKey } from "@/lib/agent/service-keys";
 import { mapLeadRowToSearchLeadResult } from "@/lib/agent/steps/search-leads-step";
+import { logAgentUsage } from "@/lib/agent/agent-usage";
 import type { ApolloSearchFilters } from "@/types/apollo";
 import type { SearchLeadResult } from "@/types/agent";
 
@@ -155,7 +156,37 @@ export async function POST(
   try {
     for (let page = 1; page <= totalPages; page++) {
       const filters: ApolloSearchFilters = { ...(searchFilters as ApolloSearchFilters), page };
-      const result = await service.searchPeople(filters);
+      // Story 24.10: 1 linha `people_search` por chamada (a busca nao consome credito).
+      const searchStart = Date.now();
+      let result: Awaited<ReturnType<ApolloService["searchPeople"]>>;
+      try {
+        result = await service.searchPeople(filters);
+      } catch (searchError) {
+        await logAgentUsage({
+          tenantId: profile.tenant_id,
+          executionId,
+          stepType: "search_leads",
+          serviceName: "apollo",
+          requestType: "people_search",
+          status: "failed",
+          calls: 1,
+          durationMs: Date.now() - searchStart,
+          errorMessage: searchError instanceof Error ? searchError.message : "Erro Apollo",
+          metadata: { page, origin: "fetch_leads" },
+        });
+        throw searchError;
+      }
+      await logAgentUsage({
+        tenantId: profile.tenant_id,
+        executionId,
+        stepType: "search_leads",
+        serviceName: "apollo",
+        requestType: "people_search",
+        status: "success",
+        calls: 1,
+        durationMs: Date.now() - searchStart,
+        metadata: { page, leads: result.leads.length, origin: "fetch_leads" },
+      });
       const mapped = result.leads.map(mapLeadRowToSearchLeadResult);
       allLeads.push(...mapped);
 

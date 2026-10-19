@@ -114,142 +114,110 @@ describe("CostEstimatorService", () => {
     });
   });
 
+  // Story 24.10: estimativa honesta — volumes reais do pipeline como teto.
+  // Defaults: theirstack 0,10/credito, apollo 0,05/enrichment, openai 0,02/chamada,
+  // apify 0,15/perfil, instantly 0. Fluxo com tecnologia: 2 empresas, 25 leads, 3 e-mails.
+  // Chamadas de IA = 1 + 2×3 + 25 + 3×(1 + 2×2) = 47.
   describe("estimateCosts", () => {
-    it("calcula custo corretamente com defaults", () => {
-      const costModels = new Map<string, number>();
-      const briefing = createBriefing();
+    it("calcula a matriz do fluxo com tecnologia com defaults", () => {
+      const result = CostEstimatorService.estimateCosts(new Map(), createBriefing());
 
-      const result = CostEstimatorService.estimateCosts(costModels, briefing);
-
-      // search_companies: 1 * 0.10 = 0.10
-      expect(result.steps.search_companies.estimated).toBeCloseTo(0.10);
-      // search_leads: 30 * 2 * 0.05 = 3.00
-      expect(result.steps.search_leads.estimated).toBeCloseTo(3.00);
-      // create_campaign: (60 * 3 * 0.02) + (60 * 0.5 * 0.02) = 3.60 + 0.60 = 4.20
-      expect(result.steps.create_campaign.estimated).toBeCloseTo(4.20);
-      // export: 1 * 0.00 = 0.00
-      expect(result.steps.export.estimated).toBeCloseTo(0.00);
-      // activate: always 0
+      // search_companies: 2 empresas × 3 creditos × 0,10 = 0,60
+      expect(result.steps.search_companies.estimated).toBeCloseTo(0.6);
+      // search_leads: busca Apollo nao consome credito
+      expect(result.steps.search_leads.estimated).toBe(0);
+      expect(result.steps.search_leads.description).toBe("Busca Apollo não consome créditos");
+      // create_campaign: 25 × 0,05 + 47 × 0,02 = 1,25 + 0,94 = 2,19
+      expect(result.steps.create_campaign.estimated).toBeCloseTo(2.19);
+      expect(result.steps.export.estimated).toBe(0);
       expect(result.steps.activate.estimated).toBe(0);
-      // total: 0.10 + 3.00 + 4.20 + 0.00 + 0.00 = 7.30
-      expect(result.total).toBeCloseTo(7.30);
+      expect(result.total).toBeCloseTo(2.79);
       expect(result.currency).toBe("BRL");
     });
 
     it("usa cost models do DB quando disponiveis", () => {
       const costModels = new Map<string, number>([
-        ["theirstack", 0.20],
-        ["apollo", 0.10],
+        ["theirstack", 0.2],
+        ["apollo", 0.1],
         ["openai", 0.05],
-        ["instantly", 0.00],
+        ["instantly", 0.0],
       ]);
-      const briefing = createBriefing();
+      const result = CostEstimatorService.estimateCosts(costModels, createBriefing());
 
-      const result = CostEstimatorService.estimateCosts(costModels, briefing);
-
-      // search_companies: 1 * 0.20 = 0.20
-      expect(result.steps.search_companies.estimated).toBeCloseTo(0.20);
-      // search_leads: 60 * 0.10 = 6.00
-      expect(result.steps.search_leads.estimated).toBeCloseTo(6.00);
-      // create_campaign: (60 * 3 * 0.05) + (60 * 0.5 * 0.05) = 9.00 + 1.50 = 10.50
-      expect(result.steps.create_campaign.estimated).toBeCloseTo(10.50);
+      expect(result.steps.search_companies.estimated).toBeCloseTo(2 * 3 * 0.2);
+      expect(result.steps.create_campaign.estimated).toBeCloseTo(25 * 0.1 + 47 * 0.05);
+      expect(result.total).toBeCloseTo(1.2 + 2.5 + 2.35);
     });
 
     it("respeita skipSteps com custo 0", () => {
-      const costModels = new Map<string, number>();
       const briefing = createBriefing({ skipSteps: ["search_companies", "export"] });
-
-      const result = CostEstimatorService.estimateCosts(costModels, briefing);
+      const result = CostEstimatorService.estimateCosts(new Map(), briefing);
 
       expect(result.steps.search_companies.estimated).toBe(0);
       expect(result.steps.export.estimated).toBe(0);
-      // Other steps unaffected
-      expect(result.steps.search_leads.estimated).toBeCloseTo(3.00);
-      expect(result.total).toBeCloseTo(0 + 3.00 + 4.20 + 0 + 0);
+      expect(result.steps.create_campaign.estimated).toBeCloseTo(2.19);
     });
 
-    it("usa defaults quando costModels esta vazio", () => {
-      const costModels = new Map<string, number>();
-      const briefing = createBriefing();
+    it("usa leads importados como volume do create_campaign", () => {
+      const lead = { name: "A", title: null, companyName: null, email: null, linkedinUrl: null, apolloId: null };
+      const briefing = createBriefing({
+        skipSteps: ["search_companies", "search_leads"],
+        importedLeads: [lead, lead, lead, lead],
+      });
+      const result = CostEstimatorService.estimateCosts(new Map(), briefing);
 
-      const result = CostEstimatorService.estimateCosts(costModels, briefing);
-
-      // Should use DEFAULT_COSTS values
-      expect(result.steps.search_companies.estimated).toBeCloseTo(
-        1 * DEFAULT_COSTS.theirstack.unitPrice
-      );
+      // 4 × 0,05 + (1 + 6 + 4 + 15) × 0,02 = 0,20 + 0,52
+      expect(result.steps.create_campaign.estimated).toBeCloseTo(0.72);
+      expect(result.steps.search_companies.estimated).toBe(0);
+      expect(result.premiumIcebreakers).toEqual({ perLead: 0.15, total: 4 * 0.15 });
     });
 
     it("retorna descricao para cada step", () => {
-      const costModels = new Map<string, number>();
-      const briefing = createBriefing();
+      const result = CostEstimatorService.estimateCosts(new Map(), createBriefing());
 
-      const result = CostEstimatorService.estimateCosts(costModels, briefing);
-
-      expect(result.steps.search_companies.description).toBeTruthy();
-      expect(result.steps.search_leads.description).toBeTruthy();
-      expect(result.steps.create_campaign.description).toBeTruthy();
-      expect(result.steps.activate.description).toBe("Gratuito");
+      for (const key of ["search_companies", "search_leads", "create_campaign", "export", "activate"]) {
+        expect(result.steps[key].description).toBeTruthy();
+      }
+      expect(result.steps.create_campaign.description).toContain("25 enriquecimentos");
+      expect(result.steps.create_campaign.description).toContain("47 chamadas de IA");
     });
 
-    // Story 22.2: icebreaker premium soma Apify ao create_campaign
-    it("soma custo Apify ao create_campaign quando premiumIcebreakers=true", () => {
-      const costModels = new Map<string, number>();
-      const briefing = createBriefing({ premiumIcebreakers: true });
+    it("expoe premiumIcebreakers (leads × apify) mesmo com o toggle desligado", () => {
+      const result = CostEstimatorService.estimateCosts(new Map(), createBriefing());
 
-      const result = CostEstimatorService.estimateCosts(costModels, briefing);
-
-      // create_campaign: AI (4.20) + Apify (60 * 0.15 = 9.00) = 13.20
-      expect(result.steps.create_campaign.estimated).toBeCloseTo(13.20);
-      // total: 0.10 + 3.00 + 13.20 + 0 + 0 = 16.30
-      expect(result.total).toBeCloseTo(16.30);
-      // descricao menciona os perfis LinkedIn
-      expect(result.steps.create_campaign.description).toMatch(/LinkedIn/);
+      expect(result.premiumIcebreakers).toEqual({ perLead: 0.15, total: 25 * 0.15 });
+      // desligado: nao entra no create_campaign
+      expect(result.steps.create_campaign.estimated).toBeCloseTo(2.19);
     });
 
-    it("mantem custo IDENTICO ao atual quando premiumIcebreakers=false/ausente (regressao AC5)", () => {
-      const costModels = new Map<string, number>();
-      const withFalse = CostEstimatorService.estimateCosts(
-        costModels,
-        createBriefing({ premiumIcebreakers: false })
+    it("soma o premium ao create_campaign quando premiumIcebreakers=true", () => {
+      const result = CostEstimatorService.estimateCosts(
+        new Map(),
+        createBriefing({ premiumIcebreakers: true })
       );
-      const withUndefined = CostEstimatorService.estimateCosts(costModels, createBriefing());
 
-      // ambos = comportamento historico (4.20 create_campaign, total 7.30, sem Apify na descricao)
-      expect(withFalse.steps.create_campaign.estimated).toBeCloseTo(4.20);
-      expect(withFalse.total).toBeCloseTo(7.30);
-      expect(withFalse.steps.create_campaign.description).not.toMatch(/LinkedIn/);
-      expect(withUndefined.steps.create_campaign.estimated).toBeCloseTo(4.20);
-      expect(withUndefined.total).toBeCloseTo(7.30);
+      expect(result.steps.create_campaign.estimated).toBeCloseTo(2.19 + 3.75);
+      expect(result.steps.create_campaign.description).toContain("icebreakers premium");
     });
 
-    it("nao soma Apify quando create_campaign esta em skipSteps mesmo com premium ligado", () => {
-      const costModels = new Map<string, number>();
-      const briefing = createBriefing({ premiumIcebreakers: true, skipSteps: ["create_campaign"] });
-
-      const result = CostEstimatorService.estimateCosts(costModels, briefing);
+    it("premium total = 0 quando create_campaign esta em skipSteps", () => {
+      const result = CostEstimatorService.estimateCosts(
+        new Map(),
+        createBriefing({ premiumIcebreakers: true, skipSteps: ["create_campaign"] })
+      );
 
       expect(result.steps.create_campaign.estimated).toBe(0);
+      expect(result.premiumIcebreakers?.total).toBe(0);
     });
 
-    // Story 22.5: a estimativa acompanha o emailCount pedido (custo nao pode subprecificar)
-    it("escala o custo do create_campaign com emailCount quando informado (22.5)", () => {
-      const costModels = new Map<string, number>();
-      const briefing = createBriefing({ emailCount: 10 });
+    it("escala as chamadas de IA com emailCount (22.5)", () => {
+      const result = CostEstimatorService.estimateCosts(
+        new Map(),
+        createBriefing({ emailCount: 5 })
+      );
 
-      const result = CostEstimatorService.estimateCosts(costModels, briefing);
-
-      // create_campaign: (60 * 10 * 0.02) + (60 * 0.5 * 0.02) = 12.00 + 0.60 = 12.60
-      expect(result.steps.create_campaign.estimated).toBeCloseTo(12.60);
-      // prova a divergencia fechada: com o default (3) seria 4.20
-      expect(result.steps.create_campaign.estimated).not.toBeCloseTo(4.20);
-    });
-
-    it("mantem a heuristica de 3 e-mails/lead quando emailCount ausente (regressao 22.5)", () => {
-      const costModels = new Map<string, number>();
-      const result = CostEstimatorService.estimateCosts(costModels, createBriefing());
-
-      expect(result.steps.create_campaign.estimated).toBeCloseTo(4.20);
+      // 1 + 10 + 25 + 5 × 5 = 61 chamadas
+      expect(result.steps.create_campaign.estimated).toBeCloseTo(25 * 0.05 + 61 * 0.02);
     });
   });
 });

@@ -33,6 +33,9 @@ import {
   cleanAgentEmailCopy,
   cleanIcebreakerText,
 } from "@/lib/agent/campaign-copy";
+import { reviewEmailCopy, logCopyReview } from "@/lib/ai/copy-reviewer";
+import { logAgentUsage, trackProviderUsage } from "@/lib/agent/agent-usage";
+import { REVIEW_BUDGET_MS } from "@/lib/ai/copy-review-config";
 import { transformProductRow, type ProductRow } from "@/types/product";
 import { ICEBREAKER_CATEGORY_INSTRUCTIONS } from "@/types/ai-prompt";
 import type { IcebreakerCategory } from "@/types/ai-prompt";
@@ -127,9 +130,14 @@ export class CreateCampaignStep extends BaseStep {
     const apolloApiKey = await getInjectableServiceApiKey(this.tenantId, "apollo", "Apollo");
     const apolloService = new ApolloService(this.tenantId, apolloApiKey);
     let enrichCredits = 0;
+    // Story 24.10: tentativas e falhas do enrichment, para o log de uso (1 linha por step).
+    let enrichAttempts = 0;
+    let enrichFailures = 0;
+    const enrichStart = Date.now();
     for (const lead of leads) {
       const typedLead = lead as SearchLeadResult & { apolloId?: string | null };
       if (typedLead.apolloId && (!typedLead.email || typedLead.name.includes("*"))) {
+        enrichAttempts++;
         try {
           const enriched = await apolloService.enrichPerson(typedLead.apolloId, {
             revealPersonalEmails: true,
@@ -143,8 +151,28 @@ export class CreateCampaignStep extends BaseStep {
           }
         } catch {
           // Enrichment failed — continue with existing data
+          enrichFailures++;
         }
       }
+    }
+
+    if (enrichAttempts > 0) {
+      await logAgentUsage({
+        tenantId: this.tenantId,
+        executionId: input.executionId,
+        stepType: "create_campaign",
+        serviceName: "apollo",
+        requestType: "people_enrichment",
+        status:
+          enrichFailures === 0
+            ? "success"
+            : enrichFailures === enrichAttempts
+              ? "failed"
+              : "partial",
+        calls: enrichAttempts,
+        durationMs: Date.now() - enrichStart,
+        metadata: { succeeded: enrichCredits, failed: enrichFailures },
+      });
     }
 
     const totalLeads = leads.length;
@@ -189,50 +217,96 @@ export class CreateCampaignStep extends BaseStep {
 
     // 2.7 - Get OpenAI API key
     const apiKey = await this.getOpenAIApiKey();
-    const provider = createAIProvider("openai", apiKey);
-
-    // 2.7 - Sub-step B: Generate campaign structure
-    // Story 22.5: campos tipados em ParsedBriefing. Defaults (COLD_OUTREACH/MEDIUM) aplicados
-    // AQUI na leitura (null = usuario nao especificou) — comportamento identico ao cast anterior.
-    const objective = briefing.objective ?? "COLD_OUTREACH";
-    const urgency = briefing.urgency ?? "MEDIUM";
-    // {{additional_description}} era variavel ORFA no template (nunca recebia valor); email_count
-    // (vazio = heuristica por objetivo) sobrepoe a quantidade quando o usuario pediu (Task 6).
-    const additionalDescription = briefing.campaignDescription ?? "";
-    const emailCount = briefing.emailCount ? String(briefing.emailCount) : "";
-
-    const structurePrompt = await promptManager.renderPrompt(
-      "campaign_structure_generation",
-      { ...aiVars, objective, urgency, additional_description: additionalDescription, email_count: emailCount },
-      { tenantId: this.tenantId }
+    // Story 24.10: o proxy conta chamadas, tokens e modelos da geracao (o revisor usa o
+    // SDK direto e loga a parte dele). A chamada em si nao muda.
+    const { provider, getUsage: getGenerationUsage } = trackProviderUsage(
+      createAIProvider("openai", apiKey)
     );
-    if (!structurePrompt) {
-      throw new Error("Prompt campaign_structure_generation nao encontrado");
+    const generationStart = Date.now();
+    const logGeneration = async (status: "success" | "failed", error?: unknown) => {
+      const usage = getGenerationUsage();
+      if (usage.calls === 0) return;
+      await logAgentUsage({
+        tenantId: this.tenantId,
+        executionId: input.executionId,
+        stepType: "create_campaign",
+        serviceName: "openai",
+        requestType: "campaign_generation",
+        status: status === "failed" ? "failed" : usage.failedCalls > 0 ? "partial" : "success",
+        calls: usage.calls,
+        durationMs: Date.now() - generationStart,
+        errorMessage:
+          status === "failed" ? (error instanceof Error ? error.message : "Erro na geracao") : undefined,
+        metadata: {
+          promptTokens: usage.promptTokens,
+          completionTokens: usage.completionTokens,
+          models: usage.models,
+          failedCalls: usage.failedCalls,
+        },
+      });
+    };
+
+    let structure: { items: CampaignStructureItem[] };
+    let leadsWithIcebreakers: LeadWithIcebreaker[];
+    let icebreakerStats: CreateCampaignOutput["icebreakerStats"];
+    let apifyCalls: number;
+    let generatedEmailBlocks: CreateCampaignOutput["emailBlocks"];
+    try {
+      // 2.7 - Sub-step B: Generate campaign structure
+      // Story 22.5: campos tipados em ParsedBriefing. Defaults (COLD_OUTREACH/MEDIUM) aplicados
+      // AQUI na leitura (null = usuario nao especificou) — comportamento identico ao cast anterior.
+      const objective = briefing.objective ?? "COLD_OUTREACH";
+      const urgency = briefing.urgency ?? "MEDIUM";
+      // {{additional_description}} era variavel ORFA no template (nunca recebia valor); email_count
+      // (vazio = heuristica por objetivo) sobrepoe a quantidade quando o usuario pediu (Task 6).
+      const additionalDescription = briefing.campaignDescription ?? "";
+      const emailCount = briefing.emailCount ? String(briefing.emailCount) : "";
+
+      const structurePrompt = await promptManager.renderPrompt(
+        "campaign_structure_generation",
+        { ...aiVars, objective, urgency, additional_description: additionalDescription, email_count: emailCount },
+        { tenantId: this.tenantId }
+      );
+      if (!structurePrompt) {
+        throw new Error("Prompt campaign_structure_generation nao encontrado");
+      }
+
+      const structureResult = await provider.generateText(structurePrompt.content, {
+        temperature: structurePrompt.metadata.temperature ?? 0.6,
+        maxTokens: structurePrompt.metadata.maxTokens ?? 1500,
+        model: (structurePrompt.modelPreference ?? "gpt-4o") as AIModel,
+        timeoutMs: 30000,
+      });
+
+      // 2.8 - Parse and validate structure JSON
+      structure = this.parseStructureJSON(structureResult.text);
+
+      // 2.9 - Sub-step C: Generate icebreakers
+      // Story 22.2: caminho premium (LinkedIn via Apify) quando o toggle esta ligado no briefing.
+      const usePremium = Boolean(briefing.premiumIcebreakers);
+      const apifyKey = usePremium ? await this.getApifyApiKey() : null;
+      const icebreakerExamples = await this.loadIcebreakerExamples();
+      const formattedExamples = CreateCampaignStep.formatIcebreakerExamples(icebreakerExamples, "lead");
+      ({ leadsWithIcebreakers, icebreakerStats, apifyCalls } = await this.generateIcebreakers(
+        leads, aiVars, provider, formattedExamples, usePremium, apifyKey, input.executionId
+      ));
+
+      // 2.11 - Sub-step D: Generate email content
+      generatedEmailBlocks = await this.generateEmailBlocks(
+        structure.items, aiVars, provider
+      );
+    } catch (generationError) {
+      await logGeneration("failed", generationError);
+      throw generationError;
     }
+    await logGeneration("success");
+    const openaiCalls = getGenerationUsage().calls;
 
-    const structureResult = await provider.generateText(structurePrompt.content, {
-      temperature: structurePrompt.metadata.temperature ?? 0.6,
-      maxTokens: structurePrompt.metadata.maxTokens ?? 1500,
-      model: (structurePrompt.modelPreference ?? "gpt-4o") as AIModel,
-      timeoutMs: 30000,
-    });
-
-    // 2.8 - Parse and validate structure JSON
-    const structure = this.parseStructureJSON(structureResult.text);
-
-    // 2.9 - Sub-step C: Generate icebreakers
-    // Story 22.2: caminho premium (LinkedIn via Apify) quando o toggle esta ligado no briefing.
-    const usePremium = Boolean(briefing.premiumIcebreakers);
-    const apifyKey = usePremium ? await this.getApifyApiKey() : null;
-    const icebreakerExamples = await this.loadIcebreakerExamples();
-    const formattedExamples = CreateCampaignStep.formatIcebreakerExamples(icebreakerExamples, "lead");
-    const { leadsWithIcebreakers, icebreakerStats, apifyCalls } = await this.generateIcebreakers(
-      leads, aiVars, provider, formattedExamples, usePremium, apifyKey
-    );
-
-    // 2.11 - Sub-step D: Generate email content
-    const emailBlocks = await this.generateEmailBlocks(
-      structure.items, aiVars, provider
+    // Story 24.9: revisor automatico de copy. Roda DEPOIS da geracao, em paralelo por
+    // e-mail (cabe no maxDuration de 300s). Nunca lanca: falha = `not_reviewed` com o
+    // texto original, e a campanha segue igual.
+    const { emailBlocks, reviewCalls } = await this.reviewEmailBlocks(
+      generatedEmailBlocks, aiVars, briefing, apiKey, input.executionId
     );
 
     // 2.12 - Sub-step E: Build output
@@ -273,9 +347,14 @@ export class CreateCampaignStep extends BaseStep {
       openai_structure: 1,
       openai_emails: totalEmails,
       openai_icebreakers: icebreakerStats.generated,
+      // Story 24.10: chamadas de geracao contadas pelo proxy (o custo real usa esta chave).
+      openai_calls: openaiCalls,
     };
     if (apifyCalls > 0) {
       cost.apify = apifyCalls;
+    }
+    if (reviewCalls > 0) {
+      cost.openai_review = reviewCalls;
     }
 
     // Story 22.15: persiste em "Meus Leads" os leads APROVADOS — aqui e o unico ponto do
@@ -728,7 +807,8 @@ export class CreateCampaignStep extends BaseStep {
     provider: ReturnType<typeof createAIProvider>,
     formattedExamples: string,
     usePremium: boolean,
-    apifyKey: string | null
+    apifyKey: string | null,
+    executionId?: string
   ): Promise<{
     leadsWithIcebreakers: LeadWithIcebreaker[];
     icebreakerStats: { generated: number; premium: number; standard: number; failed: number; skipped: number };
@@ -749,7 +829,7 @@ export class CreateCampaignStep extends BaseStep {
           // Caminho premium: toggle ligado + key + lead com LinkedIn. Fail-open para standard.
           if (premiumEnabled && apifyService && apifyKey && lead.linkedinUrl) {
             const premiumText = await this.generateSinglePremiumIcebreaker(
-              lead, aiVars, provider, apifyService, apifyKey, () => { apifyCalls++; }
+              lead, aiVars, provider, apifyService, apifyKey, () => { apifyCalls++; }, executionId
             );
             if (premiumText) {
               return { text: premiumText, kind: "premium" };
@@ -795,7 +875,8 @@ export class CreateCampaignStep extends BaseStep {
     provider: ReturnType<typeof createAIProvider>,
     apifyService: ApifyService,
     apifyKey: string,
-    onApifyCall: () => void
+    onApifyCall: () => void,
+    executionId?: string
   ): Promise<string | null> {
     if (!lead.linkedinUrl) return null;
 
@@ -806,12 +887,12 @@ export class CreateCampaignStep extends BaseStep {
       postsResult = await apifyService.fetchLinkedInPosts(apifyKey, lead.linkedinUrl, 3);
     } catch (error) {
       // fetchLinkedInPosts nao deveria lancar (retorna success:false), mas protegemos assim mesmo.
-      logApifyFailure({
+      await logApifyFailure({
         tenantId: this.tenantId,
         errorMessage: error instanceof Error ? error.message : "Erro Apify",
         durationMs: Date.now() - apifyStart,
-        metadata: { linkedinProfileUrl: lead.linkedinUrl, postLimit: 3, source: "agent" },
-      }).catch(() => {});
+        metadata: { linkedinProfileUrl: lead.linkedinUrl, postLimit: 3, source: "agent", executionId, stepType: "create_campaign" },
+      });
       return null; // fallback standard
     }
 
@@ -819,29 +900,29 @@ export class CreateCampaignStep extends BaseStep {
 
     if (!postsResult.success || postsResult.posts.length === 0) {
       if (!postsResult.success) {
-        logApifyFailure({
+        await logApifyFailure({
           tenantId: this.tenantId,
           errorMessage: postsResult.error || "Erro Apify",
           durationMs,
-          metadata: { linkedinProfileUrl: lead.linkedinUrl, postLimit: 3, source: "agent" },
-        }).catch(() => {});
+          metadata: { linkedinProfileUrl: lead.linkedinUrl, postLimit: 3, source: "agent", executionId, stepType: "create_campaign" },
+        });
       } else {
-        logApifySuccess({
+        await logApifySuccess({
           tenantId: this.tenantId,
           postsFetched: 0,
           durationMs,
-          metadata: { linkedinProfileUrl: lead.linkedinUrl, postLimit: 3, noPosts: true, source: "agent" },
-        }).catch(() => {});
+          metadata: { linkedinProfileUrl: lead.linkedinUrl, postLimit: 3, noPosts: true, source: "agent", executionId, stepType: "create_campaign" },
+        });
       }
       return null; // fallback standard
     }
 
-    logApifySuccess({
+    await logApifySuccess({
       tenantId: this.tenantId,
       postsFetched: postsResult.posts.length,
       durationMs,
-      metadata: { linkedinProfileUrl: lead.linkedinUrl, postLimit: 3, source: "agent" },
-    }).catch(() => {});
+      metadata: { linkedinProfileUrl: lead.linkedinUrl, postLimit: 3, source: "agent", executionId, stepType: "create_campaign" },
+    });
 
     const variables: Record<string, string> = {
       ...aiVars,
@@ -933,6 +1014,86 @@ export class CreateCampaignStep extends BaseStep {
 
     // Story 24.6: sem `{{x}}`/`[...]`; vazio depois da limpeza = falha (null)
     return cleanIcebreakerText(result.text);
+  }
+
+  /**
+   * Story 24.9: revisa todos os e-mails em paralelo, grava `review` em cada bloco e loga o
+   * custo (uma linha `copy_review` por e-mail). Devolve o total de chamadas ao LLM.
+   */
+  private async reviewEmailBlocks(
+    blocks: CreateCampaignOutput["emailBlocks"],
+    aiVars: AIContextVariables,
+    briefing: ParsedBriefing,
+    apiKey: string,
+    executionId: string
+  ): Promise<{ emailBlocks: CreateCampaignOutput["emailBlocks"]; reviewCalls: number }> {
+    const audience = [
+      briefing.jobTitles?.length ? `Cargos: ${briefing.jobTitles.join(", ")}` : "",
+      briefing.industry ? `Setor: ${briefing.industry}` : "",
+      briefing.location ? `Local: ${briefing.location}` : "",
+    ]
+      .filter(Boolean)
+      .join(" | ");
+    const context = {
+      audience: audience || aiVars.target_titles || "",
+      productName: aiVars.product_name ?? "",
+      productDescription: aiVars.product_description ?? "",
+      targetIndustries: aiVars.target_industries ?? "",
+      painPoints: aiVars.pain_points ?? "",
+      icpSummary: aiVars.icp_summary ?? "",
+      authorizedProofs: aiVars.authorized_proofs ?? "",
+    };
+    const clean = (subject: string, body: string) => ({
+      subject: cleanAgentEmailCopy(subject, "subject"),
+      body: cleanAgentEmailCopy(body, "body"),
+    });
+
+    // Cada e-mail grava o resultado no seu slot assim que termina; se o orcamento estourar,
+    // os que ja terminaram ficam e so os atrasados seguem com o texto gerado e `not_reviewed`.
+    const finished: Array<{ block: CreateCampaignOutput["emailBlocks"][number]; calls: number } | undefined> =
+      blocks.map(() => undefined);
+    const reviewAll = Promise.all(
+      blocks.map(async (block, index) => {
+        const result = await reviewEmailCopy(
+          { subject: block.subject, body: block.body, emailMode: block.emailMode, context },
+          { apiKey, clean }
+        );
+        await logCopyReview(result, {
+          tenantId: this.tenantId,
+          source: "agent",
+          executionId,
+          emailPosition: index + 1,
+        });
+        finished[index] = {
+          block: {
+            ...block,
+            subject: result.subject,
+            body: result.body,
+            review: { status: result.status, reasons: result.reasons },
+          },
+          calls: result.calls,
+        };
+      })
+    );
+
+    // Orcamento total: so espera ate REVIEW_BUDGET_MS.
+    let budgetTimer: ReturnType<typeof setTimeout> | undefined;
+    const budget = new Promise<"expired">((resolve) => {
+      budgetTimer = setTimeout(() => resolve("expired"), REVIEW_BUDGET_MS);
+    });
+    const outcome = await Promise.race([reviewAll, budget]);
+    clearTimeout(budgetTimer);
+    if (outcome === "expired") {
+      console.warn("[CreateCampaignStep] revisao de copy excedeu o orcamento; atrasados seguem sem revisao");
+    }
+
+    return {
+      emailBlocks: blocks.map(
+        (block, index) =>
+          finished[index]?.block ?? { ...block, review: { status: "not_reviewed" as const, reasons: [] } }
+      ),
+      reviewCalls: finished.reduce((sum, r) => sum + (r?.calls ?? 0), 0),
+    };
   }
 
   private async generateEmailBlocks(
