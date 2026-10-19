@@ -29,6 +29,10 @@ import {
   deleteIcebreakerExample,
   getICPDefinition,
   saveICPDefinition,
+  getProofs,
+  createProof,
+  updateProof,
+  deleteProof,
 } from "@/actions/knowledge-base";
 
 describe("knowledge-base actions", () => {
@@ -1201,6 +1205,233 @@ describe("knowledge-base actions", () => {
         }),
         expect.any(Object)
       );
+    });
+  });
+  // ==============================================
+  // Story 24.7: Knowledge Base Proofs
+  // ==============================================
+  describe("proofs (Story 24.7)", () => {
+    const validId = "123e4567-e89b-12d3-a456-426614174000";
+    const validProof = {
+      proof_type: "case" as const,
+      text: "Acme reduziu 30% do retrabalho",
+      sector: "Indústria",
+      is_authorized: true,
+    };
+    const storedProof = {
+      id: validId,
+      tenant_id: "tenant-456",
+      ...validProof,
+      created_at: "2026-10-01T00:00:00Z",
+      updated_at: "2026-10-01T00:00:00Z",
+    };
+
+    describe("getProofs", () => {
+      it("requires authentication", async () => {
+        vi.mocked(getCurrentUserProfile).mockResolvedValue(null);
+        expect(await getProofs()).toEqual({ success: false, error: "Não autenticado" });
+      });
+
+      it("lists proofs ordered by created_at asc (any tenant member)", async () => {
+        vi.mocked(getCurrentUserProfile).mockResolvedValue(mockUserProfile);
+        const order = vi.fn().mockResolvedValue({ data: [storedProof], error: null });
+        const eq = vi.fn().mockReturnValue({ order });
+        mockSupabase.from.mockReturnValue({ select: vi.fn().mockReturnValue({ eq }) });
+
+        const result = await getProofs();
+
+        expect(result).toEqual({ success: true, data: [storedProof] });
+        expect(mockSupabase.from).toHaveBeenCalledWith("knowledge_base_proofs");
+        expect(eq).toHaveBeenCalledWith("tenant_id", "tenant-456");
+        expect(order).toHaveBeenCalledWith("created_at", { ascending: true });
+      });
+
+      it("returns error on database failure", async () => {
+        vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+        mockSupabase.from.mockReturnValue({
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              order: vi.fn().mockResolvedValue({ data: null, error: { message: "boom" } }),
+            }),
+          }),
+        });
+        expect(await getProofs()).toEqual({ success: false, error: "Erro ao buscar provas" });
+      });
+    });
+
+    describe("createProof", () => {
+      it("requires authentication", async () => {
+        vi.mocked(getCurrentUserProfile).mockResolvedValue(null);
+        expect(await createProof(validProof)).toEqual({ success: false, error: "Não autenticado" });
+      });
+
+      it("blocks SDR", async () => {
+        vi.mocked(getCurrentUserProfile).mockResolvedValue(mockUserProfile);
+        expect(await createProof(validProof)).toEqual({
+          success: false,
+          error: "Apenas administradores podem adicionar provas",
+        });
+        expect(mockSupabase.from).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ["texto vazio", { ...validProof, text: "" }],
+        ["texto > 500", { ...validProof, text: "a".repeat(501) }],
+        ["setor > 100", { ...validProof, sector: "s".repeat(101) }],
+        ["tipo fora do enum", { ...validProof, proof_type: "invalido" }],
+      ])("rejects invalid input: %s", async (_label, input) => {
+        vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+        const result = await createProof(input as never);
+        expect(result.success).toBe(false);
+        if (!result.success) expect(result.error).toBeTruthy();
+        expect(mockSupabase.from).not.toHaveBeenCalled();
+      });
+
+      it("creates proof and turns empty sector into null", async () => {
+        vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+        const insert = vi.fn().mockReturnValue({
+          select: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({ data: storedProof, error: null }),
+          }),
+        });
+        mockSupabase.from.mockReturnValue({ insert });
+
+        const result = await createProof({ ...validProof, sector: "  " });
+
+        expect(result).toEqual({ success: true, data: storedProof });
+        expect(insert).toHaveBeenCalledWith({
+          tenant_id: "tenant-456",
+          proof_type: "case",
+          text: "Acme reduziu 30% do retrabalho",
+          sector: null,
+          is_authorized: true,
+        });
+      });
+
+      it("returns error on database failure", async () => {
+        vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+        mockSupabase.from.mockReturnValue({
+          insert: vi.fn().mockReturnValue({
+            select: vi.fn().mockReturnValue({
+              single: vi.fn().mockResolvedValue({ data: null, error: { message: "boom" } }),
+            }),
+          }),
+        });
+        expect(await createProof(validProof)).toEqual({
+          success: false,
+          error: "Erro ao criar prova. Tente novamente.",
+        });
+      });
+    });
+
+    describe("updateProof", () => {
+      it("rejects invalid id", async () => {
+        expect(await updateProof("not-a-uuid", validProof)).toEqual({
+          success: false,
+          error: "ID inválido",
+        });
+        expect(mockSupabase.from).not.toHaveBeenCalled();
+      });
+
+      it("requires authentication", async () => {
+        vi.mocked(getCurrentUserProfile).mockResolvedValue(null);
+        expect(await updateProof(validId, validProof)).toEqual({
+          success: false,
+          error: "Não autenticado",
+        });
+      });
+
+      it("blocks SDR", async () => {
+        vi.mocked(getCurrentUserProfile).mockResolvedValue(mockUserProfile);
+        expect(await updateProof(validId, validProof)).toEqual({
+          success: false,
+          error: "Apenas administradores podem editar provas",
+        });
+      });
+
+      it("updates proof scoped by tenant", async () => {
+        vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+        const eqTenant = vi.fn().mockReturnValue({
+          select: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({ data: storedProof, error: null }),
+          }),
+        });
+        const eqId = vi.fn().mockReturnValue({ eq: eqTenant });
+        const update = vi.fn().mockReturnValue({ eq: eqId });
+        mockSupabase.from.mockReturnValue({ update });
+
+        const result = await updateProof(validId, { ...validProof, is_authorized: false });
+
+        expect(result).toEqual({ success: true, data: storedProof });
+        expect(update).toHaveBeenCalledWith(
+          expect.objectContaining({ is_authorized: false, sector: "Indústria" })
+        );
+        expect(eqId).toHaveBeenCalledWith("id", validId);
+        expect(eqTenant).toHaveBeenCalledWith("tenant_id", "tenant-456");
+      });
+
+      it("returns error on database failure", async () => {
+        vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+        mockSupabase.from.mockReturnValue({
+          update: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                select: vi.fn().mockReturnValue({
+                  single: vi.fn().mockResolvedValue({ data: null, error: { message: "boom" } }),
+                }),
+              }),
+            }),
+          }),
+        });
+        expect(await updateProof(validId, validProof)).toEqual({
+          success: false,
+          error: "Erro ao atualizar prova. Tente novamente.",
+        });
+      });
+    });
+
+    describe("deleteProof", () => {
+      it("rejects invalid id", async () => {
+        expect(await deleteProof("x")).toEqual({ success: false, error: "ID inválido" });
+      });
+
+      it("requires authentication", async () => {
+        vi.mocked(getCurrentUserProfile).mockResolvedValue(null);
+        expect(await deleteProof(validId)).toEqual({ success: false, error: "Não autenticado" });
+      });
+
+      it("blocks SDR", async () => {
+        vi.mocked(getCurrentUserProfile).mockResolvedValue(mockUserProfile);
+        expect(await deleteProof(validId)).toEqual({
+          success: false,
+          error: "Apenas administradores podem remover provas",
+        });
+      });
+
+      it("deletes proof scoped by tenant", async () => {
+        vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+        const eqTenant = vi.fn().mockResolvedValue({ error: null });
+        const eqId = vi.fn().mockReturnValue({ eq: eqTenant });
+        mockSupabase.from.mockReturnValue({ delete: vi.fn().mockReturnValue({ eq: eqId }) });
+
+        expect(await deleteProof(validId)).toEqual({ success: true });
+        expect(eqTenant).toHaveBeenCalledWith("tenant_id", "tenant-456");
+      });
+
+      it("returns error on database failure", async () => {
+        vi.mocked(getCurrentUserProfile).mockResolvedValue(mockAdminProfile);
+        mockSupabase.from.mockReturnValue({
+          delete: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              eq: vi.fn().mockResolvedValue({ error: { message: "boom" } }),
+            }),
+          }),
+        });
+        expect(await deleteProof(validId)).toEqual({
+          success: false,
+          error: "Erro ao remover prova. Tente novamente.",
+        });
+      });
     });
   });
 });

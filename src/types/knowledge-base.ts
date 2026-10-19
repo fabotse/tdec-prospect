@@ -304,6 +304,85 @@ export type IcebreakerExampleInsert = Omit<
 >;
 
 // ==============================================
+// KNOWLEDGE BASE PROOFS TYPES (Story 24.7)
+// ==============================================
+
+/**
+ * Proof types the manager can register
+ * Story 24.7: case, número, cliente de referência, certificação, tempo de mercado
+ */
+export const PROOF_TYPE_VALUES = [
+  "case",
+  "numero",
+  "cliente_referencia",
+  "certificacao",
+  "tempo_mercado",
+] as const;
+
+export type ProofType = (typeof PROOF_TYPE_VALUES)[number];
+
+/**
+ * Proof type options with labels (Portuguese)
+ */
+export const PROOF_TYPES: ReadonlyArray<{
+  value: ProofType;
+  label: string;
+  description: string;
+}> = [
+  { value: "case", label: "Case", description: "Resultado real obtido com um cliente" },
+  { value: "numero", label: "Número", description: "Métrica ou dado verificável da empresa" },
+  {
+    value: "cliente_referencia",
+    label: "Cliente de referência",
+    description: "Cliente que pode ser citado pelo nome",
+  },
+  { value: "certificacao", label: "Certificação", description: "Certificação, selo ou parceria oficial" },
+  { value: "tempo_mercado", label: "Tempo de mercado", description: "Anos de atuação ou histórico da empresa" },
+];
+
+/**
+ * Proof record as stored in database (knowledge_base_proofs)
+ */
+export interface KnowledgeBaseProof {
+  id: string;
+  tenant_id: string;
+  proof_type: ProofType;
+  text: string;
+  sector: string | null;
+  is_authorized: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Zod schema for proof validation
+ * Story 24.7: proof_type (enum), text (1-500), sector (optional, até 100; vazio vira ausente), is_authorized
+ */
+export const proofSchema = z.object({
+  proof_type: z.enum(PROOF_TYPE_VALUES, {
+    message: "Tipo de prova inválido",
+  }),
+  text: z
+    .string()
+    .trim()
+    .min(1, "Texto da prova é obrigatório")
+    .max(500, "Texto muito longo (máximo 500 caracteres)"),
+  sector: z
+    .string()
+    .trim()
+    .max(100, "Setor muito longo (máximo 100 caracteres)")
+    .optional()
+    .transform((v) => (v ? v : undefined)),
+  is_authorized: z.boolean(),
+});
+
+/** Dados de entrada (formulário / server actions), antes da validação */
+export type ProofInput = z.input<typeof proofSchema>;
+
+/** Dados já validados pelo proofSchema (sector vazio vira undefined) */
+export type ProofValidated = z.output<typeof proofSchema>;
+
+// ==============================================
 // ACTION RESULT TYPE (SHARED)
 // ==============================================
 

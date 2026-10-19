@@ -326,6 +326,8 @@ function createMockSupabase(leadsDb?: FakeDb, agentSteps?: { make: () => unknown
   // admin-only vista por um `sdr`). A chave real chega pelo client admin.
   const apiConfigsChain = createChainBuilder({ data: null, error: null });
   const icebreakerExamplesChain = createChainBuilder({ data: [], error: null });
+  // Story 24.7: provas da KB (padrão: nenhuma)
+  const proofsChain = createChainBuilder({ data: [], error: null });
 
   const db = leadsDb ?? new FakeDb();
   const fakeFrom = createFakeSupabase(db).from as (t: string) => unknown;
@@ -341,10 +343,11 @@ function createMockSupabase(leadsDb?: FakeDb, agentSteps?: { make: () => unknown
     if (table === "products") return productsChain;
     if (table === "api_configs") return apiConfigsChain;
     if (table === "icebreaker_examples") return icebreakerExamplesChain;
+    if (table === "knowledge_base_proofs") return proofsChain;
     return createChainBuilder();
   });
 
-  return { from: mockFrom, db, stepsChain, messagesChain, kbChain, productsChain, apiConfigsChain, icebreakerExamplesChain };
+  return { from: mockFrom, db, stepsChain, messagesChain, kbChain, productsChain, apiConfigsChain, icebreakerExamplesChain, proofsChain };
 }
 
 function createInput(
@@ -1000,6 +1003,93 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
         expect(block.body).toBeTruthy();
       }
       expect(result.cost?.openai_review).toBeUndefined();
+    });
+  });
+
+  // Story 24.7: provas da KB chegam em authorized_proofs / revisor
+  describe("knowledge base proofs (Story 24.7)", () => {
+    function mockGeneration() {
+      let callCount = 0;
+      mockGenerateText.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ text: VALID_STRUCTURE_JSON, model: "gpt-4o", usage: {} });
+        }
+        return Promise.resolve({ text: `Content ${callCount}`, model: "gpt-4o", usage: {} });
+      });
+    }
+
+    function setProofsResponse(response: { data: unknown; error: unknown }) {
+      const chain = createChainBuilder(response);
+      const original = mockSupabase.from.getMockImplementation() as (t: string) => unknown;
+      mockSupabase.from.mockImplementation((table: string) =>
+        table === "knowledge_base_proofs" ? chain : original(table)
+      );
+      return chain;
+    }
+
+    it("carrega só as provas autorizadas em authorizedProofs do revisor", async () => {
+      const actual = await vi.importActual<
+        typeof import("@/lib/services/knowledge-base-context")
+      >("@/lib/services/knowledge-base-context");
+      mockBuildAIVariables.mockImplementation(actual.buildAIVariables);
+      const chain = setProofsResponse({
+        data: [
+          {
+            id: "p1",
+            tenant_id: TENANT_ID,
+            proof_type: "case",
+            text: "Acme reduziu 30% do retrabalho",
+            sector: "Indústria",
+            is_authorized: true,
+            created_at: "2026-10-01T00:00:00Z",
+            updated_at: "2026-10-01T00:00:00Z",
+          },
+          {
+            id: "p2",
+            tenant_id: TENANT_ID,
+            proof_type: "numero",
+            text: "1.000 clientes",
+            sector: null,
+            is_authorized: false,
+            created_at: "2026-10-02T00:00:00Z",
+            updated_at: "2026-10-02T00:00:00Z",
+          },
+        ],
+        error: null,
+      });
+      mockGeneration();
+
+      const result = await step.run(createInput());
+
+      expect(result.success).toBe(true);
+      expect(chain.eq).toHaveBeenCalledWith("tenant_id", TENANT_ID);
+      expect(chain.order).toHaveBeenCalledWith("created_at", { ascending: true });
+      // KB sem company/tone/icp, mas com provas: o contexto não vira null
+      const kbArg = mockBuildAIVariables.mock.calls[0][0] as { proofs: unknown[] } | null;
+      expect(kbArg?.proofs).toHaveLength(2);
+      expect(mockReviewEmailCopy).toHaveBeenCalled();
+      const firstInput = mockReviewEmailCopy.mock.calls[0][0] as {
+        context: { authorizedProofs: string };
+      };
+      expect(firstInput.context.authorizedProofs).toBe(
+        "- Case: Acme reduziu 30% do retrabalho (setor: Indústria)"
+      );
+    });
+
+    it("erro na tabela de provas (ex.: 42P01) não quebra o step", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      setProofsResponse({
+        data: null,
+        error: { code: "42P01", message: 'relation "knowledge_base_proofs" does not exist' },
+      });
+      mockGeneration();
+
+      const result = await step.run(createInput());
+
+      expect(result.success).toBe(true);
+      expect(mockBuildAIVariables).toHaveBeenCalledWith(null, null);
+      errorSpy.mockRestore();
     });
   });
 
