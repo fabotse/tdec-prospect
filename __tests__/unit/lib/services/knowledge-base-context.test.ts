@@ -19,6 +19,8 @@ import { describe, it, expect } from "vitest";
 import {
   buildAIVariables,
   getDefaultAIVariables,
+  formatAuthorizedProofs,
+  MAX_PROOFS_IN_PROMPT,
   type KnowledgeBaseContext,
   DEFAULT_COMPANY_CONTEXT,
   DEFAULT_TONE_DESCRIPTION,
@@ -29,7 +31,9 @@ import type {
   ToneOfVoice,
   ICPDefinition,
   EmailExample,
+  KnowledgeBaseProof,
 } from "@/types/knowledge-base";
+import { CODE_DEFAULT_PROMPTS } from "@/lib/ai/prompts/defaults";
 
 // ==============================================
 // TEST DATA
@@ -278,10 +282,119 @@ describe("knowledge-base-context service", () => {
       });
     });
 
-    describe("authorized_proofs (Story 24.8)", () => {
-      it("is always an empty string until Story 24.7 fills it", () => {
+    describe("authorized_proofs (Story 24.7/24.8)", () => {
+      const makeProof = (
+        overrides: Partial<KnowledgeBaseProof> = {}
+      ): KnowledgeBaseProof => ({
+        id: "p1",
+        tenant_id: "t1",
+        proof_type: "case",
+        text: "Acme reduziu 30% do retrabalho",
+        sector: null,
+        is_authorized: true,
+        created_at: "2026-10-01T00:00:00Z",
+        updated_at: "2026-10-01T00:00:00Z",
+        ...overrides,
+      });
+      const ctx = (proofs?: KnowledgeBaseProof[]): KnowledgeBaseContext => ({
+        company: null,
+        tone: null,
+        icp: null,
+        examples: [],
+        ...(proofs !== undefined ? { proofs } : {}),
+      });
+
+      it("only authorized proofs enter the closed list, with sector", () => {
+        const result = buildAIVariables(
+          ctx([
+            makeProof({ sector: "Indústria" }),
+            makeProof({
+              id: "p2",
+              proof_type: "numero",
+              text: "1.000 clientes atendidos",
+              is_authorized: false,
+            }),
+          ])
+        );
+        expect(result.authorized_proofs).toBe(
+          "- Case: Acme reduziu 30% do retrabalho (setor: Indústria)"
+        );
+      });
+
+      it("uses the label of each proof type", () => {
+        const result = formatAuthorizedProofs([
+          makeProof({ id: "a", proof_type: "numero", text: "N" }),
+          makeProof({ id: "b", proof_type: "cliente_referencia", text: "C" }),
+          makeProof({ id: "c", proof_type: "certificacao", text: "ISO" }),
+          makeProof({ id: "d", proof_type: "tempo_mercado", text: "20 anos" }),
+        ]);
+        expect(result.split("\n")).toEqual([
+          "- Número: N",
+          "- Cliente de referência: C",
+          "- Certificação: ISO",
+          "- Tempo de mercado: 20 anos",
+        ]);
+      });
+
+      it("is empty when no proof is authorized, proofs empty/absent or kb null", () => {
+        expect(
+          buildAIVariables(ctx([makeProof({ is_authorized: false })])).authorized_proofs
+        ).toBe("");
+        expect(buildAIVariables(ctx([])).authorized_proofs).toBe("");
+        expect(buildAIVariables(ctx()).authorized_proofs).toBe("");
         expect(buildAIVariables(null).authorized_proofs).toBe("");
         expect(getDefaultAIVariables().authorized_proofs).toBe("");
+      });
+
+      it("collapses multiline text into a single line per item", () => {
+        const result = formatAuthorizedProofs([
+          makeProof({ text: "Linha um\nLinha dois\r\n  Linha três" }),
+        ]);
+        expect(result).toBe("- Case: Linha um Linha dois Linha três");
+        expect(result).not.toContain("\n");
+      });
+
+      it("keeps only the first MAX_PROOFS_IN_PROMPT by created_at asc", () => {
+        expect(MAX_PROOFS_IN_PROMPT).toBe(20);
+        const proofs = Array.from({ length: 25 }, (_, i) =>
+          makeProof({
+            id: `p${i}`,
+            text: `Prova ${i}`,
+            created_at: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString(),
+          })
+        ).reverse();
+        const lines = formatAuthorizedProofs(proofs).split("\n");
+        expect(lines).toHaveLength(20);
+        expect(lines[0]).toBe("- Case: Prova 0");
+        expect(lines[19]).toBe("- Case: Prova 19");
+      });
+
+      it("renders the closed-list block in the prompt when there are authorized proofs", () => {
+        const interpolate = (template: string, vars: Record<string, string>) =>
+          template
+            .replace(
+              /\{\{#if\s+(\w+)\}\}([\s\S]*?)(?:\{\{else\}\}([\s\S]*?))?\{\{\/if\}\}/g,
+              (_, name, ifContent, elseContent) =>
+                vars[name] && vars[name].trim() !== "" ? ifContent : (elseContent ?? "")
+            )
+            .replace(/\{\{(\w+)\}\}/g, (m, name) => vars[name] ?? m);
+
+        const template = CODE_DEFAULT_PROMPTS.email_body_generation.template;
+        const withProofs = interpolate(
+          template,
+          buildAIVariables(ctx([makeProof({ sector: "Indústria" })]))
+        );
+        expect(withProofs).toContain("PROVAS AUTORIZADAS (LISTA FECHADA");
+        expect(withProofs).toContain(
+          "- Case: Acme reduziu 30% do retrabalho (setor: Indústria)"
+        );
+
+        const without = interpolate(
+          template,
+          buildAIVariables(ctx([makeProof({ is_authorized: false })]))
+        );
+        expect(without).not.toContain("PROVAS AUTORIZADAS");
+        expect(without).toContain("nenhuma prova foi fornecida");
       });
     });
 

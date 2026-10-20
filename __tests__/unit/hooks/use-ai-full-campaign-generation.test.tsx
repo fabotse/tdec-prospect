@@ -116,7 +116,7 @@ describe("useAIFullCampaignGeneration", () => {
         })
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: { text: "Body 3" } }),
+          json: () => Promise.resolve({ success: true, data: { text: "Body 3\n\nAbraço,\n[Seu nome]" } }),
         });
 
       global.fetch = mockFetch;
@@ -137,10 +137,12 @@ describe("useAIFullCampaignGeneration", () => {
       const emailBlocks = generatedBlocks!.filter((b) => b.type === "email");
       expect(emailBlocks[0].data.subject).toBe("Subject 1");
       expect(emailBlocks[0].data.body).toBe("Body 1");
-      expect(emailBlocks[1].data.subject).toBe("RE: Subject 2");
+      // Story 24.8: mesma limpeza do agente — sem "RE:" no assunto e sem assinatura
+      // placeholder ("[Seu nome]") no corpo.
+      expect(emailBlocks[1].data.subject).toBe("Subject 2");
       expect(emailBlocks[1].data.body).toBe("Body 2");
-      expect(emailBlocks[2].data.subject).toBe("RE: Subject 3");
-      expect(emailBlocks[2].data.body).toBe("Body 3");
+      expect(emailBlocks[2].data.subject).toBe("Subject 3");
+      expect(emailBlocks[2].data.body).toBe("Body 3\n\nAbraço,");
     });
 
     it("updates progress during generation", async () => {

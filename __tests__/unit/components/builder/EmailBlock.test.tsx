@@ -585,6 +585,33 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
     });
   });
 
+  describe("Limpeza da saida da IA (Story 24.8)", () => {
+    it("remove assinatura placeholder e RE: antes de gravar o bloco", async () => {
+      mockGenerate.mockImplementation((params: { promptKey: string }) =>
+        Promise.resolve(
+          params.promptKey === "email_subject_generation"
+            ? "RE: Uma ideia para {{company_name}}"
+            : "Oi {{first_name}},\n\n{{ice_breaker}}\n\nFaz sentido?\n\nAbraço,\n[Seu nome]"
+        )
+      );
+
+      render(<EmailBlock block={mockBlock} stepNumber={1} />);
+
+      fireEvent.click(screen.getByText("Gerar com IA"));
+
+      await waitFor(
+        () => {
+          const data = mockUpdateBlock.mock.calls
+            .map((call) => call[1]?.data)
+            .find((d) => d?.body);
+          expect(data?.subject).toBe("Uma ideia para {{company_name}}");
+          expect(data?.body).toBe("Oi {{first_name}},\n\n{{ice_breaker}}\n\nFaz sentido?\n\nAbraço,");
+        },
+        { timeout: 5000 }
+      );
+    });
+  });
+
   describe("AI Error Handling (Story 6.2 AC: #2)", () => {
     it("displays error message when generation fails", () => {
       mockAIError = "Não foi possível gerar. Tente novamente.";

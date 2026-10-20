@@ -69,17 +69,12 @@ import type { EmailBlockData, EmailMode, IcebreakerSourceType } from "@/types/em
 import { useAIGenerate } from "@/hooks/use-ai-generate";
 import { useKnowledgeBaseContext } from "@/hooks/use-knowledge-base-context";
 import { useDebouncedCallback } from "@/hooks/use-debounce";
-import { buildSequenceFollowUpPlan } from "@/lib/agent/campaign-copy";
+import { buildSequenceFollowUpPlan, cleanAgentEmailCopy } from "@/lib/agent/campaign-copy";
 import { AIGenerateButton } from "./AIGenerateButton";
 import { ExamplesHint } from "./ExamplesHint";
 import { PremiumIcebreakerBadge } from "./PremiumIcebreakerBadge";
 import { VariableReference } from "./VariableReference";
-import {
-  sanitizeGeneratedSubject,
-  sanitizeGeneratedBody,
-  normalizeTemplateVariables,
-  ensureIceBreakerVariable,
-} from "@/lib/ai/sanitize-ai-output";
+import { ensureIceBreakerVariable } from "@/lib/ai/sanitize-ai-output";
 import { requestEmailReview } from "@/lib/ai/review-email-client";
 import { isCopyReviewStatus } from "@/types/copy-review";
 import { CopyReviewBadge } from "./CopyReviewBadge";
@@ -366,7 +361,7 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
             stream: true,
             productId,
           });
-          const cleanSubject = normalizeTemplateVariables(sanitizeGeneratedSubject(generatedSubject));
+          const cleanSubject = cleanAgentEmailCopy(generatedSubject, "subject");
           setSubject(cleanSubject);
 
           await new Promise((resolve) => setTimeout(resolve, 300));
@@ -387,8 +382,8 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
             productId,
           });
 
-          // Follow-ups: normalize variables but do NOT inject ice_breaker
-          const cleanBody = normalizeTemplateVariables(sanitizeGeneratedBody(generatedBody));
+          // Follow-ups: mesma limpeza do agente (Story 24.8: tira [Seu nome] etc.), sem ice_breaker
+          const cleanBody = cleanAgentEmailCopy(generatedBody, "body");
           setBody(cleanBody);
 
           // Story 24.9: revisor automatico. Nunca lanca (falha = not_reviewed + texto original).
@@ -408,9 +403,9 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
             setIsReviewing(false);
           }
           const reviewedSubject =
-            normalizeTemplateVariables(sanitizeGeneratedSubject(review.subject)) || cleanSubject;
+            cleanAgentEmailCopy(review.subject, "subject") || cleanSubject;
           const reviewedBody =
-            normalizeTemplateVariables(sanitizeGeneratedBody(review.body)) || cleanBody;
+            cleanAgentEmailCopy(review.body, "body") || cleanBody;
           setSubject(reviewedSubject);
           setBody(reviewedBody);
 
@@ -453,7 +448,7 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
       // Update local state immediately for UI feedback (streaming already shows progress)
       // CR-M1 FIX: Removed intermediate store update to avoid stale closure issue
       // Store will be updated after body generation completes with both subject and body
-      const cleanSubject = normalizeTemplateVariables(sanitizeGeneratedSubject(generatedSubject));
+      const cleanSubject = cleanAgentEmailCopy(generatedSubject, "subject");
       setSubject(cleanSubject);
 
       // Small delay before generating body for better UX
@@ -473,7 +468,7 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
       // Use generatedSubject directly to avoid stale closure (Code Review Fix M3)
       // Story 7.5: Normalize variables + ensure {{ice_breaker}} is in the body
       const cleanBody = ensureIceBreakerVariable(
-        normalizeTemplateVariables(sanitizeGeneratedBody(generatedBody))
+        cleanAgentEmailCopy(generatedBody, "body")
       );
       setBody(cleanBody);
 
@@ -494,9 +489,9 @@ export function EmailBlock({ block, stepNumber, dragHandleProps }: EmailBlockPro
         setIsReviewing(false);
       }
       const reviewedSubject =
-        normalizeTemplateVariables(sanitizeGeneratedSubject(review.subject)) || cleanSubject;
+        cleanAgentEmailCopy(review.subject, "subject") || cleanSubject;
       const reviewedBody =
-        ensureIceBreakerVariable(normalizeTemplateVariables(sanitizeGeneratedBody(review.body))) ||
+        ensureIceBreakerVariable(cleanAgentEmailCopy(review.body, "body")) ||
         cleanBody;
       setSubject(reviewedSubject);
       setBody(reviewedBody);

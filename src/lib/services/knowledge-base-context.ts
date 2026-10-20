@@ -19,8 +19,10 @@ import {
   type ToneOfVoice,
   type ICPDefinition,
   type EmailExample,
+  type KnowledgeBaseProof,
   type TonePreset,
   TONE_PRESET_LABELS,
+  PROOF_TYPES,
 } from "@/types/knowledge-base";
 import type { Product } from "@/types/product";
 
@@ -37,6 +39,8 @@ export interface KnowledgeBaseContext {
   tone: ToneOfVoice | null;
   icp: ICPDefinition | null;
   examples: EmailExample[];
+  /** Story 24.7: provas da KB (autorizadas e não). Opcional para não quebrar quem monta o contexto sem provas. */
+  proofs?: KnowledgeBaseProof[];
 }
 
 /**
@@ -224,6 +228,45 @@ function formatEmailExamples(examples: EmailExample[]): string {
 }
 
 /**
+ * Story 24.7: maximum number of authorized proofs injected in prompts
+ */
+export const MAX_PROOFS_IN_PROMPT = 20;
+
+/**
+ * Format authorized proofs as a closed list, one per line
+ * Story 24.7: só `is_authorized`, ordem `created_at` asc, máximo MAX_PROOFS_IN_PROMPT.
+ * Formato: `- <Rótulo do tipo>: <texto>` + ` (setor: <setor>)` quando houver setor.
+ */
+export function formatAuthorizedProofs(
+  proofs: KnowledgeBaseProof[] | null | undefined
+): string {
+  if (!proofs || proofs.length === 0) {
+    return "";
+  }
+
+  const oneLine = (value: string) => value.replace(/\s*[\r\n]+\s*/g, " ").trim();
+
+  return proofs
+    .filter((p) => p.is_authorized === true && oneLine(p.text ?? "") !== "")
+    .map((p, idx) => ({ p, idx }))
+    .sort((a, b) => {
+      const ta = Date.parse(a.p.created_at);
+      const tb = Date.parse(b.p.created_at);
+      const da = Number.isNaN(ta) ? 0 : ta;
+      const db = Number.isNaN(tb) ? 0 : tb;
+      return da - db || a.idx - b.idx;
+    })
+    .slice(0, MAX_PROOFS_IN_PROMPT)
+    .map(({ p }) => {
+      const label =
+        PROOF_TYPES.find((t) => t.value === p.proof_type)?.label ?? p.proof_type;
+      const sector = p.sector ? oneLine(p.sector) : "";
+      return `- ${label}: ${oneLine(p.text)}${sector ? ` (setor: ${sector})` : ""}`;
+    })
+    .join("\n");
+}
+
+/**
  * Compile product context into AI-friendly format
  * Story 6.5 AC: #3 - AI Uses Product Context
  *
@@ -289,9 +332,10 @@ export function buildAIVariables(
     tone: null,
     icp: null,
     examples: [],
+    proofs: [],
   };
 
-  const { company, tone, icp, examples } = context;
+  const { company, tone, icp, examples, proofs } = context;
 
   // Compile product context (Story 6.5 AC #3)
   const productContext = compileProductContext(product ?? null);
@@ -340,8 +384,8 @@ export function buildAIVariables(
     email_objective: "Prospecção inicial para apresentar soluções",
     icebreaker: "",
 
-    // Story 24.8: sempre vazio por enquanto; a Story 24.7 (Provas na KB) preenche.
-    authorized_proofs: "",
+    // Story 24.7/24.8: lista fechada das provas autorizadas na KB ("" quando não há).
+    authorized_proofs: formatAuthorizedProofs(proofs),
   };
 }
 

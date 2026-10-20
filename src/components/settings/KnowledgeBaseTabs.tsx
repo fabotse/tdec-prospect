@@ -8,6 +8,7 @@
  * Story 2.4: Empresa section
  * Story 2.5: Tom de Voz, Exemplos sections
  * Story 2.6: ICP section
+ * Story 24.7: Provas section
  */
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -17,15 +18,17 @@ import { ToneOfVoiceForm } from "./ToneOfVoiceForm";
 import { EmailExamplesForm } from "./EmailExamplesForm";
 import { IcebreakerExamplesForm } from "./IcebreakerExamplesForm";
 import { ICPDefinitionForm } from "./ICPDefinitionForm";
+import { ProofsForm } from "./ProofsForm";
 
 export function KnowledgeBaseTabs() {
   return (
     <Tabs defaultValue="company" className="w-full">
-      <TabsList className="grid w-full grid-cols-5 bg-background-secondary">
+      <TabsList className="grid w-full grid-cols-6 bg-background-secondary">
         <TabsTrigger value="company">Empresa</TabsTrigger>
         <TabsTrigger value="tone">Tom de Voz</TabsTrigger>
         <TabsTrigger value="examples">Exemplos</TabsTrigger>
         <TabsTrigger value="icebreakers">Ice Breakers</TabsTrigger>
+        <TabsTrigger value="proofs">Provas</TabsTrigger>
         <TabsTrigger value="icp">ICP</TabsTrigger>
       </TabsList>
 
@@ -81,6 +84,20 @@ export function KnowledgeBaseTabs() {
           </CardHeader>
           <CardContent>
             <IcebreakerExamplesForm />
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="proofs" className="mt-4">
+        <Card className="bg-background-secondary border-border">
+          <CardHeader>
+            <CardTitle className="text-h3">Provas</CardTitle>
+            <CardDescription className="text-body-small text-foreground-muted">
+              Cases, números, clientes de referência, certificações e tempo de mercado. A IA só pode citar os itens marcados como autorizados; sem provas autorizadas, ela não cita nenhuma.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ProofsForm />
           </CardContent>
         </Card>
       </TabsContent>

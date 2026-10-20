@@ -12,8 +12,7 @@
 import { useState, useCallback, useRef } from "react";
 import type { BuilderBlock } from "@/stores/use-builder-store";
 import type { CampaignObjective } from "@/components/campaigns/AICampaignWizard";
-import { sanitizeGeneratedSubject, sanitizeGeneratedBody } from "@/lib/ai/sanitize-ai-output";
-import { buildSequenceFollowUpPlan } from "@/lib/agent/campaign-copy";
+import { buildSequenceFollowUpPlan, cleanAgentEmailCopy } from "@/lib/agent/campaign-copy";
 import { requestEmailReview } from "@/lib/ai/review-email-client";
 
 // ==============================================
@@ -337,7 +336,7 @@ export function useAIFullCampaignGeneration(): UseAIFullCampaignGenerationReturn
               productId,
               abortControllerRef.current!.signal
             );
-            const generatedSubject = sanitizeGeneratedSubject(rawSubject);
+            const generatedSubject = cleanAgentEmailCopy(rawSubject, "subject");
 
             // Check cancellation between subject and body
             if (cancelledRef.current) {
@@ -352,7 +351,7 @@ export function useAIFullCampaignGeneration(): UseAIFullCampaignGenerationReturn
               productId,
               abortControllerRef.current!.signal
             );
-            const generatedBody = sanitizeGeneratedBody(rawBody);
+            const generatedBody = cleanAgentEmailCopy(rawBody, "body");
 
             clearTimeout(timeoutId);
 
@@ -370,8 +369,8 @@ export function useAIFullCampaignGeneration(): UseAIFullCampaignGenerationReturn
               },
               abortControllerRef.current?.signal
             );
-            const subject = sanitizeGeneratedSubject(review.subject) || generatedSubject;
-            const body = sanitizeGeneratedBody(review.body) || generatedBody;
+            const subject = cleanAgentEmailCopy(review.subject, "subject") || generatedSubject;
+            const body = cleanAgentEmailCopy(review.body, "body") || generatedBody;
 
             // Store completed email
             const generatedEmail: GeneratedEmail = {

@@ -24,6 +24,7 @@ import type {
   AIContextVariables,
 } from "@/lib/services/knowledge-base-context";
 import { buildAIVariables } from "@/lib/services/knowledge-base-context";
+import { fetchKnowledgeBaseProofs } from "@/lib/services/knowledge-base-proofs";
 
 // ==============================================
 // TYPES & SCHEMAS
@@ -137,11 +138,19 @@ async function getKnowledgeBaseContext(
     .eq("section", "icp")
     .single();
 
+  // Story 24.7: provas da KB (erro/tabela ausente → [])
+  const proofs = await fetchKnowledgeBaseProofs(
+    supabase,
+    tenantId,
+    "[Campaign Structure]"
+  );
+
   return {
     company: companyData?.content as KnowledgeBaseContext["company"],
     tone: toneData?.content as KnowledgeBaseContext["tone"],
     icp: icpData?.content as KnowledgeBaseContext["icp"],
     examples: [], // Not needed for structure generation
+    proofs,
   };
 }
 
@@ -247,6 +256,8 @@ export async function POST(request: NextRequest) {
       additional_description: description || "",
       tone_style: formatTone(tone),
       company_context: baseVariables.company_context,
+      // Story 24.7: lista fechada das provas autorizadas ("" cai no ramo "nenhuma prova")
+      authorized_proofs: baseVariables.authorized_proofs,
       // Product context (if selected)
       ...(product
         ? {

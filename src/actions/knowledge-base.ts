@@ -23,12 +23,15 @@ import {
   type IcebreakerExampleInput,
   type ICPDefinition,
   type ICPDefinitionInput,
+  type KnowledgeBaseProof,
+  type ProofInput,
   type ActionResult,
   companyProfileSchema,
   toneOfVoiceSchema,
   emailExampleSchema,
   icebreakerExampleSchema,
   icpDefinitionSchema,
+  proofSchema,
   uuidSchema,
   KNOWLEDGE_BASE_SECTIONS,
 } from "@/types/knowledge-base";
@@ -613,6 +616,193 @@ export async function deleteIcebreakerExample(
     return { success: true };
   } catch (error) {
     console.error("deleteIcebreakerExample error:", error);
+    return { success: false, error: "Erro interno do servidor" };
+  }
+}
+
+// ==============================================
+// KNOWLEDGE BASE PROOFS ACTIONS (Story 24.7)
+// ==============================================
+
+/**
+ * Get all proofs (authorized and not) for current tenant, oldest first.
+ * Leitura liberada para qualquer membro do tenant (o RLS faz o mesmo).
+ */
+export async function getProofs(): Promise<ActionResult<KnowledgeBaseProof[]>> {
+  try {
+    const profile = await getCurrentUserProfile();
+
+    if (!profile) {
+      return { success: false, error: "Não autenticado" };
+    }
+
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("knowledge_base_proofs")
+      .select("*")
+      .eq("tenant_id", profile.tenant_id)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error("Error fetching proofs:", error);
+      return { success: false, error: "Erro ao buscar provas" };
+    }
+
+    return { success: true, data: (data ?? []) as KnowledgeBaseProof[] };
+  } catch (error) {
+    console.error("getProofs error:", error);
+    return { success: false, error: "Erro interno do servidor" };
+  }
+}
+
+/**
+ * Create a new proof (admin only)
+ */
+export async function createProof(
+  data: ProofInput
+): Promise<ActionResult<KnowledgeBaseProof>> {
+  try {
+    const validated = proofSchema.safeParse(data);
+    if (!validated.success) {
+      const message = validated.error.issues[0]?.message ?? "Dados inválidos";
+      return { success: false, error: message };
+    }
+
+    const profile = await getCurrentUserProfile();
+
+    if (!profile) {
+      return { success: false, error: "Não autenticado" };
+    }
+
+    if (!hasAdminAccess(profile.role)) {
+      return {
+        success: false,
+        error: "Apenas administradores podem adicionar provas",
+      };
+    }
+
+    const supabase = await createClient();
+    const { data: proof, error } = await supabase
+      .from("knowledge_base_proofs")
+      .insert({
+        tenant_id: profile.tenant_id,
+        proof_type: validated.data.proof_type,
+        text: validated.data.text,
+        sector: validated.data.sector ?? null,
+        is_authorized: validated.data.is_authorized,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error creating proof:", error);
+      return { success: false, error: "Erro ao criar prova. Tente novamente." };
+    }
+
+    return { success: true, data: proof as KnowledgeBaseProof };
+  } catch (error) {
+    console.error("createProof error:", error);
+    return { success: false, error: "Erro interno do servidor" };
+  }
+}
+
+/**
+ * Update an existing proof (admin only)
+ */
+export async function updateProof(
+  id: string,
+  data: ProofInput
+): Promise<ActionResult<KnowledgeBaseProof>> {
+  try {
+    const idValidation = uuidSchema.safeParse(id);
+    if (!idValidation.success) {
+      return { success: false, error: "ID inválido" };
+    }
+
+    const validated = proofSchema.safeParse(data);
+    if (!validated.success) {
+      const message = validated.error.issues[0]?.message ?? "Dados inválidos";
+      return { success: false, error: message };
+    }
+
+    const profile = await getCurrentUserProfile();
+
+    if (!profile) {
+      return { success: false, error: "Não autenticado" };
+    }
+
+    if (!hasAdminAccess(profile.role)) {
+      return {
+        success: false,
+        error: "Apenas administradores podem editar provas",
+      };
+    }
+
+    const supabase = await createClient();
+    const { data: proof, error } = await supabase
+      .from("knowledge_base_proofs")
+      .update({
+        proof_type: validated.data.proof_type,
+        text: validated.data.text,
+        sector: validated.data.sector ?? null,
+        is_authorized: validated.data.is_authorized,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .eq("tenant_id", profile.tenant_id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error updating proof:", error);
+      return { success: false, error: "Erro ao atualizar prova. Tente novamente." };
+    }
+
+    return { success: true, data: proof as KnowledgeBaseProof };
+  } catch (error) {
+    console.error("updateProof error:", error);
+    return { success: false, error: "Erro interno do servidor" };
+  }
+}
+
+/**
+ * Delete a proof (admin only)
+ */
+export async function deleteProof(id: string): Promise<ActionResult<void>> {
+  try {
+    const idValidation = uuidSchema.safeParse(id);
+    if (!idValidation.success) {
+      return { success: false, error: "ID inválido" };
+    }
+
+    const profile = await getCurrentUserProfile();
+
+    if (!profile) {
+      return { success: false, error: "Não autenticado" };
+    }
+
+    if (!hasAdminAccess(profile.role)) {
+      return {
+        success: false,
+        error: "Apenas administradores podem remover provas",
+      };
+    }
+
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from("knowledge_base_proofs")
+      .delete()
+      .eq("id", id)
+      .eq("tenant_id", profile.tenant_id);
+
+    if (error) {
+      console.error("Error deleting proof:", error);
+      return { success: false, error: "Erro ao remover prova. Tente novamente." };
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("deleteProof error:", error);
     return { success: false, error: "Erro interno do servidor" };
   }
 }

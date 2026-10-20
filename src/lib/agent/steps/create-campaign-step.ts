@@ -53,6 +53,7 @@ import type {
 } from "@/types/agent";
 import type { AIModel } from "@/types/ai-provider";
 import type { AIContextVariables } from "@/lib/services/knowledge-base-context";
+import { fetchKnowledgeBaseProofs } from "@/lib/services/knowledge-base-proofs";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ==============================================
@@ -673,7 +674,14 @@ export class CreateCampaignStep extends BaseStep {
       .eq("section", "icp")
       .single();
 
-    if (!companyData && !toneData && !icpData) {
+    // Story 24.7: provas da KB (erro/tabela ausente → [])
+    const proofs = await fetchKnowledgeBaseProofs(
+      this.supabase,
+      this.tenantId,
+      "[CreateCampaignStep]"
+    );
+
+    if (!companyData && !toneData && !icpData && proofs.length === 0) {
       return null;
     }
 
@@ -682,6 +690,7 @@ export class CreateCampaignStep extends BaseStep {
       tone: (toneData?.content as KnowledgeBaseContext["tone"]) ?? null,
       icp: (icpData?.content as KnowledgeBaseContext["icp"]) ?? null,
       examples: [],
+      proofs,
     };
   }
 

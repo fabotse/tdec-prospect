@@ -20,6 +20,7 @@ import type {
   KnowledgeBaseSection,
 } from "@/types/knowledge-base";
 import type { KnowledgeBaseContext } from "@/lib/services/knowledge-base-context";
+import { fetchKnowledgeBaseProofs } from "@/lib/services/knowledge-base-proofs";
 import type { APIErrorResponse } from "@/types/api";
 
 // ==============================================
@@ -118,11 +119,13 @@ export async function GET() {
     // 2. Fetch all KB sections in parallel (AC: #5 - graceful handling)
     const supabase = await createClient();
 
-    const [company, tone, icp, examples] = await Promise.all([
+    const [company, tone, icp, examples, proofs] = await Promise.all([
       fetchKBSection<CompanyProfile>(supabase, tenantId, "company"),
       fetchKBSection<ToneOfVoice>(supabase, tenantId, "tone"),
       fetchKBSection<ICPDefinition>(supabase, tenantId, "icp"),
       fetchEmailExamples(supabase, tenantId),
+      // Story 24.7: erro (ex.: tabela ainda não criada) vira [] sem derrubar a rota
+      fetchKnowledgeBaseProofs(supabase, tenantId, "[KB Context]"),
     ]);
 
     // 3. Return compiled context
@@ -131,6 +134,7 @@ export async function GET() {
       tone,
       icp,
       examples,
+      proofs,
     };
 
     return NextResponse.json<KnowledgeBaseContextResponse>({

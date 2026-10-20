@@ -185,15 +185,20 @@ export function computeActualCost(steps: StepCostRow[], prices: UnitPrices): Cos
 // TEXTO DO CHAT
 // ==============================================
 
-export type CostPhase = "completed" | "paused";
+export type CostPhase = "completed" | "paused" | "cancelled";
 
-/** Linha de custo exibida no chat na conclusao ou na pausa. */
+/** Linha de custo exibida no chat na conclusao, na pausa ou no cancelamento. */
 export function formatCostLine(
   phase: CostPhase,
   estimateTotal: number | null,
   actualTotal: number
 ): string {
-  const prefix = phase === "completed" ? "Custo da execução" : "Custo até aqui";
+  const prefix =
+    phase === "completed"
+      ? "Custo da execução"
+      : phase === "cancelled"
+        ? "Custo até o cancelamento"
+        : "Custo até aqui";
   if (estimateTotal === null || !Number.isFinite(estimateTotal)) {
     return `${prefix} — real ${formatBRL(actualTotal)}`;
   }

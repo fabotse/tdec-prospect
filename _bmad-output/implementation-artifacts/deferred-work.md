@@ -565,3 +565,27 @@ source_spec: `spec-24-10-custo-real-e-estimativa-honesta.md`
 severity: low
 reason: Comportamento anterior a esta story (a UI ja somava ESTIMATED_LEADS x APIFY_COST_PER_LEAD sobre um total que podia incluir o premium). Hoje o GET /plan roda antes de o toggle ser persistido, entao o caso e raro.
 status: open
+
+### DW-22: A assinatura dos e-mails so existe nas contas remetentes do Instantly, e o cliente nao tem acesso ao Instantly: toda troca de assinatura depende do Fabossi.
+origin: decisao do Fabossi em conversa (2026-10-20), apos o fix que tirou a assinatura dos prompts
+location: src/lib/ai/prompts/defaults.ts (email_body_generation [FECHAMENTO], follow_up_email_generation); src/lib/services/instantly.ts:307 (email_list)
+source_spec: `spec-24-8-prompts-honestos-problema-primeiro-provas-so-da-kb.md`
+severity: medium
+reason: Os prompts agora terminam na palavra de fechamento ("Abraço,") e proibem assinatura/[Seu nome]; a assinatura fica a cargo do envio. Tratar como story propria. Opcoes levantadas: (1) manter no Instantly (conferir que as contas remetentes tem assinatura configurada, senao os e-mails saem sem nome); (2) campo "Assinatura" nas Configuracoes do app, anexado no export — cuidado: a campanha usa varias contas remetentes (`email_list`) e o Instantly alterna entre elas, entao a assinatura fixa precisa ser da empresa (sem nome de pessoa) ou por conta remetente; (3) assinatura por conta remetente editada no app e enviada ao Instantly pela API (verificar se a API v2 permite). Opcoes 2 e 3 tocam o caminho ate o Instantly: pela Regra no 1, so com OK do Fabossi e smoke sem ativar campanha.
+status: open
+
+### DW-23: O sweeper SQL só tem teste estrutural (texto do .sql); nenhum teste automatizado executa a função.
+origin: spec-deferred 25485bb06d9a
+location: __tests__/unit/migrations/00067-sweep-stuck-agent-steps.test.ts
+source_spec: `spec-24-1-etapa-travada-e-destravada-sozinha.md`
+severity: medium
+reason: O repo não tem harness que execute SQL (sem pg/pglite/pg-mem no package.json); a convenção de __tests__/unit/migrations é textual. Mitigado nesta story por execução manual em PGlite (scratchpad) cobrindo todas as linhas SQL da matriz. Resolve-se adicionando um harness PGlite como devDependency numa story própria.
+status: open
+
+### DW-24: Execução pode ficar em running sem nenhum step running (morte entre steps no autopilot) e o sweeper não a vê.
+origin: spec-deferred c0ab8d4d2671
+location: supabase/migrations/00067_sweep_stuck_agent_steps.sql
+source_spec: `spec-24-1-etapa-travada-e-destravada-sozinha.md`
+severity: medium
+reason: Pré-existente e fora dos ACs da 24.1, que tratam de step preso. O sweeper parte de agent_steps.status='running'; uma execução running com step N completed e N+1 pending não é detectada. A 24.3 já reporta falha do triggerNextStep (report-trigger-failure.ts), mas uma morte do processo entre steps não é coberta.
+status: open

@@ -34,7 +34,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-25
-last_updated: 2026-10-19  # 23.0 adiada (story escrita, volta a backlog); epic-23 volta a backlog
+last_updated: 2026-10-20  # 23.0 adiada (story escrita, volta a backlog); epic-23 volta a backlog
 project: tdec-prospect
 project_key: NOKEY
 tracking_system: file-system
@@ -583,13 +583,13 @@ development_status:
   # 3 marcos: M1 24.1-24.10 (confiavel + copy honesta) | M2 24.11-24.18 (Analista de Contas; abre c/ spike Treg) | M3 24.19-24.25 (dossie + reuniao). Deploy + smoke + checkpoint ao fim de cada marco.
   #
   epic-24: backlog
-  24-1-etapa-travada-e-destravada-sozinha: backlog
+  24-1-etapa-travada-e-destravada-sozinha: awaiting-operator
   24-2-execucao-protegida-contra-cobranca-dupla: done
   24-3-avanco-confiavel-e-tentar-novamente: done
   24-4-conversa-sem-becos-sem-saida: done
   24-5-confirmacao-por-card-com-botoes: done
   24-6-e-mails-sem-dados-ficticios-e-follow-ups-com-valor: done
-  24-7-secao-de-provas-na-knowledge-base: backlog
+  24-7-secao-de-provas-na-knowledge-base: done
   24-8-prompts-honestos-problema-primeiro-provas-so-da-kb: done
   24-9-revisor-automatico-de-copy: done
   24-10-custo-real-e-estimativa-honesta: done

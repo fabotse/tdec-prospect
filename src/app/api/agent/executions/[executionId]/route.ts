@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
 import { isTerminalExecutionStatus } from "@/types/agent";
+import { recordExecutionCost } from "@/lib/agent/execution-cost";
 
 const validModes = ["guided", "autopilot"];
 
@@ -159,6 +160,10 @@ export async function PATCH(
         { status: 409 }
       );
     }
+
+    // Story 24.10 (follow-up): o cancelamento tambem grava o custo real. Fail-open: nunca
+    // lanca, entao o cancel ja feito segue respondendo 200.
+    await recordExecutionCost(supabase, executionId, { phase: "cancelled" });
 
     return NextResponse.json({ data: cancelledRows[0] });
   }

@@ -163,6 +163,12 @@ describe("agent-pricing", () => {
       );
     });
 
+    it("cancelamento: 'Custo até o cancelamento'", () => {
+      expect(formatCostLine("cancelled", 2.79, 0.6)).toMatch(
+        /^Custo até o cancelamento — estimado R\$\s2,79 · real R\$\s0,60$/
+      );
+    });
+
     it("sem estimativa mostra so o real", () => {
       expect(formatCostLine("completed", null, 1)).toMatch(/^Custo da execução — real R\$\s1,00$/);
     });

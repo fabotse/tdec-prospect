@@ -256,3 +256,14 @@ Status: done
 - Chamadas atrasadas depois do orçamento continuam rodando em segundo plano e gravam custo, porque o custo foi gasto de verdade. O texto delas é descartado.
 - No editor, o que o usuário digita durante "Revisando copy..." é sobrescrito pelo texto revisado (linha carried).
 - Os riscos residuais da 1ª passada continuam: até 5 chamadas por e-mail, log pelo client de sessão, status manual sem persistência e despedida solta depois da limpeza.
+
+
+## Smoke em produção (2026-10-19)
+
+Deploy via PR #9 (merge `5aee72c` na `main`, Vercel prod OK). Fabossi rodou o agente em produção no modo Guiado (execução `ade2e314-2a7a-441b-956e-7da53a6bdfd0`, cargo CISO em São Paulo, 1 lead aprovado de 25) e confirmou na tela: estimativa no plano, e-mails abrindo pelo problema do lead sem números/cases inventados, CTA de sim/não e status do revisor por e-mail. Conferido no banco com `scripts/db-ro.sh`:
+
+- `agent_steps.cost` gravado em todos os steps (`apollo_search` 25, `apollo_enrich` 1, `openai_emails` 5, `openai_review` 13, `openai_structure` 1, `openai_icebreakers` 1, `instantly_create` 1, `instantly_leads` 1).
+- `api_usage_logs` com `metadata.executionId` para cada chamada paga: OpenAI (parse do briefing, geração, 5 revisões de copy com custo), Apollo (busca e enrichment) e Instantly (export).
+- `cost_actual` ficou vazio: a execução foi cancelada e o custo real só era gravado na conclusão ou na pausa. Corrigido em seguida: o cancelamento também grava o custo real ("Custo até o cancelamento").
+
+**Efeito no cliente:** aprovar a etapa "Criação de Campanha" dispara o export. Este smoke e o do Marco 1 (execução `e4721592-…`, 09:42) criaram duas campanhas "Campanha Outbound - 19/10/2026" no Instantly (`55b91cdb-728a-4256-b4a9-6fe52d285c55` com 1 lead e `9d0624b0-9a3a-48c1-9a98-45deade6df84` com 20), **nenhuma ativada** (activate pendente, execuções canceladas). Limpeza no Instantly fica com Fabossi. Os leads foram para o segmento "Campanha Outbound - 19/10/2026". Próximos smokes param na etapa "Criação de Campanha", sem aprovar.
