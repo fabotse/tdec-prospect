@@ -189,3 +189,31 @@ Status: awaiting-operator
 **Riscos residuais:** SQL testado em PGlite com stubs de `cron`/`net`, não no Supabase real (colunas conferidas só leitura); erros sem tenant ficam visíveis aos gestores de qualquer tenant; agendas semanais futuras gerariam JOB_PARADO falso; enquanto o timeout do monitor-leads existir, a aba Erros fica dominada por linhas `pg_net/http`.
 
 **Devido pelo operador:** ver `operator_actions` no frontmatter.
+
+## Decisões do operador e ajustes pós-loop (2026-10-20)
+
+Antes de aplicar, Fabossi decidiu:
+1. **Só ele vê os alertas e os Erros.** Os 5 gestores do cliente, não.
+2. **Monitor-leads: opção (b) + (c).** O monitoramento semanal passa a rodar, com timeout maior.
+
+Ajustes (commit `de1de0c`):
+- `00068`: ganhou `public.platform_admins` (seed: só o profile `61d07b17-…`, Fabossi, via `INSERT … SELECT … ON CONFLICT DO NOTHING`) e `public.is_platform_admin()` (`SECURITY DEFINER`, `search_path = ''`).
+  - `error_logs`: leitura só para quem passa em `is_platform_admin()`.
+  - `audience`: aceita `'admin'`/`'platform'`; o `job_com_falha` sai com `'platform'` e só para o tenant do platform admin.
+- App: aba Erros, `/settings/errors` e `GET /api/settings/errors` usam `isPlatformAdmin` (`src/lib/auth/platform-admin.ts` e `src/hooks/use-platform-admin.ts`). Fail-closed: se a RPC falha, ninguém vê.
+- `src/app/api/monitoring/process-batch/route.ts`: o filtro inclui `and(run_status.eq.idle,next_run_at.is.null)`. Config nunca agendada conta como vencida, sem `UPDATE` no banco.
+- `00069_monitor_leads_cron_timeout.sql`: reagenda só o `monitor-leads-cron` (mesmo nome, `*/5`, mesmo comando da 00045) com `timeout_milliseconds := 150000`.
+- Correção do registro acima: o `@electric-sql/pglite` já estava em `devDependencies`. Nada a mudar ali.
+- Testes: a migration em PGlite cobre 40 casos (platform admin vê; gestor sem platform admin e SDR não veem alerta nem `error_logs`; seed; `audience`); mais rota, página, abas, `isPlatformAdmin` e o filtro do monitor. Gate: lint 0 erros, typecheck ok, 437 arquivos / 8203 testes ok.
+
+## Migration aplicada e smoke (2026-10-20)
+
+- Fabossi aplicou a `00068` + `00069` + `NOTIFY pgrst` no SQL Editor de produção.
+- Conferido por `scripts/db-ro.sh`:
+  - As tabelas e as 4 funções existem; `platform_admins` tem só o Fabossi.
+  - `job-health-check` é o job 6 (`*/15`, ativo); `monitor-leads-cron` virou o job 7 (`*/5`, com timeout de 150 s); `reply-sweep-cron` e `agent-stuck-steps-sweep` ficaram intactos.
+  - As policies em produção são idênticas às testadas.
+  - As 65 notificações existentes continuam com `audience` NULL.
+- 1ª execução do `job-health-check` (14:00 UTC): `succeeded`. Gravou 1 linha `pg_net/http` (timeout de 5 s das 13:50, anterior à 00069) e 1 `job_com_falha` com `audience = platform` no tenant `…0001`. Desde 13:55, todas as chamadas do pg_net deram 200.
+- Smoke local (Playwright, `next dev -p 3100`, logado como Fabossi): aba Erros visível, a linha aparece na lista, e o sino mostra "⚠️ Job com problema: Chamadas HTTP (pg_net)".
+- Não havia login de gestor do cliente nem de SDR. A visão deles está coberta pelos testes PGlite com o SQL real e pela policy conferida em produção.
