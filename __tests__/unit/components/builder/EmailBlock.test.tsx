@@ -586,6 +586,10 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
   });
 
   describe("Limpeza da saida da IA (Story 24.8)", () => {
+    // No CI lento, chamadas de testes anteriores (debounce de 500 ms do subject, geracao ainda
+    // no setTimeout de 300 ms) caem neste teste depois do clearAllMocks. Por isso o teste olha a
+    // ULTIMA gravacao final da geracao (a unica com reviewStatus), nao a primeira com body.
+    // Runs 39404695512, 39415916432, 39435592491, 39437500143.
     it("remove assinatura placeholder e RE: antes de gravar o bloco", async () => {
       mockGenerate.mockImplementation((params: { promptKey: string }) =>
         Promise.resolve(
@@ -603,13 +607,14 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
         () => {
           const data = mockUpdateBlock.mock.calls
             .map((call) => call[1]?.data)
-            .find((d) => d?.body);
+            .filter((d) => d?.reviewStatus !== undefined)
+            .at(-1);
           expect(data?.subject).toBe("Uma ideia para {{company_name}}");
           expect(data?.body).toBe("Oi {{first_name}},\n\n{{ice_breaker}}\n\nFaz sentido?\n\nAbraço,");
         },
-        { timeout: 5000 }
+        { timeout: 10000 }
       );
-    });
+    }, 15000);
   });
 
   describe("AI Error Handling (Story 6.2 AC: #2)", () => {
@@ -959,16 +964,18 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
 
       await waitFor(
         () => {
+          // Ultima chamada de cada prompt: no CI lento, geracoes de testes anteriores ainda
+          // pendentes caem aqui depois do clearAllMocks (ver teste de limpeza da 24.8).
           // Verify productId is passed to subject generation
-          const subjectCall = mockGenerate.mock.calls.find(
-            (call) => call[0]?.promptKey === "email_subject_generation"
-          );
+          const subjectCall = mockGenerate.mock.calls
+            .filter((call) => call[0]?.promptKey === "email_subject_generation")
+            .at(-1);
           expect(subjectCall?.[0]?.productId).toBe("product-123");
 
           // Verify productId is passed to body generation
-          const bodyCall = mockGenerate.mock.calls.find(
-            (call) => call[0]?.promptKey === "email_body_generation"
-          );
+          const bodyCall = mockGenerate.mock.calls
+            .filter((call) => call[0]?.promptKey === "email_body_generation")
+            .at(-1);
           expect(bodyCall?.[0]?.productId).toBe("product-123");
         },
         { timeout: 3000 }

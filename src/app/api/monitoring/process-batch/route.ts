@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { logServerError } from "@/lib/services/error-logger";
 import { ApifyService } from "@/lib/services/apify";
 import {
   calculateNextRunAt,
@@ -46,12 +47,14 @@ export async function POST(req: NextRequest) {
 
     const apifyService = new ApifyService();
 
-    // Find config: running (resume) OR idle with next_run_at <= now
+    // Find config: running (resume) OR idle with next_run_at <= now OR idle never scheduled.
+    // Story 23.3: `next_run_at` NULL (config criada pela UI sem agendamento) conta como vencido;
+    // antes nao casava com o filtro e o monitoramento semanal nunca rodava (`no_config`).
     const { data: configs } = await supabase
       .from("monitoring_configs")
       .select("*")
       .or(
-        `run_status.eq.running,and(run_status.eq.idle,next_run_at.lte.${new Date().toISOString()})`
+        `run_status.eq.running,and(run_status.eq.idle,next_run_at.lte.${new Date().toISOString()}),and(run_status.eq.idle,next_run_at.is.null)`
       )
       .limit(1);
 
@@ -285,6 +288,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(batchResult);
   } catch (error) {
+    // Story 23.3: registra em Configuracoes -> Erros (resposta inalterada).
+    await logServerError({ source: "cron", route: "/api/monitoring/process-batch", error });
     const message =
       error instanceof Error ? error.message : "Internal server error";
     return NextResponse.json({ error: message }, { status: 500 });

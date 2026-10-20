@@ -54,6 +54,12 @@ function buildAdminClient() {
   return { from: vi.fn(() => chain) };
 }
 
+// Story 23.3: ramo "Unexpected error" grava error_logs (source api).
+const mockLogServerError = vi.fn();
+vi.mock("@/lib/services/error-logger", () => ({
+  logServerError: (...args: unknown[]) => mockLogServerError(...args),
+}));
+
 const mockExecuteStep = vi.fn();
 
 vi.mock("@/lib/agent/orchestrator", () => ({
@@ -562,6 +568,43 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/execute", 
     expect(response.status).toBe(500);
     expect(json.error.code).toBe("INTERNAL_ERROR");
     expect(json.error.isRetryable).toBe(false);
+  });
+
+  it("Story 23.3: erro generico grava error_logs (source api, tenant do usuario) com a mesma resposta", async () => {
+    setupDefaultMocks();
+    const crash = new Error("Unexpected crash");
+    mockExecuteStep.mockRejectedValue(crash);
+
+    const response = await POST(createRequest(), createParams());
+    const json = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(json.error).toEqual({
+      code: "INTERNAL_ERROR",
+      message: "Unexpected crash",
+      isRetryable: false,
+    });
+    expect(mockLogServerError).toHaveBeenCalledWith({
+      source: "api",
+      route: "/api/agent/executions/[executionId]/steps/[stepNumber]/execute",
+      tenantId: "tenant-456",
+      error: crash,
+    });
+  });
+
+  it("Story 23.3: PipelineError NAO grava error_logs na rota (o orchestrator ja decidiu)", async () => {
+    setupDefaultMocks();
+    mockExecuteStep.mockRejectedValue({
+      code: "STEP_EXECUTION_ERROR",
+      message: "Fatal error",
+      stepNumber: 1,
+      stepType: "search_companies",
+      isRetryable: false,
+    });
+
+    await POST(createRequest(), createParams());
+
+    expect(mockLogServerError).not.toHaveBeenCalled();
   });
 });
 

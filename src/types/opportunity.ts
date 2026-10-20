@@ -341,6 +341,8 @@ export interface AppNotificationRow {
   payload: Record<string, unknown>;
   read_at: string | null;
   created_at: string;
+  /** Story 23.3: NULL = todos; 'admin' = so gestor/diretor (coluna ausente antes da 00068). */
+  audience?: "admin" | null;
 }
 
 export interface AppNotification {
@@ -350,6 +352,8 @@ export interface AppNotification {
   payload: Record<string, unknown>;
   readAt: string | null;
   createdAt: string;
+  /** Story 23.3: 'admin' = notificacao so para gestor/diretor. */
+  audience?: "admin" | null;
 }
 
 /**
@@ -369,5 +373,6 @@ export function toAppNotification(row: AppNotificationRow): AppNotification {
         : {},
     readAt: row.read_at,
     createdAt: row.created_at,
+    audience: row.audience ?? null,
   };
 }

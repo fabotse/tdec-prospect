@@ -142,4 +142,72 @@ describe("NotificationBell", () => {
     expect(mockMarkRead).not.toHaveBeenCalled();
     expect(mockPush).toHaveBeenCalledWith("/opportunities");
   });
+
+  // Story 23.3: notificação de job agendado com problema (só gestores via RLS)
+  describe("job_com_falha", () => {
+    const jobAlert = (overrides: Partial<AppNotification> = {}) =>
+      notif({
+        id: "an-job",
+        type: "job_com_falha",
+        audience: "admin",
+        payload: {
+          key: "http",
+          job: "Chamadas HTTP (pg_net)",
+          detail: "3 chamada(s) HTTP do pg_net falharam nos ultimos 15 min.",
+        },
+        ...overrides,
+      });
+
+    it("mostra título de job e o detail como subtítulo", () => {
+      mockUseNotifications.mockReturnValue({
+        notifications: [jobAlert()],
+        meta: null,
+        isLoading: false,
+        error: null,
+      });
+      render(<NotificationBell />);
+      expect(screen.getByText("⚠️ Job com problema: Chamadas HTTP (pg_net)")).toBeInTheDocument();
+      expect(
+        screen.getByText("3 chamada(s) HTTP do pg_net falharam nos ultimos 15 min.")
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/🔥/)).not.toBeInTheDocument();
+    });
+
+    it("clique → mark-read + navega para Configurações → Erros", () => {
+      mockUseNotifications.mockReturnValue({
+        notifications: [jobAlert()],
+        meta: null,
+        isLoading: false,
+        error: null,
+      });
+      render(<NotificationBell />);
+      fireEvent.click(screen.getByText(/Job com problema/));
+      expect(mockMarkRead).toHaveBeenCalledWith("an-job");
+      expect(mockPush).toHaveBeenCalledWith("/settings/errors");
+    });
+
+    it("payload sem job/detail não quebra", () => {
+      mockUseNotifications.mockReturnValue({
+        notifications: [jobAlert({ payload: {} })],
+        meta: null,
+        isLoading: false,
+        error: null,
+      });
+      render(<NotificationBell />);
+      expect(screen.getByText("⚠️ Job com problema: desconhecido")).toBeInTheDocument();
+    });
+
+    it("oportunidade continua com 🔥 e indo para /opportunities ao lado de um alerta de job", () => {
+      mockUseNotifications.mockReturnValue({
+        notifications: [jobAlert(), notif({ id: "an-opp" })],
+        meta: null,
+        isLoading: false,
+        error: null,
+      });
+      render(<NotificationBell />);
+      expect(screen.getByText("🔥 João Silva (ACME)")).toBeInTheDocument();
+      fireEvent.click(screen.getByText(/João Silva/));
+      expect(mockPush).toHaveBeenCalledWith("/opportunities");
+    });
+  });
 });

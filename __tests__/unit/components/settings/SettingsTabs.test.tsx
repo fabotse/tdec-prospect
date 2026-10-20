@@ -9,6 +9,12 @@ vi.mock('next/navigation', () => ({
   usePathname: () => mockUsePathname(),
 }))
 
+// Story 23.3: aba Erros só para platform admin
+const mockUsePlatformAdmin = vi.fn(() => ({ data: true }))
+vi.mock('@/hooks/use-platform-admin', () => ({
+  usePlatformAdmin: () => mockUsePlatformAdmin(),
+}))
+
 describe('SettingsTabs', () => {
   describe('Rendering', () => {
     it('should render all tabs', () => {
@@ -43,6 +49,29 @@ describe('SettingsTabs', () => {
       expect(screen.getByRole('tab', { name: /uso da api/i })).toHaveAttribute('href', '/settings/usage')
       expect(screen.getByRole('tab', { name: /monitoramento/i })).toHaveAttribute('href', '/settings/monitoring')
       expect(screen.getByRole('tab', { name: /equipe/i })).toHaveAttribute('href', '/settings/team')
+    })
+
+    // Story 23.3
+    it('should render the Erros tab before Equipe', () => {
+      mockUsePathname.mockReturnValue('/settings/errors')
+
+      render(<SettingsTabs />)
+
+      const errorsTab = screen.getByRole('tab', { name: /^erros$/i })
+      expect(errorsTab).toHaveAttribute('href', '/settings/errors')
+      expect(errorsTab).toHaveAttribute('aria-selected', 'true')
+      const labels = screen.getAllByRole('tab').map((t) => t.textContent)
+      expect(labels.indexOf('Erros')).toBe(labels.indexOf('Equipe') - 1)
+    })
+
+    it('should hide the Erros tab for non platform admins (gestor do cliente)', () => {
+      mockUsePathname.mockReturnValue('/settings/integrations')
+      mockUsePlatformAdmin.mockReturnValueOnce({ data: false })
+
+      render(<SettingsTabs />)
+
+      expect(screen.queryByRole('tab', { name: /^erros$/i })).not.toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /equipe/i })).toBeInTheDocument()
     })
   })
 
@@ -148,7 +177,7 @@ describe('SettingsTabs', () => {
       render(<SettingsTabs />)
 
       const tabs = screen.getAllByRole('tab')
-      expect(tabs).toHaveLength(7) // Integrações, Base de Conhecimento, Produtos, Uso da API, Monitoramento, Notificações, Equipe
+      expect(tabs).toHaveLength(8) // Integrações, Base de Conhecimento, Produtos, Uso da API, Monitoramento, Notificações, Erros, Equipe
     })
 
     it('should be keyboard accessible', () => {

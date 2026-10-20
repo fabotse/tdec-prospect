@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
+import { logServerError } from "@/lib/services/error-logger";
 import { createClient } from "@/lib/supabase/server";
 import { readServiceApiKey } from "@/lib/agent/service-keys";
 import { isTerminalExecutionStatus } from "@/types/agent";
@@ -221,6 +222,13 @@ export async function POST(
 
     // 5.8 - Generic error
     console.error("[Execute Step] Unexpected error:", error);
+    // Story 23.3: registra em Configuracoes -> Erros (resposta inalterada).
+    await logServerError({
+      source: "api",
+      route: "/api/agent/executions/[executionId]/steps/[stepNumber]/execute",
+      tenantId: profile.tenant_id,
+      error,
+    });
     return NextResponse.json(
       {
         error: {

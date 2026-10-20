@@ -133,6 +133,12 @@ vi.mock("@/lib/agent/agent-usage", () => ({
   logAgentUsage: (...args: unknown[]) => mockLogAgentUsage(...args),
 }));
 
+// Story 23.3: registro de erros do step (STEP_EXECUTION_ERROR -> error_logs).
+const mockLogServerError = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/services/error-logger", () => ({
+  logServerError: (...args: unknown[]) => mockLogServerError(...args),
+}));
+
 vi.mock("@/lib/agent/steps/step-utils", () => ({
   getServiceApiKey: (...args: unknown[]) => mockGetServiceApiKey(...args),
 }));
@@ -400,6 +406,60 @@ describe("DeterministicOrchestrator (AC #5)", () => {
       expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("status 'paused'"), "db down");
       expect(mockSupabase.messagesChain.insert).toHaveBeenCalled();
       errorSpy.mockRestore();
+    });
+  });
+
+  describe("Story 23.3 — registro de erros do step", () => {
+    it("erro generico (STEP_EXECUTION_ERROR) grava error_logs com tenant e stepType", async () => {
+      mockSearchCompaniesRun.mockRejectedValue(new Error("Cannot read properties of undefined"));
+
+      await expect(orchestrator.executeStep("exec-001", 1)).rejects.toMatchObject({
+        code: "STEP_EXECUTION_ERROR",
+        reportedInChat: true,
+      });
+
+      expect(mockLogServerError).toHaveBeenCalledTimes(1);
+      expect(mockLogServerError).toHaveBeenCalledWith({
+        source: "agent_step",
+        route: "agent/search_companies",
+        tenantId: "tenant-1",
+        error: "Cannot read properties of undefined",
+      });
+      // a pausa e a bolha continuam acontecendo
+      expect(mockSupabase.executionsChain.update).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "paused" })
+      );
+    });
+
+    it("PipelineError de servico externo NAO grava error_logs", async () => {
+      mockSearchCompaniesRun.mockRejectedValue({
+        code: "STEP_SEARCH_COMPANIES_ERROR",
+        message: "Rate limited",
+        stepNumber: 1,
+        stepType: "search_companies",
+        isRetryable: true,
+        externalService: "theirstack",
+      } satisfies PipelineError);
+
+      await expect(orchestrator.executeStep("exec-001", 1)).rejects.toMatchObject({
+        code: "STEP_SEARCH_COMPANIES_ERROR",
+      });
+      expect(mockLogServerError).not.toHaveBeenCalled();
+    });
+
+    it("STEP_ALREADY_RUNNING NAO grava error_logs", async () => {
+      mockSearchCompaniesRun.mockRejectedValue({
+        code: "STEP_ALREADY_RUNNING",
+        message: "Etapa ja em execucao",
+        stepNumber: 1,
+        stepType: "search_companies",
+        isRetryable: false,
+      } satisfies PipelineError);
+
+      await expect(orchestrator.executeStep("exec-001", 1)).rejects.toMatchObject({
+        code: "STEP_ALREADY_RUNNING",
+      });
+      expect(mockLogServerError).not.toHaveBeenCalled();
     });
   });
 

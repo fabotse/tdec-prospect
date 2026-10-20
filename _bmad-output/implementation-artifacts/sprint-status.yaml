@@ -571,7 +571,7 @@ development_status:
   23-0-banco-de-teste-espelhando-producao: backlog  # ADIADA 2026-10-15 (Fabossi): risco operacional; story escrita fica como referencia. Regra de verificacao pos-etapa em CLAUDE.md/AGENTS.md
   23-1-webhook-e-crons-autenticados: backlog
   23-2-dependencias-sem-vulnerabilidades-criticas: done
-  23-3-saude-dos-jobs-e-registro-de-erros-com-a-infraestrutura-atual: backlog
+  23-3-saude-dos-jobs-e-registro-de-erros-com-a-infraestrutura-atual: awaiting-operator
   23-4-ci-no-github-e-base-verde: done
   23-5-lista-de-supressao-cadastro-e-import: backlog
   23-6-supressao-aplicada-em-todos-os-caminhos: backlog
@@ -583,7 +583,7 @@ development_status:
   # 3 marcos: M1 24.1-24.10 (confiavel + copy honesta) | M2 24.11-24.18 (Analista de Contas; abre c/ spike Treg) | M3 24.19-24.25 (dossie + reuniao). Deploy + smoke + checkpoint ao fim de cada marco.
   #
   epic-24: backlog
-  24-1-etapa-travada-e-destravada-sozinha: awaiting-operator
+  24-1-etapa-travada-e-destravada-sozinha: done
   24-2-execucao-protegida-contra-cobranca-dupla: done
   24-3-avanco-confiavel-e-tentar-novamente: done
   24-4-conversa-sem-becos-sem-saida: done

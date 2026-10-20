@@ -52,6 +52,12 @@ vi.mock("@/lib/utils/approach-suggestion", () => ({
     mockCalculateSuggestionCost(...args),
 }));
 
+// Story 23.3: registro de erros (catch final grava source "cron")
+const mockLogServerError = vi.fn();
+vi.mock("@/lib/services/error-logger", () => ({
+  logServerError: (...args: unknown[]) => mockLogServerError(...args),
+}));
+
 import { POST } from "@/app/api/monitoring/process-batch/route";
 
 // ==============================================
@@ -305,6 +311,35 @@ describe("POST /api/monitoring/process-batch", () => {
   // ==============================================
 
   describe("New run (idle → running)", () => {
+    it("Story 23.3: config idle com next_run_at nulo conta como vencida (filtro e inicio do run)", async () => {
+      const configData = createMockConfig({ run_status: "idle", next_run_at: null });
+      const configChain = createChainBuilder({ data: [configData], error: null });
+      const leadsChain = createChainBuilder({ data: [], error: null });
+      const apiConfigChain = createChainBuilder({
+        data: { encrypted_key: "enc-key" },
+        error: null,
+      });
+
+      mockFrom.mockImplementation((table: string) => {
+        if (table === "monitoring_configs") return configChain;
+        if (table === "leads") return leadsChain;
+        if (table === "api_configs") return apiConfigChain;
+        return createChainBuilder();
+      });
+
+      const response = await POST(createRequest(`Bearer ${CRON_SECRET}`));
+      const json = await response.json();
+
+      expect(configChain.or).toHaveBeenCalledWith(
+        expect.stringContaining("and(run_status.eq.idle,next_run_at.is.null)")
+      );
+      expect(configChain.update).toHaveBeenCalledWith(
+        expect.objectContaining({ run_status: "running" })
+      );
+      expect(json.status).not.toBe("no_config");
+      expect(json.status).not.toBe("no_run_due");
+    });
+
     it("should start new run and process batch when next_run_at is past", async () => {
       const configData = createMockConfig({
         run_status: "idle",
@@ -1769,6 +1804,24 @@ describe("POST /api/monitoring/process-batch", () => {
 
       expect(response.status).toBe(500);
       expect(json.error).toBe("Supabase connection failed");
+    });
+
+    // Story 23.3
+    it("grava error_logs (source cron) sem mudar a resposta", async () => {
+      const failure = new Error("Supabase connection failed");
+      mockFrom.mockImplementation(() => {
+        throw failure;
+      });
+
+      const response = await POST(createRequest(`Bearer ${CRON_SECRET}`));
+
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: "Supabase connection failed" });
+      expect(mockLogServerError).toHaveBeenCalledWith({
+        source: "cron",
+        route: "/api/monitoring/process-batch",
+        error: failure,
+      });
     });
   });
 });
