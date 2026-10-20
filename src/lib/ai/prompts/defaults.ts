@@ -313,7 +313,7 @@ ESTRUTURA OBRIGATÓRIA DO EMAIL — SIGA ESTA SEQUÊNCIA DE BLOCOS:
 - CASUAL: "Abraço", "Até mais", "Valeu"
 - FORMAL: "Atenciosamente", "Cordialmente"
 - TÉCNICO: Neutro e objetivo
-- Assinatura simples
+- Termine na palavra de fechamento: NÃO inclua assinatura, nome, cargo nem empresa do remetente, nem placeholders como [Seu nome] (a assinatura é adicionada no envio)
 
 Responda APENAS com o corpo do email, sem explicações.`,
     modelPreference: "gpt-4o-mini",
@@ -639,7 +639,7 @@ ESTRUTURA (4 blocos curtos):
 1. Saudação (1 linha, conforme tom)
 2. Conteúdo (seguindo a estratégia obrigatória acima)
 3. CTA (baixo atrito: uma pergunta de sim/não ou de interesse; NÃO peça reunião nem horário na agenda)
-4. Fechamento (1 linha, conforme tom)
+4. Fechamento (1 linha, conforme tom), sem assinatura, nome do remetente nem placeholders como [Seu nome] (a assinatura é adicionada no envio)
 
 FORMATO: Comece DIRETAMENTE com a saudação. NÃO inclua "Assunto:". Gere APENAS o corpo.`,
     modelPreference: "gpt-4o-mini",

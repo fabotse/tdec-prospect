@@ -91,6 +91,18 @@ describe.each(HONEST_PROMPT_KEYS)("Story 24.8: %s", (key) => {
   });
 });
 
+describe("Story 24.8: corpo e follow-up sem assinatura", () => {
+  it.each(["email_body_generation", "follow_up_email_generation"] as const)(
+    "%s não pede assinatura e proíbe [Seu nome]",
+    (key) => {
+      const template = CODE_DEFAULT_PROMPTS[key].template;
+      expect(template).not.toContain("Assinatura simples");
+      expect(template).toMatch(/sem assinatura|NÃO inclua assinatura/);
+      expect(template).toContain("[Seu nome]");
+    }
+  );
+});
+
 describe("Story 24.8: email_body_generation abre pelo problema do lead", () => {
   const template = CODE_DEFAULT_PROMPTS.email_body_generation.template;
 

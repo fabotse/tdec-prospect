@@ -233,3 +233,16 @@ Deploy via PR #9 (merge `5aee72c` na `main`, Vercel prod OK). Fabossi rodou o ag
 - `cost_actual` ficou vazio: a execução foi cancelada e o custo real só era gravado na conclusão ou na pausa. Corrigido em seguida: o cancelamento também grava o custo real ("Custo até o cancelamento").
 
 **Efeito no cliente:** aprovar a etapa "Criação de Campanha" dispara o export. Este smoke e o do Marco 1 (execução `e4721592-…`, 09:42) criaram duas campanhas "Campanha Outbound - 19/10/2026" no Instantly (`55b91cdb-728a-4256-b4a9-6fe52d285c55` com 1 lead e `9d0624b0-9a3a-48c1-9a98-45deade6df84` com 20), **nenhuma ativada** (activate pendente, execuções canceladas). Limpeza no Instantly fica com Fabossi. Os leads foram para o segmento "Campanha Outbound - 19/10/2026". Próximos smokes param na etapa "Criação de Campanha", sem aprovar.
+
+## Fix pós-story: sem assinatura e limpeza de colchetes no editor (2026-10-20)
+
+Pedido do Fabossi depois do risco residual `[Seu Nome]`.
+
+- `src/lib/ai/prompts/defaults.ts`: `email_body_generation` troca "Assinatura simples" por "termine na palavra de fechamento, sem assinatura, nome ou [Seu nome]"; `follow_up_email_generation` ganha a mesma regra no fechamento.
+- `src/components/builder/EmailBlock.tsx` e `src/hooks/use-ai-full-campaign-generation.ts`: a saída da IA (geração e revisor) passa pela `cleanAgentEmailCopy`, a mesma limpeza do agente (tira `[...]`, `RE:`/`FW:` e variável fora das 4 suportadas). O registro de variáveis é o mesmo para Instantly, Snov.io e CSV, então nenhuma variável válida se perde. O texto digitado pelo usuário não passa pela limpeza.
+- Testes: `honest-prompts.test.ts` (sem assinatura), `EmailBlock.test.tsx` (bloco gravado sem `[Seu nome]` e sem `RE:`), `use-ai-full-campaign-generation.test.tsx` (a expectativa antiga fixava `RE: Subject 2`, que a 24.8 removeu).
+- A assinatura passa a ser responsabilidade do envio; a decisão de onde ela mora virou o DW-22 em `deferred-work.md`.
+
+**Os 3 pontos, por análise do diff:** campanhas rodando/webhook/`reply-sweep` e busca de leads não foram tocados; export/ativação no Instantly também não (muda só o texto gerado, sem trava). Atenção: se as contas remetentes do Instantly não tiverem assinatura configurada, os e-mails novos saem terminando em "Abraço," sem nome.
+
+**Verificação:** `npm run lint` 0 erros (134 warnings pré-existentes), `npm run typecheck` limpo, `npm run test:run` 428 arquivos, 8084 testes passando e 2 skipped.

@@ -565,3 +565,11 @@ source_spec: `spec-24-10-custo-real-e-estimativa-honesta.md`
 severity: low
 reason: Comportamento anterior a esta story (a UI ja somava ESTIMATED_LEADS x APIFY_COST_PER_LEAD sobre um total que podia incluir o premium). Hoje o GET /plan roda antes de o toggle ser persistido, entao o caso e raro.
 status: open
+
+### DW-22: A assinatura dos e-mails so existe nas contas remetentes do Instantly, e o cliente nao tem acesso ao Instantly: toda troca de assinatura depende do Fabossi.
+origin: decisao do Fabossi em conversa (2026-10-20), apos o fix que tirou a assinatura dos prompts
+location: src/lib/ai/prompts/defaults.ts (email_body_generation [FECHAMENTO], follow_up_email_generation); src/lib/services/instantly.ts:307 (email_list)
+source_spec: `spec-24-8-prompts-honestos-problema-primeiro-provas-so-da-kb.md`
+severity: medium
+reason: Os prompts agora terminam na palavra de fechamento ("Abraço,") e proibem assinatura/[Seu nome]; a assinatura fica a cargo do envio. Tratar como story propria. Opcoes levantadas: (1) manter no Instantly (conferir que as contas remetentes tem assinatura configurada, senao os e-mails saem sem nome); (2) campo "Assinatura" nas Configuracoes do app, anexado no export — cuidado: a campanha usa varias contas remetentes (`email_list`) e o Instantly alterna entre elas, entao a assinatura fixa precisa ser da empresa (sem nome de pessoa) ou por conta remetente; (3) assinatura por conta remetente editada no app e enviada ao Instantly pela API (verificar se a API v2 permite). Opcoes 2 e 3 tocam o caminho ate o Instantly: pela Regra no 1, so com OK do Fabossi e smoke sem ativar campanha.
+status: open
