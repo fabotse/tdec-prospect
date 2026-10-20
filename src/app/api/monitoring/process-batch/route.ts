@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { logServerError } from "@/lib/services/error-logger";
 import { ApifyService } from "@/lib/services/apify";
 import {
   calculateNextRunAt,
@@ -285,6 +286,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(batchResult);
   } catch (error) {
+    // Story 23.3: registra em Configuracoes -> Erros (resposta inalterada).
+    await logServerError({ source: "cron", route: "/api/monitoring/process-batch", error });
     const message =
       error instanceof Error ? error.message : "Internal server error";
     return NextResponse.json({ error: message }, { status: 500 });

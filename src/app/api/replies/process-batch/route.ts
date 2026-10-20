@@ -17,6 +17,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { logServerError } from "@/lib/services/error-logger";
 import { sweepReplies } from "@/lib/utils/reply-sweep";
 import { processReplies } from "@/lib/utils/reply-processor";
 import { processEngagement } from "@/lib/utils/engagement-processor";
@@ -75,6 +76,8 @@ export async function POST(req: NextRequest) {
       ],
     });
   } catch (error) {
+    // Story 23.3: registra em Configuracoes -> Erros (resposta inalterada).
+    await logServerError({ source: "cron", route: "/api/replies/process-batch", error });
     const message = error instanceof Error ? error.message : "Internal server error";
     return NextResponse.json({ error: message }, { status: 500 });
   }

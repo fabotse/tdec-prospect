@@ -39,6 +39,12 @@ vi.mock("@/lib/utils/notification-processor", () => ({
   notifyNewOpportunities: (...args: unknown[]) => mockNotify(...args),
 }));
 
+// Story 23.3: registro de erros (catch final grava source "cron")
+const mockLogServerError = vi.fn();
+vi.mock("@/lib/services/error-logger", () => ({
+  logServerError: (...args: unknown[]) => mockLogServerError(...args),
+}));
+
 import { POST } from "@/app/api/replies/process-batch/route";
 
 // ==============================================
@@ -207,5 +213,23 @@ describe("POST /api/replies/process-batch", () => {
     const res = await POST(createRequest(`Bearer ${CRON_SECRET}`));
     expect(res.status).toBe(500);
     expect(mockSweep).not.toHaveBeenCalled();
+  });
+
+  // Story 23.3
+  it("catch final grava error_logs (source cron) e mantém a resposta 500", async () => {
+    mockSweep.mockRejectedValue(new Error("instantly down"));
+    const res = await POST(createRequest(`Bearer ${CRON_SECRET}`));
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "instantly down" });
+    expect(mockLogServerError).toHaveBeenCalledTimes(1);
+    expect(mockLogServerError).toHaveBeenCalledWith(
+      expect.objectContaining({ source: "cron", route: "/api/replies/process-batch" })
+    );
+  });
+
+  it("happy path não grava error_logs", async () => {
+    const res = await POST(createRequest(`Bearer ${CRON_SECRET}`));
+    expect(res.status).toBe(200);
+    expect(mockLogServerError).not.toHaveBeenCalled();
   });
 });

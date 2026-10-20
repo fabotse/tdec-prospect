@@ -52,6 +52,12 @@ vi.mock("@/lib/utils/approach-suggestion", () => ({
     mockCalculateSuggestionCost(...args),
 }));
 
+// Story 23.3: registro de erros (catch final grava source "cron")
+const mockLogServerError = vi.fn();
+vi.mock("@/lib/services/error-logger", () => ({
+  logServerError: (...args: unknown[]) => mockLogServerError(...args),
+}));
+
 import { POST } from "@/app/api/monitoring/process-batch/route";
 
 // ==============================================
@@ -1769,6 +1775,24 @@ describe("POST /api/monitoring/process-batch", () => {
 
       expect(response.status).toBe(500);
       expect(json.error).toBe("Supabase connection failed");
+    });
+
+    // Story 23.3
+    it("grava error_logs (source cron) sem mudar a resposta", async () => {
+      const failure = new Error("Supabase connection failed");
+      mockFrom.mockImplementation(() => {
+        throw failure;
+      });
+
+      const response = await POST(createRequest(`Bearer ${CRON_SECRET}`));
+
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: "Supabase connection failed" });
+      expect(mockLogServerError).toHaveBeenCalledWith({
+        source: "cron",
+        route: "/api/monitoring/process-batch",
+        error: failure,
+      });
     });
   });
 });

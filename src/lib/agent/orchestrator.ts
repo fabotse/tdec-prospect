@@ -29,6 +29,7 @@ import { stampLatestApprovalGate } from "@/lib/agent/gate-metadata";
 import { formatStepErrorMessage, NON_RETRYABLE_SUFFIX } from "@/lib/agent/step-error-display";
 import { recordExecutionCost } from "@/lib/agent/execution-cost";
 import { logAgentUsage } from "@/lib/agent/agent-usage";
+import { logServerError } from "@/lib/services/error-logger";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ==============================================
@@ -515,6 +516,17 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
       // (que responde 409) sem tocar em nada.
       if (pipelineError.code === "STEP_ALREADY_RUNNING") {
         throw pipelineError;
+      }
+
+      // Story 23.3: erro generico (bug/excecao inesperada) vai para Configuracoes -> Erros.
+      // PipelineError de servico externo (Apollo/Instantly fora do ar) nao e bug nosso.
+      if (pipelineError.code === "STEP_EXECUTION_ERROR") {
+        await logServerError({
+          source: "agent_step",
+          route: `agent/${stepType}`,
+          tenantId,
+          error: pipelineError.message,
+        });
       }
 
       // 4.7 - NEVER 'failed' directly, always 'paused'

@@ -6,6 +6,7 @@
  * Sino de notificações in-app NOVO no Header. Ícone Bell + badge de não-lidas
  * (useUnreadNotificationsCount) num dropdown listando as recentes (useNotifications).
  * Clicar num item marca lido (useMarkNotificationRead) e navega para a Central (/opportunities).
+ * Story 23.3: `job_com_falha` (só gestores) mostra "⚠️ Job com problema" e leva a /settings/errors.
  *
  * Superfície INDEPENDENTE do badge da sidebar (fonte única = /api/opportunities/new-count,
  * intocado). O contador do sino é próprio (não-lidas de app_notifications).
@@ -40,8 +41,21 @@ function formatRelative(dateStr: string): string {
   return `${days} d atrás`;
 }
 
+/** Story 23.3: notificação de job agendado com problema (só gestores, via RLS). */
+const JOB_ALERT_TYPE = "job_com_falha";
+
+function isJobAlert(notification: AppNotification): boolean {
+  return notification.type === JOB_ALERT_TYPE;
+}
+
 /** Título legível a partir do payload da notificação (defensivo — payload é JSONB). */
 function notificationTitle(notification: AppNotification): string {
+  if (isJobAlert(notification)) {
+    const payload = notification.payload as { job?: unknown };
+    const job = typeof payload.job === "string" ? payload.job : "desconhecido";
+    return `⚠️ Job com problema: ${job}`;
+  }
+
   const payload = notification.payload as {
     leadName?: unknown;
     company?: unknown;
@@ -49,10 +63,14 @@ function notificationTitle(notification: AppNotification): string {
   };
   const leadName = typeof payload.leadName === "string" ? payload.leadName : "Novo lead";
   const company = typeof payload.company === "string" ? payload.company : null;
-  return company ? `${leadName} (${company})` : leadName;
+  return `🔥 ${company ? `${leadName} (${company})` : leadName}`;
 }
 
 function notificationSubtitle(notification: AppNotification): string | null {
+  if (isJobAlert(notification)) {
+    const payload = notification.payload as { detail?: unknown };
+    return typeof payload.detail === "string" ? payload.detail : null;
+  }
   const payload = notification.payload as { campaignName?: unknown };
   return typeof payload.campaignName === "string" ? payload.campaignName : null;
 }
@@ -67,7 +85,7 @@ export function NotificationBell() {
     if (!notification.readAt) {
       markRead.mutate(notification.id);
     }
-    router.push("/opportunities");
+    router.push(isJobAlert(notification) ? "/settings/errors" : "/opportunities");
   };
 
   return (
@@ -123,7 +141,7 @@ export function NotificationBell() {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-body-small font-medium truncate">
-                      🔥 {notificationTitle(notification)}
+                      {notificationTitle(notification)}
                     </span>
                     {!notification.readAt && (
                       <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />

@@ -393,7 +393,16 @@ describe("toAppNotification", () => {
       payload: { opportunityId: "opp-uuid-001", leadEmail: "lead@example.com" },
       readAt: null,
       createdAt: "2026-07-13T10:00:00Z",
+      audience: null,
     });
+  });
+
+  // Story 23.3: coluna audience (00068) — ausente antes da migration vira null.
+  it("maps audience ('admin') and defaults to null when absent", () => {
+    expect(toAppNotification({ ...MOCK_APP_NOTIFICATION_ROW, audience: "admin" }).audience).toBe(
+      "admin"
+    );
+    expect(toAppNotification(MOCK_APP_NOTIFICATION_ROW).audience).toBeNull();
   });
 
   it("maps read_at when the notification has been read", () => {

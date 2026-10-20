@@ -44,6 +44,19 @@ describe('SettingsTabs', () => {
       expect(screen.getByRole('tab', { name: /monitoramento/i })).toHaveAttribute('href', '/settings/monitoring')
       expect(screen.getByRole('tab', { name: /equipe/i })).toHaveAttribute('href', '/settings/team')
     })
+
+    // Story 23.3
+    it('should render the Erros tab before Equipe', () => {
+      mockUsePathname.mockReturnValue('/settings/errors')
+
+      render(<SettingsTabs />)
+
+      const errorsTab = screen.getByRole('tab', { name: /^erros$/i })
+      expect(errorsTab).toHaveAttribute('href', '/settings/errors')
+      expect(errorsTab).toHaveAttribute('aria-selected', 'true')
+      const labels = screen.getAllByRole('tab').map((t) => t.textContent)
+      expect(labels.indexOf('Erros')).toBe(labels.indexOf('Equipe') - 1)
+    })
   })
 
   describe('Active State', () => {
@@ -148,7 +161,7 @@ describe('SettingsTabs', () => {
       render(<SettingsTabs />)
 
       const tabs = screen.getAllByRole('tab')
-      expect(tabs).toHaveLength(7) // Integrações, Base de Conhecimento, Produtos, Uso da API, Monitoramento, Notificações, Equipe
+      expect(tabs).toHaveLength(8) // Integrações, Base de Conhecimento, Produtos, Uso da API, Monitoramento, Notificações, Erros, Equipe
     })
 
     it('should be keyboard accessible', () => {
