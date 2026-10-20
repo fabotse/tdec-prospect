@@ -181,3 +181,15 @@ Os 3 pontos foram confirmados **por análise do diff**, sem smoke real, porque a
 - Os 2 itens deferidos.
 
 **Pendente do operador:** ver `operator_actions` no frontmatter.
+
+## Operador, deploy e smoke (2026-10-20)
+
+- **Migration:** Fabossi aplicou a `00067` no SQL Editor de produção (`cron.schedule` devolveu o job id 5). Conferido por `scripts/db-ro.sh`: `agent-stuck-steps-sweep` com `*/2 * * * *`, ativo; 1ª execução 11:04 UTC `succeeded`. Havia **0** steps históricos presos, então nenhuma conversa antiga ganhou bolha.
+- **Smoke local, por Playwright (`next dev -p 3100`, código da branch):** briefing "CISO de São Paulo", modo Guiado, 25 leads na revisão e só 2 aprovados. O dev server foi derrubado 5 s depois de o step 3 (`create_campaign`) começar, e o step ficou em `running` desde 11:16:48 UTC. O cron de 11:28:00 o liberou: step `failed` com `STEP_INTERRUPTED`/`isRetryable: true`, execução `paused`, a bolha de erro e "Tentar novamente" na tela. O clique refez o step: `awaiting_approval`, 2 leads, 5 e-mails sem assinatura e execução de volta a `running`. Parado sem aprovar.
+- **Deploy:** PR #10 (24.7, fixes 24.8/24.10 e 24.1), com CI verde, mergeado na `main` (`43d0935`). Vercel de produção `success`.
+- **Smoke em produção (https://tdec-prospect.vercel.app, Playwright):** o mesmo roteiro chegou ao step 3 `awaiting_approval` com 2 leads (execução `26057169-…`). A aba Provas da 24.7 abriu ("Nenhuma prova cadastrada"), só leitura. As duas execuções de teste foram canceladas, e o `cost_actual` foi gravado no cancelamento (R$ 0,62 e R$ 0,66; fix da 24.10 em produção). **Nenhuma campanha criada no Instantly** (`external_campaign_id` vazio nas duas).
+- **Os 3 pontos, por smoke real:** (1) `reply-sweep-cron` e `monitor-leads-cron` com 7/7 execuções `succeeded` desde 11:00 UTC, ao lado do cron novo (15/15); (2) a busca Apollo funcionou local e em produção; (3) criação de campanha ok, export e ativação não foram disparados (nada ativado no Instantly) e não ganharam trava nova.
+- **Observações (fora do escopo, pré-existentes):**
+  - Ao reatachar a execução, o card já aprovado da revisão de leads volta a mostrar "Aprovar (25 leads)" com todos marcados. O servidor recusa com 409 (step não está `awaiting_approval`), então é só visual.
+  - Depois do retry bem-sucedido, `agent_steps.error_message` continua com "Etapa interrompida" (a UI só mostra erro em `failed`).
+  - O parser escreve "Segmento: nome da campanha" na confirmação do briefing.
