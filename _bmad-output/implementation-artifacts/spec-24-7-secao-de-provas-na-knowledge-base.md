@@ -184,3 +184,10 @@ Status: awaiting-operator
 
 **Operator actions:** veja `operator_actions` no frontmatter. São três: aplicar a `00066` antes do deploy, conferir a tabela e as policies, e fazer o smoke da aba Provas e do prompt.
 
+
+## Migration e smoke (2026-10-20)
+
+- Fabossi aplicou a `00066_create_knowledge_base_proofs.sql` no SQL Editor de produção (`kdgogyqyaxncqoyklyxx`).
+- Conferido pelo Claude Code com `scripts/db-ro.sh` (somente leitura): `public.knowledge_base_proofs` existe com RLS ligado, as 4 policies (SELECT para o tenant; INSERT/UPDATE/DELETE só admin) e o trigger `update_knowledge_base_proofs_updated_at`. A tabela está vazia (as provas de teste foram removidas).
+- Fabossi fez o smoke na tela, rodando local (`next dev -p 3100`, código da branch `epic/23-plataforma-higiene`): aba Provas com uma prova autorizada e uma não autorizada, e só a autorizada aparecendo na geração.
+- O código ainda não está em produção (só na branch do épico); a `main` não lê a tabela.
