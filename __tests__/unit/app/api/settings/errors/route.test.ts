@@ -1,6 +1,6 @@
 /**
  * Tests: GET /api/settings/errors
- * Story 23.3: Configurações → Erros (admin-only)
+ * Story 23.3: Configurações → Erros (só platform admin)
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -17,8 +17,9 @@ const chain = {
   limit: vi.fn(),
 };
 const mockFrom = vi.fn(() => chain);
+const mockRpc = vi.fn();
 vi.mock("@/lib/supabase/server", () => ({
-  createClient: vi.fn(async () => ({ from: mockFrom })),
+  createClient: vi.fn(async () => ({ from: mockFrom, rpc: mockRpc })),
 }));
 
 import { GET } from "@/app/api/settings/errors/route";
@@ -29,6 +30,7 @@ describe("GET /api/settings/errors", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     chain.limit.mockResolvedValue({ data: [], error: null });
+    mockRpc.mockResolvedValue({ data: true, error: null });
   });
 
   it("401 sem sessão", async () => {
@@ -38,11 +40,21 @@ describe("GET /api/settings/errors", () => {
     expect((await res.json()).error.code).toBe("UNAUTHORIZED");
   });
 
-  it("403 para SDR", async () => {
-    mockGetCurrentUserProfile.mockResolvedValue({ ...gestor, role: "sdr" });
+  it.each(["sdr", "gestor"])("403 para %s que não é platform admin", async (role) => {
+    mockGetCurrentUserProfile.mockResolvedValue({ ...gestor, role });
+    mockRpc.mockResolvedValue({ data: false, error: null });
     const res = await GET();
     expect(res.status).toBe(403);
     expect((await res.json()).error.code).toBe("FORBIDDEN");
+    expect(mockRpc).toHaveBeenCalledWith("is_platform_admin");
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  it("403 (fail-closed) se a RPC falhar, ex.: migration não aplicada", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(gestor);
+    mockRpc.mockResolvedValue({ data: null, error: { message: "function does not exist" } });
+    const res = await GET();
+    expect(res.status).toBe(403);
     expect(mockFrom).not.toHaveBeenCalled();
   });
 
@@ -52,7 +64,7 @@ describe("GET /api/settings/errors", () => {
     expect(res.status).toBe(403);
   });
 
-  it.each(["gestor", "diretor"])("200 para %s: últimos 50 do tenant ou de plataforma", async (role) => {
+  it.each(["gestor", "diretor"])("200 para platform admin (%s): últimos 50 do tenant ou de plataforma", async (role) => {
     mockGetCurrentUserProfile.mockResolvedValue({ ...gestor, role });
     chain.limit.mockResolvedValue({
       data: [

@@ -19,6 +19,8 @@ const T2 = "00000000-0000-0000-0000-000000000002";
 const GESTOR = "10000000-0000-0000-0000-000000000001";
 const SDR = "10000000-0000-0000-0000-000000000002";
 const SDR_T2 = "10000000-0000-0000-0000-000000000003"; // tenant 2 so tem SDR
+const PLATFORM = "10000000-0000-0000-0000-000000000004"; // gestor do T1 + platform admin
+const GESTOR_T2 = "10000000-0000-0000-0000-000000000005"; // gestor sem platform admin no tenant
 
 const STUBS = `
 CREATE ROLE anon NOLOGIN;
@@ -207,13 +209,16 @@ describe("Migration 00068: saude dos jobs + error_logs (PGlite)", () => {
   beforeEach(async () => {
     await db.exec(`
       TRUNCATE public.app_notifications, public.error_logs, cron.job_run_details,
-               net._http_response, public.profiles, public.tenants CASCADE;
+               net._http_response, public.platform_admins, public.profiles, public.tenants CASCADE;
       DELETE FROM cron.job WHERE jobname <> 'job-health-check';
       INSERT INTO public.tenants (id, name) VALUES ('${T1}', 'Cliente'), ('${T2}', 'Sem gestor');
       INSERT INTO public.profiles (id, tenant_id, role) VALUES
         ('${GESTOR}', '${T1}', 'gestor'),
         ('${SDR}', '${T1}', 'sdr'),
-        ('${SDR_T2}', '${T2}', 'sdr');
+        ('${SDR_T2}', '${T2}', 'sdr'),
+        ('${PLATFORM}', '${T1}', 'gestor'),
+        ('${GESTOR_T2}', '${T2}', 'gestor');
+      INSERT INTO public.platform_admins (user_id) VALUES ('${PLATFORM}');
       SELECT cron.schedule('monitor-leads-cron', '*/5 * * * *', 'SELECT 1');
       SELECT cron.schedule('reply-sweep-cron', '*/5 * * * *', 'SELECT 1');
       SELECT cron.schedule('agent-stuck-steps-sweep', '*/2 * * * *', 'SELECT 1');
@@ -312,7 +317,7 @@ describe("Migration 00068: saude dos jobs + error_logs (PGlite)", () => {
       expect(await count("SELECT count(*) FROM public.app_notifications")).toBe(0);
     });
 
-    it("JOB_FALHOU: error_logs + notificacao admin so para tenant com gestor", async () => {
+    it("JOB_FALHOU: error_logs + notificacao platform so para o tenant do platform admin", async () => {
       await run("reply-sweep-cron", "failed", 3, "ERROR: boom");
 
       expect(await check()).toBe(1);
@@ -336,7 +341,7 @@ describe("Migration 00068: saude dos jobs + error_logs (PGlite)", () => {
       expect(notes.rows[0]).toMatchObject({
         tenant_id: T1,
         type: "job_com_falha",
-        audience: "admin",
+        audience: "platform",
         payload: { key: "job:reply-sweep-cron", job: "reply-sweep-cron" },
       });
       expect(notes.rows[0].payload.detail).toContain("ERROR: boom");
@@ -530,7 +535,8 @@ describe("Migration 00068: saude dos jobs + error_logs (PGlite)", () => {
       await db.exec(`
         INSERT INTO public.app_notifications (tenant_id, type, payload, audience) VALUES
           ('${T1}', 'nova_oportunidade', '{}', NULL),
-          ('${T1}', 'job_com_falha', '{"key":"http"}', 'admin');
+          ('${T1}', 'job_com_falha', '{"key":"http"}', 'platform'),
+          ('${T1}', 'alerta_gestor', '{}', 'admin');
         INSERT INTO public.error_logs (tenant_id, source, route, message) VALUES
           (NULL, 'cron', 'pg_net/http', 'plataforma'),
           ('${T1}', 'api', '/api/a', 'do tenant 1'),
@@ -538,7 +544,7 @@ describe("Migration 00068: saude dos jobs + error_logs (PGlite)", () => {
       `);
     });
 
-    it("SDR nao ve job_com_falha, mas ve as demais notificacoes", async () => {
+    it("SDR nao ve job_com_falha nem alerta de gestor, mas ve as demais notificacoes", async () => {
       await asUser(SDR, async () => {
         const res = await db.query<{ type: string }>(
           "SELECT type FROM public.app_notifications ORDER BY type"
@@ -547,12 +553,25 @@ describe("Migration 00068: saude dos jobs + error_logs (PGlite)", () => {
       });
     });
 
-    it("gestor ve as duas notificacoes", async () => {
+    it("gestor do cliente (sem platform admin) nao ve job_com_falha", async () => {
       await asUser(GESTOR, async () => {
         const res = await db.query<{ type: string }>(
           "SELECT type FROM public.app_notifications ORDER BY type"
         );
-        expect(res.rows.map((r) => r.type)).toEqual(["job_com_falha", "nova_oportunidade"]);
+        expect(res.rows.map((r) => r.type)).toEqual(["alerta_gestor", "nova_oportunidade"]);
+      });
+    });
+
+    it("platform admin ve job_com_falha", async () => {
+      await asUser(PLATFORM, async () => {
+        const res = await db.query<{ type: string }>(
+          "SELECT type FROM public.app_notifications ORDER BY type"
+        );
+        expect(res.rows.map((r) => r.type)).toEqual([
+          "alerta_gestor",
+          "job_com_falha",
+          "nova_oportunidade",
+        ]);
       });
     });
 
@@ -562,12 +581,37 @@ describe("Migration 00068: saude dos jobs + error_logs (PGlite)", () => {
       });
     });
 
-    it("gestor le os do proprio tenant + plataforma, nunca de outro tenant", async () => {
+    it("gestor do cliente nao le error_logs", async () => {
       await asUser(GESTOR, async () => {
+        expect(await count("SELECT count(*) FROM public.error_logs")).toBe(0);
+      });
+    });
+
+    it("platform admin le error_logs", async () => {
+      await asUser(PLATFORM, async () => {
         const res = await db.query<{ message: string }>(
           "SELECT message FROM public.error_logs ORDER BY message"
         );
-        expect(res.rows.map((r) => r.message)).toEqual(["do tenant 1", "plataforma"]);
+        expect(res.rows.map((r) => r.message)).toEqual(["do tenant 1", "do tenant 2", "plataforma"]);
+      });
+    });
+
+    it("is_platform_admin: true so para quem esta em platform_admins", async () => {
+      for (const [uid, expected] of [[PLATFORM, true], [GESTOR, false], [SDR, false]] as const) {
+        await asUser(uid, async () => {
+          const res = await db.query<{ ok: boolean }>("SELECT public.is_platform_admin() AS ok");
+          expect(res.rows[0].ok).toBe(expected);
+        });
+      }
+    });
+
+    it("authenticated nao le nem escreve platform_admins direto", async () => {
+      await db.exec("GRANT SELECT, INSERT ON public.platform_admins TO authenticated;");
+      await asUser(GESTOR, async () => {
+        expect(await count("SELECT count(*) FROM public.platform_admins")).toBe(0);
+        await expect(
+          db.query(`INSERT INTO public.platform_admins (user_id) VALUES ('${GESTOR}')`)
+        ).rejects.toThrow();
       });
     });
 
@@ -582,9 +626,9 @@ describe("Migration 00068: saude dos jobs + error_logs (PGlite)", () => {
     });
 
     it("audience e imutavel (trigger da 00060 estendido)", async () => {
-      await asUser(GESTOR, async () => {
+      await asUser(PLATFORM, async () => {
         await expect(
-          db.query("UPDATE public.app_notifications SET audience = NULL WHERE audience = 'admin'")
+          db.query("UPDATE public.app_notifications SET audience = NULL WHERE audience = 'platform'")
         ).rejects.toThrow(/imutável/);
       });
       await asUser(SDR, async () => {
@@ -596,12 +640,26 @@ describe("Migration 00068: saude dos jobs + error_logs (PGlite)", () => {
       });
     });
 
-    it("audience so aceita 'admin' ou NULL", async () => {
+    it("audience so aceita 'admin', 'platform' ou NULL", async () => {
+      await db.query(
+        `INSERT INTO public.app_notifications (tenant_id, type, audience) VALUES ('${T1}', 'x', 'platform')`
+      );
       await expect(
         db.query(
           `INSERT INTO public.app_notifications (tenant_id, type, audience) VALUES ('${T1}', 'x', 'sdr')`
         )
       ).rejects.toThrow(/check constraint/);
+    });
+  });
+
+  describe("seed de platform_admins", () => {
+    it("so insere o Fabossi se o profile existe, sem duplicar", async () => {
+      expect(code).toMatch(
+        /INSERT INTO public\.platform_admins \(user_id\)\s+SELECT p\.id FROM public\.profiles p WHERE p\.id = '61d07b17-57bd-4c0f-bd5d-35bf2d2ccb6d'\s+ON CONFLICT \(user_id\) DO NOTHING;/
+      );
+      // No PGlite o profile nao existe: a migration aplicada 2x nao inseriu nada nem quebrou.
+      const fabossi = "61d07b17-57bd-4c0f-bd5d-35bf2d2ccb6d";
+      expect(await count(`SELECT count(*) FROM public.platform_admins WHERE user_id = '${fabossi}'`)).toBe(0);
     });
   });
 });

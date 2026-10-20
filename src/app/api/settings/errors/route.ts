@@ -2,12 +2,13 @@
  * API Route: GET /api/settings/errors
  * Story 23.3: Saúde dos jobs e registro de erros com a infraestrutura atual
  *
- * Admin-only. Últimos 50 registros de `error_logs` do tenant do usuário + erros de
+ * Só platform admin (tabela `platform_admins`, hoje só o Fabossi) — gestores do cliente
+ * recebem 403. Últimos 50 registros de `error_logs` do tenant do usuário + erros de
  * plataforma (tenant_id nulo). A RLS (migration 00068) aplica a mesma regra.
  */
 
 import { NextResponse } from "next/server";
-import { hasAdminAccess } from "@/lib/auth/capabilities";
+import { isPlatformAdmin } from "@/lib/auth/platform-admin";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { toErrorLog, type ErrorLogRow } from "@/types/error-log";
@@ -16,7 +17,7 @@ const ERROR_LIMIT = 50;
 
 const ERROR_MESSAGES = {
   UNAUTHORIZED: "Nao autenticado",
-  FORBIDDEN: "Acesso negado. Somente administradores podem ver os erros.",
+  FORBIDDEN: "Acesso negado. Somente o operador da plataforma pode ver os erros.",
   TENANT_NOT_FOUND: "Tenant nao encontrado",
   INTERNAL_ERROR: "Erro ao buscar o registro de erros",
 } as const;
@@ -31,10 +32,6 @@ export async function GET() {
     return errorResponse("UNAUTHORIZED", ERROR_MESSAGES.UNAUTHORIZED, 401);
   }
 
-  if (!hasAdminAccess(profile.role)) {
-    return errorResponse("FORBIDDEN", ERROR_MESSAGES.FORBIDDEN, 403);
-  }
-
   const tenantId = profile.tenant_id;
   if (!tenantId) {
     return errorResponse("FORBIDDEN", ERROR_MESSAGES.TENANT_NOT_FOUND, 403);
@@ -42,6 +39,11 @@ export async function GET() {
 
   try {
     const supabase = await createClient();
+
+    if (!(await isPlatformAdmin(supabase))) {
+      return errorResponse("FORBIDDEN", ERROR_MESSAGES.FORBIDDEN, 403);
+    }
+
     const { data, error } = await supabase
       .from("error_logs")
       .select("id, tenant_id, source, route, message, created_at")

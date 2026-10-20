@@ -6,7 +6,7 @@
  * Sino de notificações in-app NOVO no Header. Ícone Bell + badge de não-lidas
  * (useUnreadNotificationsCount) num dropdown listando as recentes (useNotifications).
  * Clicar num item marca lido (useMarkNotificationRead) e navega para a Central (/opportunities).
- * Story 23.3: `job_com_falha` (só gestores) mostra "⚠️ Job com problema" e leva a /settings/errors.
+ * Story 23.3: `job_com_falha` (só platform admin, via RLS) mostra "⚠️ Job com problema" e leva a /settings/errors.
  *
  * Superfície INDEPENDENTE do badge da sidebar (fonte única = /api/opportunities/new-count,
  * intocado). O contador do sino é próprio (não-lidas de app_notifications).
@@ -41,7 +41,7 @@ function formatRelative(dateStr: string): string {
   return `${days} d atrás`;
 }
 
-/** Story 23.3: notificação de job agendado com problema (só gestores, via RLS). */
+/** Story 23.3: notificação de job agendado com problema (só platform admin, via RLS). */
 const JOB_ALERT_TYPE = "job_com_falha";
 
 function isJobAlert(notification: AppNotification): boolean {

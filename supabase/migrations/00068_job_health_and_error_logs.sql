@@ -5,14 +5,17 @@
 -- e ninguem percebeu) e excecoes de servidor so existiam no log da Vercel.
 --
 -- O QUE ESTA MIGRATION FAZ (ADITIVA e IDEMPOTENTE):
---   1. Tabela nova `error_logs` (leitura so para gestor/diretor; escrita so service role / funcao).
---   2. Coluna nova NULLABLE `app_notifications.audience` ('admin' ou NULL) + policy RESTRICTIVE
---      de SELECT: notificacao com audience='admin' some para SDR. Linhas existentes ficam NULL
---      (nenhum UPDATE), entao nada muda para as notificacoes de hoje.
+--   0. Tabela nova `platform_admins` + funcao `is_platform_admin()`: quem opera a plataforma
+--      (hoje so o Fabossi). Alertas de job e o registro de erros sao so para eles: os gestores
+--      do cliente nao veem (decisao do Fabossi, 2026-10-20). Seed = 1 INSERT na tabela nova.
+--   1. Tabela nova `error_logs` (leitura so para platform admin; escrita so service role / funcao).
+--   2. Coluna nova NULLABLE `app_notifications.audience` ('admin', 'platform' ou NULL) + policy
+--      RESTRICTIVE de SELECT: 'admin' so gestor/diretor, 'platform' so platform admin. Linhas
+--      existentes ficam NULL (nenhum UPDATE), entao nada muda para as notificacoes de hoje.
 --   3. Funcao `job_health_max_silence(schedule)` (IMMUTABLE): janela maxima sem sucesso.
 --   4. Funcao `check_scheduled_jobs_health()` (SECURITY DEFINER): le `cron.job`,
 --      `cron.job_run_details` e `net._http_response` e grava `error_logs` + notificacao in-app
---      `job_com_falha` (audience 'admin', cooldown de 24h por chave).
+--      `job_com_falha` (audience 'platform', cooldown de 24h por chave).
 --   5. Job pg_cron NOVO `job-health-check` a cada 15 min.
 -- Os jobs existentes (`monitor-leads-cron`, `reply-sweep-cron`, `agent-stuck-steps-sweep`)
 -- NAO sao alterados, reagendados nem removidos. Nenhum DROP de tabela/coluna, nenhum
@@ -25,7 +28,9 @@
 -- estoura o timeout padrao de 5000 ms do pg_net (o job nao passa `timeout_milliseconds`), e o
 -- `reply-sweep-cron` tem timeouts ocasionais de 60000 ms. A 1a execucao do check vai acusar
 -- HTTP_FALHOU: 1 linha em `error_logs` a cada 15 min (contagem + 1o erro) e 1 notificacao
--- "Job com problema: Chamadas HTTP (pg_net)" por tenant com gestor, no maximo 1 a cada 24h.
+-- "Job com problema: Chamadas HTTP (pg_net)" so para o tenant do platform admin (visivel so a
+-- ele), no maximo 1 a cada 24h. A 00069 sobe o timeout do monitor-leads-cron e corta a maior
+-- parte desses timeouts.
 --
 -- DIAGNOSTICO DO monitor-leads (`last_run_at` nulo / `no_config`):
 --   A unica linha de `monitoring_configs` (tenant ...0001) tem `next_run_at` NULL. Em
@@ -70,6 +75,42 @@
 --   DROP POLICY IF EXISTS "Admin-only notifications are hidden from non-admins" ON public.app_notifications;
 --   ALTER TABLE public.app_notifications DROP COLUMN IF EXISTS audience;
 --   DROP TABLE IF EXISTS public.error_logs;
+--   DROP FUNCTION IF EXISTS public.is_platform_admin();
+--   DROP TABLE IF EXISTS public.platform_admins;
+
+-- ============================================
+-- 0. TABLE: platform_admins + is_platform_admin()
+-- ============================================
+-- Operadores da plataforma (nao do tenant). Sem policy: ninguem le/escreve pela API; a
+-- funcao SECURITY DEFINER abaixo e a unica leitura (usada nas policies e pelo app via RPC).
+
+CREATE TABLE IF NOT EXISTS public.platform_admins (
+  user_id    UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.platform_admins ENABLE ROW LEVEL SECURITY;
+
+COMMENT ON TABLE public.platform_admins IS
+  'Story 23.3: operadores da plataforma. Veem Configuracoes -> Erros e os alertas de job (job_com_falha).';
+
+CREATE OR REPLACE FUNCTION public.is_platform_admin()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $fn$
+  SELECT EXISTS (SELECT 1 FROM public.platform_admins pa WHERE pa.user_id = auth.uid());
+$fn$;
+
+COMMENT ON FUNCTION public.is_platform_admin() IS
+  'Story 23.3: true se o usuario logado esta em platform_admins.';
+
+-- Seed: Fabossi (profile 61d07b17-..., gestor do tenant ...0001). So entra se o profile existe.
+INSERT INTO public.platform_admins (user_id)
+SELECT p.id FROM public.profiles p WHERE p.id = '61d07b17-57bd-4c0f-bd5d-35bf2d2ccb6d'
+ON CONFLICT (user_id) DO NOTHING;
 
 -- ============================================
 -- 1. TABLE: error_logs
@@ -94,32 +135,35 @@ CREATE INDEX IF NOT EXISTS idx_error_logs_tenant_created_at
 
 ALTER TABLE public.error_logs ENABLE ROW LEVEL SECURITY;
 
--- So leitura, so gestor/diretor. Sem policy de INSERT/UPDATE/DELETE: quem escreve e o
--- service role (logServerError) ou a funcao SECURITY DEFINER abaixo.
+-- So leitura, so platform admin (todos os tenants). Sem policy de INSERT/UPDATE/DELETE: quem
+-- escreve e o service role (logServerError) ou a funcao SECURITY DEFINER abaixo.
 DROP POLICY IF EXISTS "Admins can view their tenant and platform error logs" ON public.error_logs;
-CREATE POLICY "Admins can view their tenant and platform error logs"
+DROP POLICY IF EXISTS "Platform admins can view error logs" ON public.error_logs;
+CREATE POLICY "Platform admins can view error logs"
   ON public.error_logs FOR SELECT
-  USING (
-    public.is_admin()
-    AND (tenant_id IS NULL OR tenant_id = public.get_current_tenant_id())
-  );
+  USING (public.is_platform_admin());
 
 -- ============================================
 -- 2. app_notifications.audience + policy RESTRICTIVE
 -- ============================================
 
 ALTER TABLE public.app_notifications
-  ADD COLUMN IF NOT EXISTS audience TEXT NULL CHECK (audience IN ('admin'));
+  ADD COLUMN IF NOT EXISTS audience TEXT NULL
+    CONSTRAINT app_notifications_audience_check CHECK (audience IN ('admin', 'platform'));
 
 COMMENT ON COLUMN public.app_notifications.audience IS
-  'Story 23.3: NULL = todos do tenant; ''admin'' = so gestor/diretor (policy RESTRICTIVE).';
+  'Story 23.3: NULL = todos do tenant; ''admin'' = so gestor/diretor; ''platform'' = so platform admin (policy RESTRICTIVE).';
 
 DROP POLICY IF EXISTS "Admin-only notifications are hidden from non-admins" ON public.app_notifications;
 CREATE POLICY "Admin-only notifications are hidden from non-admins"
   ON public.app_notifications
   AS RESTRICTIVE
   FOR SELECT
-  USING (audience IS NULL OR public.is_admin());
+  USING (
+    audience IS NULL
+    OR (audience = 'admin' AND public.is_admin())
+    OR (audience = 'platform' AND public.is_platform_admin())
+  );
 
 -- audience tambem e imutavel: mesma funcao da 00060 + audience (trigger ja existe e aponta
 -- para ela). Sem isto um usuario do tenant poderia trocar audience via PostgREST.
@@ -196,7 +240,7 @@ COMMENT ON FUNCTION public.job_health_max_silence(TEXT) IS
 -- 4. FUNCAO: check_scheduled_jobs_health
 -- ============================================
 -- Retorna a quantidade de linhas gravadas em error_logs (0 = tudo ok).
--- Notificacao `job_com_falha`: uma por tenant com gestor/diretor, audience 'admin',
+-- Notificacao `job_com_falha`: uma por tenant com platform admin, audience 'platform',
 -- payload {key, job, detail}; cooldown de 24h por (tenant, key).
 --   JOB_FALHOU  -> chave `job:<jobname>`;   error_logs sempre.
 --   JOB_PARADO  -> chave `parado:<jobname>`; error_logs com cooldown de 24h.
@@ -263,10 +307,11 @@ BEGIN
     INSERT INTO public.app_notifications (tenant_id, type, payload, audience)
     SELECT t.id, 'job_com_falha',
            jsonb_build_object('key', v_key, 'job', r.jobname, 'detail', v_detail),
-           'admin'
+           'platform'
       FROM public.tenants t
-     WHERE EXISTS (SELECT 1 FROM public.profiles p
-                    WHERE p.tenant_id = t.id AND p.role IN ('gestor', 'diretor'))
+     WHERE EXISTS (SELECT 1 FROM public.platform_admins pa
+                     JOIN public.profiles p ON p.id = pa.user_id
+                    WHERE p.tenant_id = t.id)
        AND NOT EXISTS (SELECT 1 FROM public.app_notifications n
                         WHERE n.tenant_id = t.id
                           AND n.type = 'job_com_falha'
@@ -308,10 +353,11 @@ BEGIN
       INSERT INTO public.app_notifications (tenant_id, type, payload, audience)
       SELECT t.id, 'job_com_falha',
              jsonb_build_object('key', v_key, 'job', r.jobname, 'detail', v_detail),
-             'admin'
+             'platform'
         FROM public.tenants t
-       WHERE EXISTS (SELECT 1 FROM public.profiles p
-                      WHERE p.tenant_id = t.id AND p.role IN ('gestor', 'diretor'))
+       WHERE EXISTS (SELECT 1 FROM public.platform_admins pa
+                       JOIN public.profiles p ON p.id = pa.user_id
+                      WHERE p.tenant_id = t.id)
          AND NOT EXISTS (SELECT 1 FROM public.app_notifications n
                           WHERE n.tenant_id = t.id
                             AND n.type = 'job_com_falha'
@@ -348,10 +394,11 @@ BEGIN
       INSERT INTO public.app_notifications (tenant_id, type, payload, audience)
       SELECT t.id, 'job_com_falha',
              jsonb_build_object('key', v_key, 'job', 'Chamadas HTTP (pg_net)', 'detail', v_detail),
-             'admin'
+             'platform'
         FROM public.tenants t
-       WHERE EXISTS (SELECT 1 FROM public.profiles p
-                      WHERE p.tenant_id = t.id AND p.role IN ('gestor', 'diretor'))
+       WHERE EXISTS (SELECT 1 FROM public.platform_admins pa
+                       JOIN public.profiles p ON p.id = pa.user_id
+                      WHERE p.tenant_id = t.id)
          AND NOT EXISTS (SELECT 1 FROM public.app_notifications n
                           WHERE n.tenant_id = t.id
                             AND n.type = 'job_com_falha'
@@ -369,7 +416,7 @@ REVOKE EXECUTE ON FUNCTION public.check_scheduled_jobs_health() FROM PUBLIC, ano
 
 COMMENT ON FUNCTION public.check_scheduled_jobs_health() IS
   'Story 23.3: verifica jobs pg_cron (falha, parado) e respostas HTTP do pg_net; grava error_logs e '
-  'notificacao job_com_falha (audience admin, cooldown 24h por chave). Retorna linhas gravadas em error_logs. '
+  'notificacao job_com_falha (audience platform, cooldown 24h por chave). Retorna linhas gravadas em error_logs. '
   'Agendado pelo cron job-health-check.';
 
 -- ============================================

@@ -9,6 +9,12 @@ vi.mock('next/navigation', () => ({
   usePathname: () => mockUsePathname(),
 }))
 
+// Story 23.3: aba Erros só para platform admin
+const mockUsePlatformAdmin = vi.fn(() => ({ data: true }))
+vi.mock('@/hooks/use-platform-admin', () => ({
+  usePlatformAdmin: () => mockUsePlatformAdmin(),
+}))
+
 describe('SettingsTabs', () => {
   describe('Rendering', () => {
     it('should render all tabs', () => {
@@ -56,6 +62,16 @@ describe('SettingsTabs', () => {
       expect(errorsTab).toHaveAttribute('aria-selected', 'true')
       const labels = screen.getAllByRole('tab').map((t) => t.textContent)
       expect(labels.indexOf('Erros')).toBe(labels.indexOf('Equipe') - 1)
+    })
+
+    it('should hide the Erros tab for non platform admins (gestor do cliente)', () => {
+      mockUsePathname.mockReturnValue('/settings/integrations')
+      mockUsePlatformAdmin.mockReturnValueOnce({ data: false })
+
+      render(<SettingsTabs />)
+
+      expect(screen.queryByRole('tab', { name: /^erros$/i })).not.toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /equipe/i })).toBeInTheDocument()
     })
   })
 

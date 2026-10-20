@@ -2,11 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { usePlatformAdmin } from "@/hooks/use-platform-admin";
 
 interface Tab {
   id: string;
   label: string;
   href: string;
+  /** Story 23.3: só o operador da plataforma (platform admin) vê a aba. */
+  platformOnly?: boolean;
 }
 
 // Note: Admin access is enforced server-side via middleware (Story 2.1 - AC #5)
@@ -18,7 +21,7 @@ const tabs: Tab[] = [
   { id: "usage", label: "Uso da API", href: "/settings/usage" },
   { id: "monitoring", label: "Monitoramento", href: "/settings/monitoring" },
   { id: "notifications", label: "Notificações", href: "/settings/notifications" },
-  { id: "errors", label: "Erros", href: "/settings/errors" },
+  { id: "errors", label: "Erros", href: "/settings/errors", platformOnly: true },
   { id: "team", label: "Equipe", href: "/settings/team" },
 ];
 
@@ -31,10 +34,12 @@ const tabs: Tab[] = [
  */
 export function SettingsTabs() {
   const pathname = usePathname();
+  const { data: isPlatformAdmin } = usePlatformAdmin();
+  const visibleTabs = tabs.filter((tab) => !tab.platformOnly || isPlatformAdmin === true);
 
   return (
     <nav className="flex gap-1 border-b border-border" role="tablist">
-      {tabs.map((tab) => {
+      {visibleTabs.map((tab) => {
         const isActive = pathname === tab.href || pathname.startsWith(`${tab.href}/`);
 
         return (
