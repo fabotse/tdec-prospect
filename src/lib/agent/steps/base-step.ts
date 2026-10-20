@@ -25,6 +25,27 @@ const RETRYABLE_STATUS_CODES = new Set([0, 408, 429, 502, 503, 504]);
 const RETRY_DELAYS = [0, 2000, 5000];
 const MAX_RETRIES = 3;
 
+/**
+ * Story 24.1: retry CURTO das gravacoes de estado do step (checkpoint, aprovacao,
+ * falha). Cobre o `{ error }` que o supabase-js RETORNA e a excecao lancada.
+ */
+const PERSIST_RETRY_DELAYS = [0, 300, 1000];
+
+/**
+ * Story 24.1: guarda local de PipelineError. Nao importa `isPipelineError` do
+ * orchestrator porque ele importa os steps (ciclo de import).
+ */
+function isPipelineErrorLike(error: unknown): error is PipelineError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    "stepNumber" in error &&
+    "stepType" in error &&
+    "isRetryable" in error
+  );
+}
+
 // ==============================================
 // BASE STEP
 // ==============================================
@@ -122,6 +143,11 @@ export abstract class BaseStep {
    * (2.3)
    */
   protected toPipelineError(error: unknown): PipelineError {
+    // Story 24.1: um PipelineError ja pronto (ex.: STEP_PERSISTENCE_ERROR) passa intacto.
+    if (isPipelineErrorLike(error)) {
+      return error;
+    }
+
     if (error instanceof ExternalServiceError) {
       const stepCode = `STEP_${this.stepType.toUpperCase()}_ERROR`;
       return {
@@ -156,15 +182,12 @@ export abstract class BaseStep {
     executionId: string,
     result: StepOutput
   ): Promise<void> {
-    await db
-      .from("agent_steps")
-      .update({
-        output: result.data,
-        status: "awaiting_approval" as StepStatus,
-        cost: result.cost ?? null,
-      })
-      .eq("execution_id", executionId)
-      .eq("step_number", this.stepNumber);
+    const saved = await this.persistStepUpdate(db, executionId, "aprovacao", {
+      output: result.data,
+      status: "awaiting_approval" as StepStatus,
+      cost: result.cost ?? null,
+    });
+    if (!saved) throw this.persistenceError();
   }
 
   /**
@@ -231,16 +254,65 @@ export abstract class BaseStep {
     executionId: string,
     result: StepOutput
   ): Promise<void> {
-    await db
-      .from("agent_steps")
-      .update({
-        output: result.data,
-        status: "completed" as StepStatus,
-        completed_at: new Date().toISOString(),
-        cost: result.cost ?? null,
-      })
-      .eq("execution_id", executionId)
-      .eq("step_number", this.stepNumber);
+    const saved = await this.persistStepUpdate(db, executionId, "checkpoint", {
+      output: result.data,
+      status: "completed" as StepStatus,
+      completed_at: new Date().toISOString(),
+      cost: result.cost ?? null,
+    });
+    if (!saved) throw this.persistenceError();
+  }
+
+  /**
+   * Story 24.1: erro explicito quando o resultado da etapa nao pode ser gravado. Cai no
+   * `catch` do `run()`, que grava `failed` — o step nao fica `running` em silencio.
+   */
+  private persistenceError(): PipelineError {
+    return {
+      code: "STEP_PERSISTENCE_ERROR",
+      message: "Nao foi possivel salvar o resultado da etapa",
+      stepNumber: this.stepNumber,
+      stepType: this.stepType,
+      isRetryable: true,
+    };
+  }
+
+  /**
+   * Story 24.1: grava um update no `agent_steps` deste step com retry curto
+   * ([0, 300, 1000] ms). Checa o `{ error }` retornado e captura excecao lancada.
+   * Nunca lanca: devolve `true` se gravou, `false` se todas as tentativas falharam.
+   */
+  private async persistStepUpdate(
+    db: SupabaseClient,
+    executionId: string,
+    label: string,
+    update: Record<string, unknown>
+  ): Promise<boolean> {
+    for (let attempt = 0; attempt < PERSIST_RETRY_DELAYS.length; attempt++) {
+      const delay = PERSIST_RETRY_DELAYS[attempt] ?? 0;
+      if (delay > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+
+      let failure: unknown = null;
+      try {
+        const { error } = await db
+          .from("agent_steps")
+          .update(update)
+          .eq("execution_id", executionId)
+          .eq("step_number", this.stepNumber);
+        if (!error) return true;
+        failure = error;
+      } catch (writeError) {
+        failure = writeError;
+      }
+
+      console.error(
+        `[BaseStep] Falha ao gravar ${label} do step ${this.stepNumber} (${this.stepType}, execution=${executionId}), tentativa ${attempt + 1}/${PERSIST_RETRY_DELAYS.length}:`,
+        failure instanceof Error ? failure.message : failure
+      );
+    }
+    return false;
   }
 
   /**
@@ -254,15 +326,20 @@ export abstract class BaseStep {
   ): Promise<void> {
     // Story 24.2: ADITIVO — o parcial sobrevive a falha (`{ ...parcial, error }`). Quem
     // le `output.error` continua funcionando; o retry le o parcial.
-    await db
-      .from("agent_steps")
-      .update({
-        status: "failed" as StepStatus,
-        error_message: pipelineError.message,
-        output: { ...(this.partialOutput ?? {}), error: pipelineError },
-      })
-      .eq("execution_id", executionId)
-      .eq("step_number", this.stepNumber);
+    //
+    // Story 24.1: retry curto e NUNCA lanca — o `run()` precisa relancar o erro ORIGINAL
+    // do step. Se a gravacao falhar de vez, o step fica `running` e o sweeper
+    // (`sweep_stuck_agent_steps`, migration 00067) o libera depois.
+    const saved = await this.persistStepUpdate(db, executionId, "falha", {
+      status: "failed" as StepStatus,
+      error_message: pipelineError.message,
+      output: { ...(this.partialOutput ?? {}), error: pipelineError },
+    });
+    if (!saved) {
+      console.error(
+        `[BaseStep] NAO foi possivel gravar a falha do step ${this.stepNumber} (${this.stepType}, execution=${executionId}) — o step pode ficar em running ate o sweeper libera-lo. Erro original: ${pipelineError.code}: ${pipelineError.message}`
+      );
+    }
   }
 
   /**
@@ -340,10 +417,12 @@ export abstract class BaseStep {
     // `.neq("status","running")`, o 2o POST de um clique duplo encontrava o step ja
     // `completed`/`approved` e rodava (e cobrava) de novo.
     //
-    // TRADE-OFF ACEITO (decisao do Fabossi na code review): um step deixado `running`
-    // por uma funcao que morreu no meio nao pode ser redisparado sem intervencao manual
-    // no banco. Preferimos travar um retry raro a reenviar e-mail para leads que ja
-    // receberam a sequencia.
+    // Story 24.1: um step deixado `running` por uma funcao que morreu no meio NAO fica
+    // preso: o sweeper `sweep_stuck_agent_steps` (migration 00067, pg_cron a cada 2 min)
+    // o libera depois de 10 min como `failed` retryable, e o "Tentar novamente" volta a
+    // passar por este CAS. O retry continua seguro: o activate faz pre-flight no
+    // Instantly antes de ativar, e o export reaproveita o `externalCampaignId` e pula
+    // os leads que ja estao na campanha.
     const { data: claimed } = await db
       .from("agent_steps")
       .update(updateData)

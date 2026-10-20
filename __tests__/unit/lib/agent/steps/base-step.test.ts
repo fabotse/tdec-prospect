@@ -342,8 +342,13 @@ describe("BaseStep (AC #4)", () => {
 
     it("erro ao gravar o parcial NAO derruba o step (loga e segue)", async () => {
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      // Toda escrita em agent_steps devolve { error } — inclusive a do parcial.
+      // A escrita do parcial devolve { error }. Story 24.1: as gravacoes de status
+      // (running/checkpoint) seguem ok — falha persistente nelas agora e falha explicita.
       const failingChain = createChainBuilder({ data: null, error: { message: "rls" } });
+      const okChain = createChainBuilder({ data: null, error: null });
+      failingChain.update.mockImplementation((payload: Record<string, unknown>) =>
+        "status" in payload ? okChain : failingChain
+      );
       mockSupabase.from.mockImplementation((table: string) =>
         table === "agent_steps" ? failingChain : mockSupabase.messagesChain
       );
@@ -486,6 +491,179 @@ describe("BaseStep (AC #4)", () => {
           }),
         })
       );
+    });
+  });
+
+  // ==============================================
+  // Story 24.1: gravacoes com retry curto e falha explicita
+  // ==============================================
+  describe("gravacao com retry curto (Story 24.1)", () => {
+    type Payload = Record<string, unknown>;
+    type Result = { data: unknown; error: unknown };
+
+    /**
+     * Mock de `agent_steps` cujo resultado depende do payload do update. O `responder`
+     * pode devolver `{ error }` ou lancar.
+     */
+    function createStepsMock(responder: (payload: Payload) => Result) {
+      const update = vi.fn((payload: Payload) => {
+        const chain: Record<string, unknown> = {};
+        const self = () => chain;
+        chain.eq = vi.fn(self);
+        chain.in = vi.fn(self);
+        chain.select = vi.fn(self);
+        chain.then = (
+          resolve: (v: Result) => unknown,
+          reject?: (r: unknown) => unknown
+        ) =>
+          new Promise<Result>((res) => res(responder(payload))).then(resolve, reject);
+        return chain;
+      });
+      const messagesChain = createChainBuilder({ data: null, error: null });
+      const from = vi.fn((table: string) =>
+        table === "agent_steps" ? { update } : messagesChain
+      );
+      return { from, update, messagesChain };
+    }
+
+    const ok: Result = { data: null, error: null };
+    const dbError: Result = { data: null, error: { message: "connection reset" } };
+
+    function statusCalls(update: ReturnType<typeof vi.fn>, status: string) {
+      return update.mock.calls.filter((c) => (c[0] as Payload).status === status);
+    }
+
+    let consoleError: { mock: { calls: unknown[][] }; mockRestore: () => void };
+    beforeEach(() => {
+      consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+    afterEach(() => {
+      consoleError.mockRestore();
+    });
+
+    it("erro transitorio no checkpoint: recupera na 2a tentativa", async () => {
+      let checkpointAttempts = 0;
+      const mock = createStepsMock((payload) => {
+        if (payload.status === "completed") {
+          checkpointAttempts++;
+          return checkpointAttempts === 1 ? dbError : ok;
+        }
+        return ok;
+      });
+      const s = new TestStep(1, "search_companies", mock as never);
+
+      const promise = s.run(mockInput);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(result.success).toBe(true);
+      expect(statusCalls(mock.update, "completed")).toHaveLength(2);
+      expect(statusCalls(mock.update, "failed")).toHaveLength(0);
+      expect(consoleError).toHaveBeenCalled();
+    });
+
+    it("erro persistente no checkpoint: grava failed e rejeita com STEP_PERSISTENCE_ERROR", async () => {
+      const mock = createStepsMock((payload) =>
+        payload.status === "completed" ? dbError : ok
+      );
+      const s = new TestStep(2, "search_leads", mock as never);
+
+      const promise = s.run(mockInput);
+      const assertion = expect(promise).rejects.toMatchObject({
+        code: "STEP_PERSISTENCE_ERROR",
+        message: "Nao foi possivel salvar o resultado da etapa",
+        isRetryable: true,
+        stepNumber: 2,
+        stepType: "search_leads",
+      });
+      await vi.runAllTimersAsync();
+      await assertion;
+
+      expect(statusCalls(mock.update, "completed")).toHaveLength(3);
+      const failed = statusCalls(mock.update, "failed");
+      expect(failed).toHaveLength(1);
+      expect(failed[0][0]).toMatchObject({
+        error_message: "Nao foi possivel salvar o resultado da etapa",
+        output: { error: { code: "STEP_PERSISTENCE_ERROR", isRetryable: true } },
+      });
+    });
+
+    it("erro persistente em awaiting_approval: grava failed e rejeita com STEP_PERSISTENCE_ERROR", async () => {
+      const mock = createStepsMock((payload) =>
+        payload.status === "awaiting_approval" ? dbError : ok
+      );
+      const s = new TestStep(1, "search_companies", mock as never);
+
+      const promise = s.run({ ...mockInput, mode: "guided" });
+      const assertion = expect(promise).rejects.toMatchObject({
+        code: "STEP_PERSISTENCE_ERROR",
+        isRetryable: true,
+      });
+      await vi.runAllTimersAsync();
+      await assertion;
+
+      expect(statusCalls(mock.update, "awaiting_approval")).toHaveLength(3);
+      expect(statusCalls(mock.update, "failed")).toHaveLength(1);
+      // Sem gate de aprovacao quando o step nao foi gravado.
+      expect(mock.messagesChain.insert).not.toHaveBeenCalled();
+    });
+
+    it("excecao lancada (nao so { error }) tambem e tratada com retry", async () => {
+      const mock = createStepsMock((payload) => {
+        if (payload.status === "completed") throw new Error("fetch failed");
+        return ok;
+      });
+      const s = new TestStep(1, "search_companies", mock as never);
+
+      const promise = s.run(mockInput);
+      const assertion = expect(promise).rejects.toMatchObject({
+        code: "STEP_PERSISTENCE_ERROR",
+      });
+      await vi.runAllTimersAsync();
+      await assertion;
+
+      expect(statusCalls(mock.update, "completed")).toHaveLength(3);
+      expect(statusCalls(mock.update, "failed")).toHaveLength(1);
+    });
+
+    it("saveFailure persistente: loga e rejeita com o erro ORIGINAL do step", async () => {
+      let throwOnFailed = false;
+      const mock = createStepsMock((payload) => {
+        if (payload.status === "failed") {
+          throwOnFailed = !throwOnFailed;
+          if (throwOnFailed) throw new Error("socket hang up");
+          return dbError;
+        }
+        return ok;
+      });
+      const s = new TestStep(1, "search_companies", mock as never);
+      s.shouldThrow = new ExternalServiceError("theirstack", 429, "Rate limited");
+
+      const promise = s.run(mockInput);
+      const assertion = expect(promise).rejects.toMatchObject({
+        code: "STEP_SEARCH_COMPANIES_ERROR",
+        externalService: "theirstack",
+        isRetryable: true,
+      });
+      await vi.runAllTimersAsync();
+      await assertion;
+
+      expect(statusCalls(mock.update, "failed")).toHaveLength(3);
+      const messages = consoleError.mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(
+        messages.some((m) => m.includes("NAO foi possivel gravar a falha do step 1"))
+      ).toBe(true);
+    });
+
+    it("toPipelineError devolve um PipelineError recebido sem alterar", () => {
+      const original: PipelineError = {
+        code: "STEP_PERSISTENCE_ERROR",
+        message: "Nao foi possivel salvar o resultado da etapa",
+        stepNumber: 3,
+        stepType: "create_campaign",
+        isRetryable: true,
+      };
+      expect(step.testToPipelineError(original)).toBe(original);
     });
   });
 });

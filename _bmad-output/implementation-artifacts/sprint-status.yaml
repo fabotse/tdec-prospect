@@ -583,7 +583,7 @@ development_status:
   # 3 marcos: M1 24.1-24.10 (confiavel + copy honesta) | M2 24.11-24.18 (Analista de Contas; abre c/ spike Treg) | M3 24.19-24.25 (dossie + reuniao). Deploy + smoke + checkpoint ao fim de cada marco.
   #
   epic-24: backlog
-  24-1-etapa-travada-e-destravada-sozinha: backlog
+  24-1-etapa-travada-e-destravada-sozinha: awaiting-operator
   24-2-execucao-protegida-contra-cobranca-dupla: done
   24-3-avanco-confiavel-e-tentar-novamente: done
   24-4-conversa-sem-becos-sem-saida: done

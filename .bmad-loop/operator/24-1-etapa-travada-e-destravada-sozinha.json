@@ -1,0 +1,12 @@
+{
+  "actions": [
+    "Na janela de deploy combinada, rode no SQL Editor de produ\u00e7\u00e3o a query de pr\u00e9-checagem (somente leitura) do cabe\u00e7alho de supabase/migrations/00067_sweep_stuck_agent_steps.sql e revise quais steps/execu\u00e7\u00f5es antigas ser\u00e3o liberados (e quais conversas ganhar\u00e3o a bolha de erro).",
+    "Aplique supabase/migrations/00067_sweep_stuck_agent_steps.sql no SQL Editor de produ\u00e7\u00e3o (cria a fun\u00e7\u00e3o public.sweep_stuck_agent_steps e o job pg_cron agent-stuck-steps-sweep a cada 2 min).",
+    "Confirme o agendamento com SELECT jobname, schedule, active FROM cron.job WHERE jobname = 'agent-stuck-steps-sweep'; e, ap\u00f3s ~2 min, veja em cron.job_run_details que a execu\u00e7\u00e3o terminou com status succeeded.",
+    "Fa\u00e7a deploy do c\u00f3digo (base-step.ts) para a main/Vercel e rode um smoke: abra no agente uma execu\u00e7\u00e3o que tenha sido liberada (ou provoque um step parado h\u00e1 mais de 10 min) e confira step failed, execu\u00e7\u00e3o paused, bolha de erro e o bot\u00e3o Tentar novamente \u2014 sem ativar campanha de teste no Instantly."
+  ],
+  "parked_at": "2026-10-20",
+  "run_id": "20261020-113829-8d08",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-24-1-etapa-travada-e-destravada-sozinha.md",
+  "story_key": "24-1-etapa-travada-e-destravada-sozinha"
+}
