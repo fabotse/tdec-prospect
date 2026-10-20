@@ -235,4 +235,6 @@ Ajustes (commit `de1de0c`):
   2. A busca de leads não foi tocada (diff).
   3. Export/ativação não foram tocados; o step de execute só ganhou log no `catch` (diff).
 - **O que o cliente sente:** 2 insights novos na página Insights, e daqui em diante uma rodada por semana para os leads monitorados.
-- **Não verificado na tela:** a visão de SDR e de gestor do cliente (sem login de teste). Coberta pelos testes PGlite com o SQL real e pela policy conferida em produção.
+- **Visão de SDR e de gestor do cliente, verificada na tela em produção (2026-10-20, Playwright, contexto limpo, só leitura).** Credenciais de `docs/credentials.md`. Mesmo tenant do alerta `platform`.
+  - SDR (`ccase`): `GET /api/settings/errors` → 403 "Somente o operador da plataforma pode ver os erros"; `/settings` e `/settings/errors` redirecionam para `/leads`; `/api/notifications` traz 30 notificações e nenhuma `job_com_falha`; o sino mostra só oportunidades (🔥), sem "Job com problema".
+  - Gestor do cliente (`mfabossi`): `GET /api/settings/errors` → 403; `/settings` abre (Integrações, Base de Conhecimento, Produtos, Uso da API, Monitoramento, Notificações, Equipe) **sem** a aba Erros; `/settings/errors` redireciona para `/settings/integrations`; nenhuma `job_com_falha` no sino nem na API.
