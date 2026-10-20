@@ -2,7 +2,7 @@
 title: 'Story 23.3 — Saúde dos jobs e registro de erros com a infraestrutura atual'
 type: 'feature'
 created: '2026-10-20'
-status: awaiting-operator
+status: done
 baseline_revision: '32e3890169290e2d31f2eb39394adbe972f3a02d'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -217,3 +217,35 @@ Ajustes (commit `de1de0c`):
 - 1ª execução do `job-health-check` (14:00 UTC): `succeeded`. Gravou 1 linha `pg_net/http` (timeout de 5 s das 13:50, anterior à 00069) e 1 `job_com_falha` com `audience = platform` no tenant `…0001`. Desde 13:55, todas as chamadas do pg_net deram 200.
 - Smoke local (Playwright, `next dev -p 3100`, logado como Fabossi): aba Erros visível, a linha aparece na lista, e o sino mostra "⚠️ Job com problema: Chamadas HTTP (pg_net)".
 - Não havia login de gestor do cliente nem de SDR. A visão deles está coberta pelos testes PGlite com o SQL real e pela policy conferida em produção.
+
+## Deploy e smoke em produção (2026-10-20)
+
+- **CI:** o teste `EmailBlock` "remove assinatura placeholder…" (24.8) falhava nos runs de push desde a 24.8, junto com "passes productId…".
+  - Causa: no runner lento, chamadas de testes anteriores (debounce do subject, geração parada no `setTimeout` de 300 ms) caem no teste seguinte depois do `clearAllMocks`, e os testes liam a *primeira* chamada.
+  - Correção: os dois testes leem a última chamada do próprio teste (`d0d39c6`, `06d0db0`). CI verde em push e PR.
+- **Deploy:** PR #11 mergeado na `main` (`2a79f04`). Vercel de produção `success`.
+- **Smoke em produção (Playwright, como Fabossi):** a aba Erros aparece e lista a linha `pg_net/http` das 15:00; o sino mostra "Job com problema".
+- **Monitor semanal (1ª rodada real):**
+  - 14:30 UTC: `batch_processed`, 2 leads, 3 posts novos, 1 filtrado, 2 sugestões → 2 insights novos.
+  - 14:35: rodada concluída (`idle`, `last_run_at` 14:35, `next_run_at` 2026-10-27 14:35).
+  - Custo registrado em `api_usage_logs`: 2 chamadas Apify e 5 OpenAI.
+  - Nenhuma linha nova em `error_logs`; respostas HTTP 200 desde a 00069.
+- **Os 3 pontos, por smoke real:**
+  1. `reply-sweep-cron` com 200 a cada 5 min (`swept/created/skipped` normais).
+  2. A busca de leads não foi tocada (diff).
+  3. Export/ativação não foram tocados; o step de execute só ganhou log no `catch` (diff).
+- **O que o cliente sente:** 2 insights novos na página Insights, e daqui em diante uma rodada por semana para os leads monitorados.
+- **Visão de SDR e de gestor do cliente, verificada na tela em produção (2026-10-20, Playwright, contexto limpo, só leitura).** Credenciais de `docs/credentials.md`. Mesmo tenant do alerta `platform`.
+  - SDR (`ccase`): `GET /api/settings/errors` → 403 "Somente o operador da plataforma pode ver os erros"; `/settings` e `/settings/errors` redirecionam para `/leads`; `/api/notifications` traz 30 notificações e nenhuma `job_com_falha`; o sino mostra só oportunidades (🔥), sem "Job com problema".
+  - Gestor do cliente (`mfabossi`): `GET /api/settings/errors` → 403; `/settings` abre (Integrações, Base de Conhecimento, Produtos, Uso da API, Monitoramento, Notificações, Equipe) **sem** a aba Erros; `/settings/errors` redireciona para `/settings/integrations`; nenhuma `job_com_falha` no sino nem na API.
+
+## Operator Confirmation
+
+Confirmed 2026-10-20: the external actions this story owed were carried out.
+
+- Aplicar a migration supabase/migrations/00068_job_health_and_error_logs.sql no SQL Editor do projeto kdgogyqyaxncqoyklyxx (rodar antes o PRE-CHECK do cabeçalho e terminar com NOTIFY pgrst, 'reload schema';) — ela cria o job pg_cron novo job-health-check.
+- Depois de aplicar, rodar SELECT public.check_scheduled_jobs_health(); uma vez e conferir, logado como gestor, a notificação 'Job com problema' no sino e a linha em Configurações → Erros; logado como SDR, conferir que o alerta não aparece e que /settings/errors redireciona.
+- Decidir o destino do monitor-leads entre as opções a/b do cabeçalho da 00068 (deixar parado ou fazê-lo rodar, o que passa a gastar Apify + OpenAI).
+- Decidir se o monitor-leads-cron deve ser reagendado com timeout_milliseconds maior (opção c), para parar os timeouts de 5000 ms que vão aparecer em Configurações → Erros.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
