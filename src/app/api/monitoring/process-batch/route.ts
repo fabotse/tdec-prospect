@@ -32,10 +32,12 @@ import type { MonitoringConfigRow } from "@/types/monitoring";
 // ==============================================
 
 export async function POST(req: NextRequest) {
-  // AC: Auth validation — cron secret (read at request time for testability)
+  // Auth: cron secret (lido em tempo de request para testabilidade).
+  // Fail-closed se o secret não estiver configurado — senão o header
+  // "Bearer undefined" passaria (execução service-role não autenticada).
   const monitoringSecret = process.env.MONITORING_CRON_SECRET;
   const authHeader = req.headers.get("authorization");
-  if (!authHeader || authHeader !== `Bearer ${monitoringSecret}`) {
+  if (!monitoringSecret || !authHeader || authHeader !== `Bearer ${monitoringSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

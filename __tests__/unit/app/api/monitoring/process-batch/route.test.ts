@@ -8,6 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { createChainBuilder } from "../../../../../helpers/mock-supabase";
 
 // ==============================================
@@ -168,6 +169,37 @@ describe("POST /api/monitoring/process-batch", () => {
       const response = await POST(req);
 
       expect(response.status).toBe(401);
+    });
+
+    // Story 23.1: fail-closed quando o secret não está configurado
+    it.each([["Bearer undefined"], ["Bearer "]])(
+      "fail-closed: 401 quando MONITORING_CRON_SECRET não está configurado (header %j)",
+      async (header) => {
+        vi.stubEnv("MONITORING_CRON_SECRET", "");
+        const req = createRequest(header);
+        const response = await POST(req);
+
+        expect(response.status).toBe(401);
+        const json = await response.json();
+        expect(json.error).toBe("Unauthorized");
+        expect(createClient).not.toHaveBeenCalled();
+      }
+    );
+
+    it("fail-closed: 401 quando MONITORING_CRON_SECRET é undefined (header Bearer undefined)", async () => {
+      delete process.env.MONITORING_CRON_SECRET;
+      const req = createRequest("Bearer undefined");
+      const response = await POST(req);
+
+      expect(response.status).toBe(401);
+      expect(createClient).not.toHaveBeenCalled();
+    });
+
+    it("should not instantiate Supabase when secret is wrong", async () => {
+      const req = createRequest("Bearer wrong-secret");
+      await POST(req);
+
+      expect(createClient).not.toHaveBeenCalled();
     });
   });
 

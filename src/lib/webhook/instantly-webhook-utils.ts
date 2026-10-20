@@ -143,7 +143,7 @@ export function buildCampaignEventInsert(
 export const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-webhook-secret",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -161,6 +161,42 @@ export function jsonResponse(
 }
 
 // ==============================================
+// SHARED-SECRET AUTH (Story 23.1)
+// ==============================================
+
+/** Header alternativo à query `?token=` para enviar o segredo do webhook. */
+export const WEBHOOK_SECRET_HEADER = "x-webhook-secret";
+
+/**
+ * Extrai o segredo enviado pelo chamador: query `token` primeiro, depois o
+ * header `x-webhook-secret`. Retorna null quando nenhum dos dois veio.
+ */
+export function extractWebhookSecret(url: string, headers: Headers): string | null {
+  let fromQuery: string | null = null;
+  try {
+    fromQuery = new URL(url).searchParams.get("token");
+  } catch {
+    fromQuery = null;
+  }
+  if (fromQuery) return fromQuery;
+  const fromHeader = headers.get(WEBHOOK_SECRET_HEADER);
+  return fromHeader ? fromHeader : null;
+}
+
+/**
+ * Comparação de strings em tempo constante (XOR por char, sem early-return).
+ * Tamanhos diferentes → false.
+ */
+export function safeEqual(a: string, b: string): boolean {
+  const len = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < len; i++) {
+    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}
+
+// ==============================================
 // WEBHOOK REQUEST PROCESSOR
 // (Integration-testable handler logic)
 // ==============================================
@@ -173,6 +209,14 @@ export interface WebhookDeps {
   insertEvent: (event: CampaignEventInsert) => Promise<{
     error: { message: string; code: string } | null;
   }>;
+  /**
+   * Story 23.1: segredo compartilhado. `expectedSecret` vem da env
+   * INSTANTLY_WEBHOOK_SECRET; `providedSecret` de `extractWebhookSecret`.
+   */
+  auth: {
+    expectedSecret: string | undefined;
+    providedSecret: string | null;
+  };
 }
 
 export interface WebhookResponse {
@@ -202,6 +246,15 @@ export async function processWebhookRequest(
   // Apenas POST permitido
   if (method !== "POST") {
     return { status: 405, body: { error: "Method not allowed" } };
+  }
+
+  // Story 23.1: segredo compartilhado, fail-closed, antes do parse e do banco.
+  const { expectedSecret, providedSecret } = deps.auth;
+  if (!expectedSecret) {
+    return { status: 503, body: { error: "Webhook not configured" } };
+  }
+  if (!providedSecret || !safeEqual(providedSecret, expectedSecret)) {
+    return { status: 401, body: { error: "Unauthorized" } };
   }
 
   // JSON parse error

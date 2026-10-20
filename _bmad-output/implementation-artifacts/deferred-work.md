@@ -589,3 +589,18 @@ source_spec: `spec-24-1-etapa-travada-e-destravada-sozinha.md`
 severity: medium
 reason: Pré-existente e fora dos ACs da 24.1, que tratam de step preso. O sweeper parte de agent_steps.status='running'; uma execução running com step N completed e N+1 pending não é detectada. A 24.3 já reporta falha do triggerNextStep (report-trigger-failure.ts), mas uma morte do processo entre steps não é coberta.
 status: open
+
+### DW-25: O handler Deno da Edge Function instantly-webhook (guard de segredo, extractWebhookSecret e safeEqual inline) não é executado por nenhum teste; só a cópia em src/lib é testada.
+origin: spec-deferred 34dead405a2f
+location: supabase/functions/instantly-webhook/index.ts:184
+source_spec: `spec-23-1-webhook-e-crons-autenticados.md`
+severity: medium
+reason: vitest.config.ts só inclui __tests__/**, não há deno test no package.json nem no CI, e processWebhookRequest não é chamado por código de produção. A sincronia depende só do SYNC-NOTICE. Fechar exige um harness Deno para supabase/functions/* ou refatorar o handler para delegar a um módulo compartilhado. Até lá, o smoke do operador pós-deploy (401 sem token, 400 com token e corpo vazio) é a verificação.
+status: open
+
+### DW-26: As Edge Functions reply-sweep e monitor-leads (publicadas com verificação de JWT) aceitam qualquer JWT válido, inclusive a anon key pública, e repassam o Bearer do cron para as rotas Next com service
+origin: spec-deferred 62b3797bde4b
+location: supabase/functions/reply-sweep/index.ts:24
+source_spec: `spec-23-1-webhook-e-crons-autenticados.md`
+reason: Pré-existente e fora do diff. Elas não conferem nenhum segredo próprio; quem tiver a anon key pode disparar o lote fora do horário (amplificação de custo de OpenAI/Apify; o processamento é idempotente e o monitoring é limitado por next_run_at). Para confirmar: checar no painel se as funções estão com verify_jwt ligado e se a anon key passa. Corrigir exige publicar Edge Functions (ação com OK do Fabossi).
+status: open

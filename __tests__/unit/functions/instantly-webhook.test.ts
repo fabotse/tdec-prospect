@@ -17,6 +17,9 @@ import {
   EVENT_TYPE_MAP,
   CORS_HEADERS,
   jsonResponse,
+  extractWebhookSecret,
+  safeEqual,
+  WEBHOOK_SECRET_HEADER,
 } from "@/lib/webhook/instantly-webhook-utils";
 import type {
   CampaignLookupResult,
@@ -350,6 +353,11 @@ describe("CORS_HEADERS", () => {
     expect(headers).toContain("authorization");
     expect(headers).toContain("apikey");
   });
+
+  it("permite o header x-webhook-secret (Story 23.1)", () => {
+    expect(CORS_HEADERS["Access-Control-Allow-Headers"]).toContain(WEBHOOK_SECRET_HEADER);
+    expect(WEBHOOK_SECRET_HEADER).toBe("x-webhook-secret");
+  });
 });
 
 // ==============================================
@@ -485,6 +493,8 @@ describe("processWebhookRequest — handler flow", () => {
       error: null,
     }),
     insertEvent: vi.fn().mockResolvedValue({ error: null }),
+    // Story 23.1: auth válida por padrão — o fluxo abaixo é de chamador autenticado.
+    auth: { expectedSecret: "webhook-secret", providedSecret: "webhook-secret" },
     ...overrides,
   });
 
@@ -624,5 +634,205 @@ describe("processWebhookRequest — handler flow", () => {
 
     expect(result.status).toBe(500);
     expect(result.body.error).toBe("Failed to persist event");
+  });
+});
+
+// ==============================================
+// Story 23.1 — Autenticação por segredo compartilhado
+// ==============================================
+
+describe("Story 23.1 — webhook autenticado (fail-closed)", () => {
+  const SECRET = "s3cr3t-webhook-value";
+
+  const createDeps = (auth: WebhookDeps["auth"]): WebhookDeps => ({
+    lookupCampaign: vi.fn().mockResolvedValue({
+      data: { id: "campaign-uuid-1", tenant_id: "tenant-uuid-1" },
+      error: null,
+    }),
+    insertEvent: vi.fn().mockResolvedValue({ error: null }),
+    auth,
+  });
+
+  const req = (url: string, headers: Record<string, string> = {}) => ({
+    url,
+    headers: new Headers(headers),
+  });
+
+  const BASE = "https://x.supabase.co/functions/v1/instantly-webhook";
+
+  it("POST autenticado por query ?token= → 200 e evento gravado", async () => {
+    const r = req(`${BASE}?token=${SECRET}`);
+    const deps = createDeps({
+      expectedSecret: SECRET,
+      providedSecret: extractWebhookSecret(r.url, r.headers),
+    });
+    const result = await processWebhookRequest(
+      "POST",
+      createMockInstantlyWebhookPayload(),
+      false,
+      deps
+    );
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ success: true });
+    expect(deps.insertEvent).toHaveBeenCalledOnce();
+  });
+
+  it("POST autenticado por header x-webhook-secret → 200 e evento gravado", async () => {
+    const r = req(BASE, { "x-webhook-secret": SECRET });
+    const deps = createDeps({
+      expectedSecret: SECRET,
+      providedSecret: extractWebhookSecret(r.url, r.headers),
+    });
+    const result = await processWebhookRequest(
+      "POST",
+      createMockInstantlyWebhookPayload(),
+      false,
+      deps
+    );
+    expect(result.status).toBe(200);
+    expect(deps.insertEvent).toHaveBeenCalledOnce();
+  });
+
+  it("POST sem token/header → 401 Unauthorized, nada consultado nem gravado", async () => {
+    const r = req(BASE);
+    const deps = createDeps({
+      expectedSecret: SECRET,
+      providedSecret: extractWebhookSecret(r.url, r.headers),
+    });
+    const result = await processWebhookRequest(
+      "POST",
+      createMockInstantlyWebhookPayload(),
+      false,
+      deps
+    );
+    expect(result.status).toBe(401);
+    expect(result.body).toEqual({ error: "Unauthorized" });
+    expect(deps.lookupCampaign).not.toHaveBeenCalled();
+    expect(deps.insertEvent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["mesmo tamanho", "s3cr3t-webhook-valuX"],
+    ["tamanho diferente", "errado"],
+    ["prefixo do segredo", SECRET.slice(0, -1)],
+  ])("POST com segredo errado (%s) → 401, nada gravado", async (_label, wrong) => {
+    const deps = createDeps({ expectedSecret: SECRET, providedSecret: wrong });
+    const result = await processWebhookRequest(
+      "POST",
+      createMockInstantlyWebhookPayload(),
+      false,
+      deps
+    );
+    expect(result.status).toBe(401);
+    expect(deps.lookupCampaign).not.toHaveBeenCalled();
+    expect(deps.insertEvent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["undefined", undefined],
+    ["vazio", ""],
+  ])("INSTANTLY_WEBHOOK_SECRET %s → 503 Webhook not configured, nada gravado", async (_label, expected) => {
+    const deps = createDeps({ expectedSecret: expected, providedSecret: SECRET });
+    const result = await processWebhookRequest(
+      "POST",
+      createMockInstantlyWebhookPayload(),
+      false,
+      deps
+    );
+    expect(result.status).toBe(503);
+    expect(result.body).toEqual({ error: "Webhook not configured" });
+    expect(JSON.stringify(result.body)).not.toContain(SECRET);
+    expect(deps.lookupCampaign).not.toHaveBeenCalled();
+    expect(deps.insertEvent).not.toHaveBeenCalled();
+  });
+
+  it("segredo é checado antes do parse do corpo (JSON inválido sem segredo → 401, não 400)", async () => {
+    const deps = createDeps({ expectedSecret: SECRET, providedSecret: null });
+    const result = await processWebhookRequest("POST", null, true, deps);
+    expect(result.status).toBe(401);
+  });
+
+  it("resposta 401 não vaza o segredo", async () => {
+    const deps = createDeps({ expectedSecret: SECRET, providedSecret: "errado" });
+    const result = await processWebhookRequest("POST", {}, false, deps);
+    expect(JSON.stringify(result.body)).not.toContain(SECRET);
+    expect(JSON.stringify(result.body)).not.toContain("errado");
+  });
+
+  it("OPTIONS sem segredo → 204", async () => {
+    const deps = createDeps({ expectedSecret: SECRET, providedSecret: null });
+    const result = await processWebhookRequest("OPTIONS", null, false, deps);
+    expect(result.status).toBe(204);
+  });
+
+  it("GET sem segredo → 405 (método checado antes do segredo)", async () => {
+    const deps = createDeps({ expectedSecret: SECRET, providedSecret: null });
+    const result = await processWebhookRequest("GET", null, false, deps);
+    expect(result.status).toBe(405);
+  });
+
+  it("OPTIONS/GET com env ausente → 204/405 (não 503)", async () => {
+    const deps = createDeps({ expectedSecret: undefined, providedSecret: null });
+    expect((await processWebhookRequest("OPTIONS", null, false, deps)).status).toBe(204);
+    expect((await processWebhookRequest("GET", null, false, deps)).status).toBe(405);
+  });
+});
+
+describe("extractWebhookSecret", () => {
+  const BASE = "https://x.supabase.co/functions/v1/instantly-webhook";
+
+  it("lê a query ?token=", () => {
+    expect(extractWebhookSecret(`${BASE}?token=abc`, new Headers())).toBe("abc");
+  });
+
+  it("lê o header x-webhook-secret", () => {
+    expect(
+      extractWebhookSecret(BASE, new Headers({ "x-webhook-secret": "def" }))
+    ).toBe("def");
+  });
+
+  it("retorna null sem query nem header", () => {
+    expect(extractWebhookSecret(BASE, new Headers())).toBeNull();
+  });
+
+  it("query vence o header", () => {
+    expect(
+      extractWebhookSecret(
+        `${BASE}?token=from-query`,
+        new Headers({ "x-webhook-secret": "from-header" })
+      )
+    ).toBe("from-query");
+  });
+
+  it("token vazio na query cai para o header", () => {
+    expect(
+      extractWebhookSecret(`${BASE}?token=`, new Headers({ "x-webhook-secret": "h" }))
+    ).toBe("h");
+  });
+
+  it("URL inválida não lança; usa o header", () => {
+    expect(
+      extractWebhookSecret("not a url", new Headers({ "x-webhook-secret": "h" }))
+    ).toBe("h");
+  });
+});
+
+describe("safeEqual", () => {
+  it("strings iguais → true", () => {
+    expect(safeEqual("abc123", "abc123")).toBe(true);
+  });
+
+  it("mesmo tamanho, conteúdo diferente → false", () => {
+    expect(safeEqual("abc123", "abc124")).toBe(false);
+  });
+
+  it("tamanhos diferentes → false", () => {
+    expect(safeEqual("abc", "abcd")).toBe(false);
+    expect(safeEqual("abcd", "abc")).toBe(false);
+  });
+
+  it("vazias → true; vazia vs não vazia → false", () => {
+    expect(safeEqual("", "")).toBe(true);
+    expect(safeEqual("", "a")).toBe(false);
   });
 });
