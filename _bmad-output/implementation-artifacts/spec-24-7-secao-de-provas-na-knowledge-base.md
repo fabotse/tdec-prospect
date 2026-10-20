@@ -2,7 +2,7 @@
 title: '24.7 — Seção de Provas na Knowledge Base'
 type: 'feature'
 created: '2026-10-19'
-status: 'awaiting-operator'
+status: done
 baseline_revision: '640b5b982435bd2055e6221b7805d3cc29eede4f'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -191,3 +191,13 @@ Status: awaiting-operator
 - Conferido pelo Claude Code com `scripts/db-ro.sh` (somente leitura): `public.knowledge_base_proofs` existe com RLS ligado, as 4 policies (SELECT para o tenant; INSERT/UPDATE/DELETE só admin) e o trigger `update_knowledge_base_proofs_updated_at`. A tabela está vazia (as provas de teste foram removidas).
 - Fabossi fez o smoke na tela, rodando local (`next dev -p 3100`, código da branch `epic/23-plataforma-higiene`): aba Provas com uma prova autorizada e uma não autorizada, e só a autorizada aparecendo na geração.
 - O código ainda não está em produção (só na branch do épico); a `main` não lê a tabela.
+
+## Operator Confirmation
+
+Confirmed 2026-10-20: the external actions this story owed were carried out.
+
+- Aplicar a migration supabase/migrations/00066_create_knowledge_base_proofs.sql no SQL Editor do Supabase de produção (kdgogyqyaxncqoyklyxx) antes do deploy deste código, na janela de deploy combinada do Marco 1 (24.1/24.7/23.1/23.3).
+- Depois de aplicar, conferir com scripts/db-ro.sh que a tabela public.knowledge_base_proofs existe com RLS ligado e as 4 policies (SELECT para o tenant; INSERT/UPDATE/DELETE só admin).
+- Fazer o smoke na tela: em Configurações > Knowledge Base > Provas, cadastrar uma prova autorizada e uma não autorizada, e confirmar no editor manual (ou no agente, parando antes da aprovação da etapa Criação de Campanha) que só a autorizada aparece no bloco PROVAS AUTORIZADAS do prompt; depois remover as provas de teste se não forem reais.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
