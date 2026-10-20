@@ -2,7 +2,7 @@
 title: 'Story 24.1: Etapa travada é destravada sozinha'
 type: 'bugfix'
 created: '2026-10-20'
-status: 'awaiting-operator'
+status: done
 baseline_revision: 'b874d5470defcd2f7bab2b711708adf1f41d50e0'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -193,3 +193,14 @@ Os 3 pontos foram confirmados **por análise do diff**, sem smoke real, porque a
   - Ao reatachar a execução, o card já aprovado da revisão de leads volta a mostrar "Aprovar (25 leads)" com todos marcados. O servidor recusa com 409 (step não está `awaiting_approval`), então é só visual.
   - Depois do retry bem-sucedido, `agent_steps.error_message` continua com "Etapa interrompida" (a UI só mostra erro em `failed`).
   - O parser escreve "Segmento: nome da campanha" na confirmação do briefing.
+
+## Operator Confirmation
+
+Confirmed 2026-10-20: the external actions this story owed were carried out.
+
+- Na janela de deploy combinada, rode no SQL Editor de produção a query de pré-checagem (somente leitura) do cabeçalho de supabase/migrations/00067_sweep_stuck_agent_steps.sql e revise quais steps/execuções antigas serão liberados (e quais conversas ganharão a bolha de erro).
+- Aplique supabase/migrations/00067_sweep_stuck_agent_steps.sql no SQL Editor de produção (cria a função public.sweep_stuck_agent_steps e o job pg_cron agent-stuck-steps-sweep a cada 2 min).
+- Confirme o agendamento com SELECT jobname, schedule, active FROM cron.job WHERE jobname = 'agent-stuck-steps-sweep'; e, após ~2 min, veja em cron.job_run_details que a execução terminou com status succeeded.
+- Faça deploy do código (base-step.ts) para a main/Vercel e rode um smoke: abra no agente uma execução que tenha sido liberada (ou provoque um step parado há mais de 10 min) e confira step failed, execução paused, bolha de erro e o botão Tentar novamente — sem ativar campanha de teste no Instantly.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
