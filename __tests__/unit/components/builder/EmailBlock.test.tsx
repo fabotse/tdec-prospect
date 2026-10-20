@@ -586,6 +586,9 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
   });
 
   describe("Limpeza da saida da IA (Story 24.8)", () => {
+    // Timeout do teste acima do waitFor: no CI lento o teste estourava os 5 s padrao antes de
+    // o waitFor (tambem 5 s) reportar a diferenca, escondendo a causa (runs 39404695512,
+    // 39415916432, 39435592491).
     it("remove assinatura placeholder e RE: antes de gravar o bloco", async () => {
       mockGenerate.mockImplementation((params: { promptKey: string }) =>
         Promise.resolve(
@@ -607,9 +610,9 @@ describe("EmailBlock (AC: #2, #3, #4, #5)", () => {
           expect(data?.subject).toBe("Uma ideia para {{company_name}}");
           expect(data?.body).toBe("Oi {{first_name}},\n\n{{ice_breaker}}\n\nFaz sentido?\n\nAbraço,");
         },
-        { timeout: 5000 }
+        { timeout: 10000 }
       );
-    });
+    }, 15000);
   });
 
   describe("AI Error Handling (Story 6.2 AC: #2)", () => {
