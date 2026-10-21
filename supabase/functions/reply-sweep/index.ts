@@ -9,7 +9,9 @@
  * TrackingService, decryptApiKey, and the full Vitest ecosystem.
  *
  * Deployment (COM verificação de JWT — nunca --no-verify-jwt):
- *   npx supabase functions deploy reply-sweep
+ *   npx supabase functions deploy reply-sweep --no-verify-jwt=false
+ * O `=false` explícito importa: sem ele o CLI mantém o verify_jwt que já
+ * estava no projeto (a monitor-leads estava com false até 2026-10-21).
  *
  * Auth: só aceita a service role (o pg_cron). A anon key recebe 401.
  *

@@ -9,7 +9,9 @@
  * to reuse ApifyService, decryptApiKey, and the full test ecosystem.
  *
  * Deployment (COM verificação de JWT — nunca --no-verify-jwt):
- *   npx supabase functions deploy monitor-leads
+ *   npx supabase functions deploy monitor-leads --no-verify-jwt=false
+ * O `=false` explícito importa: sem ele o CLI mantém o verify_jwt que já
+ * estava no projeto (a monitor-leads estava com false até 2026-10-21).
  *
  * Auth: só aceita a service role (o pg_cron). A anon key e chamadas sem
  * token recebem 401.

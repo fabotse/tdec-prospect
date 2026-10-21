@@ -196,3 +196,29 @@ Confirmed 2026-10-21: the external actions this story owed were carried out.
 - Fazer o merge do epic/23-plataforma-higiene na main (deploy Vercel) para a correção fail-closed de /api/monitoring/process-batch entrar em produção, conferindo que MONITORING_CRON_SECRET existe nas env de produção da Vercel.
 
 _Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
+
+## Follow-up — Edge Functions de cron só aceitam o pg_cron (2026-10-21)
+
+Fecha o item adiado "reply-sweep e monitor-leads aceitam qualquer JWT válido, inclusive a anon key". Autorizado pelo Fabossi.
+
+- **Achado a mais:** a `monitor-leads` estava publicada com `verify_jwt=false` e aceitava chamada até sem token.
+- **Correção:** `src/lib/cron/cron-trigger-auth.ts` (`isServiceRoleCaller`), com cópia inline nas duas funções.
+  - Aceita o token igual à `SUPABASE_SERVICE_ROLE_KEY` ou um JWT com `role: service_role`. Esse segundo caso só é seguro porque o gateway, com `verify_jwt`, já validou a assinatura.
+  - A anon key e qualquer outro token recebem 401 antes de chamar a Vercel.
+  - Os jobs `pg_cron` não mudaram: eles já mandam a service role do vault.
+- **Testes:**
+  - 11 em `__tests__/unit/lib/cron/cron-trigger-auth.test.ts`, incluindo um que trava a cópia inline das duas funções contra a `src/lib`.
+  - As duas funções rodaram localmente em Deno contra uma Vercel stub: sem token, anon e token qualquer → 401; service key e JWT service_role → 200 repassando o segredo certo; OPTIONS → 204.
+  - Gates: lint ok, typecheck ok, `deno check` ok, 438 arquivos / 8242 testes ok.
+- **Deploy, uma função por vez, logo depois de uma rodada do cron, com backup das versões no ar (iguais ao repo) para rollback:**
+  - `monitor-leads` v10, `verify_jwt=true`.
+    - O primeiro deploy manteve `verify_jwt=false`, porque o CLI preserva o valor anterior. Republicado com `--no-verify-jwt=false` em 20 s.
+    - De fora: sem token → 401 do gateway; anon key → 401; JWT `service_role` forjado → 401 "Invalid JWT".
+    - pg_cron 13:45 UTC → 200 `no_config`.
+  - `reply-sweep` v4, `verify_jwt=true`.
+    - De fora: sem token → 401; anon key → 401.
+    - pg_cron 13:50 UTC → 200 com as contagens de sempre (`skipped:10`, `engagementSkipped:1`). Rollback não foi necessário.
+- **Os 3 pontos:**
+  1. Smoke real: `reply-sweep` 200 depois do deploy. No Instantly (só GET), 25 campanhas: 2 ativas (Indústria Farmacêutica, Indústria Alimentícia), 18 concluídas, 5 rascunhos. Nenhuma tocada.
+  2. Busca de leads: não tocada (diff).
+  3. Export e ativação: não tocados (diff).
