@@ -158,3 +158,22 @@ Status: awaiting-operator
 - `monitoring/process-batch`: chamador legítimo com env presente tem o mesmo resultado; com env ausente já recebia 401 antes.
 
 **Riscos residuais:** até o deploy do operador, a função publicada continua sem checar segredo. Depois do deploy sem o secret criado, o webhook responde 503 (fail-closed, sem impacto hoje porque não há webhook cadastrado). O código Deno só é validado pela cópia testada e pelo smoke pós-deploy.
+
+## Operator Actions — execução (2026-10-21)
+
+- **Conferências prévias (só leitura):**
+  - `GET /api/v2/webhooks` no Instantly → `{"items":[]}`. Nenhum webhook cadastrado, então a ação 2 não teve o que atualizar.
+  - `campaign_events`: os 11 eventos existentes são todos `source='polling'`. O webhook nunca gravou nada.
+  - A versão publicada (v8, fev/2026) foi baixada e comparada com o repo antes da 23.1: idêntica (só CRLF). O deploy trouxe apenas o guard de segredo.
+  - `MONITORING_CRON_SECRET` existe na Vercel (Development, Preview, Production) e nos secrets do Supabase. A rodada de 2026-10-20 14:30 respondeu 200, o que prova que os dois têm o mesmo valor. O fail-closed não afeta o monitor.
+- **Ação 1:** Fabossi criou o secret `INSTANTLY_WEBHOOK_SECRET` via CLI. O valor está guardado em `docs/credentials.md`, fora do git.
+- **Ação 3:** `npx supabase functions deploy instantly-webhook --no-verify-jwt` → versão 10, `verify_jwt=false`.
+- **Ação 4 (smoke em produção, sem gravar nada):**
+  - sem segredo → 401 `Unauthorized`; segredo errado → 401.
+  - com segredo por `?token=` e corpo `{}` → 400 "Missing required fields"; o mesmo via header `x-webhook-secret` → 400.
+  - `OPTIONS` → 204.
+  - `campaign_events` continua com os mesmos 11 eventos `polling`.
+- **Os 3 pontos:**
+  1. Campanhas e respostas: inalterados. A ingestão é o `reply-sweep`, não tocado. Conferido por smoke real depois do merge (ver abaixo).
+  2. Busca de leads: não tocada (diff).
+  3. Export e ativação no Instantly: não tocados (diff).
