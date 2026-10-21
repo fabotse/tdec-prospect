@@ -13,13 +13,30 @@
  * AC: #6 - Event types suportados: email_opened, email_link_clicked,
  *          reply_received, email_bounced, lead_unsubscribed
  *
- * Deployment:
- *   npx supabase functions deploy instantly-webhook --no-verify-jwt
+ * Story 23.1 — Autenticação por segredo compartilhado (fail-closed):
+ *   - O chamador envia o segredo por query `?token=<segredo>` ou pelo header
+ *     `x-webhook-secret: <segredo>`. Comparação em tempo constante, antes de
+ *     ler o corpo ou tocar o banco.
+ *   - Sem segredo / segredo errado → 401 {"error":"Unauthorized"}.
+ *   - INSTANTLY_WEBHOOK_SECRET ausente na env → 503 {"error":"Webhook not configured"}.
+ *   - OPTIONS (preflight) segue 204 sem segredo; método ≠ POST segue 405.
  *
- * IMPORTANTE: --no-verify-jwt porque Instantly não envia JWT.
+ * Setup (ação do operador — não automatizado):
+ *   1. Criar o secret da Edge Function (Supabase → Edge Functions → Secrets):
+ *        npx supabase secrets set INSTANTLY_WEBHOOK_SECRET=$(openssl rand -hex 32)
+ *   2. Cadastrar/atualizar no Instantly a URL com o token:
+ *        https://kdgogyqyaxncqoyklyxx.supabase.co/functions/v1/instantly-webhook?token=<INSTANTLY_WEBHOOK_SECRET>
+ *   3. Publicar:
+ *        npx supabase functions deploy instantly-webhook --no-verify-jwt
+ *   Por que nesta ordem: a versão publicada hoje ignora a query, então a URL com
+ *   token já funciona antes do deploy e nenhum evento leva 401 na transição.
+ *
+ * IMPORTANTE: --no-verify-jwt porque Instantly não envia JWT; a autenticação
+ * é o segredo acima.
  *
  * SYNC-NOTICE: A lógica de negócio abaixo (mapEventType, validateWebhookPayload,
- * EVENT_TYPE_MAP, corsHeaders) é duplicada em src/lib/webhook/instantly-webhook-utils.ts
+ * EVENT_TYPE_MAP, corsHeaders, extractWebhookSecret, safeEqual e o guard de
+ * segredo) é duplicada em src/lib/webhook/instantly-webhook-utils.ts
  * onde é testada via Vitest. O runtime Deno não resolve imports de src/, portanto
  * esta cópia inline é necessária. Ao alterar lógica aqui, atualizar o utils também.
  */
@@ -33,9 +50,36 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-webhook-secret",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+// ==============================================
+// SHARED-SECRET AUTH (Story 23.1)
+// ==============================================
+
+const WEBHOOK_SECRET_HEADER = "x-webhook-secret";
+
+function extractWebhookSecret(url: string, headers: Headers): string | null {
+  let fromQuery: string | null = null;
+  try {
+    fromQuery = new URL(url).searchParams.get("token");
+  } catch {
+    fromQuery = null;
+  }
+  if (fromQuery) return fromQuery;
+  const fromHeader = headers.get(WEBHOOK_SECRET_HEADER);
+  return fromHeader ? fromHeader : null;
+}
+
+function safeEqual(a: string, b: string): boolean {
+  const len = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < len; i++) {
+    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}
 
 // ==============================================
 // EVENT TYPE MAPPING (Instantly → Projeto)
@@ -136,6 +180,33 @@ Deno.serve(async (req: Request): Promise<Response> => {
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 405,
+      }
+    );
+  }
+
+  // Story 23.1 — Segredo compartilhado (fail-closed), antes do parse e do banco.
+  // Nunca logar o segredo esperado nem o recebido.
+  const expectedSecret = Deno.env.get("INSTANTLY_WEBHOOK_SECRET")?.trim();
+  if (!expectedSecret) {
+    console.error("INSTANTLY_WEBHOOK_SECRET not configured; rejecting webhook");
+    return new Response(
+      JSON.stringify({ error: "Webhook not configured" }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 503,
+      }
+    );
+  }
+  const providedSecret = extractWebhookSecret(req.url, req.headers);
+  if (!providedSecret || !safeEqual(providedSecret, expectedSecret)) {
+    console.warn(
+      `Webhook rejected: secret ${providedSecret ? "invalid" : "missing"}`
+    );
+    return new Response(
+      JSON.stringify({ error: "Unauthorized" }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 401,
       }
     );
   }
