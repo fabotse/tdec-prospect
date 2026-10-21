@@ -625,6 +625,93 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
   // Story 22.14: busca com 0 resultados nao e sucesso
   // ==============================================
 
+  // ==============================================
+  // Story 24.13: quantos leads (N)
+  // ==============================================
+
+  describe("Story 24.13 - leadCount (N)", () => {
+    const makeLeadRows = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        ...mockLeadsResponse.leads[0],
+        id: `lead-${i + 1}`,
+        apollo_id: `apollo-${i + 1}`,
+        first_name: `Lead${i + 1}`,
+      }));
+
+    it.each([
+      [5, 25],
+      [60, 60],
+      [300, 100],
+      [null, 25],
+    ])("busca direta com N = %p usa perPage %p", async (n, expected) => {
+      const input = createInput({ leadCount: n });
+      input.previousStepOutput = undefined;
+      await step.run(input);
+
+      expect(mockSearchPeople).toHaveBeenCalledWith(
+        expect.objectContaining({ perPage: expected, page: 1 })
+      );
+    });
+
+    it("busca por dominio tambem usa perPage por N", async () => {
+      await step.run(createInput({ leadCount: 60 }));
+      expect(mockSearchPeople).toHaveBeenCalledWith(
+        expect.objectContaining({ domains: ["acme.com", "beta.io"], perPage: 60 })
+      );
+    });
+
+    it("output leva leadCount (N ou null)", async () => {
+      const comN = await step.run(createInput({ leadCount: 5 }));
+      expect(comN.data.leadCount).toBe(5);
+
+      const semN = await step.run(createInput());
+      expect(semN.data.leadCount).toBeNull();
+    });
+
+    it("autopilot com N = 5 e 25 leads: output com 5 leads e apollo_search 5", async () => {
+      mockSearchPeople.mockResolvedValue({
+        leads: makeLeadRows(25),
+        pagination: { totalEntries: 300, page: 1, perPage: 25, totalPages: 12 },
+      });
+      const input = createInput({ leadCount: 5 });
+      input.mode = "autopilot";
+
+      const result = await step.run(input);
+
+      expect(result.data.leads).toHaveLength(5);
+      expect((result.data.leads as Array<{ name: string }>)[0].name).toContain("Lead1");
+      expect(result.data.totalFound).toBe(300);
+      expect(result.cost?.apollo_search).toBe(5);
+    });
+
+    it("modo guiado com N = 5: lista completa vai para a revisao (sem corte)", async () => {
+      mockSearchPeople.mockResolvedValue({
+        leads: makeLeadRows(25),
+        pagination: { totalEntries: 300, page: 1, perPage: 25, totalPages: 12 },
+      });
+      const input = createInput({ leadCount: 5 });
+      input.mode = "guided";
+
+      const result = await step.run(input);
+
+      expect(result.data.leads).toHaveLength(25);
+      expect(result.data.leadCount).toBe(5);
+    });
+
+    it("autopilot sem N: nada muda (todos os leads)", async () => {
+      mockSearchPeople.mockResolvedValue({
+        leads: makeLeadRows(25),
+        pagination: { totalEntries: 300, page: 1, perPage: 25, totalPages: 12 },
+      });
+      const input = createInput();
+      input.mode = "autopilot";
+
+      const result = await step.run(input);
+      expect(result.data.leads).toHaveLength(25);
+      expect(result.cost?.apollo_search).toBe(25);
+    });
+  });
+
   describe("Story 22.14 - busca vazia (AC #1, #6)", () => {
     /**
      * Trap #8: o mock padrao SEMPRE devolve 2 leads — nenhum teste existente exercitava

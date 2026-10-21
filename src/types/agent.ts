@@ -125,6 +125,9 @@ export interface ParsedBriefing {
   urgency?: CampaignUrgency | null; // Story 22.5: urgencia da campanha (metadado). Null = nao especificado; default MEDIUM aplicado no CreateCampaignStep.
   campaignDescription?: string | null; // Story 22.5: descricao livre da campanha (ex.: "Black Friday"). Alimenta {{additional_description}} e o nome da campanha.
   emailCount?: number | null; // Story 22.5: quantidade de e-mails desejada (1-10). Null = heuristica por objetivo no prompt.
+  // Story 24.13: quantos leads o usuario quer (N, 1-500). Metadado: vale no plano, no custo,
+  // no volume da busca e na pre-selecao da revisao. Null = comportamento anterior (25, todos).
+  leadCount?: number | null;
   // Story 22.15: nome do SEGMENTO onde os leads aprovados sao salvos em "Meus Leads",
   // quando o usuario pede um na conversa ("coloca no segmento Teste Atibaia"). Null =
   // usa o proprio nome da campanha. NAO e filtro de busca: nunca altera skipSteps,

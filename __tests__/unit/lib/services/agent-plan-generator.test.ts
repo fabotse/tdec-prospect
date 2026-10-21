@@ -266,6 +266,35 @@ describe("PlanGeneratorService", () => {
       expect(steps[1].description).toBe("Encontrar CTO nas empresas via Apollo");
     });
 
+    // Story 24.13: N no texto do plano
+    it("Story 24.13: search_leads termina com ' — até N leads' nos ramos ativos", () => {
+      const viaEmpresas = PlanGeneratorService.generatePlan(
+        createBriefing({ jobTitles: ["CTO"], leadCount: 5 }),
+        createCostEstimate()
+      );
+      expect(viaEmpresas[1].description).toBe("Encontrar CTO nas empresas via Apollo — até 5 leads");
+
+      const direta = PlanGeneratorService.generatePlan(
+        createBriefing({ technology: null, skipSteps: ["search_companies"], leadCount: 5 }),
+        createCostEstimate()
+      );
+      expect(direta[1].description).toMatch(/\(sem filtro de empresa\) — até 5 leads$/);
+    });
+
+    it("Story 24.13: ramo pulado e briefing sem N ficam sem o sufixo", () => {
+      const pulado = PlanGeneratorService.generatePlan(
+        createBriefing({ skipSteps: ["search_companies", "search_leads"], leadCount: 5 }),
+        createCostEstimate()
+      );
+      expect(pulado[1].description).toBe("Etapa pulada — leads fornecidos pelo usuario");
+
+      const semN = PlanGeneratorService.generatePlan(
+        createBriefing({ jobTitles: ["CTO"] }),
+        createCostEstimate()
+      );
+      expect(semN[1].description).not.toContain("até");
+    });
+
     // Story 17.11: imported leads flow descriptions
     it("usa descricao 'Etapa pulada' para search_companies quando skipSteps inclui search_companies (CR fix)", () => {
       const briefing = createBriefing({

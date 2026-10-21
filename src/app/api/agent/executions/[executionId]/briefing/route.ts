@@ -46,6 +46,9 @@ const briefingUpdateSchema = z.object({
     )
     .optional(),
   emailCount: z.number().int().min(1).max(10).nullable().optional(),
+  // Story 24.13: quantos leads (N). Mesma armadilha de strip — sem declarar, o PATCH
+  // descartaria o N e plano/custo/revisao voltariam ao default de 25.
+  leadCount: z.number().int().min(1).max(500).nullable().optional(),
   // Story 22.15: mesma armadilha de strip — sem declarar `segmentName`, o PATCH o
   // descartaria antes do update e o CreateCampaignStep cairia sempre no nome da campanha,
   // engolindo o "coloca no segmento X" pedido na conversa. Teto de 100 (segments.name).

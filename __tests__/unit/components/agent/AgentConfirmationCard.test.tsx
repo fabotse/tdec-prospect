@@ -57,6 +57,42 @@ describe("AgentConfirmationCard", () => {
       expect(onAction).toHaveBeenNthCalledWith(2, "adjust_briefing");
     });
 
+    it("Story 24.13: chip Leads mostra 'Até N leads', 'nao definido' sem N, e edita com input numerico", async () => {
+      const { rerender } = render(
+        <AgentConfirmationCard variant="briefing" briefing={BRIEFING} onAction={onAction} onEditField={onEditField} />
+      );
+      expect(screen.getByTestId("briefing-chip-leadCount")).toHaveTextContent("Leads:nao definido");
+
+      rerender(
+        <AgentConfirmationCard
+          variant="briefing"
+          briefing={{ ...BRIEFING, leadCount: 5 }}
+          onAction={onAction}
+          onEditField={onEditField}
+        />
+      );
+      expect(screen.getByTestId("briefing-chip-leadCount")).toHaveTextContent("Até 5 leads");
+
+      rerender(
+        <AgentConfirmationCard
+          variant="briefing"
+          briefing={{ ...BRIEFING, leadCount: 1 }}
+          onAction={onAction}
+          onEditField={onEditField}
+        />
+      );
+      expect(screen.getByTestId("briefing-chip-leadCount")).toHaveTextContent("Até 1 lead");
+
+      fireEvent.click(screen.getByTestId("briefing-chip-leadCount"));
+      const input = screen.getByTestId("chip-input-leadCount") as HTMLInputElement;
+      expect(input).toHaveAttribute("inputmode", "numeric");
+      fireEvent.change(input, { target: { value: "7" } });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("chip-save-leadCount"));
+      });
+      expect(onEditField).toHaveBeenCalledWith("leadCount", "7");
+    });
+
     it("editar um chip: abre o editor com o valor atual, salva e fecha", async () => {
       render(
         <AgentConfirmationCard variant="briefing" briefing={BRIEFING} onAction={onAction} onEditField={onEditField} />

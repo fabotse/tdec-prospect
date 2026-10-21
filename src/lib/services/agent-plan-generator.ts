@@ -10,6 +10,13 @@ import {
   QUALITY_MIN_COMPANY_SIZE_LABEL,
   resolveDirectSearchCompanySizes,
 } from "@/lib/agent/search-defaults";
+import { resolveLeadCount } from "@/lib/agent/agent-pricing";
+
+// Story 24.13: sufixo " — até N leads" nos ramos ativos da busca, so quando N existe.
+function leadCountSuffix(b: ParsedBriefing): string {
+  const n = resolveLeadCount(b);
+  return n === null ? "" : ` — até ${n} leads`;
+}
 
 // ==============================================
 // STEP METADATA
@@ -57,11 +64,13 @@ export const PIPELINE_STEPS: StepMetadata[] = [
           b.location,
           sizeLabel,
         ].filter(Boolean).join(" + ");
-        return `Buscar leads diretamente por ${filters || "cargos"} (sem filtro de empresa)`;
+        return `Buscar leads diretamente por ${filters || "cargos"} (sem filtro de empresa)${leadCountSuffix(b)}`;
       }
-      return b.jobTitles.length > 0
-        ? `Encontrar ${b.jobTitles.join(", ")} nas empresas via Apollo`
-        : "Encontrar contatos nas empresas via Apollo";
+      return (
+        (b.jobTitles.length > 0
+          ? `Encontrar ${b.jobTitles.join(", ")} nas empresas via Apollo`
+          : "Encontrar contatos nas empresas via Apollo") + leadCountSuffix(b)
+      );
     },
     costKey: "search_leads",
   },

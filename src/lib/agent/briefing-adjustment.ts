@@ -160,6 +160,8 @@ export function mergeAdjustedBriefing(
     // — ausencia PRESERVA. Um ajuste de busca ("tira o filtro de tamanho") nao pode zerar
     // em silencio o "coloca no segmento Teste Atibaia" pedido antes.
     segmentName: parsed.segmentName ?? persisted.segmentName ?? null,
+    // Story 24.13: quantos leads (N) — metadado, mesma regra: ausencia PRESERVA.
+    leadCount: parsed.leadCount ?? persisted.leadCount ?? null,
   };
 }
 
@@ -264,6 +266,10 @@ export function buildAdjustmentSummary(
     lines.push(`- Localizacao: ${merged.location ?? "sem filtro"}`);
     lines.push(`- Tamanho: ${merged.companySize ?? "sem filtro"}`);
     lines.push(`- Industria: ${merged.industry ?? "sem filtro"}`);
+    // Story 24.13: so quando N existe — sem N o resumo segue identico ao de antes.
+    if (merged.leadCount) {
+      lines.push(`- Leads: até ${merged.leadCount}`);
+    }
 
     const removed = listRemovedFilters(persisted, merged);
     if (removed.length > 0) {

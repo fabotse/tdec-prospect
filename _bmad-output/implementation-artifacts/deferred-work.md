@@ -604,3 +604,18 @@ location: supabase/functions/reply-sweep/index.ts:24
 source_spec: `spec-23-1-webhook-e-crons-autenticados.md`
 reason: Pré-existente e fora do diff. Elas não conferem nenhum segredo próprio; quem tiver a anon key pode disparar o lote fora do horário (amplificação de custo de OpenAI/Apify; o processamento é idempotente e o monitoring é limitado por next_run_at). Para confirmar: checar no painel se as funções estão com verify_jwt ligado e se a anon key passa. Corrigir exige publicar Edge Functions (ação com OK do Fabossi).
 status: open
+
+### DW-27: O parser real (LLM) ainda nao foi testado distinguindo "traga 5" (leadCount) de "5 e-mails" (emailCount); os testes mockam a resposta da OpenAI.
+origin: spec-deferred 77271426dd7e
+location: src/lib/agent/briefing-parser-service.ts (SYSTEM_PROMPT, leadCount)
+source_spec: `spec-24-13-quantos-leads-eu-quero.md`
+reason: maybe-false: os testes de briefing-parser-service provam schema, coercao e o texto do prompt, mas nao o comportamento do modelo. Para resolver, rodar um smoke real da conversa ("CISO em SP, traga 5", "10 leads e 3 e-mails") e conferir o briefing gravado.
+status: open
+
+### DW-28: Depois de um F5, a revisao volta ao lote original (25 leads, N pre-selecionados) mesmo que o usuario ja tenha buscado mais pelo fetch-leads.
+origin: spec-deferred e86d5dbd82ba
+location: src/components/agent/AgentLeadReview.tsx (estado inicial de localLeads/selectedIndices)
+source_spec: `spec-24-13-quantos-leads-eu-quero.md`
+severity: low
+reason: Comportamento anterior a esta story (17.12): o card le o previewData imutavel da mensagem do gate, e o fetch-leads so atualiza agent_steps.output. Agora a pre-selecao tambem volta para N.
+status: open

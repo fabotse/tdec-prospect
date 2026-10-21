@@ -41,6 +41,8 @@ interface AgentLeadReviewProps {
     emptyResult?: boolean;
     /** Story 22.14 (AC2): diagnóstico determinístico calculado no servidor. */
     emptyDiagnosis?: EmptySearchDiagnosis;
+    /** Story 24.13: quantos leads o usuario pediu (N). Ausente em execucoes antigas. */
+    leadCount?: number | null;
   };
   executionId: string;
   stepNumber: number;
@@ -51,6 +53,19 @@ interface AgentLeadReviewProps {
 }
 
 const LEAD_COUNT_OPTIONS = [50, 100, 200, 500];
+/** Story 24.13: teto do input de quantidade (mesmo limite do `fetch-leads`). */
+const MAX_LEAD_QUANTITY = 500;
+
+/** Story 24.13: N valido (inteiro 1-500) ou null — dado antigo/invalido = comportamento de hoje. */
+function validLeadCount(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isInteger(value)) return null;
+  return value >= 1 && value <= MAX_LEAD_QUANTITY ? value : null;
+}
+
+/** Indices dos `count` primeiros leads. */
+function firstIndices(count: number): Set<number> {
+  return new Set(Array.from({ length: count }, (_, i) => i));
+}
 
 export function AgentLeadReview({
   data,
@@ -62,8 +77,12 @@ export function AgentLeadReview({
 }: AgentLeadReviewProps) {
   // Story 17.12: local leads state (updated after fetch-more)
   const [localLeads, setLocalLeads] = useState<LeadPreview[]>(data.leads);
-  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(
-    () => new Set(data.leads.map((_, i) => i))
+  // Story 24.13: com N, pre-seleciona os N primeiros; sem N, todos (como antes).
+  const requestedCount = validLeadCount(data.leadCount);
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(() =>
+    requestedCount !== null
+      ? firstIndices(Math.min(requestedCount, data.leads?.length ?? 0))
+      : new Set((data.leads ?? []).map((_, i) => i))
   );
   const [filter, setFilter] = useState("");
   const [loading, setLoading] = useState<"approve" | "reject" | null>(null);
@@ -81,10 +100,29 @@ export function AgentLeadReview({
     ? "rejected"
     : localActionTaken;
 
-  // Story 17.12: quantity selector state
-  const [selectedQuantity, setSelectedQuantity] = useState<number | null>(null);
+  // Story 17.12: quantity selector state. Story 24.13: o valor vem de um input livre
+  // (os botoes 50/100/200/500 so o preenchem). Com N maior que o lote, ja nasce com N.
+  // N e limitado ao que existe (min(500, totalFound)); se isso nao passa do lote, fica vazio.
+  const [quantityText, setQuantityText] = useState<string>(() => {
+    if (requestedCount === null) return "";
+    const loaded = data.leads?.length ?? 0;
+    const cap = Math.min(MAX_LEAD_QUANTITY, Math.max(data.totalFound ?? 0, loaded));
+    const initial = Math.min(requestedCount, cap);
+    return initial > loaded ? String(initial) : "";
+  });
   const [isFetching, setIsFetching] = useState(false);
   const [hasExpanded, setHasExpanded] = useState(false);
+
+  const maxQuantity = Math.min(
+    MAX_LEAD_QUANTITY,
+    Math.max(data.totalFound ?? 0, localLeads.length)
+  );
+  const parsedQuantity = /^\d+$/.test(quantityText.trim()) ? Number(quantityText.trim()) : null;
+  const selectedQuantity =
+    parsedQuantity !== null && parsedQuantity >= 1 && parsedQuantity <= maxQuantity
+      ? parsedQuantity
+      : null;
+  const needsFetch = selectedQuantity !== null && selectedQuantity > localLeads.length;
 
   const filteredLeads = useMemo(() => {
     if (!filter.trim()) return localLeads.map((lead, i) => ({ lead, index: i }));
@@ -144,12 +182,19 @@ export function AgentLeadReview({
       const newLeads = result.data.leads as LeadPreview[];
       setLocalLeads(newLeads);
       setHasExpanded(true);
-      setSelectedIndices(new Set(newLeads.map((_: LeadPreview, i: number) => i)));
+      // Story 24.13: seleciona os Q primeiros (ou todos, se vieram menos).
+      setSelectedIndices(firstIndices(Math.min(selectedQuantity, newLeads.length)));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao buscar leads");
     } finally {
       setIsFetching(false);
     }
+  };
+
+  // Story 24.13: Q dentro do lote carregado — reseleciona os Q primeiros, sem chamada externa.
+  const handleSelectQuantity = () => {
+    if (!selectedQuantity || needsFetch) return;
+    setSelectedIndices(firstIndices(selectedQuantity));
   };
 
   const handleApprove = async () => {
@@ -409,14 +454,22 @@ export function AgentLeadReview({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        {/* Story 17.12: quantity selector when more leads available */}
-        {data.totalFound > localLeads.length && !hasExpanded && (
-          <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/50 p-4">
+        {/* Story 17.12 / 24.13: seletor de quantidade — input livre sempre visivel com
+            leads; os botoes de atalho so enquanto ha mais leads e nao houve expansao. */}
+        <div
+          className="flex flex-col gap-3 rounded-lg border border-border bg-muted/50 p-4"
+          data-testid="lead-quantity-selector"
+        >
+          {data.totalFound > localLeads.length && !hasExpanded && (
             <p className="text-sm text-muted-foreground">
               Mostrando {localLeads.length} de {data.totalFound} leads encontrados.
             </p>
-            <div className="flex flex-col gap-2">
-              <p className="text-sm font-medium">Quantos leads deseja usar?</p>
+          )}
+          <div className="flex flex-col gap-2">
+            <label htmlFor={`lead-quantity-${stepNumber}`} className="text-sm font-medium">
+              Quantos leads deseja usar?
+            </label>
+            {data.totalFound > localLeads.length && !hasExpanded && (
               <div className="flex gap-2">
                 {LEAD_COUNT_OPTIONS
                   .filter(opt => opt <= data.totalFound && opt > localLeads.length)
@@ -425,35 +478,53 @@ export function AgentLeadReview({
                       key={opt}
                       variant={selectedQuantity === opt ? "default" : "outline"}
                       size="sm"
-                      onClick={() => setSelectedQuantity(opt)}
+                      onClick={() => setQuantityText(String(opt))}
                       disabled={isFetching || isDisabled}
                     >
                       {opt}
                     </Button>
                   ))}
               </div>
-              {selectedQuantity && (
-                <p className="text-xs text-muted-foreground">
-                  Custo estimado: ~{selectedQuantity} creditos Apollo
-                </p>
-              )}
+            )}
+            <div className="flex gap-2">
+              <Input
+                id={`lead-quantity-${stepNumber}`}
+                data-testid="lead-quantity-input"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={maxQuantity}
+                placeholder={`1 a ${maxQuantity}`}
+                value={quantityText}
+                onChange={(e) => setQuantityText(e.target.value)}
+                disabled={isFetching || isDisabled}
+                className="w-32"
+              />
               <Button
-                onClick={handleFetchMore}
+                onClick={needsFetch ? handleFetchMore : handleSelectQuantity}
                 disabled={!selectedQuantity || isFetching || isDisabled}
                 size="sm"
+                data-testid="lead-quantity-action"
               >
                 {isFetching ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Buscando mais leads...
                   </>
+                ) : needsFetch ? (
+                  `Buscar ${selectedQuantity} leads`
                 ) : (
-                  `Buscar ${selectedQuantity ?? "..."} leads`
+                  `Selecionar ${selectedQuantity ?? "..."} leads`
                 )}
               </Button>
             </div>
+            {needsFetch && (
+              <p className="text-xs text-muted-foreground">
+                Custo estimado: ~{selectedQuantity} creditos Apollo
+              </p>
+            )}
           </div>
-        )}
+        </div>
 
         <Input
           placeholder="Filtrar por nome, empresa ou cargo..."

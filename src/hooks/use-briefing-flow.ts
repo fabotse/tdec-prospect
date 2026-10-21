@@ -203,6 +203,11 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
   if (briefing.urgency) lines.push(`- Urgencia: ${URGENCY_LABELS[briefing.urgency] ?? briefing.urgency}`);
   if (briefing.campaignDescription) lines.push(`- Descricao: ${briefing.campaignDescription}`);
   if (briefing.emailCount) lines.push(`- Nº de e-mails: ${briefing.emailCount}`);
+  // Story 24.13: quantos leads (N), so quando informado.
+  // Com leads importados o N e ignorado (vale a contagem dos importados) — sem a linha.
+  if (briefing.leadCount && !(briefing.importedLeads?.length ?? 0)) {
+    lines.push(`- Leads: até ${briefing.leadCount}`);
+  }
   // Story 22.15: destino dos leads em "Meus Leads". Exibido SEMPRE, espelhando o resumo
   // de ajuste (buildAdjustmentSummary): esta e a PRIMEIRA confirmacao — a que autoriza o
   // gasto — e era justamente ela que omitia para onde os leads iam no caso default.
@@ -320,6 +325,8 @@ function briefingChanged(prev: ParsedBriefing | null, next: ParsedBriefing): boo
     (prev.urgency ?? null) !== (next.urgency ?? null) ||
     (prev.campaignDescription ?? null) !== (next.campaignDescription ?? null) ||
     (prev.emailCount ?? null) !== (next.emailCount ?? null) ||
+    // Story 24.13: "sim, mas traga so 5" e uma CORRECAO — reapresenta o resumo.
+    (prev.leadCount ?? null) !== (next.leadCount ?? null) ||
     // Story 22.15: idem para o segmento — "sim, mas coloca no segmento Teste Atibaia"
     // e uma CORRECAO, nao uma confirmacao: tem que reapresentar o resumo.
     (prev.segmentName ?? null) !== (next.segmentName ?? null) ||
@@ -632,6 +639,7 @@ export type BriefingCardField =
   | "technology"
   | "industry"
   | "companySize"
+  | "leadCount"
   | "objective"
   | "urgency"
   | "emailCount"
@@ -644,6 +652,7 @@ export const BRIEFING_FIELD_LABELS: Record<BriefingCardField, string> = {
   technology: "Tecnologia",
   industry: "Industria",
   companySize: "Tamanho",
+  leadCount: "Leads",
   objective: "Objetivo",
   urgency: "Urgencia",
   emailCount: "Nº de e-mails",
@@ -674,6 +683,11 @@ export function formatBriefingFieldValue(
   if (Array.isArray(value)) return value.join(", ");
   if (field === "objective") return OBJECTIVE_LABELS[value as string] ?? String(value);
   if (field === "urgency") return URGENCY_LABELS[value as string] ?? String(value);
+  // Story 24.13: "Até N leads" ("Até 1 lead" no singular).
+  if (field === "leadCount") {
+    const count = Number(value);
+    return `Até ${count} ${count === 1 ? "lead" : "leads"}`;
+  }
   return String(value);
 }
 
@@ -721,6 +735,16 @@ export function parseBriefingFieldInput(
       const count = Number(text);
       if (count < 1 || count > 10) {
         return { ok: false, error: "Informe um numero inteiro de 1 a 10." };
+      }
+      return ok(count);
+    }
+    case "leadCount": {
+      // Story 24.13: mesma faixa do PATCH (1-500, teto do fetch-leads).
+      if (!text) return ok(null);
+      if (!/^\d+$/.test(text)) return { ok: false, error: "Informe um numero inteiro de 1 a 500." };
+      const count = Number(text);
+      if (count < 1 || count > 500) {
+        return { ok: false, error: "Informe um numero inteiro de 1 a 500." };
       }
       return ok(count);
     }

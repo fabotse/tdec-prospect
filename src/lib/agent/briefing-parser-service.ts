@@ -100,6 +100,9 @@ export const briefingResponseSchema = z.object({
   // coercao, z.number() rejeitaria e o .catch(null) descartaria SILENCIOSAMENTE a intencao
   // do usuario. Coerce blinda esse caso; valor fora de 1-10/NaN ainda cai para null (fail-open).
   emailCount: z.coerce.number().int().min(1).max(10).nullable().default(null).catch(null),
+  // Story 24.13: quantos leads o usuario quer (N). Mesmo padrao fail-open do emailCount;
+  // teto de 500 = mesmo limite do fetch-leads.
+  leadCount: z.coerce.number().int().min(1).max(500).nullable().default(null).catch(null),
   // Story 22.15: mesma politica fail-open dos demais metadados — ausente ou invalido
   // (nao-string, > 100 chars) cai para null sem derrubar o parse inteiro.
   segmentName: segmentNameSchema.default(null).catch(null),
@@ -131,6 +134,8 @@ Extraia SOMENTE quando o usuario mencionar; nunca invente. Ausentes = null.
 - urgency ("LOW" | "MEDIUM" | "HIGH" | null): urgencia/ritmo. "urgente"/"rapido"/"o quanto antes"/"pra ontem" -> HIGH; "sem pressa"/"tranquilo"/"pode ser devagar" -> LOW; ritmo normal ou nao mencionado -> null (o sistema usa MEDIUM por padrao).
 - campaignDescription (string | null): descricao livre/nome tematico da campanha quando o usuario der um (ex.: "campanha de Black Friday", "lancamento do produto X"). Null se nao mencionado.
 - emailCount (number | null): quantidade de e-mails desejada na sequencia, inteiro entre 1 e 10, quando o usuario pedir uma quantidade ("quero 3 e-mails", "uma sequencia curta de 2", "manda so 1 e-mail"). Null se o usuario nao especificar quantidade.
+- leadCount (number | null): quantidade de LEADS (pessoas/contatos a prospectar) que o usuario quer, inteiro entre 1 e 500 ("traga 5", "traga 5 leads", "quero 10 contatos", "so 3 pessoas", "uns 20 decisores"). Null se o usuario nao especificar.
+  - NAO confunda leadCount com emailCount: quantidade de LEADS/contatos/pessoas -> leadCount; quantidade de E-MAILS/mensagens da sequencia ("3 e-mails", "sequencia de 2") -> emailCount. Uma frase com as duas ("10 leads e 3 e-mails") preenche as duas (leadCount=10, emailCount=3).
 - segmentName (string | null): nome do SEGMENTO (lista em "Meus Leads") onde os leads aprovados devem ser salvos. Extraia SOMENTE quando o usuario pedir explicitamente um nome de segmento/lista ("coloca no segmento Teste Atibaia", "salva esses leads na lista Clientes SP", "agrupa num segmento chamado X"). Maximo de 100 caracteres. NAO confunda com campaignDescription: descricao/tema da campanha ("campanha de Black Friday") e campaignDescription e mantem segmentName null; so o pedido explicito de segmento/lista preenche segmentName. Null quando o usuario nao pedir.
   - Se o usuario PERGUNTAR se da para colocar os leads num segmento ("da pra colocar esses leads num segmento?"), responda AFIRMATIVAMENTE no questionText e CITE o nome que sera usado — o nome que ele pediu, ou o nome da campanha quando ele nao pediu nenhum. Nunca ignore a pergunta.
 - skipSteps (string[]): Etapas a pular. Default [].
@@ -146,7 +151,7 @@ REGRAS:
 4. Interprete abreviacoes e sinonimos em portugues (ex: "SP" = "Sao Paulo", "TI" = "Tecnologia da Informacao").
 5. Para jobTitles, normalize para o formato padrao (ex: "CTOs" -> "CTO", "heads de TI" -> "Head de TI").
 6. Se o usuario mencionar um produto especifico (ex: "nosso produto X", "quem usa o Y"), extraia o nome em productMentioned.
-6.1. objective/urgency/campaignDescription/emailCount/segmentName sao METADADOS DE CAMPANHA: NAO alteram nextAction, skipSteps nem os parametros de busca. A regra de avancar (cargo + localizacao) segue igual — esses campos nunca sao exigidos para prosseguir e nunca travam a conversa.
+6.1. objective/urgency/campaignDescription/emailCount/leadCount/segmentName sao METADADOS DE CAMPANHA: NAO alteram nextAction, skipSteps nem os parametros de busca. A regra de avancar (cargo + localizacao) segue igual — esses campos nunca sao exigidos para prosseguir e nunca travam a conversa.
 
 CONVERSA (nextAction + questionText):
 Voce recebe a conversa inteira (mensagens do usuario e do agente). Alem dos parametros acima, decida a proxima acao da CONVERSA e escreva a mensagem natural a exibir.
@@ -258,6 +263,8 @@ export class BriefingParserService {
         urgency: raw.urgency,
         campaignDescription: raw.campaignDescription,
         emailCount: raw.emailCount,
+        // Story 24.13: sem esta linha o leadCount some em silencio (armadilha de strip #1).
+        leadCount: raw.leadCount,
         // Story 22.15: sem esta linha o segmentName some em silencio (o objeto e montado
         // campo-a-campo, sem spread do raw — armadilha de strip #1).
         segmentName: raw.segmentName,

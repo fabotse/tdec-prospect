@@ -295,7 +295,7 @@ describe("AgentLeadReview (AC: #3, #4)", () => {
       expect(screen.queryByRole("button", { name: "500" })).toBeNull();
     });
 
-    it("does NOT show selector when totalFound <= leads.length", () => {
+    it("Story 24.13: todos carregados -> sem atalhos nem 'Mostrando', mas com o input livre", () => {
       const allFetchedData = {
         totalFound: 15,
         leads: Array.from({ length: 15 }, (_, i) => ({
@@ -311,8 +311,10 @@ describe("AgentLeadReview (AC: #3, #4)", () => {
         <AgentLeadReview data={allFetchedData} executionId="exec-001" stepNumber={2} totalSteps={5} />
       );
 
-      expect(screen.queryByText("Quantos leads deseja usar?")).toBeNull();
+      expect(screen.getByText("Quantos leads deseja usar?")).toBeInTheDocument();
+      expect(screen.getByTestId("lead-quantity-input")).toBeInTheDocument();
       expect(screen.queryByText(/Mostrando/)).toBeNull();
+      expect(screen.queryByRole("button", { name: "50" })).toBeNull();
     });
 
     it("clicking quantity option updates selected state", () => {
@@ -363,7 +365,7 @@ describe("AgentLeadReview (AC: #3, #4)", () => {
       });
     });
 
-    it("after fetch success, leads are updated and selector disappears", async () => {
+    it("after fetch success, leads are updated and the shortcut buttons disappear", async () => {
       const fetchedLeads = Array.from({ length: 100 }, (_, i) => ({
         name: `Fetched Lead ${i + 1}`,
         title: "CTO",
@@ -391,9 +393,10 @@ describe("AgentLeadReview (AC: #3, #4)", () => {
       fireEvent.click(screen.getByText("Buscar 100 leads"));
 
       await waitFor(() => {
-        // Selector should disappear
-        expect(screen.queryByText("Quantos leads deseja usar?")).toBeNull();
+        // Atalhos e "Mostrando" somem; o input livre (24.13) continua
+        expect(screen.queryByText(/Mostrando/)).toBeNull();
       });
+      expect(screen.queryByRole("button", { name: "200" })).toBeNull();
 
       // New leads should be rendered
       expect(screen.getByText("Fetched Lead 1")).toBeInTheDocument();
@@ -424,6 +427,161 @@ describe("AgentLeadReview (AC: #3, #4)", () => {
         ok: true,
         json: () => Promise.resolve({ data: { leads: [], totalFetched: 0, totalFound: 200, cost: {} } }),
       });
+    });
+  });
+
+  // ==============================================
+  // Story 24.13 — quantos leads eu quero (N)
+  // ==============================================
+
+  describe("Story 24.13 - leadCount (N) na revisao", () => {
+    const makeLeads = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        name: `Lead ${i + 1}`,
+        title: "CTO",
+        companyName: `Company ${i + 1}`,
+        email: `lead${i + 1}@test.com`,
+      }));
+
+    it("com N = 5 e 25 leads, pre-seleciona os 5 primeiros", () => {
+      render(
+        <AgentLeadReview
+          data={{ totalFound: 25, leads: makeLeads(25), jobTitles: ["CTO"], leadCount: 5 }}
+          executionId="exec-001"
+          stepNumber={2}
+          totalSteps={5}
+        />
+      );
+
+      expect(screen.getByText("5 de 25 leads selecionados")).toBeInTheDocument();
+      expect(screen.getByText("Aprovar (5 leads)")).toBeInTheDocument();
+      expect(screen.getByRole("checkbox", { name: "Selecionar Lead 5" })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "Selecionar Lead 6" })).not.toBeChecked();
+    });
+
+    it("com N = 200, 100 leads e total 900: 100 selecionados, input com 200 e 'Buscar 200 leads'", () => {
+      render(
+        <AgentLeadReview
+          data={{ totalFound: 900, leads: makeLeads(100), jobTitles: ["CTO"], leadCount: 200 }}
+          executionId="exec-001"
+          stepNumber={2}
+          totalSteps={5}
+        />
+      );
+
+      expect(screen.getByText("100 de 900 leads selecionados")).toBeInTheDocument();
+      expect(screen.getByTestId("lead-quantity-input")).toHaveValue(200);
+      expect(screen.getByText("Buscar 200 leads")).toBeInTheDocument();
+      expect(screen.getByText("Custo estimado: ~200 creditos Apollo")).toBeInTheDocument();
+    });
+
+    it("Q <= leads carregados: 'Selecionar Q leads' reseleciona os Q primeiros, sem fetch", () => {
+      render(
+        <AgentLeadReview
+          data={{ totalFound: 25, leads: makeLeads(25), jobTitles: ["CTO"] }}
+          executionId="exec-001"
+          stepNumber={2}
+          totalSteps={5}
+        />
+      );
+
+      fireEvent.change(screen.getByTestId("lead-quantity-input"), { target: { value: "10" } });
+      fireEvent.click(screen.getByText("Selecionar 10 leads"));
+
+      expect(screen.getByText("10 de 25 leads selecionados")).toBeInTheDocument();
+      expect(screen.getByRole("checkbox", { name: "Selecionar Lead 10" })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "Selecionar Lead 11" })).not.toBeChecked();
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it.each(["0", "26", "abc", ""])("Q fora da faixa (%p): botao desabilitado", (value) => {
+      render(
+        <AgentLeadReview
+          data={{ totalFound: 25, leads: makeLeads(25), jobTitles: ["CTO"] }}
+          executionId="exec-001"
+          stepNumber={2}
+          totalSteps={5}
+        />
+      );
+
+      fireEvent.change(screen.getByTestId("lead-quantity-input"), { target: { value } });
+      expect(screen.getByTestId("lead-quantity-action")).toBeDisabled();
+    });
+
+    it("Q > carregados: 'Buscar Q leads' chama fetch-leads e seleciona os Q primeiros", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: { leads: makeLeads(60), totalFetched: 60, totalFound: 200, cost: {} },
+          }),
+      });
+
+      render(
+        <AgentLeadReview
+          data={{ totalFound: 200, leads: makeLeads(25), jobTitles: ["CTO"] }}
+          executionId="exec-001"
+          stepNumber={2}
+          totalSteps={5}
+        />
+      );
+
+      fireEvent.change(screen.getByTestId("lead-quantity-input"), { target: { value: "40" } });
+      fireEvent.click(screen.getByText("Buscar 40 leads"));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          "/api/agent/executions/exec-001/steps/2/fetch-leads",
+          expect.objectContaining({ body: JSON.stringify({ desiredCount: 40 }) })
+        );
+      });
+      await waitFor(() => {
+        expect(screen.getByText("40 de 200 leads selecionados")).toBeInTheDocument();
+      });
+    });
+
+    it("N = 50 com so 30 leads (totalFound 30): 30 selecionados e input vazio, sem valor fora da faixa", () => {
+      render(
+        <AgentLeadReview
+          data={{ totalFound: 30, leads: makeLeads(30), jobTitles: ["CTO"], leadCount: 50 }}
+          executionId="exec-001"
+          stepNumber={2}
+          totalSteps={5}
+        />
+      );
+
+      expect(screen.getByText("30 de 30 leads selecionados")).toBeInTheDocument();
+      expect(screen.getByTestId("lead-quantity-input")).toHaveValue(null);
+      expect(screen.queryByText(/Buscar \d+ leads/)).toBeNull();
+    });
+
+    it("N = 200 com 25 leads e totalFound 120: input limitado a 120", () => {
+      render(
+        <AgentLeadReview
+          data={{ totalFound: 120, leads: makeLeads(25), jobTitles: ["CTO"], leadCount: 200 }}
+          executionId="exec-001"
+          stepNumber={2}
+          totalSteps={5}
+        />
+      );
+
+      expect(screen.getByTestId("lead-quantity-input")).toHaveValue(120);
+      expect(screen.getByText("Buscar 120 leads")).toBeInTheDocument();
+      expect(screen.getByTestId("lead-quantity-action")).not.toBeDisabled();
+    });
+
+    it("sem N (dados antigos), todos selecionados como hoje", () => {
+      render(
+        <AgentLeadReview
+          data={{ totalFound: 25, leads: makeLeads(25), jobTitles: ["CTO"] }}
+          executionId="exec-001"
+          stepNumber={2}
+          totalSteps={5}
+        />
+      );
+
+      expect(screen.getByText("25 de 25 leads selecionados")).toBeInTheDocument();
+      expect(screen.getByTestId("lead-quantity-input")).toHaveValue(null);
     });
   });
 

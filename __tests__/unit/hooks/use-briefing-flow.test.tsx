@@ -19,6 +19,7 @@ import {
   looksLikeLeadPaste,
   toMemoryContent,
   parseBriefingFieldInput,
+  formatBriefingFieldValue,
 } from "@/hooks/use-briefing-flow";
 import {
   createMockFetch,
@@ -3448,6 +3449,84 @@ describe("useBriefingFlow", () => {
       expect(summary).toContain("Nº de e-mails: 3");
     });
 
+    it("Story 24.13: resumo mostra '- Leads: até N' so quando N existe", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse({
+            ...COMPLETE_PARSE_RESPONSE,
+            briefing: { ...COMPLETE_PARSE_RESPONSE.briefing, leadCount: 5 },
+          }),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+      await act(async () => {
+        await result.current.processMessage("CISO em SP, traga 5", EXEC_ID, mockSendAgentMessage);
+      });
+
+      const summary = mockSendAgentMessage.mock.calls.at(-1)?.[1] as string;
+      expect(summary).toContain("- Leads: até 5");
+      expect(result.current.state.briefing?.leadCount).toBe(5);
+    });
+
+    it("Story 24.13: sem N, o resumo nao tem linha de Leads", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+      await act(async () => {
+        await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
+      });
+
+      const summary = mockSendAgentMessage.mock.calls.at(-1)?.[1] as string;
+      expect(summary).not.toContain("- Leads:");
+    });
+
+    it("Story 24.13: 'sim, mas traga so 5' e correcao (briefingChanged compara leadCount)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+      const { result } = renderHook(() => useBriefingFlow());
+      await act(async () => {
+        await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
+      });
+      expect(result.current.state.status).toBe("confirming");
+
+      restoreFetch();
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse({
+            ...COMPLETE_PARSE_RESPONSE,
+            briefing: { ...COMPLETE_PARSE_RESPONSE.briefing, leadCount: 5 },
+            nextAction: "confirm",
+          }),
+        },
+      ]);
+      mockSendAgentMessage.mockClear();
+
+      let outcome: { handled: boolean; confirmed?: boolean } | undefined;
+      await act(async () => {
+        outcome = await result.current.processMessage("sim, mas traga so 5", EXEC_ID, mockSendAgentMessage);
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      expect(outcome?.confirmed).toBeUndefined();
+      expect(result.current.state.briefing?.leadCount).toBe(5);
+    });
+
     it("resumo inclui pergunta leve opcional de objetivo quando objective ausente (AC3/D2)", async () => {
       createMockFetch([
         {
@@ -4257,6 +4336,30 @@ describe("useBriefingFlow", () => {
         return hook.result;
       }
 
+      it("Story 24.13: com leads importados, o resumo NAO mostra '- Leads: até N' (vale a contagem importada)", async () => {
+        mockRoutes([
+          {
+            url: PARSE_URL,
+            response: mockJsonResponse({
+              ...IMPORT_RESPONSE,
+              briefing: { ...IMPORT_RESPONSE.briefing, leadCount: 10 },
+            }),
+          },
+        ]);
+        const { result } = renderHook(() => useBriefingFlow());
+        await send(result, "Ja tenho meus leads, traga 10");
+        expect(result.current.state.status).toBe("awaiting_leads_input");
+        expect(result.current.state.briefing?.leadCount).toBe(10);
+
+        await send(result, "maria@acme.com\npedro@acme.com");
+        expect(result.current.state.status).toBe("confirming_leads");
+        await click(result, "confirm_leads");
+
+        expect(result.current.state.status).toBe("confirming");
+        expect(lastAgentText()).toContain("2 leads importados");
+        expect(lastAgentText()).not.toContain("- Leads: até");
+      });
+
       it("prefere buscar (LLM sem import): briefing reconciliado para busca e segue o fluxo", async () => {
         const result = await enterLeads();
         mockRoutes([
@@ -4680,6 +4783,9 @@ describe("useBriefingFlow", () => {
         ["emailCount", "0", "1 a 10"],
         ["emailCount", "11", "1 a 10"],
         ["emailCount", "2.5", "1 a 10"],
+        ["leadCount", "0", "1 a 500"],
+        ["leadCount", "501", "1 a 500"],
+        ["leadCount", "x", "1 a 500"],
         ["objective", "VENDER", "opcoes"],
         ["urgency", "URGENTE", "opcoes"],
       ] as const)("%s = '%s' e invalido: erro inline e nada muda", async (field, raw, error) => {
@@ -4691,6 +4797,27 @@ describe("useBriefingFlow", () => {
         expect(outcome?.error).toContain(error);
         expect(result.current.state.briefing).toEqual(before);
         expect(mockSendAgentMessage).not.toHaveBeenCalled();
+      });
+
+      it("Story 24.13: chip Leads aceita 1-500 e exibe 'Até N leads' / 'Até 1 lead'", async () => {
+        expect(parseBriefingFieldInput("leadCount", "7")).toMatchObject({
+          ok: true,
+          value: 7,
+          display: "Até 7 leads",
+        });
+        expect(parseBriefingFieldInput("leadCount", "1")).toMatchObject({ display: "Até 1 lead" });
+        expect(parseBriefingFieldInput("leadCount", "500")).toMatchObject({ ok: true, value: 500 });
+        expect(parseBriefingFieldInput("leadCount", "")).toMatchObject({ ok: true, value: null });
+        expect(parseBriefingFieldInput("leadCount", "0")).toEqual({
+          ok: false,
+          error: "Informe um numero inteiro de 1 a 500.",
+        });
+        expect(formatBriefingFieldValue("leadCount", null)).toBe("nao definido");
+
+        const result = await enterConfirming();
+        const outcome = await edit(result, "leadCount", "7");
+        expect(outcome).toEqual({ ok: true });
+        expect(result.current.state.briefing?.leadCount).toBe(7);
       });
 
       it("valores validos dos enums, numero e textos opcionais (vazio vira null)", () => {

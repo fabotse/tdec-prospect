@@ -9,6 +9,7 @@ import {
   DEFAULT_COSTS,
 } from "@/lib/services/agent-cost-estimator";
 import type { ParsedBriefing } from "@/types/agent";
+import { estimateAICallsForCampaign } from "@/lib/agent/agent-pricing";
 import { createChainBuilder } from "../../../helpers/mock-supabase";
 
 // ==============================================
@@ -208,6 +209,36 @@ describe("CostEstimatorService", () => {
 
       expect(result.steps.create_campaign.estimated).toBe(0);
       expect(result.premiumIcebreakers?.total).toBe(0);
+    });
+
+    it("Story 24.13: com N = 5 e 3 e-mails, create_campaign e calculado para 5 leads", () => {
+      const result = CostEstimatorService.estimateCosts(
+        new Map(),
+        createBriefing({ leadCount: 5, emailCount: 3, skipSteps: ["search_companies"] })
+      );
+
+      const aiCalls = estimateAICallsForCampaign(5, 3);
+      expect(result.steps.create_campaign.estimated).toBeCloseTo(5 * 0.05 + aiCalls * 0.02);
+      expect(result.steps.create_campaign.description).toContain("até 5 enriquecimentos");
+    });
+
+    it("Story 24.13: leads importados vencem o N (4 importados, N = 10)", () => {
+      const lead = { name: "A", title: null, companyName: null, email: null, linkedinUrl: null, apolloId: null };
+      const result = CostEstimatorService.estimateCosts(
+        new Map(),
+        createBriefing({
+          leadCount: 10,
+          importedLeads: [lead, lead, lead, lead],
+          skipSteps: ["search_companies", "search_leads"],
+        })
+      );
+
+      expect(result.steps.create_campaign.description).toContain("até 4 enriquecimentos");
+    });
+
+    it("Story 24.13: sem N, a estimativa continua com 25 leads", () => {
+      const result = CostEstimatorService.estimateCosts(new Map(), createBriefing());
+      expect(result.steps.create_campaign.description).toContain("até 25 enriquecimentos");
     });
 
     it("escala as chamadas de IA com emailCount (22.5)", () => {

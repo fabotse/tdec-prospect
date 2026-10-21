@@ -323,6 +323,36 @@ describe("PATCH /api/agent/executions/[executionId]/briefing", () => {
     expect(response.status).toBe(200);
   });
 
+  // Story 24.13: leadCount (N) sobrevive ao strip do z.object e respeita 1-500.
+  it("deve PRESERVAR leadCount no briefing enviado ao update (24.13 - armadilha do strip)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const briefingWithN = { ...VALID_BRIEFING, leadCount: 5 };
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing: briefingWithN, status: "pending" },
+      error: null,
+    });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(createRequest(briefingWithN), createParams());
+    expect(response.status).toBe(200);
+
+    const updateArg = chain.update.mock.calls[0][0] as { briefing: Record<string, unknown> };
+    expect(updateArg.briefing.leadCount).toBe(5);
+  });
+
+  it.each([0, 501, 2.5])("deve rejeitar leadCount %p fora de 1-500 no PATCH (24.13)", async (value) => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const response = await PATCH(
+      createRequest({ ...VALID_BRIEFING, leadCount: value }),
+      createParams()
+    );
+    expect(response.status).toBe(400);
+    const json = await response.json();
+    expect(json.error.code).toBe("VALIDATION_ERROR");
+  });
+
   it("deve rejeitar emailCount fora do range 1-10 no PATCH (22.5)", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
 

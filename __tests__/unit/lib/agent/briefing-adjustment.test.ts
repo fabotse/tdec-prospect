@@ -232,6 +232,34 @@ describe("buildAdjustmentSummary (Story 22.13 AC2)", () => {
   });
 });
 
+describe("Story 24.13 - leadCount no ajuste", () => {
+  it("mergeAdjustedBriefing: o leadCount do parse vence", () => {
+    const merged = mergeAdjustedBriefing(
+      { ...PERSISTED, leadCount: 10 },
+      { ...PARSED, leadCount: 5 }
+    );
+    expect(merged.leadCount).toBe(5);
+  });
+
+  it("mergeAdjustedBriefing: ausencia no parse PRESERVA o leadCount anterior", () => {
+    const merged = mergeAdjustedBriefing({ ...PERSISTED, leadCount: 10 }, PARSED);
+    expect(merged.leadCount).toBe(10);
+    const mergedNull = mergeAdjustedBriefing(
+      { ...PERSISTED, leadCount: 10 },
+      { ...PARSED, leadCount: null }
+    );
+    expect(mergedNull.leadCount).toBe(10);
+  });
+
+  it("resumo da busca mostra '- Leads: até N' so quando N existe", () => {
+    const comN: ParsedBriefing = { ...PERSISTED, leadCount: 5 };
+    expect(buildAdjustmentSummary(comN, comN, "search_leads", null)).toContain("- Leads: até 5");
+    expect(buildAdjustmentSummary(PERSISTED, PERSISTED, "search_leads", null)).not.toContain(
+      "- Leads:"
+    );
+  });
+});
+
 describe("listRemovedFilters (Story 22.13, review P4)", () => {
   it("lista so o que existia e sumiu", () => {
     const merged = mergeAdjustedBriefing(PERSISTED, PARSED);

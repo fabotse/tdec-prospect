@@ -12,6 +12,9 @@ import {
   estimateAICallsForCampaign,
   formatBRL,
   formatCostLine,
+  resolveLeadCount,
+  resolveLeadVolume,
+  resolveLeadsPerPage,
   resolveUnitPrices,
   type StepCostRow,
 } from "@/lib/agent/agent-pricing";
@@ -26,6 +29,39 @@ describe("agent-pricing", () => {
       expect(AGENT_PIPELINE_VOLUMES.leadsPerSearch).toBe(25);
       expect(AGENT_PIPELINE_VOLUMES.defaultEmails).toBe(3);
       expect(THEIRSTACK_CREDITS_PER_COMPANY).toBe(3);
+    });
+  });
+
+  describe("Story 24.13 - volume de leads (N)", () => {
+    const lead = { name: "A", title: null, companyName: null, email: null, linkedinUrl: null, apolloId: null };
+
+    it.each([
+      [5, 25],
+      [60, 60],
+      [300, 100],
+      [null, 25],
+      [undefined, 25],
+    ])("resolveLeadsPerPage com N = %p -> %p", (n, expected) => {
+      expect(resolveLeadsPerPage({ leadCount: n })).toBe(expected);
+    });
+
+    it("resolveLeadVolume: importados > N > 25", () => {
+      expect(resolveLeadVolume({ leadCount: 10, importedLeads: [lead, lead, lead, lead] })).toBe(4);
+      expect(resolveLeadVolume({ leadCount: 10 })).toBe(10);
+      expect(resolveLeadVolume({ leadCount: null })).toBe(25);
+      expect(resolveLeadVolume({ leadCount: null, importedLeads: [] })).toBe(25);
+    });
+
+    it("resolveLeadCount trata valor fora de 1-500 (JSONB legado) como ausente", () => {
+      expect(resolveLeadCount({ leadCount: 0 })).toBeNull();
+      expect(resolveLeadCount({ leadCount: 501 })).toBeNull();
+      expect(resolveLeadCount({ leadCount: 2.5 })).toBeNull();
+      expect(resolveLeadCount({ leadCount: 500 })).toBe(500);
+      expect(resolveLeadCount(null)).toBeNull();
+    });
+
+    it("teto da pagina Apollo e 100", () => {
+      expect(AGENT_PIPELINE_VOLUMES.maxLeadsPerSearch).toBe(100);
     });
   });
 

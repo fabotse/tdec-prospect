@@ -11,7 +11,7 @@ import { ApolloService } from "@/lib/services/apollo";
 import { getInjectableServiceApiKey } from "@/lib/agent/service-keys";
 import { buildDirectSearchFilters } from "@/lib/agent/search-defaults";
 import { diagnoseEmptySearch } from "@/lib/agent/empty-search-diagnosis";
-import { AGENT_PIPELINE_VOLUMES } from "@/lib/agent/agent-pricing";
+import { resolveLeadCount, resolveLeadsPerPage } from "@/lib/agent/agent-pricing";
 import { logAgentUsage } from "@/lib/agent/agent-usage";
 import type {
   StepInput,
@@ -29,8 +29,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // ==============================================
 
 const CREDITS_PER_LEAD = 1;
-// Story 24.10: volume da fonte unica (a estimativa do plano usa o mesmo numero).
-const LEADS_PER_PAGE = AGENT_PIPELINE_VOLUMES.leadsPerSearch;
 
 /**
  * Story 22.14 (AC6): mensagem do autopilot quando a busca volta vazia.
@@ -131,7 +129,8 @@ export class SearchLeadsStep extends BaseStep {
       // se informou, o valor dele sobrescreve totalmente (AC2). Fonte unica: search-defaults.
       // Story 22.14: os filtros vem do SSOT `buildDirectSearchFilters` — a contagem de
       // viabilidade pre-execucao (AC7) usa a MESMA funcao, so mudando o `perPage`.
-      const filters = buildDirectSearchFilters(briefing, LEADS_PER_PAGE);
+      // Story 24.13: pagina de min(max(25, N), 100) — sem N, 25 (fonte unica em agent-pricing).
+      const filters = buildDirectSearchFilters(briefing, resolveLeadsPerPage(briefing));
 
       const result = await this.searchPeopleLogged(service, filters, input.executionId);
       return this.buildSearchOutput(result, jobTitles, [], filters, briefing, input.mode);
@@ -162,7 +161,7 @@ export class SearchLeadsStep extends BaseStep {
       domains,
       titles: jobTitles,
       ...(briefing.location ? { locations: [briefing.location] } : {}),
-      perPage: LEADS_PER_PAGE,
+      perPage: resolveLeadsPerPage(briefing),
       page: 1,
     };
 
@@ -254,10 +253,24 @@ export class SearchLeadsStep extends BaseStep {
       };
     }
 
+    // Story 24.13: N vai no output (o previewData do gate e o proprio data, entao a
+    // revisao pre-seleciona N). Sem gate (modo != guided), o create_campaign enriquece
+    // TODOS os leads do output — corta nos N primeiros para o custo bater com o pedido.
+    const leadCount = resolveLeadCount(briefing);
+    const outputLeads =
+      mode !== "guided" && leadCount !== null ? leads.slice(0, leadCount) : leads;
+
     return {
       success: true,
-      data: { leads, totalFound, jobTitles, domainsSearched, searchFilters: filters },
-      cost: { apollo_search: leads.length * CREDITS_PER_LEAD },
+      data: {
+        leads: outputLeads,
+        totalFound,
+        jobTitles,
+        domainsSearched,
+        searchFilters: filters,
+        leadCount,
+      },
+      cost: { apollo_search: outputLeads.length * CREDITS_PER_LEAD },
     };
   }
 }

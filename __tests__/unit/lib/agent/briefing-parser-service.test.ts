@@ -79,6 +79,8 @@ describe("BriefingParserService", () => {
         urgency: null,
         campaignDescription: null,
         emailCount: null,
+        // Story 24.13: quantos leads (N) default null
+        leadCount: null,
         // Story 22.15: idem para o segmento de destino em "Meus Leads"
         segmentName: null,
       });
@@ -511,6 +513,53 @@ describe("BriefingParserService", () => {
       expect(result.briefing.objective).toBeNull();
       expect(result.briefing.urgency).toBeNull();
       expect(result.briefing.jobTitles).toEqual(["CTO"]);
+    });
+
+    // ==============================================
+    // Story 24.13: quantos leads (leadCount / N)
+    // ==============================================
+
+    it("deve extrair leadCount sem confundir com emailCount (24.13 - 'traga 5')", async () => {
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, leadCount: 5 });
+
+      const result = await BriefingParserService.parse("CISO em SP, traga 5", "sk-test");
+
+      expect(result.briefing.leadCount).toBe(5);
+      expect(result.briefing.emailCount).toBeNull();
+    });
+
+    it("deve extrair leadCount e emailCount juntos (24.13 - '10 leads e 3 e-mails')", async () => {
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, leadCount: 10, emailCount: 3 });
+
+      const result = await BriefingParserService.parse("10 leads e 3 e-mails", "sk-test");
+
+      expect(result.briefing.leadCount).toBe(10);
+      expect(result.briefing.emailCount).toBe(3);
+    });
+
+    it("deve COAGIR leadCount emitido como string (24.13)", async () => {
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, leadCount: "7" });
+      const result = await BriefingParserService.parse("quero 7 contatos", "sk-test");
+      expect(result.briefing.leadCount).toBe(7);
+    });
+
+    it.each(["abc", 0, 900, 2.5])(
+      "deve cair para null (fail-open) com leadCount invalido %p sem derrubar o parse (24.13)",
+      async (value) => {
+        mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, leadCount: value });
+        const result = await BriefingParserService.parse("briefing", "sk-test");
+        expect(result.briefing.leadCount).toBeNull();
+        expect(result.briefing.jobTitles).toEqual(["CTO"]);
+      }
+    );
+
+    it("o prompt do parser separa quantidade de leads de quantidade de e-mails (24.13)", async () => {
+      mockOpenAIResponse(FULL_BRIEFING_RESPONSE);
+      await BriefingParserService.parse("briefing", "sk-test");
+      const request = mockCreate.mock.calls[0][0] as { messages: Array<{ role: string; content: string }> };
+      const system = request.messages[0].content;
+      expect(system).toContain("leadCount (number | null)");
+      expect(system).toContain("NAO confunda leadCount com emailCount");
     });
 
     it("deve COAGIR emailCount emitido como string pelo LLM (22.5 - z.coerce)", async () => {

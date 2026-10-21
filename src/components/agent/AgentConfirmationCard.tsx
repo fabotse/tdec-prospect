@@ -46,6 +46,7 @@ const BRIEFING_CHIP_FIELDS: BriefingCardField[] = [
   "technology",
   "industry",
   "companySize",
+  "leadCount",
   "objective",
   "urgency",
   "emailCount",
@@ -115,7 +116,7 @@ function ChipEditor({ field, initial, disabled, onSave, onCancel }: ChipEditorPr
           data-testid={`chip-input-${field}`}
           value={value}
           type="text"
-          inputMode={field === "emailCount" ? "numeric" : undefined}
+          inputMode={field === "emailCount" || field === "leadCount" ? "numeric" : undefined}
           autoFocus
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
