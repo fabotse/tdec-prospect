@@ -16,6 +16,7 @@
 import { render, screen, act, waitFor, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AgentChat } from "@/components/agent/AgentChat";
+import { ICP_MISSING_HINT } from "@/hooks/use-briefing-flow";
 
 // ==============================================
 // MOCKS — Shared state for spying
@@ -115,6 +116,20 @@ const mockRecordUserTurn = vi.fn();
 // Story 24.5: cliques e chips do card de confirmacao
 const mockProcessCardAction = vi.fn().mockResolvedValue({ handled: true });
 const mockEditBriefingField = vi.fn().mockResolvedValue({ ok: true });
+// Story 24.14: proposta de briefing a partir do ICP
+const mockSeedIcpProposal = vi.fn().mockReturnValue(true);
+let mockIcpProposalState: { proposal: Record<string, unknown> | null; isLoaded: boolean } = {
+  proposal: null,
+  isLoaded: false,
+};
+let capturedIcpProposalEnabled: boolean | undefined;
+
+vi.mock("@/hooks/use-icp-proposal", () => ({
+  useIcpProposal: (enabled?: boolean) => {
+    capturedIcpProposalEnabled = enabled;
+    return mockIcpProposalState;
+  },
+}));
 
 // Story 22.13: importOriginal preserva os helpers PUROS exportados pelo modulo
 // (isConfirmation — SSOT deterministico da confirmacao). Sem isso o AgentChat
@@ -133,6 +148,7 @@ vi.mock("@/hooks/use-briefing-flow", async (importOriginal) => {
       parseAdjustment: mockParseAdjustment,
       recordAgentTurn: mockRecordAgentTurn,
       recordUserTurn: mockRecordUserTurn,
+      seedIcpProposal: mockSeedIcpProposal,
     }),
   };
 });
@@ -237,6 +253,8 @@ function setupDefaults(overrides?: {
   capturedModeSelectorProps = null;
   capturedExecutionPlanProps = null;
   capturedStepProgressProps = null;
+  mockIcpProposalState = { proposal: null, isLoaded: false };
+  capturedIcpProposalEnabled = undefined;
 }
 
 // ==============================================
@@ -2950,6 +2968,213 @@ describe("AgentChat", () => {
       expect(mockProcessMessage).toHaveBeenCalledWith("sim", "exec-123", expect.any(Function), expect.any(Function));
       expect(mockProcessCardAction).not.toHaveBeenCalled();
       expect(mockSetShowModeSelector).not.toHaveBeenCalledWith(true);
+    });
+  });
+  // ==============================================
+  // Story 24.14 — proposta de briefing a partir do ICP
+  // ==============================================
+
+  describe("Story 24.14 — proposta do ICP", () => {
+    const PROPOSAL = {
+      technology: null,
+      jobTitles: ["CISO", "Head de TI"],
+      location: null,
+      companySize: null,
+      industry: null,
+      productSlug: null,
+      mode: "guided",
+      skipSteps: ["search_companies"],
+      icpDefaults: { companySizes: ["201-500", "501-1000"], locations: ["SP"] },
+    };
+    const PROPOSAL_TEXT = "Pelo seu ICP: CISO/Head de TI, SP, 201–1000 funcionarios. Ajusto algo?";
+
+    function fetchCalls() {
+      return (global.fetch as ReturnType<typeof vi.fn>).mock.calls as Array<[string, RequestInit?]>;
+    }
+
+    /** Renderiza conversa nova com proposta carregada e simula o seed (idle -> confirming). */
+    function renderSeeded() {
+      setupDefaults({ executionId: null, briefingStatus: "idle" });
+      mockIcpProposalState = { proposal: PROPOSAL, isLoaded: true };
+      const view = render(<AgentChat />);
+      mockBriefingState = { ...mockBriefingState, status: "confirming", briefing: PROPOSAL };
+      view.rerender(<AgentChat />);
+      return view;
+    }
+
+    it("conversa nova: busca a proposta e semeia o hook", () => {
+      setupDefaults({ executionId: null, briefingStatus: "idle" });
+      mockIcpProposalState = { proposal: PROPOSAL, isLoaded: true };
+      render(<AgentChat />);
+
+      expect(capturedIcpProposalEnabled).toBe(true);
+      expect(mockSeedIcpProposal).toHaveBeenCalledWith(PROPOSAL);
+    });
+
+    it("com execucao existente nao busca nem semeia", () => {
+      setupDefaults({ executionId: "exec-123", briefingStatus: "idle" });
+      mockIcpProposalState = { proposal: PROPOSAL, isLoaded: true };
+      render(<AgentChat />);
+
+      expect(capturedIcpProposalEnabled).toBe(false);
+      expect(mockSeedIcpProposal).not.toHaveBeenCalled();
+    });
+
+    it("proposta visivel: bolha do agente + card, SEM execucao criada", () => {
+      renderSeeded();
+
+      expect(capturedMessageListProps.introMessage).toContain(PROPOSAL_TEXT);
+      expect(screen.getByTestId("agent-confirmation-card-briefing")).toBeInTheDocument();
+      expect(screen.getByTestId("briefing-chip-location")).toHaveTextContent("SP (do ICP)");
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it("clique em Confirmar: POST execucao -> mensagem da proposta -> 'Confirmar' -> PATCH", async () => {
+      renderSeeded();
+      mockProcessCardAction.mockResolvedValueOnce({ handled: true, confirmed: true });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("card-action-confirm_briefing"));
+      });
+
+      await waitFor(() => expect(mockSetShowModeSelector).toHaveBeenCalledWith(true));
+      const calls = fetchCalls();
+      expect(calls[0][0]).toBe("/api/agent/executions");
+      expect(calls[1][0]).toBe("/api/agent/executions/exec-new/messages");
+      expect(JSON.parse(calls[1][1]?.body as string)).toEqual({
+        content: expect.stringContaining(PROPOSAL_TEXT),
+        role: "agent",
+      });
+      expect(mockSetCurrentExecutionId).toHaveBeenCalledWith("exec-new");
+      expect(mockMutate).toHaveBeenCalledWith({ executionId: "exec-new", content: "Confirmar" });
+      // A proposta e gravada ANTES do turno do usuario.
+      const proposalOrder = (global.fetch as ReturnType<typeof vi.fn>).mock.invocationCallOrder[1];
+      expect(proposalOrder).toBeLessThan(mockMutate.mock.invocationCallOrder[0]);
+      const patch = calls.find(([url, init]) => url.endsWith("/exec-new/briefing") && init?.method === "PATCH");
+      expect(patch).toBeDefined();
+    });
+
+    it("primeira mensagem de texto com a proposta: persiste a proposta antes do turno do usuario", async () => {
+      renderSeeded();
+
+      await act(async () => {
+        await capturedOnSendMessage!("troca para CFO");
+      });
+
+      const calls = fetchCalls();
+      expect(calls[0][0]).toBe("/api/agent/executions");
+      expect(calls[1][0]).toBe("/api/agent/executions/exec-new/messages");
+      expect(mockMutate).toHaveBeenCalledWith({ executionId: "exec-new", content: "troca para CFO" });
+      expect(mockProcessMessage).toHaveBeenCalledWith(
+        "troca para CFO",
+        "exec-new",
+        expect.any(Function),
+        expect.any(Function)
+      );
+    });
+
+    it("a proposta e persistida uma vez so", async () => {
+      renderSeeded();
+
+      await act(async () => {
+        await capturedOnSendMessage!("troca para CFO");
+      });
+
+      const proposalPosts = fetchCalls().filter(
+        ([url, init]) =>
+          url.endsWith("/messages") &&
+          typeof init?.body === "string" &&
+          init.body.includes("Pelo seu ICP")
+      );
+      expect(proposalPosts).toHaveLength(1);
+    });
+
+    it("persistir a proposta falha (rede): o gesto segue na execucao criada, sem segundo POST", async () => {
+      renderSeeded();
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (url: string) => {
+        if (url.endsWith("/messages")) throw new Error("network down");
+        return { ok: true, json: () => Promise.resolve({ data: { id: "exec-new" } }) };
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("card-action-adjust_briefing"));
+      });
+
+      await waitFor(() =>
+        expect(mockProcessCardAction).toHaveBeenCalledWith(
+          "adjust_briefing",
+          "exec-new",
+          expect.any(Function),
+          expect.any(Function)
+        )
+      );
+      expect(mockSetCurrentExecutionId).toHaveBeenCalledWith("exec-new");
+      expect(mockToastError).toHaveBeenCalledWith("Erro ao enviar resposta do agente.");
+      expect(mockMutate).toHaveBeenCalledWith({ executionId: "exec-new", content: "Ajustar" });
+      const executionPosts = fetchCalls().filter(([url]) => url === "/api/agent/executions");
+      expect(executionPosts).toHaveLength(1);
+    });
+
+    it("falha no POST da execucao: toast e nenhum gesto processado", async () => {
+      renderSeeded();
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: false,
+        json: () => Promise.resolve({ error: { message: "boom" } }),
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("card-action-confirm_briefing"));
+      });
+
+      await waitFor(() =>
+        expect(mockToastError).toHaveBeenCalledWith("Erro ao iniciar conversa. Tente novamente.")
+      );
+      expect(mockProcessCardAction).not.toHaveBeenCalled();
+      expect(mockMutate).not.toHaveBeenCalled();
+      expect(mockSetAgentProcessing).toHaveBeenLastCalledWith(false);
+    });
+
+    it("editar um chip da proposta cria a execucao antes de gravar o ajuste", async () => {
+      renderSeeded();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("briefing-chip-jobTitles"));
+      });
+      const input = screen.getByRole("textbox");
+      await act(async () => {
+        fireEvent.change(input, { target: { value: "CFO" } });
+      });
+      await act(async () => {
+        fireEvent.keyDown(input, { key: "Enter" });
+      });
+
+      await waitFor(() => expect(mockEditBriefingField).toHaveBeenCalled());
+      expect(fetchCalls()[0][0]).toBe("/api/agent/executions");
+      expect(mockEditBriefingField).toHaveBeenCalledWith(
+        "jobTitles",
+        "CFO",
+        "exec-new",
+        expect.any(Function)
+      );
+    });
+
+    it("ICP sem cargos (leitura OK, sem proposta): dica de preencher o ICP", () => {
+      setupDefaults({ executionId: null, briefingStatus: "idle" });
+      mockIcpProposalState = { proposal: null, isLoaded: true };
+      render(<AgentChat />);
+
+      expect(capturedMessageListProps.emptyStateHint).toBe(ICP_MISSING_HINT);
+      expect(capturedMessageListProps.introMessage).toBeNull();
+      expect(mockSeedIcpProposal).not.toHaveBeenCalled();
+    });
+
+    it("leitura falha (nao carregada): sem dica e sem proposta", () => {
+      setupDefaults({ executionId: null, briefingStatus: "idle" });
+      mockIcpProposalState = { proposal: null, isLoaded: false };
+      render(<AgentChat />);
+
+      expect(capturedMessageListProps.emptyStateHint).toBeNull();
+      expect(capturedMessageListProps.introMessage).toBeNull();
     });
   });
 });

@@ -184,3 +184,55 @@ describe("AgentMessageList", () => {
     });
   });
 });
+
+// ==============================================
+// Story 24.14 — proposta do ICP e dica do estado vazio
+// ==============================================
+
+describe("AgentMessageList — Story 24.14", () => {
+  it("introMessage sem mensagens vira bolha do agente no lugar do onboarding", () => {
+    render(
+      <AgentMessageList
+        messages={[]}
+        isAgentProcessing={false}
+        isFirstTime={true}
+        introMessage="Pelo seu ICP: CISO, SP. Ajusto algo?"
+      />
+    );
+
+    const bubble = screen.getByTestId("agent-message-bubble");
+    expect(bubble).toHaveAttribute("data-role", "agent");
+    expect(bubble).toHaveTextContent("Pelo seu ICP: CISO, SP. Ajusto algo?");
+    expect(screen.queryByTestId("agent-onboarding")).not.toBeInTheDocument();
+  });
+
+  it("com mensagens reais, a introMessage e ignorada", () => {
+    render(
+      <AgentMessageList
+        messages={[createMessage({ content: "oi" })]}
+        isAgentProcessing={false}
+        introMessage="Pelo seu ICP: CISO. Ajusto algo?"
+      />
+    );
+    expect(screen.getAllByTestId("agent-message-bubble")).toHaveLength(1);
+    expect(screen.getByText("oi")).toBeInTheDocument();
+  });
+
+  it("emptyStateHint aparece no estado vazio (returning e first-time)", () => {
+    const { rerender } = render(
+      <AgentMessageList messages={[]} isAgentProcessing={false} isFirstTime={false} emptyStateHint="Preencha o ICP" />
+    );
+    expect(screen.getByTestId("agent-icp-hint")).toHaveTextContent("Preencha o ICP");
+
+    rerender(
+      <AgentMessageList messages={[]} isAgentProcessing={false} isFirstTime={true} emptyStateHint="Preencha o ICP" />
+    );
+    expect(screen.getByTestId("agent-onboarding")).toBeInTheDocument();
+    expect(screen.getByTestId("agent-icp-hint")).toBeInTheDocument();
+  });
+
+  it("sem dica, nada extra aparece (identico a hoje)", () => {
+    render(<AgentMessageList messages={[]} isAgentProcessing={false} isFirstTime={false} />);
+    expect(screen.queryByTestId("agent-icp-hint")).not.toBeInTheDocument();
+  });
+});

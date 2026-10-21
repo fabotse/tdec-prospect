@@ -10,6 +10,7 @@ import { z } from "zod";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
 import { hasRejectedStep } from "@/lib/agent/step-guards";
+import { APOLLO_COMPANY_SIZE_BUCKETS } from "@/lib/agent/search-defaults";
 
 // ==============================================
 // REQUEST VALIDATION
@@ -77,6 +78,16 @@ const briefingUpdateSchema = z.object({
   // em qualquer PATCH posterior (ajuste pos-rejeicao) e o usuario que pagou icebreaker
   // premium receberia standard, em silencio.
   premiumIcebreakers: z.boolean().optional(),
+  // Story 24.14: defaults do ICP (snapshot no briefing). Mesma armadilha de strip — sem
+  // declarar, o PATCH descartaria o porte/local do ICP e a busca voltaria ao piso 11+.
+  icpDefaults: z
+    .object({
+      // Vai verbatim para a Apollo: so faixas canonicas.
+      companySizes: z.array(z.enum(APOLLO_COMPANY_SIZE_BUCKETS)).max(10),
+      locations: z.array(z.string()).max(10),
+    })
+    .nullable()
+    .optional(),
 });
 
 // ==============================================

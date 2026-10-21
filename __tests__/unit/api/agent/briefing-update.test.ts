@@ -353,6 +353,66 @@ describe("PATCH /api/agent/executions/[executionId]/briefing", () => {
     expect(json.error.code).toBe("VALIDATION_ERROR");
   });
 
+  // Story 24.14: icpDefaults sobrevive ao strip do z.object (senao a busca volta ao piso 11+).
+  it("deve PRESERVAR icpDefaults no briefing enviado ao update (24.14 - armadilha do strip)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const icpDefaults = { companySizes: ["201-500", "501-1000"], locations: ["SP"] };
+    const briefingWithIcp = { ...VALID_BRIEFING, icpDefaults };
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing: {}, status: "pending" },
+      error: null,
+    });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(createRequest(briefingWithIcp), createParams());
+    expect(response.status).toBe(200);
+
+    const updateArg = chain.update.mock.calls[0][0] as { briefing: Record<string, unknown> };
+    expect(updateArg.briefing.icpDefaults).toEqual(icpDefaults);
+  });
+
+  it("deve aceitar icpDefaults null (24.14)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing: {}, status: "pending" },
+      error: null,
+    });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(
+      createRequest({ ...VALID_BRIEFING, icpDefaults: null }),
+      createParams()
+    );
+    expect(response.status).toBe(200);
+  });
+
+  it("deve rejeitar icpDefaults com faixa de tamanho nao canonica (24.14)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const response = await PATCH(
+      createRequest({
+        ...VALID_BRIEFING,
+        icpDefaults: { companySizes: ["1000+"], locations: ["SP"] },
+      }),
+      createParams()
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("deve rejeitar icpDefaults com mais de 10 locais (24.14)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const response = await PATCH(
+      createRequest({
+        ...VALID_BRIEFING,
+        icpDefaults: { companySizes: [], locations: Array.from({ length: 11 }, (_, i) => `L${i}`) },
+      }),
+      createParams()
+    );
+    expect(response.status).toBe(400);
+  });
+
   it("deve rejeitar emailCount fora do range 1-10 no PATCH (22.5)", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
 

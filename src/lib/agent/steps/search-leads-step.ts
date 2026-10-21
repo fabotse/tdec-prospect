@@ -9,7 +9,7 @@
 import { BaseStep } from "./base-step";
 import { ApolloService } from "@/lib/services/apollo";
 import { getInjectableServiceApiKey } from "@/lib/agent/service-keys";
-import { buildDirectSearchFilters } from "@/lib/agent/search-defaults";
+import { buildDirectSearchFilters, resolveSearchLocations } from "@/lib/agent/search-defaults";
 import { diagnoseEmptySearch } from "@/lib/agent/empty-search-diagnosis";
 import { resolveLeadCount, resolveLeadsPerPage } from "@/lib/agent/agent-pricing";
 import { logAgentUsage } from "@/lib/agent/agent-usage";
@@ -157,10 +157,12 @@ export class SearchLeadsStep extends BaseStep {
       );
     }
 
+    const domainLocations = resolveSearchLocations(briefing).locations;
     const filters = {
       domains,
       titles: jobTitles,
-      ...(briefing.location ? { locations: [briefing.location] } : {}),
+      // Story 24.14: local do usuario, senao os do ICP (mesma fonte da busca direta).
+      ...(domainLocations.length > 0 ? { locations: domainLocations } : {}),
       perPage: resolveLeadsPerPage(briefing),
       page: 1,
     };

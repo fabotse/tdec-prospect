@@ -10,6 +10,11 @@
 
 import { CONFIRMATION_KEYWORDS } from "@/hooks/use-briefing-flow";
 import { STEP_LABELS } from "@/types/agent";
+import {
+  formatCompanySizesLabel,
+  resolveDirectSearchCompanySizes,
+  resolveSearchLocations,
+} from "@/lib/agent/search-defaults";
 import type { ParsedBriefing, StepType } from "@/types/agent";
 
 // ==============================================
@@ -162,6 +167,8 @@ export function mergeAdjustedBriefing(
     segmentName: parsed.segmentName ?? persisted.segmentName ?? null,
     // Story 24.13: quantos leads (N) — metadado, mesma regra: ausencia PRESERVA.
     leadCount: parsed.leadCount ?? persisted.leadCount ?? null,
+    // Story 24.14: defaults do ICP — o valor do parse vence; ausencia PRESERVA o snapshot.
+    icpDefaults: parsed.icpDefaults ?? persisted.icpDefaults ?? null,
   };
 }
 
@@ -263,8 +270,29 @@ export function buildAdjustmentSummary(
     lines.push(
       `- Cargos: ${merged.jobTitles.length > 0 ? merged.jobTitles.join(", ") : "sem filtro"}`
     );
-    lines.push(`- Localizacao: ${merged.location ?? "sem filtro"}`);
-    lines.push(`- Tamanho: ${merged.companySize ?? "sem filtro"}`);
+    // Story 24.14: sem valor do usuario, os defaults do ICP (quando houver) sao o filtro
+    // efetivo — o resumo diz de onde vieram. Sem ICP, identico ao de antes.
+    const effectiveLocations = resolveSearchLocations(merged);
+    lines.push(
+      `- Localizacao: ${
+        merged.location ??
+        (effectiveLocations.fromIcp
+          ? `${effectiveLocations.locations.join(", ")} (do seu ICP)`
+          : "sem filtro")
+      }`
+    );
+    const isDirectSearch =
+      merged.skipSteps.includes("search_companies") &&
+      !merged.skipSteps.includes("search_leads");
+    const effectiveSizes = resolveDirectSearchCompanySizes(merged);
+    lines.push(
+      `- Tamanho: ${
+        merged.companySize ??
+        (isDirectSearch && effectiveSizes.source === "icp"
+          ? `${formatCompanySizesLabel(effectiveSizes.companySizes)} (do seu ICP)`
+          : "sem filtro")
+      }`
+    );
     lines.push(`- Industria: ${merged.industry ?? "sem filtro"}`);
     // Story 24.13: so quando N existe — sem N o resumo segue identico ao de antes.
     if (merged.leadCount) {

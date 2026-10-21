@@ -19,6 +19,7 @@ import {
   BRIEFING_FIELD_OPTIONS,
   CARD_ACTION_LABELS,
   formatBriefingFieldValue,
+  icpDefaultChipLabel,
   type BriefingCardAction,
   type BriefingCardField,
 } from "@/hooks/use-briefing-flow";
@@ -202,6 +203,8 @@ export function AgentConfirmationCard({
               const value = briefing[field];
               const isEmpty =
                 value == null || value === "" || (Array.isArray(value) && value.length === 0);
+              // Story 24.14: chip vazio com default do ICP mostra "{valor} (do ICP)".
+              const icpLabel = isEmpty ? icpDefaultChipLabel(field, briefing) : null;
               return (
                 <button
                   key={field}
@@ -217,7 +220,7 @@ export function AgentConfirmationCard({
                   )}
                 >
                   <span className="font-medium">{BRIEFING_FIELD_LABELS[field]}:</span>
-                  <span>{formatBriefingFieldValue(field, value)}</span>
+                  <span>{icpLabel ?? formatBriefingFieldValue(field, value)}</span>
                   <Pencil className="size-3 text-muted-foreground" aria-hidden="true" />
                 </button>
               );

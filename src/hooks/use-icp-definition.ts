@@ -11,6 +11,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getICPDefinition, saveICPDefinition } from "@/actions/knowledge-base";
 import type { ICPDefinitionInput, ActionResult } from "@/types/knowledge-base";
+import { ICP_PROPOSAL_QUERY_KEY } from "@/hooks/use-icp-proposal";
 
 const QUERY_KEY = ["knowledge-base", "icp"];
 
@@ -51,6 +52,8 @@ export function useICPDefinition() {
         // Story 6.9 FIX: Invalidate KB context cache so AI generation uses updated ICP info
         // This ensures Campaign Builder fetches fresh settings after saving
         queryClient.invalidateQueries({ queryKey: ["knowledge-base", "context"] });
+        // Story 24.14: a proposta de briefing do agente e montada a partir do ICP.
+        queryClient.invalidateQueries({ queryKey: ICP_PROPOSAL_QUERY_KEY });
       }
     },
   });

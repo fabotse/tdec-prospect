@@ -549,3 +549,46 @@ describe("diagnoseEmptySearch — entrada malformada não derruba o diagnóstico
     expect(diagnoseEmptySearch(...args)).toEqual(diagnoseEmptySearch(...args));
   });
 });
+
+// ==============================================
+// Story 24.14 — faixas do ICP no lugar do piso
+// ==============================================
+
+describe("diagnoseEmptySearch — Story 24.14 (ICP)", () => {
+  const ICP = { companySizes: ["201-500", "501-1000"], locations: ["SP"] };
+
+  it("linha Tamanho e causa icp_company_size_applied quando o porte veio do ICP", () => {
+    const result = diagnoseEmptySearch(
+      briefing({ icpDefaults: ICP }),
+      directFilters({ companySizes: ICP.companySizes })
+    );
+    expect(filterValue(result, "Tamanho")?.value).toBe("201–1000 (do seu ICP)");
+    expect(causeCodes(result)).toContain("icp_company_size_applied");
+    expect(causeCodes(result)).not.toContain("quality_floor_applied");
+  });
+
+  it("aviso do chip de 1-10 cita as faixas do ICP no lugar do piso", () => {
+    const result = diagnoseEmptySearch(
+      briefing({ icpDefaults: ICP }),
+      directFilters({ companySizes: ICP.companySizes })
+    );
+    const chip = result.suggestedChips.find((c) => c.id === "include-small-companies");
+    expect(chip?.warning).toContain("faixas do seu ICP (201–1000)");
+    expect(chip?.warning).not.toContain("11+");
+  });
+
+  it("aviso do chip de remover tamanho volta para as faixas do ICP", () => {
+    const result = diagnoseEmptySearch(
+      briefing({ companySize: "51-200", icpDefaults: ICP }),
+      directFilters({ companySizes: ["51-200"] })
+    );
+    const chip = result.suggestedChips.find((c) => c.id === "remove-company-size");
+    expect(chip?.warning).toBe("Sem tamanho informado a busca volta para as faixas do seu ICP (201–1000).");
+  });
+
+  it("sem ICP, o diagnostico segue identico (piso 11+)", () => {
+    const result = diagnoseEmptySearch(briefing(), directFilters());
+    expect(causeCodes(result)).toContain("quality_floor_applied");
+    expect(causeCodes(result)).not.toContain("icp_company_size_applied");
+  });
+});

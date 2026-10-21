@@ -22,6 +22,7 @@
 import {
   QUALITY_MIN_COMPANY_SIZES,
   QUALITY_MIN_COMPANY_SIZE_LABEL,
+  formatCompanySizesLabel,
   resolveDirectSearchCompanySizes,
 } from "@/lib/agent/search-defaults";
 import type { ParsedBriefing } from "@/types/agent";
@@ -130,6 +131,8 @@ export type EmptySearchCauseCode =
   | "company_size_restrictive"
   | "narrow_location"
   | "quality_floor_applied"
+  // Story 24.14: sem tamanho do usuario, a busca usou as faixas do ICP
+  | "icp_company_size_applied"
   | "job_titles"
   // busca de leads (Apollo) — ramo por domínios
   | "job_titles_in_companies"
@@ -279,7 +282,7 @@ function readStringArray(value: unknown): string[] {
 
 type DiagnosisBriefing = Pick<
   ParsedBriefing,
-  "technology" | "jobTitles" | "location" | "companySize" | "industry"
+  "technology" | "jobTitles" | "location" | "companySize" | "industry" | "icpDefaults"
 >;
 
 /**
@@ -333,11 +336,26 @@ export function diagnoseEmptySearch(
 
   // --- Ramo direto: tamanho e indústria REALMENTE foram enviados ---
 
-  const { defaultsApplied } = resolveDirectSearchCompanySizes(briefing);
+  const { defaultsApplied, source: sizeSource, companySizes: effectiveSizes } =
+    resolveDirectSearchCompanySizes(briefing);
   const companySize = briefing.companySize;
   const sizeIsCanonical = isCanonicalCompanySize(companySize);
+  // Story 24.14: o que entra no lugar quando NAO ha tamanho do usuario — as faixas do ICP
+  // (quando o briefing as traz) ou o piso de qualidade. Usado no aviso dos chips.
+  const fallbackSizes = resolveDirectSearchCompanySizes({
+    companySize: null,
+    icpDefaults: briefing.icpDefaults,
+  });
+  const fallbackIcpLabel =
+    fallbackSizes.source === "icp" ? formatCompanySizesLabel(fallbackSizes.companySizes) : null;
 
-  if (defaultsApplied) {
+  if (sizeSource === "icp") {
+    activeFilters.push({
+      label: "Tamanho",
+      value: `${formatCompanySizesLabel(effectiveSizes)} (do seu ICP)`,
+      note: "Aplicado a partir do seu ICP porque você não informou tamanho.",
+    });
+  } else if (defaultsApplied) {
     activeFilters.push({
       label: "Tamanho",
       value: `${QUALITY_MIN_COMPANY_SIZE_LABEL} (padrão de qualidade)`,
@@ -395,6 +413,13 @@ export function diagnoseEmptySearch(
     });
   }
 
+  if (sizeSource === "icp") {
+    probableCauses.push({
+      code: "icp_company_size_applied",
+      text: `Como você não informou tamanho, a busca usou as faixas do seu ICP (${formatCompanySizesLabel(effectiveSizes)}). Empresas fora dessas faixas ficaram de fora — se o alvo desta busca for outro porte, é isso que pode zerar o resultado.`,
+    });
+  }
+
   if (defaultsApplied) {
     probableCauses.push({
       code: "quality_floor_applied",
@@ -435,7 +460,9 @@ export function diagnoseEmptySearch(
       label: "Remover filtro de tamanho",
       kind: "delta",
       delta: { companySize: null },
-      warning: `Sem tamanho informado a busca volta ao piso padrão ${QUALITY_MIN_COMPANY_SIZE_LABEL} — empresas de até 10 pessoas continuam de fora.`,
+      warning: fallbackIcpLabel
+        ? `Sem tamanho informado a busca volta para as faixas do seu ICP (${fallbackIcpLabel}).`
+        : `Sem tamanho informado a busca volta ao piso padrão ${QUALITY_MIN_COMPANY_SIZE_LABEL} — empresas de até 10 pessoas continuam de fora.`,
     });
   } else {
     suggestedChips.push({
@@ -446,7 +473,9 @@ export function diagnoseEmptySearch(
       label: "Buscar só empresas de 1 a 10 pessoas",
       kind: "delta",
       delta: { companySize: "1-10" },
-      warning: `Passa a buscar SÓ empresas de 1 a 10 pessoas, no lugar do piso ${QUALITY_MIN_COMPANY_SIZE_LABEL}.`,
+      warning: fallbackIcpLabel
+        ? `Passa a buscar SÓ empresas de 1 a 10 pessoas, no lugar das faixas do seu ICP (${fallbackIcpLabel}).`
+        : `Passa a buscar SÓ empresas de 1 a 10 pessoas, no lugar do piso ${QUALITY_MIN_COMPANY_SIZE_LABEL}.`,
     });
   }
 

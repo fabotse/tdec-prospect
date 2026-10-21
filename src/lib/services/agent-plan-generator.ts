@@ -8,7 +8,9 @@
 import type { CostEstimate, ParsedBriefing, PlannedStep, StepType } from "@/types/agent";
 import {
   QUALITY_MIN_COMPANY_SIZE_LABEL,
+  formatCompanySizesLabel,
   resolveDirectSearchCompanySizes,
+  resolveSearchLocations,
 } from "@/lib/agent/search-defaults";
 import { resolveLeadCount } from "@/lib/agent/agent-pricing";
 
@@ -54,14 +56,20 @@ export const PIPELINE_STEPS: StepMetadata[] = [
         // Story 22.6 (AC3): exibe o tamanho EFETIVO da busca direta antes da confirmacao —
         // incluindo o piso de qualidade aplicado por padrao (sem surpresa de escopo).
         // Mesma fonte (resolveDirectSearchCompanySizes) que o step usa -> zero drift.
-        const { defaultsApplied } = resolveDirectSearchCompanySizes(b);
-        const sizeLabel = defaultsApplied
-          ? `tamanho ${QUALITY_MIN_COMPANY_SIZE_LABEL} (padrao de qualidade)`
-          : `tamanho ${b.companySize}`;
+        // Story 24.14: sem tamanho do usuario, as faixas do ICP substituem o piso.
+        const { source, companySizes } = resolveDirectSearchCompanySizes(b);
+        const sizeLabel =
+          source === "quality"
+            ? `tamanho ${QUALITY_MIN_COMPANY_SIZE_LABEL} (padrao de qualidade)`
+            : source === "icp"
+              ? `tamanho ${formatCompanySizesLabel(companySizes)} (do ICP)`
+              : `tamanho ${b.companySize}`;
+        // Story 24.14: local efetivo (usuario, senao ICP) — o mesmo que o step envia.
+        const { locations } = resolveSearchLocations(b);
         const filters = [
           b.jobTitles.length > 0 ? b.jobTitles.join(", ") : null,
           b.industry,
-          b.location,
+          locations.length > 0 ? locations.join(", ") : null,
           sizeLabel,
         ].filter(Boolean).join(" + ");
         return `Buscar leads diretamente por ${filters || "cargos"} (sem filtro de empresa)${leadCountSuffix(b)}`;

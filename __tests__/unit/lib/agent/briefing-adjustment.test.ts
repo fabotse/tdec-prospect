@@ -316,3 +316,65 @@ describe("isAdjustmentConfirmation (Story 22.13 AC3, review P1)", () => {
     expect(isAdjustmentConfirmation("pode ser, mas antes muda a localizacao")).toBe(false);
   });
 });
+
+// ==============================================
+// Story 24.14 — defaults do ICP
+// ==============================================
+
+describe("Story 24.14 — icpDefaults no ajuste", () => {
+  const ICP = { companySizes: ["201-500", "501-1000"], locations: ["SP"] };
+
+  it("mergeAdjustedBriefing: o valor do parse vence", () => {
+    const next = { companySizes: ["11-50"], locations: ["RJ"] };
+    const merged = mergeAdjustedBriefing(
+      { ...PERSISTED, icpDefaults: ICP },
+      { ...PARSED, icpDefaults: next }
+    );
+    expect(merged.icpDefaults).toEqual(next);
+  });
+
+  it("mergeAdjustedBriefing: ausencia no parse preserva o snapshot", () => {
+    const merged = mergeAdjustedBriefing({ ...PERSISTED, icpDefaults: ICP }, PARSED);
+    expect(merged.icpDefaults).toEqual(ICP);
+  });
+
+  it("buildAdjustmentSummary: local e tamanho do ICP marcados na busca direta", () => {
+    const merged: ParsedBriefing = {
+      ...PERSISTED,
+      technology: null,
+      location: null,
+      companySize: null,
+      skipSteps: ["search_companies"],
+      icpDefaults: ICP,
+    };
+    const summary = buildAdjustmentSummary(PERSISTED, merged, "search_leads", null);
+    expect(summary).toContain("- Localizacao: SP (do seu ICP)");
+    expect(summary).toContain("- Tamanho: 201–1000 (do seu ICP)");
+  });
+
+  it("buildAdjustmentSummary: o usuario vence o ICP", () => {
+    const merged: ParsedBriefing = {
+      ...PERSISTED,
+      location: "RJ",
+      companySize: "51-200",
+      skipSteps: ["search_companies"],
+      icpDefaults: ICP,
+    };
+    const summary = buildAdjustmentSummary(PERSISTED, merged, "search_leads", null);
+    expect(summary).toContain("- Localizacao: RJ");
+    expect(summary).toContain("- Tamanho: 51-200");
+    expect(summary).not.toContain("do seu ICP");
+  });
+
+  it("buildAdjustmentSummary sem ICP fica identico ('sem filtro')", () => {
+    const merged: ParsedBriefing = {
+      ...PERSISTED,
+      location: null,
+      companySize: null,
+      skipSteps: ["search_companies"],
+    };
+    const summary = buildAdjustmentSummary(PERSISTED, merged, "search_leads", null);
+    expect(summary).toContain("- Localizacao: sem filtro");
+    expect(summary).toContain("- Tamanho: sem filtro");
+  });
+});

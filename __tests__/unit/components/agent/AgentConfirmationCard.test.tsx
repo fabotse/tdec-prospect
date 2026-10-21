@@ -209,3 +209,56 @@ describe("AgentConfirmationCard", () => {
     });
   });
 });
+
+// ==============================================
+// Story 24.14 — chips "(do ICP)"
+// ==============================================
+
+describe("AgentConfirmationCard — Story 24.14 (ICP)", () => {
+  const ICP_BRIEFING: ParsedBriefing = {
+    ...BRIEFING,
+    location: null,
+    companySize: null,
+    skipSteps: ["search_companies"],
+    icpDefaults: { companySizes: ["201-500", "501-1000"], locations: ["SP"] },
+  };
+
+  it("chip vazio com default do ICP mostra '{valor} (do ICP)'", () => {
+    render(<AgentConfirmationCard variant="briefing" briefing={ICP_BRIEFING} onAction={vi.fn()} />);
+    expect(screen.getByTestId("briefing-chip-location")).toHaveTextContent("SP (do ICP)");
+    expect(screen.getByTestId("briefing-chip-companySize")).toHaveTextContent("201–1000 (do ICP)");
+  });
+
+  it("valor do usuario vence o rotulo do ICP", () => {
+    render(
+      <AgentConfirmationCard
+        variant="briefing"
+        briefing={{ ...ICP_BRIEFING, location: "RJ", companySize: "51-200" }}
+        onAction={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("briefing-chip-location")).toHaveTextContent("Localizacao:RJ");
+    expect(screen.getByTestId("briefing-chip-companySize")).toHaveTextContent("Tamanho:51-200");
+  });
+
+  it("tamanho do ICP so na busca direta; sem ICP fica 'nao definido'", () => {
+    const { rerender } = render(
+      <AgentConfirmationCard
+        variant="briefing"
+        briefing={{ ...ICP_BRIEFING, technology: "React", skipSteps: [] }}
+        onAction={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("briefing-chip-companySize")).toHaveTextContent("nao definido");
+    expect(screen.getByTestId("briefing-chip-location")).toHaveTextContent("SP (do ICP)");
+
+    rerender(
+      <AgentConfirmationCard
+        variant="briefing"
+        briefing={{ ...ICP_BRIEFING, icpDefaults: null }}
+        onAction={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("briefing-chip-location")).toHaveTextContent("nao definido");
+  });
+});

@@ -363,3 +363,49 @@ describe("PlanGeneratorService", () => {
     });
   });
 });
+
+// ==============================================
+// Story 24.14 — defaults do ICP no plano
+// ==============================================
+
+describe("PlanGeneratorService — Story 24.14 (ICP)", () => {
+  const ICP = { companySizes: ["201-500", "501-1000"], locations: ["SP"] };
+  const searchLeadsDescription = (b: ParsedBriefing) =>
+    PlanGeneratorService.generatePlan(b, createCostEstimate())[1].description;
+
+  it("busca direta sem porte/local usa as faixas e o local do ICP", () => {
+    const description = searchLeadsDescription(
+      createBriefing({
+        technology: null,
+        location: null,
+        skipSteps: ["search_companies"],
+        icpDefaults: ICP,
+      })
+    );
+    expect(description).toContain("tamanho 201–1000 (do ICP)");
+    expect(description).toContain("SP");
+    expect(description).not.toContain("padrao de qualidade");
+  });
+
+  it("o usuario vence o ICP", () => {
+    const description = searchLeadsDescription(
+      createBriefing({
+        technology: null,
+        location: "RJ",
+        companySize: "51-200",
+        skipSteps: ["search_companies"],
+        icpDefaults: ICP,
+      })
+    );
+    expect(description).toContain("RJ");
+    expect(description).toContain("tamanho 51-200");
+    expect(description).not.toContain("(do ICP)");
+  });
+
+  it("sem ICP, o plano fica identico (piso 11+)", () => {
+    const description = searchLeadsDescription(
+      createBriefing({ technology: null, skipSteps: ["search_companies"] })
+    );
+    expect(description).toContain("tamanho 11+ (padrao de qualidade)");
+  });
+});

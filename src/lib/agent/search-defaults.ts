@@ -35,10 +35,21 @@ export const QUALITY_MIN_COMPANY_SIZES = [
 /** Rótulo amigável do piso de qualidade, para o plano e o resumo do briefing. */
 export const QUALITY_MIN_COMPANY_SIZE_LABEL = "11+";
 
+/**
+ * Story 24.14: faixas canonicas da Apollo, em ordem crescente. `"1-10"` + as do piso.
+ * Usadas para ordenar os defaults do ICP e montar o rotulo amigavel.
+ */
+export const APOLLO_COMPANY_SIZE_BUCKETS = ["1-10", ...QUALITY_MIN_COMPANY_SIZES] as const;
+
+/** De onde veio o porte efetivo da busca direta. */
+export type CompanySizeSource = "user" | "icp" | "quality";
+
 export interface EffectiveCompanySizes {
   companySizes: string[];
-  /** true quando o piso de qualidade foi aplicado (usuário não informou tamanho). */
+  /** true quando o piso de qualidade foi aplicado (sem tamanho do usuario e sem ICP). */
   defaultsApplied: boolean;
+  /** Story 24.14: origem das faixas — usuario, ICP do tenant ou piso de qualidade. */
+  source: CompanySizeSource;
 }
 
 /**
@@ -46,15 +57,93 @@ export interface EffectiveCompanySizes {
  *
  * - Usuário informou `companySize` → override TOTAL: `[briefing.companySize]`,
  *   defaults NÃO são mesclados (AC2 é sagrado).
- * - Não informou (`companySize` null) → aplica o piso de qualidade.
+ * - Story 24.14: senão, as faixas do ICP (`icpDefaults.companySizes`) quando houver.
+ * - Senão → aplica o piso de qualidade.
  */
 export function resolveDirectSearchCompanySizes(
-  briefing: Pick<ParsedBriefing, "companySize">
+  briefing: Pick<ParsedBriefing, "companySize" | "icpDefaults">
 ): EffectiveCompanySizes {
   if (briefing.companySize) {
-    return { companySizes: [briefing.companySize], defaultsApplied: false };
+    return { companySizes: [briefing.companySize], defaultsApplied: false, source: "user" };
   }
-  return { companySizes: [...QUALITY_MIN_COMPANY_SIZES], defaultsApplied: true };
+  const icpSizes = briefing.icpDefaults?.companySizes ?? [];
+  if (icpSizes.length > 0) {
+    return { companySizes: [...icpSizes], defaultsApplied: false, source: "icp" };
+  }
+  return {
+    companySizes: [...QUALITY_MIN_COMPANY_SIZES],
+    defaultsApplied: true,
+    source: "quality",
+  };
+}
+
+// ==============================================
+// Story 24.14 — localizacao efetiva (usuario > ICP)
+// ==============================================
+
+export interface EffectiveSearchLocations {
+  locations: string[];
+  /** true quando os locais vieram do ICP (o usuario nao informou localizacao). */
+  fromIcp: boolean;
+}
+
+/**
+ * Localizacao efetiva da busca de leads: o `location` do usuario vence; senao, os locais
+ * do ICP; senao, nenhum.
+ */
+export function resolveSearchLocations(
+  briefing: Pick<ParsedBriefing, "location" | "icpDefaults">
+): EffectiveSearchLocations {
+  if (briefing.location) {
+    return { locations: [briefing.location], fromIcp: false };
+  }
+  const icpLocations = briefing.icpDefaults?.locations ?? [];
+  if (icpLocations.length > 0) {
+    return { locations: [...icpLocations], fromIcp: true };
+  }
+  return { locations: [], fromIcp: false };
+}
+
+/** true quando a busca tem alguma localizacao efetiva (do usuario ou do ICP). */
+export function hasSearchLocation(
+  briefing: Pick<ParsedBriefing, "location" | "icpDefaults">
+): boolean {
+  return resolveSearchLocations(briefing).locations.length > 0;
+}
+
+/** Inicio/fim numerico de uma faixa canonica ("201-500" -> 201/500, "10001+" -> 10001/null). */
+function bucketBounds(bucket: string): { lo: string; hi: string | null } {
+  if (bucket.endsWith("+")) return { lo: bucket.slice(0, -1), hi: null };
+  const [lo, hi] = bucket.split("-");
+  return { lo, hi: hi ?? lo };
+}
+
+/**
+ * Rotulo amigavel de um conjunto de faixas canonicas.
+ * - Faixas contiguas viram um intervalo com travessao ("201-500"+"501-1000" -> "201–1000").
+ * - Faixa aberta no fim -> "501+".
+ * - Grupos nao contiguos sao juntados com ", " ("11–50, 501–1000").
+ * Faixas fora do canonico entram verbatim no fim.
+ */
+export function formatCompanySizesLabel(buckets: string[]): string {
+  const canonical: readonly string[] = APOLLO_COMPANY_SIZE_BUCKETS;
+  const indexes = Array.from(
+    new Set(buckets.map((b) => canonical.indexOf(b)).filter((i) => i >= 0))
+  ).sort((a, b) => a - b);
+  const unknown = Array.from(new Set(buckets.filter((b) => !canonical.includes(b))));
+
+  const parts: string[] = [];
+  let runStart = -1;
+  for (let k = 0; k < indexes.length; k++) {
+    if (runStart < 0) runStart = indexes[k];
+    const next = indexes[k + 1];
+    if (next === indexes[k] + 1) continue;
+    const { lo } = bucketBounds(canonical[runStart]);
+    const { hi } = bucketBounds(canonical[indexes[k]]);
+    parts.push(hi === null ? `${lo}+` : `${lo}–${hi}`);
+    runStart = -1;
+  }
+  return [...parts, ...unknown].join(", ");
 }
 
 // ==============================================
@@ -86,17 +175,22 @@ export type DirectSearchFilters = {
  * que mente é pior do que estimativa nenhuma.
  */
 export function buildDirectSearchFilters(
-  briefing: Pick<ParsedBriefing, "jobTitles" | "location" | "industry" | "companySize">,
+  briefing: Pick<
+    ParsedBriefing,
+    "jobTitles" | "location" | "industry" | "companySize" | "icpDefaults"
+  >,
   perPage: number
 ): DirectSearchFilters {
   const { companySizes } = resolveDirectSearchCompanySizes(briefing);
+  // Story 24.14: local do usuario, senao os do ICP.
+  const { locations } = resolveSearchLocations(briefing);
 
   return {
     titles: briefing.jobTitles,
     perPage,
     page: 1,
     companySizes,
-    ...(briefing.location ? { locations: [briefing.location] } : {}),
+    ...(locations.length > 0 ? { locations } : {}),
     ...(briefing.industry ? { industries: [briefing.industry] } : {}),
   };
 }

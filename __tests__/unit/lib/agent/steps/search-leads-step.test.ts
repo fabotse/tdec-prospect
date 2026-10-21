@@ -629,6 +629,48 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
   // Story 24.13: quantos leads (N)
   // ==============================================
 
+  describe("Story 24.14 - defaults do ICP", () => {
+    const ICP = { companySizes: ["201-500", "501-1000"], locations: ["SP"] };
+
+    it("busca direta sem porte/local usa as faixas e o local do ICP (no lugar do piso)", async () => {
+      const input = createInput({ location: null, companySize: null, icpDefaults: ICP });
+      input.previousStepOutput = undefined;
+
+      await step.run(input);
+
+      const callArg = mockSearchPeople.mock.calls[0][0];
+      expect(callArg.companySizes).toEqual(["201-500", "501-1000"]);
+      expect(callArg.locations).toEqual(["SP"]);
+    });
+
+    it("o usuario vence o ICP (porte e local)", async () => {
+      const input = createInput({ location: "RJ", companySize: "51-200", icpDefaults: ICP });
+      input.previousStepOutput = undefined;
+
+      await step.run(input);
+
+      const callArg = mockSearchPeople.mock.calls[0][0];
+      expect(callArg.companySizes).toEqual(["51-200"]);
+      expect(callArg.locations).toEqual(["RJ"]);
+    });
+
+    it("ramo por dominios usa o local do ICP e nunca o porte", async () => {
+      await step.run(createInput({ location: null, companySize: null, icpDefaults: ICP }));
+
+      const callArg = mockSearchPeople.mock.calls[0][0];
+      expect(callArg.domains).toEqual(["acme.com", "beta.io"]);
+      expect(callArg.locations).toEqual(["SP"]);
+      expect(callArg.companySizes).toBeUndefined();
+    });
+
+    it("ramo por dominios sem ICP e sem local fica identico (sem locations)", async () => {
+      await step.run(createInput({ location: null }));
+
+      const callArg = mockSearchPeople.mock.calls[0][0];
+      expect(callArg.locations).toBeUndefined();
+    });
+  });
+
   describe("Story 24.13 - leadCount (N)", () => {
     const makeLeadRows = (count: number) =>
       Array.from({ length: count }, (_, i) => ({

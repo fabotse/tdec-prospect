@@ -20,7 +20,11 @@ import {
   toMemoryContent,
   parseBriefingFieldInput,
   formatBriefingFieldValue,
+  buildIcpProposalTurn,
+  icpDefaultChipLabel,
+  ICP_MISSING_HINT,
 } from "@/hooks/use-briefing-flow";
+import type { ParsedBriefing } from "@/types/agent";
 import {
   createMockFetch,
   mockJsonResponse,
@@ -4991,5 +4995,168 @@ describe("useBriefingFlow", () => {
         expect(result.current.state.briefing?.skipSteps).not.toContain("search_leads");
       });
     });
+  });
+});
+
+// ==============================================
+// Story 24.14 — briefing a partir do ICP
+// ==============================================
+
+describe("useBriefingFlow — Story 24.14 (ICP)", () => {
+  const ICP_DEFAULTS = { companySizes: ["201-500", "501-1000"], locations: ["SP"] };
+  const PROPOSAL: ParsedBriefing = {
+    technology: null,
+    jobTitles: ["CISO", "Head de TI"],
+    location: null,
+    companySize: null,
+    industry: null,
+    productSlug: null,
+    mode: "guided",
+    skipSteps: ["search_companies"],
+    icpDefaults: ICP_DEFAULTS,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    restoreFetch();
+  });
+
+  it("buildIcpProposalTurn: mensagem da proposta + dica do card", () => {
+    const turn = buildIcpProposalTurn(PROPOSAL);
+    expect(turn).toContain("Pelo seu ICP: CISO/Head de TI, SP, 201–1000 funcionarios. Ajusto algo?");
+    expect(turn).toContain('clique em "Confirmar" no card abaixo');
+  });
+
+  it("ICP_MISSING_HINT sugere preencher o ICP", () => {
+    expect(ICP_MISSING_HINT).toMatch(/ICP/);
+  });
+
+  it("seedIcpProposal: idle -> confirming com o briefing proposto, sem enviar nada", () => {
+    const { result } = renderHook(() => useBriefingFlow());
+
+    let seeded = false;
+    act(() => {
+      seeded = result.current.seedIcpProposal(PROPOSAL);
+    });
+
+    expect(seeded).toBe(true);
+    expect(result.current.state.status).toBe("confirming");
+    expect(result.current.state.briefing).toEqual(PROPOSAL);
+    expect(result.current.state.missingFields).not.toContain("location");
+    expect(mockSendAgentMessage).not.toHaveBeenCalled();
+  });
+
+  it("seedIcpProposal so semeia uma vez (fora de idle nao faz nada)", () => {
+    const { result } = renderHook(() => useBriefingFlow());
+    act(() => {
+      result.current.seedIcpProposal(PROPOSAL);
+    });
+    let second = true;
+    act(() => {
+      second = result.current.seedIcpProposal({ ...PROPOSAL, jobTitles: ["CFO"] });
+    });
+    expect(second).toBe(false);
+    expect(result.current.state.briefing?.jobTitles).toEqual(["CISO", "Head de TI"]);
+  });
+
+  it("o turno da proposta entra na memoria do proximo /parse (ajuste por texto)", async () => {
+    const fetchMock = createMockFetch([
+      {
+        url: /\/api\/agent\/briefing\/parse$/,
+        method: "POST",
+        response: mockJsonResponse({
+          ...COMPLETE_PARSE_RESPONSE,
+          briefing: { ...PROPOSAL, jobTitles: ["CFO"] },
+          canProceed: true,
+          missingFields: ["technology", "industry", "companySize"],
+        }),
+      },
+    ]);
+    const { result } = renderHook(() => useBriefingFlow());
+    act(() => {
+      result.current.seedIcpProposal(PROPOSAL);
+    });
+
+    await act(async () => {
+      await result.current.processMessage("troca para CFO", EXEC_ID, mockSendAgentMessage);
+    });
+
+    const body = fetchMock.calls()[0].body as { messages: Array<{ role: string; content: string }> };
+    expect(body.messages[0]).toEqual({ role: "agent", content: buildIcpProposalTurn(PROPOSAL) });
+    expect(body.messages[1]).toEqual({ role: "user", content: "troca para CFO" });
+  });
+
+  it("Confirmar no card com o local SO do ICP confirma (canConfirm)", async () => {
+    const { result } = renderHook(() => useBriefingFlow());
+    act(() => {
+      result.current.seedIcpProposal(PROPOSAL);
+    });
+
+    let outcome: { handled: boolean; confirmed?: boolean } | undefined;
+    await act(async () => {
+      outcome = await result.current.processCardAction("confirm_briefing", EXEC_ID, mockSendAgentMessage);
+    });
+
+    expect(outcome?.confirmed).toBe(true);
+    expect(result.current.state.status).toBe("confirmed");
+  });
+
+  it("proposta sem geo: Confirmar pede a localizacao (fluxo atual)", async () => {
+    const { result } = renderHook(() => useBriefingFlow());
+    act(() => {
+      result.current.seedIcpProposal({
+        ...PROPOSAL,
+        icpDefaults: { companySizes: ["201-500"], locations: [] },
+      });
+    });
+
+    await act(async () => {
+      await result.current.processCardAction("confirm_briefing", EXEC_ID, mockSendAgentMessage);
+    });
+
+    expect(result.current.state.status).toBe("awaiting_fields");
+    expect(result.current.state.missingFields).toContain("location");
+  });
+
+  it("resumo diz que local e tamanho vieram do ICP (no lugar do piso 11+)", async () => {
+    createMockFetch([
+      {
+        url: /\/api\/agent\/briefing\/parse$/,
+        method: "POST",
+        response: mockJsonResponse({
+          ...COMPLETE_PARSE_RESPONSE,
+          briefing: { ...PROPOSAL, jobTitles: ["CISO"] },
+          missingFields: ["technology", "industry", "companySize"],
+          canProceed: true,
+        }),
+      },
+    ]);
+    const { result } = renderHook(() => useBriefingFlow());
+
+    await act(async () => {
+      await result.current.processMessage("CISO", EXEC_ID, mockSendAgentMessage);
+    });
+
+    const summary = mockSendAgentMessage.mock.calls.at(-1)?.[1] as string;
+    expect(summary).toContain("- Localizacao: SP (do seu ICP)");
+    expect(summary).toContain(
+      "- Tamanho de empresa: 201–1000 funcionarios — do seu ICP, me diga se quiser mudar."
+    );
+    expect(summary).not.toContain("11+");
+  });
+
+  it("icpDefaultChipLabel: local vazio e tamanho vazio na busca direta", () => {
+    expect(icpDefaultChipLabel("location", PROPOSAL)).toBe("SP (do ICP)");
+    expect(icpDefaultChipLabel("companySize", PROPOSAL)).toBe("201–1000 (do ICP)");
+  });
+
+  it("icpDefaultChipLabel: null quando o usuario informou, fora da busca direta ou sem ICP", () => {
+    expect(icpDefaultChipLabel("location", { ...PROPOSAL, location: "RJ" })).toBeNull();
+    expect(icpDefaultChipLabel("companySize", { ...PROPOSAL, skipSteps: [] })).toBeNull();
+    expect(icpDefaultChipLabel("location", { ...PROPOSAL, icpDefaults: null })).toBeNull();
+    expect(icpDefaultChipLabel("industry", PROPOSAL)).toBeNull();
   });
 });

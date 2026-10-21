@@ -24,15 +24,59 @@ interface AgentMessageListProps {
   messages: AgentMessage[];
   isAgentProcessing: boolean;
   isFirstTime?: boolean;
+  /**
+   * Story 24.14: mensagem do agente que abre a conversa nova (proposta do ICP) antes de a
+   * execucao existir. Sem mensagens, vira uma bolha do agente sintetica no lugar do
+   * onboarding/placeholder.
+   */
+  introMessage?: string | null;
+  /** Story 24.14: dica extra do estado vazio (ex.: preencher o ICP). */
+  emptyStateHint?: string | null;
 }
 
-export function AgentMessageList({ messages, isAgentProcessing, isFirstTime }: AgentMessageListProps) {
+export function AgentMessageList({
+  messages,
+  isAgentProcessing,
+  isFirstTime,
+  introMessage,
+  emptyStateHint,
+}: AgentMessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll para o final quando nova mensagem chega
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isAgentProcessing]);
+
+  // Story 24.14: proposta do ICP ainda sem execucao -> bolha sintetica do agente.
+  if (messages.length === 0 && introMessage) {
+    const intro: AgentMessage = {
+      id: "icp-proposal-intro",
+      execution_id: "",
+      role: "agent",
+      content: introMessage,
+      metadata: { messageType: "text" },
+      created_at: "",
+    };
+    return (
+      <div className="flex-1 overflow-y-auto px-6 py-4" data-testid="agent-message-list">
+        <div className="flex flex-col gap-4">
+          <AgentMessageBubble message={intro} />
+          <AgentTypingIndicator isVisible={isAgentProcessing} />
+          <div ref={messagesEndRef} />
+        </div>
+      </div>
+    );
+  }
+
+  const hint = emptyStateHint ? (
+    <p
+      className="text-body-small text-muted-foreground max-w-sm text-center mx-auto px-6 pb-4"
+      data-testid="agent-icp-hint"
+    >
+      {emptyStateHint}
+    </p>
+  ) : null;
 
   // Empty state: onboarding para first-time, placeholder breve para returning
   if (messages.length === 0) {
@@ -41,6 +85,7 @@ export function AgentMessageList({ messages, isAgentProcessing, isFirstTime }: A
       return (
         <div className="flex-1 flex flex-col min-h-0" data-testid="agent-message-list">
           <AgentOnboarding />
+          {hint}
         </div>
       );
     }
@@ -58,6 +103,7 @@ export function AgentMessageList({ messages, isAgentProcessing, isFirstTime }: A
           <p className="text-body-small text-muted-foreground max-w-sm">
             Descreva o que voce precisa e o agente monta a campanha de prospeccao passo a passo.
           </p>
+          {hint}
         </div>
       </div>
     );

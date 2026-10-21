@@ -18,8 +18,12 @@ import { BriefingSuggestionService } from "@/lib/agent/briefing-suggestion-servi
 import { parseLeadInput, type LeadImportResult } from "@/lib/agent/lead-import-parser";
 import {
   QUALITY_MIN_COMPANY_SIZE_LABEL,
+  formatCompanySizesLabel,
+  hasSearchLocation,
   resolveDirectSearchCompanySizes,
+  resolveSearchLocations,
 } from "@/lib/agent/search-defaults";
+import { buildIcpProposalMessage } from "@/lib/agent/icp-briefing";
 
 // ==============================================
 // TYPES
@@ -194,7 +198,12 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
 
   if (briefing.technology) lines.push(`- Tecnologia: ${briefing.technology}`);
   if (briefing.jobTitles.length > 0) lines.push(`- Cargos: ${briefing.jobTitles.join(", ")}`);
+  // Story 24.14: sem local do usuario, o local do ICP (quando houver) e o efetivo.
+  const effectiveLocations = resolveSearchLocations(briefing);
   if (briefing.location) lines.push(`- Localizacao: ${briefing.location}`);
+  else if (effectiveLocations.fromIcp) {
+    lines.push(`- Localizacao: ${effectiveLocations.locations.join(", ")} (do seu ICP)`);
+  }
   if (briefing.companySize) lines.push(`- Tamanho: ${briefing.companySize}`);
   if (briefing.industry) lines.push(`- Industria: ${briefing.industry}`);
 
@@ -249,13 +258,19 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
     const params = [
       briefing.jobTitles.length > 0 ? briefing.jobTitles.join(", ") : null,
       briefing.industry,
-      briefing.location,
+      effectiveLocations.locations.length > 0 ? effectiveLocations.locations.join(", ") : null,
     ].filter(Boolean).join(" + ");
     lines.push(`Etapa de busca de empresas sera pulada — leads serao buscados diretamente por ${params || "cargos"}.`);
     // Story 22.6 (AC4): quando o usuario nao informou tamanho, aplica-se um piso de qualidade
     // (exclui micro-empresas). Convite NAO-bloqueante — o usuario pode so confirmar; canProceed intocado.
     // Gate derivado do SSOT (mesma fonte do step e do plano) para nunca divergir do que o Apollo recebe.
-    if (resolveDirectSearchCompanySizes(briefing).defaultsApplied) {
+    // Story 24.14: com faixas do ICP, elas substituem o piso — e o resumo diz de onde vieram.
+    const effectiveSizes = resolveDirectSearchCompanySizes(briefing);
+    if (effectiveSizes.source === "icp") {
+      lines.push(
+        `- Tamanho de empresa: ${formatCompanySizesLabel(effectiveSizes.companySizes)} funcionarios — do seu ICP, me diga se quiser mudar.`
+      );
+    } else if (effectiveSizes.defaultsApplied) {
       lines.push(`- Tamanho de empresa: ${QUALITY_MIN_COMPANY_SIZE_LABEL} — padrao de qualidade, me diga se quiser mudar.`);
     }
   }
@@ -282,6 +297,45 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
 // Story 24.5: instrucoes dos cards de confirmacao (rotulos iguais aos botoes).
 const BRIEFING_CARD_HINT =
   'Se estiver tudo certo, clique em "Confirmar" no card abaixo. Para mudar algo, edite um campo no card ou me diga o ajuste.';
+
+// ==============================================
+// STORY 24.14 — PROPOSTA A PARTIR DO ICP
+// ==============================================
+
+/** Turno do agente que abre a conversa nova com a proposta do ICP (mensagem + dica do card). */
+export function buildIcpProposalTurn(briefing: ParsedBriefing): string {
+  return `${buildIcpProposalMessage(briefing)}\n${BRIEFING_CARD_HINT}`;
+}
+
+/** Dica do estado vazio quando o tenant nao tem ICP com cargos. */
+export const ICP_MISSING_HINT =
+  "Dica: preencha o ICP na Base de Conhecimento (cargos, regioes e portes) e eu ja abro cada conversa com uma proposta de busca pronta.";
+
+/**
+ * Rotulo do chip VAZIO quando um default do ICP se aplica: `{valor} (do ICP)`.
+ * Localizacao vale em qualquer busca; tamanho so na busca direta. Sem default -> null.
+ */
+export function icpDefaultChipLabel(
+  field: string,
+  briefing: ParsedBriefing | null | undefined
+): string | null {
+  if (!briefing?.icpDefaults) return null;
+  if (field === "location") {
+    if (briefing.location) return null;
+    const { locations, fromIcp } = resolveSearchLocations(briefing);
+    return fromIcp ? `${locations.join(", ")} (do ICP)` : null;
+  }
+  if (field === "companySize") {
+    if (briefing.companySize) return null;
+    const isDirectSearch =
+      Boolean(briefing.skipSteps?.includes("search_companies")) &&
+      !briefing.skipSteps?.includes("search_leads");
+    if (!isDirectSearch) return null;
+    const { source, companySizes } = resolveDirectSearchCompanySizes(briefing);
+    return source === "icp" ? `${formatCompanySizesLabel(companySizes)} (do ICP)` : null;
+  }
+  return null;
+}
 const PRODUCT_CARD_HINT =
   'Clique em "Confirmar" no card para cadastrar, em "Refazer cadastro" para recomecar ou em "Seguir sem produto". Para corrigir um dado, me diga o que mudar.';
 const LEADS_CARD_HINT =
@@ -481,7 +535,7 @@ function carryProductSlug(
 function withRequiredMissing(briefing: ParsedBriefing, missingFields: string[]): string[] {
   const missing = new Set(missingFields);
   if (!briefing.jobTitles?.length) missing.add("jobTitles");
-  if (!briefing.location) missing.add("location");
+  if (!hasSearchLocation(briefing)) missing.add("location");
   return Array.from(missing);
 }
 
@@ -835,6 +889,12 @@ export interface UseBriefingFlowReturn {
    * transcript coerente para o proximo `/parse`.
    */
   recordUserTurn: (content: string) => void;
+  /**
+   * Story 24.14: abre a conversa nova com a proposta do ICP. So age em `idle`: entra em
+   * `confirming` com o briefing proposto e grava o turno do agente na memoria (o turno NAO
+   * e persistido aqui — a execucao so nasce no primeiro gesto). Devolve se semeou.
+   */
+  seedIcpProposal: (briefing: ParsedBriefing) => boolean;
 }
 
 export function useBriefingFlow(): UseBriefingFlowReturn {
@@ -1046,7 +1106,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
           ...result,
           briefing: reconciledBriefing,
           canProceed: Boolean(
-            reconciledBriefing.jobTitles?.length && reconciledBriefing.location
+            reconciledBriefing.jobTitles?.length && hasSearchLocation(reconciledBriefing)
           ),
         };
       }
@@ -1510,7 +1570,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
               briefing: searchBriefing,
               missingFields: withRequiredMissing(searchBriefing, state.missingFields),
               isComplete: false,
-              canProceed: Boolean(searchBriefing.jobTitles?.length && searchBriefing.location),
+              canProceed: Boolean(searchBriefing.jobTitles?.length && hasSearchLocation(searchBriefing)),
               suggestions: {},
               productMentioned: null,
               nextAction: "confirm",
@@ -1537,7 +1597,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
             ...parsed,
             briefing: searchBriefing,
             missingFields: withRequiredMissing(searchBriefing, parsed.missingFields),
-            canProceed: Boolean(searchBriefing.jobTitles?.length && searchBriefing.location),
+            canProceed: Boolean(searchBriefing.jobTitles?.length && hasSearchLocation(searchBriefing)),
           },
           executionId,
           sendAgentMessage,
@@ -1733,7 +1793,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
           // Mesma regra do canProceed do /parse: cargo + localizacao, ou lista importada.
           const canConfirm =
             !!briefing &&
-            ((briefing.jobTitles?.length > 0 && !!briefing.location) ||
+            ((briefing.jobTitles?.length > 0 && hasSearchLocation(briefing)) ||
               (isImportedLeadsFlow(briefing) && (briefing.importedLeads?.length ?? 0) > 0));
           if (!briefing || !canConfirm) {
             const base: ParsedBriefing = briefing ?? {
@@ -1926,6 +1986,28 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
     conversationRef.current.push({ role: "user", content });
   }, []);
 
+  // === Story 24.14: proposta do ICP ===
+
+  // O seed roda num efeito: a memoria nao-vazia (push sincrono) impede semear duas vezes
+  // (StrictMode / re-render) e semear por cima de uma conversa que ja comecou.
+  const seedIcpProposal = useCallback((briefing: ParsedBriefing): boolean => {
+    if (state.status !== "idle" || conversationRef.current.length > 0) return false;
+    const missingFields = TRACKED_MISSING_FIELDS.filter((field) => {
+      if (field === "jobTitles") return briefing.jobTitles.length === 0;
+      if (field === "location") return !hasSearchLocation(briefing);
+      return !briefing[field as keyof ParsedBriefing];
+    });
+    setState((prev) => ({
+      ...prev,
+      status: "confirming",
+      briefing,
+      missingFields,
+      isComplete: false,
+    }));
+    conversationRef.current.push({ role: "agent", content: buildIcpProposalTurn(briefing) });
+    return true;
+  }, [state.status]);
+
   return {
     state,
     processMessage,
@@ -1936,5 +2018,6 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
     parseAdjustment,
     recordAgentTurn,
     recordUserTurn,
+    seedIcpProposal,
   };
 }

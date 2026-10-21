@@ -62,8 +62,12 @@ function buildAdminClient() {
 // como fonte do retorno — as assercoes de `suggestions` seguem inalteradas.
 const mockGenerateSuggestions = vi.fn();
 
+// Story 24.14: o parse le o ICP uma vez (readTenantICP) e o repassa as sugestoes.
+const mockReadTenantICP = vi.fn();
+
 vi.mock("@/lib/agent/contextual-suggestions", () => ({
   resolveContextualSuggestions: (...args: unknown[]) => mockGenerateSuggestions(...args),
+  readTenantICP: (...args: unknown[]) => mockReadTenantICP(...args),
 }));
 
 const mockParse = vi.fn();
@@ -161,6 +165,13 @@ describe("POST /api/agent/briefing/parse", () => {
     vi.clearAllMocks();
     mockFrom.mockImplementation(defaultMockFrom);
     mockGenerateSuggestions.mockReturnValue({});
+    // Story 24.14: default = tenant sem ICP (comportamento identico ao de antes).
+    mockReadTenantICP.mockResolvedValue({
+      jobTitles: [],
+      industries: [],
+      companySizes: [],
+      geographicFocus: [],
+    });
     mockDecryptApiKey.mockImplementation((key: string) => `decrypted-${key}`);
     mockCreateAdminClient.mockImplementation(() => buildAdminClient());
     mockAdminSingle.mockResolvedValue({
@@ -1094,5 +1105,89 @@ describe("POST /api/agent/briefing/parse", () => {
     await POST(createRequest(VALID_BODY));
 
     expect(mockLogAgentUsage).not.toHaveBeenCalled();
+  });
+  // ==============================================
+  // Story 24.14 — briefing a partir do ICP
+  // ==============================================
+
+  describe("Story 24.14 — defaults do ICP", () => {
+    const TENANT_ICP = {
+      jobTitles: ["CISO"],
+      industries: ["Fintech"],
+      companySizes: ["201-500", "501-1000"],
+      geographicFocus: ["SP"],
+    };
+
+    function parseResult(overrides: Record<string, unknown> = {}) {
+      return {
+        ...FULL_PARSE_RESULT,
+        briefing: {
+          ...FULL_PARSE_RESULT.briefing,
+          technology: null,
+          industry: null,
+          ...overrides,
+        },
+      };
+    }
+
+    beforeEach(() => {
+      mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+      mockReadTenantICP.mockResolvedValue(TENANT_ICP);
+    });
+
+    it("le o ICP uma vez, anexa icpDefaults e repassa o ICP as sugestoes", async () => {
+      mockParse.mockResolvedValue(parseResult());
+
+      const response = await POST(createRequest(VALID_BODY));
+      const json = await response.json();
+
+      expect(mockReadTenantICP).toHaveBeenCalledTimes(1);
+      expect(mockReadTenantICP).toHaveBeenCalledWith("tenant-456");
+      expect(json.briefing.icpDefaults).toEqual({
+        companySizes: ["201-500", "501-1000"],
+        locations: ["SP"],
+      });
+      expect(mockGenerateSuggestions).toHaveBeenCalledWith(
+        expect.objectContaining({ icpDefaults: json.briefing.icpDefaults }),
+        "tenant-456",
+        TENANT_ICP
+      );
+    });
+
+    it("sem local do usuario, o local do ICP satisfaz canProceed e tira location de missingFields", async () => {
+      mockParse.mockResolvedValue(parseResult({ location: null }));
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(json.canProceed).toBe(true);
+      expect(json.missingFields).not.toContain("location");
+      expect(json.briefing.location).toBeNull();
+    });
+
+    it("sem ICP, sem local -> canProceed false e location em missingFields (identico a hoje)", async () => {
+      mockReadTenantICP.mockResolvedValue({
+        jobTitles: [],
+        industries: [],
+        companySizes: [],
+        geographicFocus: [],
+      });
+      mockParse.mockResolvedValue(parseResult({ location: null }));
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(json.briefing.icpDefaults).toBeNull();
+      expect(json.canProceed).toBe(false);
+      expect(json.missingFields).toContain("location");
+    });
+
+    it("fluxo de leads importados -> icpDefaults null", async () => {
+      mockParse.mockResolvedValue(
+        parseResult({ skipSteps: ["search_companies", "search_leads"], jobTitles: [] })
+      );
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(json.briefing.icpDefaults).toBeNull();
+    });
   });
 });

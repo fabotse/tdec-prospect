@@ -133,6 +133,16 @@ export interface ParsedBriefing {
   // usa o proprio nome da campanha. NAO e filtro de busca: nunca altera skipSteps,
   // nextAction nem os parametros do Apollo. Teto de 100 chars (segments.name e VARCHAR(100)).
   segmentName?: string | null;
+  // Story 24.14: defaults de busca vindos do ICP do tenant (snapshot no parse/proposta).
+  // Substituem o piso de qualidade (porte) e a falta de localizacao na BUSCA DIRETA.
+  // Ausente/null = comportamento anterior (sem ICP).
+  icpDefaults?: IcpSearchDefaults | null;
+}
+
+/** Story 24.14: defaults de busca derivados do ICP (faixas canonicas da Apollo). */
+export interface IcpSearchDefaults {
+  companySizes: string[];
+  locations: string[];
 }
 
 export interface CostModel {
