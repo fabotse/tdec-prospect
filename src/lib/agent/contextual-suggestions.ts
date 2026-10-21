@@ -71,6 +71,8 @@ export async function readTenantICP(tenantId: string): Promise<TenantICP> {
       industries: toStringArray(icp.industries),
       companySizes: toStringArray(icp.company_sizes),
       geographicFocus: toStringArray(icp.geographic_focus),
+      // Story 24.16: dores para o Fit Score. Nao-string -> "".
+      painPoints: typeof icp.pain_points === "string" ? icp.pain_points : "",
     };
   } catch (error) {
     console.error("[contextual-suggestions] falha ao ler ICP:", error);

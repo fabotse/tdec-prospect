@@ -84,7 +84,7 @@ describe("contextual-suggestions (Story 22.7)", () => {
       expect(icp).toEqual({
         jobTitles: ["CRO", "Head de Vendas"],
         industries: ["fintech"],
-        companySizes: [], geographicFocus: [],
+        companySizes: [], geographicFocus: [], painPoints: "",
       });
     });
 
@@ -93,7 +93,7 @@ describe("contextual-suggestions (Story 22.7)", () => {
 
       const icp = await readTenantICP("tenant-1");
 
-      expect(icp).toEqual({ jobTitles: [], industries: [], companySizes: [], geographicFocus: [] });
+      expect(icp).toEqual({ jobTitles: [], industries: [], companySizes: [], geographicFocus: [], painPoints: "" });
     });
 
     it("fail-open quando createAdminClient lanca (service-role ausente) — nunca 500", async () => {
@@ -103,7 +103,7 @@ describe("contextual-suggestions (Story 22.7)", () => {
 
       const icp = await readTenantICP("tenant-1");
 
-      expect(icp).toEqual({ jobTitles: [], industries: [], companySizes: [], geographicFocus: [] });
+      expect(icp).toEqual({ jobTitles: [], industries: [], companySizes: [], geographicFocus: [], painPoints: "" });
     });
 
     it("fail-open quando content vem com shape inesperado (nao-array)", async () => {
@@ -114,7 +114,7 @@ describe("contextual-suggestions (Story 22.7)", () => {
 
       const icp = await readTenantICP("tenant-1");
 
-      expect(icp).toEqual({ jobTitles: [], industries: [], companySizes: [], geographicFocus: [] });
+      expect(icp).toEqual({ jobTitles: [], industries: [], companySizes: [], geographicFocus: [], painPoints: "" });
     });
 
     it("descarta elementos nao-string do array (jsonb legado) sem lancar — nunca 500 (P1/AC2)", async () => {
@@ -136,8 +136,22 @@ describe("contextual-suggestions (Story 22.7)", () => {
       expect(icp).toEqual({
         jobTitles: ["CTO", "CFO"],
         industries: ["fintech"],
-        companySizes: [], geographicFocus: [],
+        companySizes: [], geographicFocus: [], painPoints: "",
       });
+    });
+
+    it("Story 24.16: le pain_points como string (nao-string vira \"\")", async () => {
+      mockSingle.mockResolvedValue({
+        data: { content: { job_titles: [], pain_points: "Vazamento de dados" } },
+        error: null,
+      });
+      expect((await readTenantICP("tenant-1")).painPoints).toBe("Vazamento de dados");
+
+      mockSingle.mockResolvedValue({
+        data: { content: { job_titles: [], pain_points: 42 } },
+        error: null,
+      });
+      expect((await readTenantICP("tenant-1")).painPoints).toBe("");
     });
 
     it("Story 24.14: le company_sizes e geographic_focus (coercao toStringArray)", async () => {
@@ -160,6 +174,7 @@ describe("contextual-suggestions (Story 22.7)", () => {
         industries: [],
         companySizes: ["201-500", "1000+"],
         geographicFocus: ["SP", "RJ"],
+        painPoints: "",
       });
     });
 
@@ -220,6 +235,7 @@ describe("contextual-suggestions (Story 22.7)", () => {
         industries: [],
         companySizes: [],
         geographicFocus: [],
+        painPoints: "",
       });
 
       expect(suggestions.jobTitles).toEqual(["CISO"]);

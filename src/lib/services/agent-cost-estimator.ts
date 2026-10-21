@@ -92,7 +92,7 @@ export class CostEstimatorService {
    *
    * Story 24.10: estimativa HONESTA, com os volumes reais do pipeline como TETO ("ate").
    * - search_companies: empresas x 3 creditos x theirstack
-   * - search_leads: 0 (a busca Apollo nao consome credito)
+   * - search_leads: 1 x openai (Fit Score, Story 24.16); a busca Apollo nao consome credito
    * - create_campaign: leads x apollo (enrichment) + chamadas de IA x openai
    *   (+ leads x apify com icebreaker premium)
    * - export: 1 x instantly; activate: 0
@@ -131,8 +131,9 @@ export class CostEstimatorService {
         description: `até ${companies} empresas × ${THEIRSTACK_CREDITS_PER_COMPANY} créditos × ${formatBRL(prices.theirstack)}`,
       },
       search_leads: {
-        estimated: 0,
-        description: "Busca Apollo não consome créditos",
+        // Story 24.16: 1 chamada de IA do Fit Score por busca (teto estrutural).
+        estimated: skipSet.has("search_leads") ? 0 : 1 * prices.openai,
+        description: "1 chamada de IA (Fit Score); busca Apollo não consome créditos",
       },
       create_campaign: {
         estimated: createCampaignSkipped

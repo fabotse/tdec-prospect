@@ -67,14 +67,15 @@ export function resolveLeadVolume(
 }
 
 /**
- * Story 24.13: tamanho da pagina da busca Apollo — `min(max(25, N), 100)`; sem N, 25.
- * Buscar pelo menos 25 mantem margem para trocar leads na revisao.
+ * Story 24.16: tamanho da pagina da busca Apollo = universo de 3-5x N para o Fit Score
+ * escolher os N melhores — `min(max(3N, min(5N, 25)), 100)`; sem N, 25.
+ * Ex.: N=1 -> 5, N=5 -> 25, N=10 -> 30, N=20 -> 60, N>=34 -> 100.
  */
 export function resolveLeadsPerPage(briefing: Pick<ParsedBriefing, "leadCount">): number {
   const n = resolveLeadCount(briefing);
   if (n === null) return AGENT_PIPELINE_VOLUMES.leadsPerSearch;
   return Math.min(
-    Math.max(AGENT_PIPELINE_VOLUMES.leadsPerSearch, n),
+    Math.max(3 * n, Math.min(5 * n, AGENT_PIPELINE_VOLUMES.leadsPerSearch)),
     AGENT_PIPELINE_VOLUMES.maxLeadsPerSearch
   );
 }
@@ -181,7 +182,8 @@ export function computeStepActualCost(
     case "search_companies":
       return count(cost, "theirstack_search") * prices.theirstack;
     case "search_leads":
-      return 0;
+      // Story 24.16: 1 chamada de IA do Fit Score (a busca Apollo nao consome credito).
+      return count(cost, "openai_fit_score") * prices.openai;
     case "create_campaign": {
       const generationCalls =
         cost.openai_calls !== undefined && cost.openai_calls !== null

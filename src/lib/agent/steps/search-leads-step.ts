@@ -13,6 +13,10 @@ import { buildDirectSearchFilters, resolveSearchLocations } from "@/lib/agent/se
 import { diagnoseEmptySearch } from "@/lib/agent/empty-search-diagnosis";
 import { resolveLeadCount, resolveLeadsPerPage } from "@/lib/agent/agent-pricing";
 import { logAgentUsage } from "@/lib/agent/agent-usage";
+import { scoreLeads, type ScoreLeadsResult } from "@/lib/agent/fit-scorer";
+import { countFitGrades, sortByFitGrade } from "@/lib/agent/fit-score-rules";
+import { readTenantICP } from "@/lib/agent/contextual-suggestions";
+import { EMPTY_TENANT_ICP, type TenantICP } from "@/lib/agent/icp-briefing";
 import type {
   StepInput,
   StepOutput,
@@ -129,11 +133,11 @@ export class SearchLeadsStep extends BaseStep {
       // se informou, o valor dele sobrescreve totalmente (AC2). Fonte unica: search-defaults.
       // Story 22.14: os filtros vem do SSOT `buildDirectSearchFilters` — a contagem de
       // viabilidade pre-execucao (AC7) usa a MESMA funcao, so mudando o `perPage`.
-      // Story 24.13: pagina de min(max(25, N), 100) — sem N, 25 (fonte unica em agent-pricing).
+      // Story 24.16: pagina = universo de 3-5x N (teto 100) — sem N, 25 (fonte unica em agent-pricing).
       const filters = buildDirectSearchFilters(briefing, resolveLeadsPerPage(briefing));
 
       const result = await this.searchPeopleLogged(service, filters, input.executionId);
-      return this.buildSearchOutput(result, jobTitles, [], filters, briefing, input.mode);
+      return this.buildSearchOutput(result, jobTitles, [], filters, briefing, input.mode, input.executionId);
     }
 
     // Normal flow: extract domains from previous step companies
@@ -168,7 +172,15 @@ export class SearchLeadsStep extends BaseStep {
     };
 
     const result = await this.searchPeopleLogged(service, filters, input.executionId);
-    return this.buildSearchOutput(result, jobTitles, domains, filters, briefing, input.mode);
+    return this.buildSearchOutput(
+      result,
+      jobTitles,
+      domains,
+      filters,
+      briefing,
+      input.mode,
+      input.executionId
+    );
   }
 
   /**
@@ -217,14 +229,15 @@ export class SearchLeadsStep extends BaseStep {
    * Shared between normal flow and direct entry (Story 17.10).
    * Story 22.14 - AC #1, #6: 0 leads deixa de ser um sucesso silencioso.
    */
-  private buildSearchOutput(
+  private async buildSearchOutput(
     result: { leads: LeadRow[]; pagination: { totalEntries: number } },
     jobTitles: string[],
     domainsSearched: string[],
     filters: Record<string, unknown>,
     briefing: ParsedBriefing,
-    mode: ExecutionMode | undefined
-  ): StepOutput {
+    mode: ExecutionMode | undefined,
+    executionId: string
+  ): Promise<StepOutput> {
     const leads: SearchLeadResult[] = result.leads.map((lead: LeadRow) => mapLeadRowToSearchLeadResult(lead));
     const totalFound = result.pagination.totalEntries;
 
@@ -255,12 +268,24 @@ export class SearchLeadsStep extends BaseStep {
       };
     }
 
+    // Story 24.16: Fit Score (regras + 1 chamada de LLM, fail-open). O score casa com o
+    // `LeadRow` pelo indice, antes de qualquer reordenacao.
+    const scoring = await this.scoreSearchLeads(result.leads, briefing, executionId);
+    const scoredLeads = sortByFitGrade(
+      leads.map((lead, i) => ({
+        ...lead,
+        fitScore: scoring.results[i].fitScore,
+        fitReason: scoring.results[i].fitReason,
+      }))
+    );
+
     // Story 24.13: N vai no output (o previewData do gate e o proprio data, entao a
     // revisao pre-seleciona N). Sem gate (modo != guided), o create_campaign enriquece
     // TODOS os leads do output — corta nos N primeiros para o custo bater com o pedido.
+    // Story 24.16: o corte roda DEPOIS da ordenacao, entao leva os N melhores.
     const leadCount = resolveLeadCount(briefing);
     const outputLeads =
-      mode !== "guided" && leadCount !== null ? leads.slice(0, leadCount) : leads;
+      mode !== "guided" && leadCount !== null ? scoredLeads.slice(0, leadCount) : scoredLeads;
 
     return {
       success: true,
@@ -271,8 +296,70 @@ export class SearchLeadsStep extends BaseStep {
         domainsSearched,
         searchFilters: filters,
         leadCount,
+        fitScoring: { source: scoring.source, counts: countFitGrades(outputLeads) },
       },
-      cost: { apollo_search: outputLeads.length * CREDITS_PER_LEAD },
+      cost: {
+        apollo_search: outputLeads.length * CREDITS_PER_LEAD,
+        openai_fit_score: scoring.attempted ? 1 : 0,
+      },
     };
+  }
+
+  /**
+   * Story 24.16: le o ICP (service-role, fail-open) e a chave OpenAI do tenant e pontua
+   * os leads. Erro de decrypt da chave -> so regras. Loga 1 linha `fit_score` quando a
+   * chamada de LLM foi tentada. Nunca lanca.
+   */
+  private async scoreSearchLeads(
+    leads: LeadRow[],
+    briefing: ParsedBriefing,
+    executionId: string
+  ): Promise<ScoreLeadsResult> {
+    let icp: TenantICP = EMPTY_TENANT_ICP;
+    try {
+      icp = await readTenantICP(this.tenantId);
+    } catch (error) {
+      console.warn("[search-leads] ICP indisponivel para o Fit Score:", error);
+    }
+
+    let apiKey: string | undefined;
+    try {
+      apiKey = await getInjectableServiceApiKey(this.tenantId, "openai", "OpenAI");
+    } catch (error) {
+      console.warn("[search-leads] chave OpenAI indisponivel, Fit Score so por regras:", error);
+    }
+
+    const scoring = await scoreLeads({
+      leads,
+      briefing,
+      icp,
+      apiKey,
+      tenantId: this.tenantId,
+      executionId,
+    });
+
+    if (scoring.attempted) {
+      await logAgentUsage({
+        tenantId: this.tenantId,
+        executionId,
+        stepType: "search_leads",
+        serviceName: "openai",
+        requestType: "fit_score",
+        status: scoring.succeeded ? "success" : "failed",
+        calls: 1,
+        durationMs: scoring.usage.durationMs,
+        errorMessage: scoring.usage.errorMessage,
+        metadata: {
+          model: scoring.usage.model,
+          promptTokens: scoring.usage.promptTokens,
+          completionTokens: scoring.usage.completionTokens,
+          leads: leads.length,
+          llmScored: scoring.usage.llmScored,
+          fitSource: scoring.source,
+        },
+      });
+    }
+
+    return scoring;
   }
 }

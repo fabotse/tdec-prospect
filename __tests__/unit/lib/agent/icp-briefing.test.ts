@@ -11,7 +11,14 @@ import {
 } from "@/lib/agent/icp-briefing";
 
 function icp(overrides: Partial<TenantICP> = {}): TenantICP {
-  return { jobTitles: [], industries: [], companySizes: [], geographicFocus: [], ...overrides };
+  return {
+    jobTitles: [],
+    industries: [],
+    companySizes: [],
+    geographicFocus: [],
+    painPoints: "",
+    ...overrides,
+  };
 }
 
 describe("icp-briefing — buildIcpSearchDefaults", () => {

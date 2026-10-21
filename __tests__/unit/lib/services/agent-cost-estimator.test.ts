@@ -125,14 +125,16 @@ describe("CostEstimatorService", () => {
 
       // search_companies: 2 empresas × 3 creditos × 0,10 = 0,60
       expect(result.steps.search_companies.estimated).toBeCloseTo(0.6);
-      // search_leads: busca Apollo nao consome credito
-      expect(result.steps.search_leads.estimated).toBe(0);
-      expect(result.steps.search_leads.description).toBe("Busca Apollo não consome créditos");
+      // search_leads (Story 24.16): 1 chamada de IA do Fit Score × 0,02
+      expect(result.steps.search_leads.estimated).toBeCloseTo(0.02);
+      expect(result.steps.search_leads.description).toBe(
+        "1 chamada de IA (Fit Score); busca Apollo não consome créditos"
+      );
       // create_campaign: 25 × 0,05 + 47 × 0,02 = 1,25 + 0,94 = 2,19
       expect(result.steps.create_campaign.estimated).toBeCloseTo(2.19);
       expect(result.steps.export.estimated).toBe(0);
       expect(result.steps.activate.estimated).toBe(0);
-      expect(result.total).toBeCloseTo(2.79);
+      expect(result.total).toBeCloseTo(2.81);
       expect(result.currency).toBe("BRL");
     });
 
@@ -147,7 +149,8 @@ describe("CostEstimatorService", () => {
 
       expect(result.steps.search_companies.estimated).toBeCloseTo(2 * 3 * 0.2);
       expect(result.steps.create_campaign.estimated).toBeCloseTo(25 * 0.1 + 47 * 0.05);
-      expect(result.total).toBeCloseTo(1.2 + 2.5 + 2.35);
+      expect(result.steps.search_leads.estimated).toBeCloseTo(0.05);
+      expect(result.total).toBeCloseTo(1.2 + 0.05 + 2.5 + 2.35);
     });
 
     it("respeita skipSteps com custo 0", () => {
@@ -170,6 +173,8 @@ describe("CostEstimatorService", () => {
       // 4 × 0,05 + (1 + 6 + 4 + 15) × 0,02 = 0,20 + 0,52
       expect(result.steps.create_campaign.estimated).toBeCloseTo(0.72);
       expect(result.steps.search_companies.estimated).toBe(0);
+      // Story 24.16: search_leads pulado (leads importados) -> sem Fit Score
+      expect(result.steps.search_leads.estimated).toBe(0);
       expect(result.premiumIcebreakers).toEqual({ perLead: 0.15, total: 4 * 0.15 });
     });
 

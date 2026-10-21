@@ -12,6 +12,8 @@ import { createChainBuilder } from "../../../../helpers/mock-supabase";
 import type { StepInput } from "@/types/agent";
 import { ExternalServiceError } from "@/lib/services/base-service";
 import { QUALITY_MIN_COMPANY_SIZES } from "@/lib/agent/search-defaults";
+import { mergeRequestedTitles, scoreLeadByRules } from "@/lib/agent/fit-score-rules";
+import { EMPTY_TENANT_ICP } from "@/lib/agent/icp-briefing";
 
 // ==============================================
 // MOCKS
@@ -58,6 +60,45 @@ const mockLogApiUsage = vi.fn();
 vi.mock("@/lib/services/usage-logger", () => ({
   logApiUsage: (...args: unknown[]) => mockLogApiUsage(...args),
 }));
+
+// Story 24.16: Fit Score. Por padrao o scorer devolve so as regras REAIS (sem LLM, sem
+// tentativa), e o ICP vem vazio.
+const mockScoreLeads = vi.fn();
+vi.mock("@/lib/agent/fit-scorer", () => ({
+  scoreLeads: (...args: unknown[]) => mockScoreLeads(...args),
+}));
+
+const mockReadTenantICP = vi.fn();
+vi.mock("@/lib/agent/contextual-suggestions", () => ({
+  readTenantICP: (...args: unknown[]) => mockReadTenantICP(...args),
+}));
+
+type ScorerParams = {
+  leads: Array<{ title: string | null; has_email: boolean }>;
+  briefing: { jobTitles: string[] };
+  icp: { jobTitles: string[] };
+  apiKey?: string;
+};
+
+function rulesOnlyScoring({ leads, briefing, icp }: ScorerParams, attempted = false) {
+  const titles = mergeRequestedTitles(briefing.jobTitles, icp.jobTitles);
+  return {
+    results: leads.map((lead) =>
+      scoreLeadByRules({ title: lead.title, hasEmail: lead.has_email }, titles)
+    ),
+    source: "rules" as const,
+    attempted,
+    succeeded: false,
+    usage: {
+      model: "gpt-5.4-mini",
+      promptTokens: 0,
+      completionTokens: 0,
+      durationMs: 0,
+      llmScored: 0,
+      ...(attempted ? { errorMessage: "timeout" } : {}),
+    },
+  };
+}
 
 // ==============================================
 // HELPERS
@@ -195,6 +236,8 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
     step = new SearchLeadsStep(2, mockSupabase as never, TENANT_ID);
 
     mockSearchPeople.mockResolvedValue(mockLeadsResponse);
+    mockReadTenantICP.mockResolvedValue(EMPTY_TENANT_ICP);
+    mockScoreLeads.mockImplementation(async (params: ScorerParams) => rulesOnlyScoring(params));
     // Default: enrichment returns email for leads
     mockEnrichPerson.mockResolvedValue({
       person: { email: "enriched@example.com" },
@@ -680,9 +723,13 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
         first_name: `Lead${i + 1}`,
       }));
 
+    // Story 24.16: universo de 3-5x N (teto 100).
     it.each([
+      [1, 5],
       [5, 25],
-      [60, 60],
+      [10, 30],
+      [20, 60],
+      [60, 100],
       [300, 100],
       [null, 25],
     ])("busca direta com N = %p usa perPage %p", async (n, expected) => {
@@ -696,7 +743,7 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
     });
 
     it("busca por dominio tambem usa perPage por N", async () => {
-      await step.run(createInput({ leadCount: 60 }));
+      await step.run(createInput({ leadCount: 20 }));
       expect(mockSearchPeople).toHaveBeenCalledWith(
         expect.objectContaining({ domains: ["acme.com", "beta.io"], perPage: 60 })
       );
@@ -945,6 +992,7 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
       const leads = result.data.leads as Array<Record<string, unknown>>;
 
       // First lead: has last_name (obfuscated) — enrichment happens in CreateCampaignStep
+      // Story 24.16: cada lead leva fitScore/fitReason (aqui, das regras).
       expect(leads[0]).toEqual({
         name: "John Do***e",
         title: "CTO",
@@ -952,6 +1000,8 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
         email: null,
         linkedinUrl: null,
         apolloId: "apollo-1",
+        fitScore: "A",
+        fitReason: "Cargo bate com o pedido (CTO) e tem e-mail disponivel",
       });
 
       // Second lead: no last_name, has linkedinUrl
@@ -962,6 +1012,8 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
         email: null,
         linkedinUrl: "https://linkedin.com/in/jane",
         apolloId: "apollo-2",
+        fitScore: "B",
+        fitReason: "Cargo bate com o pedido (VP Engineering), mas sem e-mail disponivel",
       });
     });
   });
@@ -990,6 +1042,157 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
     it("cost.apollo_search continua sendo gravado (o custo real o ignora)", async () => {
       const result = await step.run(createInput());
       expect(result.cost).toHaveProperty("apollo_search");
+    });
+  });
+
+  describe("Story 24.16 - Fit Score A/B/C", () => {
+    const row = (i: number, title: string, hasEmail = true) => ({
+      ...mockLeadsResponse.leads[0],
+      id: `lead-${i}`,
+      apollo_id: `apollo-${i}`,
+      first_name: `Lead${i}`,
+      title,
+      has_email: hasEmail,
+    });
+
+    const universe = () =>
+      Array.from({ length: 10 }, (_, i) => {
+        if (i === 7) return row(i, "CTO LATAM");
+        if (i === 3) return row(i, "Diretor Financeiro");
+        return row(i, "Analista");
+      });
+
+    it("autopilot N = 2: o corte roda depois da ordenacao e leva os 2 melhores (o A primeiro)", async () => {
+      mockSearchPeople.mockResolvedValue({
+        leads: universe(),
+        pagination: { totalEntries: 10, page: 1, perPage: 10, totalPages: 1 },
+      });
+      const input = createInput({ leadCount: 2 });
+      input.mode = "autopilot";
+
+      const result = await step.run(input);
+      const leads = result.data.leads as Array<{ apolloId: string; fitScore: string }>;
+
+      expect(leads.map((l) => l.apolloId)).toEqual(["apollo-7", "apollo-3"]);
+      expect(leads.map((l) => l.fitScore)).toEqual(["A", "B"]);
+      expect(result.cost?.apollo_search).toBe(2);
+    });
+
+    it("modo guiado: lista inteira ordenada A -> B -> C (estavel), com fitScoring", async () => {
+      mockSearchPeople.mockResolvedValue({
+        leads: universe(),
+        pagination: { totalEntries: 10, page: 1, perPage: 10, totalPages: 1 },
+      });
+
+      const input = createInput({ leadCount: 2 });
+      input.mode = "guided";
+
+      const result = await step.run(input);
+      const leads = result.data.leads as Array<{ apolloId: string; fitScore: string }>;
+
+      expect(leads).toHaveLength(10);
+      expect(leads.slice(0, 3).map((l) => l.apolloId)).toEqual(["apollo-7", "apollo-3", "apollo-0"]);
+      expect(leads.slice(2).every((l) => l.fitScore === "C")).toBe(true);
+      expect(result.data.fitScoring).toEqual({ source: "rules", counts: { A: 1, B: 1, C: 8 } });
+    });
+
+    it("passa o ICP lido e a chave OpenAI do tenant para o scorer", async () => {
+      const icp = { ...EMPTY_TENANT_ICP, jobTitles: ["CISO"], painPoints: "Vazamento" };
+      mockReadTenantICP.mockResolvedValue(icp);
+      mockGetInjectableServiceApiKey.mockImplementation(async (_t: string, service: string) =>
+        service === "openai" ? "openai-key" : "apollo-key"
+      );
+
+      await step.run(createInput());
+
+      expect(mockReadTenantICP).toHaveBeenCalledWith(TENANT_ID);
+      expect(mockGetInjectableServiceApiKey).toHaveBeenCalledWith(TENANT_ID, "openai", "OpenAI");
+      expect(mockScoreLeads).toHaveBeenCalledWith(
+        expect.objectContaining({ icp, apiKey: "openai-key", tenantId: TENANT_ID, executionId: "exec-001" })
+      );
+    });
+
+    it("LLM ok: notas do LLM, source llm, 1 chamada no custo e 1 log fit_score success", async () => {
+      mockScoreLeads.mockResolvedValue({
+        results: [
+          { fitScore: "C", fitReason: "Empresa fora do perfil" },
+          { fitScore: "A", fitReason: "Decisor de engenharia no ICP" },
+        ],
+        source: "llm",
+        attempted: true,
+        succeeded: true,
+        usage: { model: "gpt-5.4-mini", promptTokens: 900, completionTokens: 120, durationMs: 800, llmScored: 2 },
+      });
+
+      const result = await step.run(createInput());
+      const leads = result.data.leads as Array<{ apolloId: string; fitScore: string; fitReason: string }>;
+
+      expect(leads.map((l) => [l.apolloId, l.fitScore])).toEqual([
+        ["apollo-2", "A"],
+        ["apollo-1", "C"],
+      ]);
+      expect(leads[0].fitReason).toBe("Decisor de engenharia no ICP");
+      expect(result.data.fitScoring).toEqual({ source: "llm", counts: { A: 1, B: 0, C: 1 } });
+      expect(result.cost?.openai_fit_score).toBe(1);
+      expect(mockLogApiUsage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          serviceName: "openai",
+          requestType: "fit_score",
+          status: "success",
+          metadata: expect.objectContaining({
+            stepType: "search_leads",
+            executionId: "exec-001",
+            promptTokens: 900,
+            completionTokens: 120,
+          }),
+        })
+      );
+    });
+
+    it("LLM falha: regras, source rules, step success, log failed e custo de 1 chamada", async () => {
+      mockScoreLeads.mockImplementation(async (params: ScorerParams) => rulesOnlyScoring(params, true));
+
+      const result = await step.run(createInput());
+
+      expect(result.success).toBe(true);
+      expect(result.data.fitScoring).toEqual({ source: "rules", counts: { A: 1, B: 1, C: 0 } });
+      expect(result.cost?.openai_fit_score).toBe(1);
+      expect(mockLogApiUsage).toHaveBeenCalledWith(
+        expect.objectContaining({ requestType: "fit_score", status: "failed", errorMessage: "timeout" })
+      );
+    });
+
+    it("sem chave (nao tentado): sem log fit_score e custo 0", async () => {
+      const result = await step.run(createInput());
+
+      expect(result.cost?.openai_fit_score).toBe(0);
+      const requestTypes = mockLogApiUsage.mock.calls.map((call) => call[0]?.requestType);
+      expect(requestTypes).not.toContain("fit_score");
+    });
+
+    it("erro de decrypt da chave OpenAI: so regras (apiKey undefined), o step segue", async () => {
+      mockGetInjectableServiceApiKey.mockImplementation(async (_t: string, service: string) => {
+        if (service === "openai") throw new Error("Erro ao decriptar a API key do OpenAI");
+        return "apollo-key";
+      });
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const result = await step.run(createInput());
+
+      expect(result.success).toBe(true);
+      expect(mockScoreLeads).toHaveBeenCalledWith(expect.objectContaining({ apiKey: undefined }));
+    });
+
+    it("busca vazia nao chama o scorer", async () => {
+      mockSearchPeople.mockResolvedValue({
+        leads: [],
+        pagination: { totalEntries: 0, page: 1, perPage: 25, totalPages: 0 },
+      });
+      const input = createInput();
+      input.mode = "guided";
+
+      await step.run(input);
+      expect(mockScoreLeads).not.toHaveBeenCalled();
     });
   });
 });

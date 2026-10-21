@@ -38,7 +38,8 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { LeadWithIcebreaker } from "@/types/agent";
+import type { FitGrade, LeadWithIcebreaker } from "@/types/agent";
+import { isFitGrade, truncateFitReason } from "@/lib/agent/fit-score-rules";
 
 // ==============================================
 // CONSTANTS
@@ -105,6 +106,9 @@ interface LeadRecord {
   companyName: string | null;
   linkedinUrl: string | null;
   icebreaker: string | null;
+  /** Story 24.16: Fit Score do search_leads (gravado na Fase 6, best-effort). */
+  fitScore: FitGrade | null;
+  fitReason: string | null;
 }
 
 interface ExistingLeadRow {
@@ -261,6 +265,13 @@ function quoteFilterValue(value: string): string {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
+/** Story 24.16: motivo do Fit Score vindo do approve (cliente) — teto de 120, vazio -> null. */
+function fitReasonOrNull(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const reason = truncateFitReason(value);
+  return reason ? reason : null;
+}
+
 /**
  * Dedupe DENTRO do lote pela MESMA identidade em OR (union-find): o mesmo contato
  * entrando uma vez com `apolloId` e outra so com email e UM lead, nao dois.
@@ -290,6 +301,8 @@ function dedupeBatch(leads: LeadWithIcebreaker[]): { records: LeadRecord[]; skip
       companyName: nullableString(typed.companyName),
       linkedinUrl: nullableString(typed.linkedinUrl),
       icebreaker: nullableString(typed.icebreaker),
+      fitScore: isFitGrade(typed.fitScore) ? typed.fitScore : null,
+      fitReason: isFitGrade(typed.fitScore) ? fitReasonOrNull(typed.fitReason) : null,
     });
   }
 
@@ -374,6 +387,10 @@ function dedupeBatch(leads: LeadWithIcebreaker[]): { records: LeadRecord[]; skip
     merged.companyName = merged.companyName ?? record.companyName;
     merged.linkedinUrl = merged.linkedinUrl ?? record.linkedinUrl;
     merged.icebreaker = merged.icebreaker ?? record.icebreaker;
+    if (!merged.fitScore && record.fitScore) {
+      merged.fitScore = record.fitScore;
+      merged.fitReason = record.fitReason;
+    }
   });
 
   return { records: order.map((root) => groups.get(root) as LeadRecord), skipped };
@@ -882,6 +899,39 @@ export async function persistApprovedLeads(
         new Error("update de icebreaker falhou"),
         "Falha ao atualizar icebreaker de leads existentes"
       );
+    }
+  }
+
+  // --- Fase 6: Fit Score dos persistidos (Story 24.16), best-effort ---
+  // Separada do insert de proposito: o codigo pode subir antes da migration 00070. Antes
+  // dela o update falha (coluna inexistente) e so loga — nao lanca, nao marca `degraded`
+  // e nao muda o resultado. Um UPDATE por linha (inseridos e reusados) com score.
+  const scoredById = new Map<string, ResolvedEntry & { existingId: string }>();
+  for (const entry of persisted) {
+    if (!entry.record.fitScore) continue;
+    if (!scoredById.has(entry.existingId)) scoredById.set(entry.existingId, entry);
+  }
+  const scored = Array.from(scoredById.values());
+
+  if (scored.length > 0) {
+    try {
+      const allOk = await runWithConcurrency(scored, UPDATE_CONCURRENCY, async (entry) => {
+        const { error } = await supabase
+          .from("leads")
+          .update({
+            fit_score: entry.record.fitScore,
+            fit_reason: entry.record.fitReason,
+            fit_scored_at: nowIso,
+          })
+          .eq("tenant_id", tenantId)
+          .eq("id", entry.existingId);
+        return !error;
+      });
+      if (!allOk) {
+        console.warn("[lead-persistence] fit score nao gravado em parte dos leads (migration 00070 aplicada?)");
+      }
+    } catch (error) {
+      console.warn("[lead-persistence] fit score nao gravado:", error);
     }
   }
 

@@ -619,3 +619,17 @@ source_spec: `spec-24-13-quantos-leads-eu-quero.md`
 severity: low
 reason: Comportamento anterior a esta story (17.12): o card le o previewData imutavel da mensagem do gate, e o fetch-leads so atualiza agent_steps.output. Agora a pre-selecao tambem volta para N.
 status: open
+
+### DW-29: A chamada unica do Fit Score (ate 100 leads, gpt-5.4-mini, sem teto de tokens nem reasoning_effort) pode estourar o timeout de 20s com frequencia.
+origin: spec-deferred d54ab20a80aa
+location: src/lib/agent/fit-scorer.ts (scoreLeads) e src/lib/ai/fit-score-config.ts
+source_spec: `spec-24-16-fit-score-a-b-c-com-justificativa.md`
+reason: maybe-false: nos testes a OpenAI e mockada. Se estourar, o step segue so com regras, mas gasta ate 20s e conta 1 chamada. Para resolver, medir a latencia real num smoke com N=20 (universo de 60) e N>=34 (universo de 100) e, se preciso, reduzir o lote ou ajustar o request.
+status: open
+
+### DW-30: A qualidade das notas e justificativas do LLM real contra o ICP nunca foi verificada; todos os testes usam respostas mockadas.
+origin: spec-deferred 7c605585dc11
+location: src/lib/agent/fit-scorer.ts (FIT_SCORE_SYSTEM_PROMPT)
+source_spec: `spec-24-16-fit-score-a-b-c-com-justificativa.md`
+reason: maybe-false: os testes provam o formato do request, o parse e o merge por lead, nao o julgamento do modelo. Para resolver, rodar um smoke real ("CISO de Sao Paulo", N=2) e conferir no gate se as notas A/B/C e os motivos fazem sentido.
+status: open

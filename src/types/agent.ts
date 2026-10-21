@@ -278,6 +278,9 @@ export interface SearchCompaniesOutput {
 
 // === Search Leads Output (Story 17.2 AC #2, #3) ===
 
+/** Story 24.16: nota de encaixe do lead no pedido e no ICP. */
+export type FitGrade = "A" | "B" | "C";
+
 export interface SearchLeadResult {
   name: string;
   title: string | null;
@@ -285,6 +288,16 @@ export interface SearchLeadResult {
   email: string | null;
   linkedinUrl: string | null;
   apolloId: string | null;
+  /** Story 24.16: Fit Score do `search_leads`. Ausente em execucoes antigas e no fetch-leads. */
+  fitScore?: FitGrade | null;
+  /** Story 24.16: justificativa de 1 linha do Fit Score (<= 120 caracteres). */
+  fitReason?: string | null;
+}
+
+/** Story 24.16: origem e distribuicao do Fit Score no output do `search_leads`. */
+export interface FitScoringSummary {
+  source: "llm" | "rules";
+  counts: Record<FitGrade, number>;
 }
 
 export interface SearchLeadsOutput {
@@ -293,6 +306,7 @@ export interface SearchLeadsOutput {
   jobTitles: string[];
   domainsSearched: string[];
   searchFilters?: Record<string, unknown>; // Story 17.12: filtros para re-paginacao
+  fitScoring?: FitScoringSummary; // Story 24.16
 }
 
 // === Create Campaign Output (Story 17.3 AC #4) ===

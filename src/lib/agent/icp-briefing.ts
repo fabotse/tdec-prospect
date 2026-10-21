@@ -22,6 +22,8 @@ export interface TenantICP {
   industries: string[];
   companySizes: string[];
   geographicFocus: string[];
+  /** Story 24.16: dores do ICP (texto livre; `""` quando ausente). Usado pelo Fit Score. */
+  painPoints: string;
 }
 
 export const EMPTY_TENANT_ICP: TenantICP = {
@@ -29,6 +31,7 @@ export const EMPTY_TENANT_ICP: TenantICP = {
   industries: [],
   companySizes: [],
   geographicFocus: [],
+  painPoints: "",
 };
 
 /**

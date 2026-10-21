@@ -213,7 +213,8 @@ describe("GET /api/agent/executions/[executionId]/plan", () => {
     expect(json.data.totalActiveSteps).toBe(5);
     // Story 24.10: premium vem do servidor (leads × apify)
     expect(json.data.costEstimate.premiumIcebreakers).toEqual({ perLead: 0.15, total: 25 * 0.15 });
-    expect(json.data.costEstimate.steps.search_leads.estimated).toBe(0);
+    // Story 24.16: 1 chamada de IA (Fit Score) × 0,02
+    expect(json.data.costEstimate.steps.search_leads.estimated).toBeCloseTo(0.02);
   });
 
   it("deve retornar totalActiveSteps menor quando ha skipSteps", async () => {

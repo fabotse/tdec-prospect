@@ -949,3 +949,146 @@ describe("AgentLeadReview — falha no disparo do proximo step (Story 24.3)", ()
     expect(useAgentStore.getState().stepTriggerFailure).toBeNull();
   });
 });
+
+describe("AgentLeadReview — Story 24.16 Fit Score", () => {
+  const grade = (i: number): "A" | "B" | "C" => (i % 3 === 0 ? "A" : i % 3 === 1 ? "B" : "C");
+
+  /** Leads como o Apollo devolve (sem score), apolloId = apollo-N. */
+  const apolloLeads = (count: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      name: `Lead ${i + 1}`,
+      title: "CISO",
+      companyName: `Company ${i + 1}`,
+      email: null,
+      apolloId: `apollo-${i + 1}`,
+    }));
+
+  /** Output do step: pontuado e ja ordenado A -> B -> C. */
+  const scoredOutput = (count: number) => {
+    const scored = apolloLeads(count).map((lead, i) => ({
+      ...lead,
+      fitScore: grade(i + 1),
+      fitReason: `Motivo ${i + 1}`,
+    }));
+    const rank = { A: 0, B: 1, C: 2 };
+    return scored
+      .map((lead, index) => ({ lead, index }))
+      .sort((a, b) => rank[a.lead.fitScore] - rank[b.lead.fitScore] || a.index - b.index)
+      .map(({ lead }) => lead);
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { stepNumber: 2, status: "approved", nextStep: 3 } }),
+    });
+  });
+
+  it("25 pontuados, N = 5: badges e justificativas na ordem A -> B -> C, 5 primeiros selecionados", () => {
+    const leads = scoredOutput(25);
+    render(
+      <AgentLeadReview
+        data={{ totalFound: 25, leads, jobTitles: ["CISO"], leadCount: 5 }}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+      />
+    );
+
+    expect(screen.getByText("Fit")).toBeInTheDocument();
+    const badges = screen.getAllByTestId("fit-badge").map((b) => b.textContent);
+    expect(badges).toHaveLength(25);
+    expect(badges.slice(0, 8)).toEqual(Array(8).fill("A"));
+    expect(badges[8]).toBe("B");
+    expect(badges[24]).toBe("C");
+    expect(screen.getByText(leads[0].fitReason)).toBeInTheDocument();
+
+    expect(screen.getByText("5 de 25 leads selecionados")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: `Selecionar ${leads[4].name}` })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: `Selecionar ${leads[5].name}` })).not.toBeChecked();
+  });
+
+  it("C continua selecionavel e o score viaja no approve", async () => {
+    const leads = scoredOutput(3); // A (Lead 3), B (Lead 1), C (Lead 2)
+    render(
+      <AgentLeadReview
+        data={{ totalFound: 3, leads, jobTitles: ["CISO"] }}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+      />
+    );
+
+    expect(screen.getByRole("checkbox", { name: "Selecionar Lead 2" })).toBeChecked();
+    fireEvent.click(screen.getByText("Aprovar (3 leads)"));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/agent/executions/exec-001/steps/2/approve",
+        expect.anything()
+      );
+    });
+    const approveCall = mockFetch.mock.calls.find((call) => String(call[0]).endsWith("/approve"));
+    const body = JSON.parse(approveCall?.[1]?.body as string);
+    expect(body.approvedData.leads[0]).toMatchObject({ name: "Lead 3", fitScore: "A", fitReason: "Motivo 3" });
+  });
+
+  it("legado sem fitScore: '—', ordem original e pre-selecao de hoje (todos)", () => {
+    render(
+      <AgentLeadReview
+        data={{ totalFound: 3, leads: apolloLeads(3), jobTitles: ["CISO"] }}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+      />
+    );
+
+    expect(screen.queryAllByTestId("fit-badge")).toHaveLength(0);
+    expect(screen.getAllByTestId("fit-badge-empty")).toHaveLength(3);
+    const names = screen.getAllByRole("checkbox", { name: /^Selecionar Lead/ }).map((c) =>
+      c.getAttribute("aria-label")
+    );
+    expect(names).toEqual(["Selecionar Lead 1", "Selecionar Lead 2", "Selecionar Lead 3"]);
+    expect(screen.getByText("3 de 3 leads selecionados")).toBeInTheDocument();
+  });
+
+  it("fetch-leads: os 25 mantem o score por apolloId, os 25 novos ficam com '—' no fim, seleciona os Q primeiros", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: { leads: apolloLeads(50), totalFetched: 50, totalFound: 200, cost: {} },
+        }),
+    });
+
+    render(
+      <AgentLeadReview
+        data={{ totalFound: 200, leads: scoredOutput(25), jobTitles: ["CISO"], leadCount: 5 }}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+      />
+    );
+
+    fireEvent.change(screen.getByTestId("lead-quantity-input"), { target: { value: "30" } });
+    fireEvent.click(screen.getByText("Buscar 30 leads"));
+
+    await waitFor(() => {
+      expect(screen.getByText("30 de 200 leads selecionados")).toBeInTheDocument();
+    });
+
+    const badges = screen.getAllByTestId("fit-badge").map((b) => b.textContent);
+    expect(badges).toHaveLength(25);
+    expect(badges[0]).toBe("A");
+    expect(screen.getAllByTestId("fit-badge-empty")).toHaveLength(25);
+
+    const order = screen
+      .getAllByRole("checkbox", { name: /^Selecionar Lead/ })
+      .map((c) => c.getAttribute("aria-label"));
+    expect(order[0]).toBe("Selecionar Lead 3"); // primeiro A
+    expect(order[25]).toBe("Selecionar Lead 26"); // primeiro sem nota
+    expect(screen.getByRole("checkbox", { name: "Selecionar Lead 30" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Selecionar Lead 31" })).not.toBeChecked();
+  });
+});

@@ -11,6 +11,9 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { sortByFitGrade } from "@/lib/agent/fit-score-rules";
+import type { FitGrade } from "@/types/agent";
 import { triggerNextStepChecked } from "@/lib/agent/client-utils";
 import { reportTriggerFailure } from "@/lib/agent/report-trigger-failure";
 import { useAgentStore } from "@/stores/use-agent-store";
@@ -30,6 +33,10 @@ interface LeadPreview {
   title: string | null;
   companyName: string | null;
   email: string | null;
+  apolloId?: string | null;
+  /** Story 24.16: Fit Score do step. Ausente em execucoes antigas e nos leads do fetch-leads. */
+  fitScore?: FitGrade | null;
+  fitReason?: string | null;
 }
 
 interface AgentLeadReviewProps {
@@ -62,6 +69,32 @@ function validLeadCount(value: unknown): number | null {
   return value >= 1 && value <= MAX_LEAD_QUANTITY ? value : null;
 }
 
+/** Story 24.16: cor do badge por nota. */
+const FIT_BADGE_VARIANT: Record<FitGrade, "default" | "secondary" | "outline"> = {
+  A: "default",
+  B: "secondary",
+  C: "outline",
+};
+
+/**
+ * Story 24.16: depois do fetch-leads, os leads que ja tinham score mantem o score
+ * (casando por `apolloId`) e a lista e reordenada A -> B -> C -> sem nota (estavel).
+ */
+function mergeFitScores(previous: LeadPreview[], fetched: LeadPreview[]): LeadPreview[] {
+  const scoreByApolloId = new Map<string, Pick<LeadPreview, "fitScore" | "fitReason">>();
+  for (const lead of previous) {
+    if (lead.apolloId && lead.fitScore) {
+      scoreByApolloId.set(lead.apolloId, { fitScore: lead.fitScore, fitReason: lead.fitReason });
+    }
+  }
+  const merged = fetched.map((lead) => {
+    if (lead.fitScore || !lead.apolloId) return lead;
+    const score = scoreByApolloId.get(lead.apolloId);
+    return score ? { ...lead, ...score } : lead;
+  });
+  return sortByFitGrade(merged);
+}
+
 /** Indices dos `count` primeiros leads. */
 function firstIndices(count: number): Set<number> {
   return new Set(Array.from({ length: count }, (_, i) => i));
@@ -76,7 +109,10 @@ export function AgentLeadReview({
   rejected,
 }: AgentLeadReviewProps) {
   // Story 17.12: local leads state (updated after fetch-more)
-  const [localLeads, setLocalLeads] = useState<LeadPreview[]>(data.leads);
+  // Story 24.16: a ordem e a do output (ja A -> B -> C); lead sem nota fica no fim.
+  const [localLeads, setLocalLeads] = useState<LeadPreview[]>(() =>
+    sortByFitGrade(data.leads ?? [])
+  );
   // Story 24.13: com N, pre-seleciona os N primeiros; sem N, todos (como antes).
   const requestedCount = validLeadCount(data.leadCount);
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(() =>
@@ -179,10 +215,10 @@ export function AgentLeadReview({
         throw new Error(errorData?.error?.message ?? "Falha ao buscar leads");
       }
       const result = await response.json();
-      const newLeads = result.data.leads as LeadPreview[];
+      const newLeads = mergeFitScores(localLeads, result.data.leads as LeadPreview[]);
       setLocalLeads(newLeads);
       setHasExpanded(true);
-      // Story 24.13: seleciona os Q primeiros (ou todos, se vieram menos).
+      // Story 24.13: seleciona os Q primeiros (ou todos, se vieram menos). 24.16: os melhores.
       setSelectedIndices(firstIndices(Math.min(selectedQuantity, newLeads.length)));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao buscar leads");
@@ -545,6 +581,7 @@ export function AgentLeadReview({
                     aria-label="Selecionar todos"
                   />
                 </TableHead>
+                <TableHead className="w-12">Fit</TableHead>
                 <TableHead>Nome</TableHead>
                 <TableHead>Cargo</TableHead>
                 <TableHead>Empresa</TableHead>
@@ -562,7 +599,29 @@ export function AgentLeadReview({
                       aria-label={`Selecionar ${lead.name}`}
                     />
                   </TableCell>
-                  <TableCell className="font-medium">{lead.name}</TableCell>
+                  <TableCell>
+                    {lead.fitScore ? (
+                      <Badge
+                        variant={FIT_BADGE_VARIANT[lead.fitScore]}
+                        data-testid="fit-badge"
+                        title={lead.fitReason ?? undefined}
+                      >
+                        {lead.fitScore}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground" data-testid="fit-badge-empty">
+                        —
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-medium">{lead.name}</span>
+                    {lead.fitReason && (
+                      <p className="text-xs text-muted-foreground" data-testid="fit-reason">
+                        {lead.fitReason}
+                      </p>
+                    )}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">{lead.title ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{lead.companyName ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground text-xs">{lead.email ?? "—"}</TableCell>
