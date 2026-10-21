@@ -2,7 +2,7 @@
 title: 'Story 23.1 — Webhook e crons autenticados'
 type: 'feature'
 created: '2026-10-20'
-status: awaiting-operator
+status: done
 baseline_revision: 'fca35e2f97d22c379878d27ef1e00bce633bcc92'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -184,3 +184,15 @@ Status: awaiting-operator
   1. `reply-sweep` segue com 200 a cada 5 min (smoke real).
   2. A busca de leads não foi tocada (diff).
   3. Export e ativação não foram tocados (diff).
+
+## Operator Confirmation
+
+Confirmed 2026-10-21: the external actions this story owed were carried out.
+
+- Gerar o segredo e criar o secret da Edge Function no projeto kdgogyqyaxncqoyklyxx: npx supabase secrets set INSTANTLY_WEBHOOK_SECRET=$(openssl rand -hex 32) (guardar o valor).
+- Se algum webhook estiver cadastrado no Instantly (hoje GET /api/v2/webhooks retorna vazio porque o plano bloqueia webhooks), atualizar a URL para https://kdgogyqyaxncqoyklyxx.supabase.co/functions/v1/instantly-webhook?token=<INSTANTLY_WEBHOOK_SECRET> ANTES do deploy.
+- Publicar a função: npx supabase functions deploy instantly-webhook --no-verify-jwt.
+- Smoke pós-deploy sem gravar nada: curl -i -X POST https://kdgogyqyaxncqoyklyxx.supabase.co/functions/v1/instantly-webhook -H 'Content-Type: application/json' -d '{}' deve responder 401; com ?token=<segredo> e corpo '{}' deve responder 400 (autenticado, payload inválido, nada gravado).
+- Fazer o merge do epic/23-plataforma-higiene na main (deploy Vercel) para a correção fail-closed de /api/monitoring/process-batch entrar em produção, conferindo que MONITORING_CRON_SECRET existe nas env de produção da Vercel.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._

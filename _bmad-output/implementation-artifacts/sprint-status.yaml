@@ -34,7 +34,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-25
-last_updated: 2026-10-20  # 23.0 adiada (story escrita, volta a backlog); epic-23 volta a backlog
+last_updated: 2026-10-21  # 23.0 adiada (story escrita, volta a backlog); epic-23 volta a backlog
 project: tdec-prospect
 project_key: NOKEY
 tracking_system: file-system
@@ -569,7 +569,7 @@ development_status:
   #
   epic-23: backlog
   23-0-banco-de-teste-espelhando-producao: backlog  # ADIADA 2026-10-15 (Fabossi): risco operacional; story escrita fica como referencia. Regra de verificacao pos-etapa em CLAUDE.md/AGENTS.md
-  23-1-webhook-e-crons-autenticados: awaiting-operator
+  23-1-webhook-e-crons-autenticados: done
   23-2-dependencias-sem-vulnerabilidades-criticas: done
   23-3-saude-dos-jobs-e-registro-de-erros-com-a-infraestrutura-atual: done
   23-4-ci-no-github-e-base-verde: done
