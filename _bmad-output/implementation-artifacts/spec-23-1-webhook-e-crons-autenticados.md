@@ -2,7 +2,7 @@
 title: 'Story 23.1 — Webhook e crons autenticados'
 type: 'feature'
 created: '2026-10-20'
-status: awaiting-operator
+status: done
 baseline_revision: 'fca35e2f97d22c379878d27ef1e00bce633bcc92'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -177,3 +177,54 @@ Status: awaiting-operator
   1. Campanhas e respostas: inalterados. A ingestão é o `reply-sweep`, não tocado. Conferido por smoke real depois do merge (ver abaixo).
   2. Busca de leads: não tocada (diff).
   3. Export e ativação no Instantly: não tocados (diff).
+- **Ação 5:** PR #13 mergeado na `main` (`d533461`). Deploy de produção na Vercel `success`.
+  - `POST /api/monitoring/process-batch` sem `Authorization` → 401; com `Bearer undefined` → 401. Antes, o fail-open deixava esse segundo caso passar.
+  - Crons depois do deploy (12:20 e 12:25 UTC): `reply-sweep` 200, com contagens normais, e `monitor-leads` 200 `no_config`. O chamador legítimo autentica, e nada está vencido até 27/10.
+- **Os 3 pontos, confirmados:**
+  1. `reply-sweep` segue com 200 a cada 5 min (smoke real).
+  2. A busca de leads não foi tocada (diff).
+  3. Export e ativação não foram tocados (diff).
+
+## Operator Confirmation
+
+Confirmed 2026-10-21: the external actions this story owed were carried out.
+
+- Gerar o segredo e criar o secret da Edge Function no projeto kdgogyqyaxncqoyklyxx: npx supabase secrets set INSTANTLY_WEBHOOK_SECRET=$(openssl rand -hex 32) (guardar o valor).
+- Se algum webhook estiver cadastrado no Instantly (hoje GET /api/v2/webhooks retorna vazio porque o plano bloqueia webhooks), atualizar a URL para https://kdgogyqyaxncqoyklyxx.supabase.co/functions/v1/instantly-webhook?token=<INSTANTLY_WEBHOOK_SECRET> ANTES do deploy.
+- Publicar a função: npx supabase functions deploy instantly-webhook --no-verify-jwt.
+- Smoke pós-deploy sem gravar nada: curl -i -X POST https://kdgogyqyaxncqoyklyxx.supabase.co/functions/v1/instantly-webhook -H 'Content-Type: application/json' -d '{}' deve responder 401; com ?token=<segredo> e corpo '{}' deve responder 400 (autenticado, payload inválido, nada gravado).
+- Fazer o merge do epic/23-plataforma-higiene na main (deploy Vercel) para a correção fail-closed de /api/monitoring/process-batch entrar em produção, conferindo que MONITORING_CRON_SECRET existe nas env de produção da Vercel.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
+
+## Follow-up — Edge Functions de cron só aceitam o pg_cron (2026-10-21)
+
+Fecha o item adiado "reply-sweep e monitor-leads aceitam qualquer JWT válido, inclusive a anon key". Autorizado pelo Fabossi.
+
+- **Achado a mais:** a `monitor-leads` estava publicada com `verify_jwt=false` e aceitava chamada até sem token.
+- **Correção:** `src/lib/cron/cron-trigger-auth.ts` (`isServiceRoleCaller`), com cópia inline nas duas funções.
+  - Aceita o token igual à `SUPABASE_SERVICE_ROLE_KEY` ou um JWT com `role: service_role`. Esse segundo caso só é seguro porque o gateway, com `verify_jwt`, já validou a assinatura.
+  - A anon key e qualquer outro token recebem 401 antes de chamar a Vercel.
+  - Os jobs `pg_cron` não mudaram: eles já mandam a service role do vault.
+- **Testes:**
+  - 11 em `__tests__/unit/lib/cron/cron-trigger-auth.test.ts`, incluindo um que trava a cópia inline das duas funções contra a `src/lib`.
+  - As duas funções rodaram localmente em Deno contra uma Vercel stub: sem token, anon e token qualquer → 401; service key e JWT service_role → 200 repassando o segredo certo; OPTIONS → 204.
+  - Gates: lint ok, typecheck ok, `deno check` ok, 438 arquivos / 8242 testes ok.
+- **Deploy, uma função por vez, logo depois de uma rodada do cron, com backup das versões no ar (iguais ao repo) para rollback:**
+  - `monitor-leads` v10, `verify_jwt=true`.
+    - O primeiro deploy manteve `verify_jwt=false`, porque o CLI preserva o valor anterior. Republicado com `--no-verify-jwt=false` em 20 s.
+    - De fora: sem token → 401 do gateway; anon key → 401; JWT `service_role` forjado → 401 "Invalid JWT".
+    - pg_cron 13:45 UTC → 200 `no_config`.
+  - `reply-sweep` v4, `verify_jwt=true`.
+    - De fora: sem token → 401; anon key → 401.
+    - pg_cron 13:50 UTC → 200 com as contagens de sempre (`skipped:10`, `engagementSkipped:1`). Rollback não foi necessário.
+- **Os 3 pontos:**
+  1. Smoke real: `reply-sweep` 200 depois do deploy. No Instantly (só GET), 25 campanhas: 2 ativas (Indústria Farmacêutica, Indústria Alimentícia), 18 concluídas, 5 rascunhos. Nenhuma tocada.
+  2. Busca de leads: não tocada (diff).
+  3. Export e ativação: não tocados (diff).
+- **Comparação Instantly × banco (2026-10-21, só GET):** `GET /api/v2/emails?email_type=received`, paginado como o sweep.
+  - Desde jun/2026: 8 recebidos no Instantly, os mesmos 8 em `campaign_events` (mesmo horário e campanha, todos processados).
+  - Mais 3 de mar/2026 (ABnormal - Contas Teles). Total 11 = 11.
+  - A "Reengajamento Rapido" (2 respostas no analytics) é teste de fev/2026 criado direto no Instantly, com respostas de `mfabossi` e `fabotse`, e não existe em `campaigns`. Esperado.
+  - Desde 16/09 não houve nenhuma resposta no workspace. As 2 campanhas ativas têm 0 respostas: Indústria Alimentícia (153 envios) e Indústria Farmacêutica (16 envios).
+  - Nenhuma resposta perdida.
