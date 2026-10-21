@@ -222,3 +222,9 @@ Fecha o item adiado "reply-sweep e monitor-leads aceitam qualquer JWT válido, i
   1. Smoke real: `reply-sweep` 200 depois do deploy. No Instantly (só GET), 25 campanhas: 2 ativas (Indústria Farmacêutica, Indústria Alimentícia), 18 concluídas, 5 rascunhos. Nenhuma tocada.
   2. Busca de leads: não tocada (diff).
   3. Export e ativação: não tocados (diff).
+- **Comparação Instantly × banco (2026-10-21, só GET):** `GET /api/v2/emails?email_type=received`, paginado como o sweep.
+  - Desde jun/2026: 8 recebidos no Instantly, os mesmos 8 em `campaign_events` (mesmo horário e campanha, todos processados).
+  - Mais 3 de mar/2026 (ABnormal - Contas Teles). Total 11 = 11.
+  - A "Reengajamento Rapido" (2 respostas no analytics) é teste de fev/2026 criado direto no Instantly, com respostas de `mfabossi` e `fabotse`, e não existe em `campaigns`. Esperado.
+  - Desde 16/09 não houve nenhuma resposta no workspace. As 2 campanhas ativas têm 0 respostas: Indústria Alimentícia (153 envios) e Indústria Farmacêutica (16 envios).
+  - Nenhuma resposta perdida.
