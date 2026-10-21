@@ -177,3 +177,10 @@ Status: awaiting-operator
   1. Campanhas e respostas: inalterados. A ingestão é o `reply-sweep`, não tocado. Conferido por smoke real depois do merge (ver abaixo).
   2. Busca de leads: não tocada (diff).
   3. Export e ativação no Instantly: não tocados (diff).
+- **Ação 5:** PR #13 mergeado na `main` (`d533461`). Deploy de produção na Vercel `success`.
+  - `POST /api/monitoring/process-batch` sem `Authorization` → 401; com `Bearer undefined` → 401. Antes, o fail-open deixava esse segundo caso passar.
+  - Crons depois do deploy (12:20 e 12:25 UTC): `reply-sweep` 200, com contagens normais, e `monitor-leads` 200 `no_config`. O chamador legítimo autentica, e nada está vencido até 27/10.
+- **Os 3 pontos, confirmados:**
+  1. `reply-sweep` segue com 200 a cada 5 min (smoke real).
+  2. A busca de leads não foi tocada (diff).
+  3. Export e ativação não foram tocados (diff).
