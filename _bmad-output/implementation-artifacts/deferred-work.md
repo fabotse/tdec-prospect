@@ -633,3 +633,11 @@ location: src/lib/agent/fit-scorer.ts (FIT_SCORE_SYSTEM_PROMPT)
 source_spec: `spec-24-16-fit-score-a-b-c-com-justificativa.md`
 reason: maybe-false: os testes provam o formato do request, o parse e o merge por lead, nao o julgamento do modelo. Para resolver, rodar um smoke real ("CISO de Sao Paulo", N=2) e conferir no gate se as notas A/B/C e os motivos fazem sentido.
 status: open
+
+### DW-31: A supressao do modo lista cobre so "negociacao" (oportunidade em contacted/meeting_booked); a classe "cliente" do AC3 nao tem fonte de dados.
+origin: spec-deferred 25654eb35175
+location: src/lib/agent/account-suppression.ts (findSuppressedAccounts)
+source_spec: `spec-24-17-modo-lista-de-contas-abm.md`
+severity: medium
+reason: O epico pede remover conta suprimida "(cliente, negociacao)". Nao existe tabela de clientes nem lista de supressao (23.5 em backlog); a regra provisoria usa a Central de Oportunidades e casa pelo dominio do e-mail do lead. Resolver quando a 23.5 criar a lista de supressao: ler a tabela dentro de findSuppressedAccounts.
+status: open

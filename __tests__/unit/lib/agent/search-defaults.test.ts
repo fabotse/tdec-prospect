@@ -134,3 +134,95 @@ describe("search-defaults — Story 24.14 (ICP)", () => {
     expect(formatCompanySizesLabel(["501-1000", "201-500", "201-500"])).toBe("201–1000");
   });
 });
+
+// ==============================================
+// Story 24.17 — modo lista de contas
+// ==============================================
+
+import { buildAccountSearchFilters, canProceedWithSearch } from "@/lib/agent/search-defaults";
+import type { ParsedBriefing } from "@/types/agent";
+
+describe("search-defaults — modo lista de contas (24.17)", () => {
+  const ICP = { companySizes: ["201-500"], locations: ["SP"] };
+  const base: ParsedBriefing = {
+    technology: null,
+    jobTitles: ["CISO"],
+    location: null,
+    companySize: null,
+    industry: "fintech",
+    productSlug: null,
+    mode: "guided",
+    skipSteps: ["search_companies"],
+    icpDefaults: ICP,
+    targetAccounts: [
+      { name: "Banco X", domain: "bancox.com.br", confidence: "high" },
+      { name: null, domain: "empresay.com", confidence: "low" },
+    ],
+  };
+
+  it("resolveSearchLocations ignora o ICP no modo lista", () => {
+    expect(resolveSearchLocations(base)).toEqual({ locations: [], fromIcp: false });
+    expect(resolveSearchLocations({ ...base, location: "Rio" })).toEqual({
+      locations: ["Rio"],
+      fromIcp: false,
+    });
+  });
+
+  it("resolveSearchLocations sem contas segue usando o ICP (identico a hoje)", () => {
+    expect(resolveSearchLocations({ ...base, targetAccounts: null })).toEqual({
+      locations: ["SP"],
+      fromIcp: true,
+    });
+  });
+
+  it("buildAccountSearchFilters: dominios + cargos, sem porte/industria/local do ICP", () => {
+    expect(buildAccountSearchFilters(base, 25)).toEqual({
+      domains: ["bancox.com.br", "empresay.com"],
+      titles: ["CISO"],
+      perPage: 25,
+      page: 1,
+    });
+  });
+
+  it("buildAccountSearchFilters: local so quando o usuario informou", () => {
+    expect(buildAccountSearchFilters({ ...base, location: "Sao Paulo" }, 1)).toMatchObject({
+      locations: ["Sao Paulo"],
+      perPage: 1,
+    });
+  });
+
+  it("canProceedWithSearch: modo lista dispensa local", () => {
+    expect(canProceedWithSearch({ ...base, icpDefaults: null })).toBe(true);
+  });
+
+  it("canProceedWithSearch: conta sem dominio bloqueia", () => {
+    expect(
+      canProceedWithSearch({
+        ...base,
+        targetAccounts: [{ name: "Empresa W", domain: null, confidence: "low" }],
+      })
+    ).toBe(false);
+  });
+
+  it("canProceedWithSearch: todas suprimidas (lista vazia) bloqueia", () => {
+    expect(
+      canProceedWithSearch({
+        ...base,
+        targetAccounts: [],
+        suppressedAccounts: [{ name: "Banco X", domain: "bancox.com.br", reason: "x" }],
+      })
+    ).toBe(false);
+  });
+
+  it("canProceedWithSearch: sem cargos bloqueia", () => {
+    expect(canProceedWithSearch({ ...base, jobTitles: [] })).toBe(false);
+  });
+
+  it("canProceedWithSearch: sem contas, regra de hoje (cargos + local)", () => {
+    expect(canProceedWithSearch({ ...base, targetAccounts: null, icpDefaults: null })).toBe(false);
+    expect(canProceedWithSearch({ ...base, targetAccounts: null })).toBe(true);
+    expect(
+      canProceedWithSearch({ ...base, targetAccounts: null, icpDefaults: null, location: "SP" })
+    ).toBe(true);
+  });
+});

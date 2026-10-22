@@ -400,6 +400,71 @@ describe("PATCH /api/agent/executions/[executionId]/briefing", () => {
     expect(response.status).toBe(400);
   });
 
+  // Story 24.17: as contas sobrevivem ao strip do z.object (senao a execucao vira busca aberta).
+  it("deve PRESERVAR targetAccounts, suppressedAccounts e jobTitlesFromIcp (24.17 - strip)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    const targetAccounts = [
+      { name: "Banco X", domain: "bancox.com.br", confidence: "high" },
+      { name: "Empresa W", domain: null, confidence: "low" },
+    ];
+    const suppressedAccounts = [
+      { name: "Banco Z", domain: "bancoz.com.br", reason: "negociacao em andamento (oportunidade em contato)" },
+    ];
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing: {}, status: "pending" },
+      error: null,
+    });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(
+      createRequest({ ...VALID_BRIEFING, targetAccounts, suppressedAccounts, jobTitlesFromIcp: true }),
+      createParams()
+    );
+    expect(response.status).toBe(200);
+
+    const updateArg = chain.update.mock.calls[0][0] as { briefing: Record<string, unknown> };
+    expect(updateArg.briefing.targetAccounts).toEqual(targetAccounts);
+    expect(updateArg.briefing.suppressedAccounts).toEqual(suppressedAccounts);
+    expect(updateArg.briefing.jobTitlesFromIcp).toBe(true);
+  });
+
+  it("deve rejeitar dominio invalido em targetAccounts (24.17)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    const response = await PATCH(
+      createRequest({
+        ...VALID_BRIEFING,
+        targetAccounts: [{ name: "X", domain: "https://x.com/", confidence: "high" }],
+      }),
+      createParams()
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("deve rejeitar mais de 50 contas e reason acima de 200 (24.17)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    const tooMany = await PATCH(
+      createRequest({
+        ...VALID_BRIEFING,
+        targetAccounts: Array.from({ length: 51 }, (_, i) => ({
+          name: null,
+          domain: `e${i}.com`,
+          confidence: "high",
+        })),
+      }),
+      createParams()
+    );
+    expect(tooMany.status).toBe(400);
+
+    const longReason = await PATCH(
+      createRequest({
+        ...VALID_BRIEFING,
+        suppressedAccounts: [{ name: null, domain: "a.com", reason: "x".repeat(201) }],
+      }),
+      createParams()
+    );
+    expect(longReason.status).toBe(400);
+  });
+
   it("deve rejeitar icpDefaults com mais de 10 locais (24.14)", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
 

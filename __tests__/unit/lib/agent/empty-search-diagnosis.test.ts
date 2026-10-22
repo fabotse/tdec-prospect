@@ -592,3 +592,33 @@ describe("diagnoseEmptySearch — Story 24.14 (ICP)", () => {
     expect(causeCodes(result)).not.toContain("icp_company_size_applied");
   });
 });
+
+// ==============================================
+// Story 24.17 — modo lista de contas
+// ==============================================
+
+describe("diagnoseEmptySearch — modo lista de contas (24.17)", () => {
+  const accounts = [
+    { name: "Acme", domain: "acme.com", confidence: "high" as const },
+    { name: "Globex", domain: "globex.com", confidence: "low" as const },
+  ];
+
+  it("textos falam da lista de contas, nao da etapa anterior", () => {
+    const result = diagnoseEmptySearch(
+      briefing({ targetAccounts: accounts }),
+      domainFilters()
+    );
+
+    expect(result.branch).toBe("domains");
+    expect(filterValue(result, "Empresas")?.value).toBe("2 domínios da sua lista de contas");
+    expect(result.probableCauses[0].text).toContain("nas 2 contas da sua lista");
+    expect(result.probableCauses[0].text).not.toContain("etapa anterior");
+  });
+
+  it("sem contas, o ramo por dominios segue identico", () => {
+    const result = diagnoseEmptySearch(briefing(), domainFilters());
+
+    expect(filterValue(result, "Empresas")?.value).toBe("2 domínios da etapa anterior");
+    expect(result.probableCauses[0].text).toContain("da etapa anterior");
+  });
+});

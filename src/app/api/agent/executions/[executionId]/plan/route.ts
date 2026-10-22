@@ -14,7 +14,8 @@ import { CostEstimatorService } from "@/lib/services/agent-cost-estimator";
 import { PlanGeneratorService } from "@/lib/services/agent-plan-generator";
 import { ApolloService } from "@/lib/services/apollo";
 import { getInjectableServiceApiKey } from "@/lib/agent/service-keys";
-import { buildDirectSearchFilters } from "@/lib/agent/search-defaults";
+import { buildAccountSearchFilters, buildDirectSearchFilters } from "@/lib/agent/search-defaults";
+import { isAccountListMode } from "@/lib/agent/target-accounts";
 import { logAgentUsage } from "@/lib/agent/agent-usage";
 import type { ParsedBriefing } from "@/types/agent";
 
@@ -77,6 +78,11 @@ async function estimateSearchViability(
 
     if (!isDirectSearch) return null;
 
+    // Story 24.17: no modo lista, conta a MESMA busca por dominio que o step vai fazer.
+    const accountListMode = isAccountListMode(briefing);
+    const accountFilters = accountListMode ? buildAccountSearchFilters(briefing, 1) : null;
+    if (accountFilters && accountFilters.domains.length === 0) return null;
+
     // Story 22.9: chave via service-role, injetada no service (RLS de api_configs é
     // admin-only e mataria a leitura de sessão para um `sdr`).
     const apolloApiKey = await getInjectableServiceApiKey(tenantId, "apollo", "Apollo");
@@ -101,7 +107,7 @@ async function estimateSearchViability(
           status === "failed" ? (error instanceof Error ? error.message : "Erro Apollo") : undefined,
         metadata: { origin: "plan_viability" },
       });
-    const search = service.searchPeople(buildDirectSearchFilters(briefing, 1)).then(
+    const search = service.searchPeople(accountFilters ?? buildDirectSearchFilters(briefing, 1)).then(
       async (searchResult) => {
         await logSearch("success");
         return searchResult;

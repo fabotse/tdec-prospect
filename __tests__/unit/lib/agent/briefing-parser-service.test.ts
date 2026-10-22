@@ -769,4 +769,62 @@ describe("BriefingParserService", () => {
       expect(result.usage).toEqual({ promptTokens: 0, completionTokens: 0, model: "gpt-5.4-mini" });
     });
   });
+
+  describe("targetAccounts (Story 24.17)", () => {
+    it("extrai contas saneadas; dominio citado pelo usuario vira high", async () => {
+      mockOpenAIResponse({
+        ...FULL_BRIEFING_RESPONSE,
+        technology: null,
+        targetAccounts: [
+          { name: null, domain: "https://www.bancox.com.br/", confidence: "low" },
+          { name: "Empresa Y", domain: "empresay.com", confidence: "low" },
+          { name: "Banco Z", domain: "bancoz.com.br", confidence: "low" },
+        ],
+      });
+
+      const history: ChatTurn[] = [
+        { role: "user", content: "CISO em https://www.bancox.com.br/" },
+        { role: "agent", content: "Algo mais? empresay.com e bancoz.com.br?" },
+        { role: "user", content: "e a empresay.com e o Banco Z" },
+      ];
+      const result = await BriefingParserService.parse(history, "sk-test-key");
+
+      expect(result.briefing.targetAccounts).toEqual([
+        { name: null, domain: "bancox.com.br", confidence: "high" },
+        { name: "Empresa Y", domain: "empresay.com", confidence: "high" },
+        // so o agente citou o dominio -> vale a confianca do LLM
+        { name: "Banco Z", domain: "bancoz.com.br", confidence: "low" },
+      ]);
+    });
+
+    it("targetAccounts invalido nao derruba o parse e a chave nao entra", async () => {
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, targetAccounts: "Banco X" });
+
+      const result = await BriefingParserService.parse("CTO em SP", "sk-test-key");
+
+      expect(result.briefing).not.toHaveProperty("targetAccounts");
+    });
+
+    it("sem contas, o briefing nao ganha a chave (identico a hoje)", async () => {
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, targetAccounts: [] });
+
+      const result = await BriefingParserService.parse("CTO em SP", "sk-test-key");
+
+      expect(result.briefing).not.toHaveProperty("targetAccounts");
+    });
+
+    it("o prompt descreve o modo lista de contas", async () => {
+      mockOpenAIResponse(FULL_BRIEFING_RESPONSE);
+
+      await BriefingParserService.parse("CTO em SP", "sk-test-key");
+
+      const request = mockCreate.mock.calls[0][0] as {
+        messages: Array<{ role: string; content: string }>;
+      };
+      const system = request.messages[0].content;
+      expect(system).toContain("targetAccounts");
+      expect(system).toContain("MODO LISTA DE CONTAS");
+      expect(system).toContain("NUNCA invente uma empresa");
+    });
+  });
 });

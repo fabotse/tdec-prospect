@@ -409,3 +409,79 @@ describe("PlanGeneratorService — Story 24.14 (ICP)", () => {
     expect(description).toContain("tamanho 11+ (padrao de qualidade)");
   });
 });
+
+// ==============================================
+// Story 24.17 — modo lista de contas
+// ==============================================
+
+describe("PlanGeneratorService — modo lista de contas (24.17)", () => {
+  const accounts = [
+    { name: "Banco X", domain: "bancox.com.br", confidence: "high" as const },
+    { name: null, domain: "empresay.com", confidence: "low" as const },
+  ];
+
+  function searchLeadsDescription(b: ParsedBriefing): string {
+    const plan = PlanGeneratorService.generatePlan(b, createCostEstimate());
+    return plan.find((s) => s.stepType === "search_leads")?.description ?? "";
+  }
+
+  it("descreve a busca por dominio nas contas, sem porte do ICP", () => {
+    const description = searchLeadsDescription(
+      createBriefing({
+        technology: null,
+        jobTitles: ["CISO"],
+        location: null,
+        skipSteps: ["search_companies"],
+        icpDefaults: { companySizes: ["201-500"], locations: ["SP"] },
+        targetAccounts: accounts,
+      })
+    );
+
+    expect(description).toBe(
+      "Buscar CISO nas 2 contas da sua lista (busca por dominio, sem busca de empresas)"
+    );
+  });
+
+  it("1 conta: singular", () => {
+    const description = searchLeadsDescription(
+      createBriefing({
+        technology: null,
+        jobTitles: ["CISO"],
+        skipSteps: ["search_companies"],
+        targetAccounts: [accounts[0]],
+      })
+    );
+    expect(description).toBe(
+      "Buscar CISO na 1 conta da sua lista (busca por dominio, sem busca de empresas)"
+    );
+  });
+
+  it("com N, adiciona o sufixo", () => {
+    const description = searchLeadsDescription(
+      createBriefing({
+        technology: null,
+        jobTitles: ["CISO"],
+        skipSteps: ["search_companies"],
+        targetAccounts: accounts,
+        leadCount: 5,
+      })
+    );
+
+    expect(description).toContain("— até 5 leads");
+  });
+
+  it("search_companies pulado no plano", () => {
+    const plan = PlanGeneratorService.generatePlan(
+      createBriefing({ technology: null, skipSteps: ["search_companies"], targetAccounts: accounts }),
+      createCostEstimate()
+    );
+    expect(plan[0].skipped).toBe(true);
+  });
+
+  it("sem contas, a descricao da busca direta segue igual", () => {
+    const description = searchLeadsDescription(
+      createBriefing({ technology: null, skipSteps: ["search_companies"] })
+    );
+    expect(description).toContain("Buscar leads diretamente por");
+  });
+});

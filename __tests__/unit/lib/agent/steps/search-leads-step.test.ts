@@ -73,6 +73,16 @@ vi.mock("@/lib/agent/contextual-suggestions", () => ({
   readTenantICP: (...args: unknown[]) => mockReadTenantICP(...args),
 }));
 
+// Story 24.17: supressao de contas do modo lista (suite propria em account-suppression.test.ts).
+const mockFindSuppressedAccounts = vi.fn();
+vi.mock("@/lib/agent/account-suppression", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/agent/account-suppression")>();
+  return {
+    ...actual,
+    findSuppressedAccounts: (...args: unknown[]) => mockFindSuppressedAccounts(...args),
+  };
+});
+
 type ScorerParams = {
   leads: Array<{ title: string | null; has_email: boolean }>;
   briefing: { jobTitles: string[] };
@@ -237,6 +247,7 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
 
     mockSearchPeople.mockResolvedValue(mockLeadsResponse);
     mockReadTenantICP.mockResolvedValue(EMPTY_TENANT_ICP);
+    mockFindSuppressedAccounts.mockResolvedValue([]);
     mockScoreLeads.mockImplementation(async (params: ScorerParams) => rulesOnlyScoring(params));
     // Default: enrichment returns email for leads
     mockEnrichPerson.mockResolvedValue({
@@ -1193,6 +1204,151 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
 
       await step.run(input);
       expect(mockScoreLeads).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Story 24.17 — modo lista de contas", () => {
+    function listInput(overrides: Partial<StepInput["briefing"]> = {}): StepInput {
+      return {
+        ...createInput({
+          technology: null,
+          jobTitles: ["CISO"],
+          location: null,
+          companySize: "50-200",
+          industry: "saas",
+          skipSteps: ["search_companies"],
+          icpDefaults: { companySizes: ["201-500"], locations: ["SP"] },
+          targetAccounts: [
+            { name: "Conta A", domain: "a.com", confidence: "high" },
+            { name: "Conta B", domain: "b.com", confidence: "low" },
+          ],
+          ...overrides,
+        }),
+        previousStepOutput: undefined,
+      };
+    }
+
+    it("busca por dominio nas contas, sem porte/industria/local do ICP", async () => {
+      const result = await step.run(listInput());
+
+      expect(mockSearchPeople).toHaveBeenCalledWith({
+        domains: ["a.com", "b.com"],
+        titles: ["CISO"],
+        perPage: 25,
+        page: 1,
+      });
+      expect(result.data.domainsSearched).toEqual(["a.com", "b.com"]);
+      expect(result.data.suppressedAccounts).toEqual([]);
+      expect(result.data.leads).toHaveLength(2);
+      expect(mockScoreLeads).toHaveBeenCalled();
+      expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: expect.stringContaining("Buscando leads (CISO) nas 2 contas da sua lista..."),
+        })
+      );
+    });
+
+    it("local do usuario entra na busca", async () => {
+      await step.run(listInput({ location: "Sao Paulo" }));
+
+      expect(mockSearchPeople).toHaveBeenCalledWith(
+        expect.objectContaining({ domains: ["a.com", "b.com"], locations: ["Sao Paulo"] })
+      );
+    });
+
+    it("conta suprimida no step (via chip): avisa e busca so o resto", async () => {
+      mockFindSuppressedAccounts.mockResolvedValue([
+        { name: null, domain: "b.com", reason: "negociacao em andamento (oportunidade em contato)" },
+      ]);
+
+      const result = await step.run(listInput());
+
+      expect(mockFindSuppressedAccounts).toHaveBeenCalledWith(
+        expect.anything(),
+        TENANT_ID,
+        ["a.com", "b.com"]
+      );
+      expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          role: "system",
+          content: "Removi da busca: Conta B (negociacao em andamento (oportunidade em contato)).",
+        })
+      );
+      expect(mockSearchPeople).toHaveBeenCalledWith(
+        expect.objectContaining({ domains: ["a.com"] })
+      );
+      // fetch-leads ("Buscar mais") reaproveita searchFilters: so a conta restante, sem
+      // porte/industria/local do ICP.
+      const searchFilters = result.data.searchFilters as Record<string, unknown>;
+      expect(searchFilters.domains).toEqual(["a.com"]);
+      expect(searchFilters).not.toHaveProperty("companySizes");
+      expect(searchFilters).not.toHaveProperty("industries");
+      expect(searchFilters).not.toHaveProperty("locations");
+      expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: expect.stringContaining("Buscando leads (CISO) na 1 conta da sua lista..."),
+        })
+      );
+      expect(result.data.suppressedAccounts).toEqual([
+        {
+          name: "Conta B",
+          domain: "b.com",
+          reason: "negociacao em andamento (oportunidade em contato)",
+        },
+      ]);
+    });
+
+    it("todas suprimidas: nao busca e lanca ALL_ACCOUNTS_SUPPRESSED_MESSAGE", async () => {
+      const { ALL_ACCOUNTS_SUPPRESSED_MESSAGE } = await import(
+        "@/lib/agent/account-suppression"
+      );
+      mockFindSuppressedAccounts.mockResolvedValue([
+        { name: null, domain: "a.com", reason: "r" },
+        { name: null, domain: "b.com", reason: "r" },
+      ]);
+
+      await expect(step.run(listInput())).rejects.toThrow(ALL_ACCOUNTS_SUPPRESSED_MESSAGE);
+      expect(mockSearchPeople).not.toHaveBeenCalled();
+    });
+
+    it("mensagem de todas suprimidas vira frase bem formada como erro nao retryable", async () => {
+      const { ALL_ACCOUNTS_SUPPRESSED_MESSAGE } = await import(
+        "@/lib/agent/account-suppression"
+      );
+      const { formatStepErrorMessage } = await import("@/lib/agent/step-error-display");
+
+      expect(ALL_ACCOUNTS_SUPPRESSED_MESSAGE).not.toMatch(/tente novamente/i);
+      expect(formatStepErrorMessage(ALL_ACCOUNTS_SUPPRESSED_MESSAGE, false)).toBe(
+        "Todas as contas da sua lista estao com negociacao em andamento, entao nao busquei ninguem. Ajuste a lista de contas para seguir"
+      );
+    });
+
+    it("busca vazia: diagnostico fala da lista de contas", async () => {
+      mockSearchPeople.mockResolvedValue({
+        leads: [],
+        pagination: { totalEntries: 0, page: 1, perPage: 25, totalPages: 0 },
+      });
+
+      const result = await step.run({ ...listInput(), mode: "guided" });
+
+      expect(result.data.emptyResult).toBe(true);
+      const diagnosis = result.data.emptyDiagnosis as {
+        probableCauses: Array<{ text: string }>;
+      };
+      expect(diagnosis.probableCauses[0].text).toContain("nas 2 contas da sua lista");
+      expect(result.data.suppressedAccounts).toEqual([]);
+    });
+
+    it("sem contas: fluxo direto inalterado (supressao nao consultada)", async () => {
+      await step.run({
+        ...createInput({ technology: null, skipSteps: ["search_companies"] }),
+        previousStepOutput: undefined,
+      });
+
+      expect(mockFindSuppressedAccounts).not.toHaveBeenCalled();
+      expect(mockSearchPeople).toHaveBeenCalledWith(
+        expect.not.objectContaining({ domains: expect.anything() })
+      );
     });
   });
 });

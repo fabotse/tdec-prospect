@@ -11,6 +11,7 @@ import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
 import { hasRejectedStep } from "@/lib/agent/step-guards";
 import { APOLLO_COMPANY_SIZE_BUCKETS } from "@/lib/agent/search-defaults";
+import { DOMAIN_REGEX, TARGET_ACCOUNTS_MAX } from "@/lib/agent/target-accounts";
 
 // ==============================================
 // REQUEST VALIDATION
@@ -88,6 +89,31 @@ const briefingUpdateSchema = z.object({
     })
     .nullable()
     .optional(),
+  // Story 24.17: modo lista de contas. Mesma armadilha de strip — sem declarar, o PATCH
+  // descartaria as contas e a execucao viraria uma busca aberta por cargo.
+  targetAccounts: z
+    .array(
+      z.object({
+        name: z.string().max(120).nullable(),
+        domain: z.string().regex(DOMAIN_REGEX).nullable(),
+        confidence: z.enum(["high", "low"]),
+      })
+    )
+    .max(TARGET_ACCOUNTS_MAX)
+    .nullable()
+    .optional(),
+  suppressedAccounts: z
+    .array(
+      z.object({
+        name: z.string().max(120).nullable(),
+        domain: z.string().regex(DOMAIN_REGEX),
+        reason: z.string().max(200),
+      })
+    )
+    .max(TARGET_ACCOUNTS_MAX)
+    .nullable()
+    .optional(),
+  jobTitlesFromIcp: z.boolean().optional(),
 });
 
 // ==============================================

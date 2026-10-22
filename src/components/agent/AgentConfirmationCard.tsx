@@ -23,6 +23,7 @@ import {
   type BriefingCardAction,
   type BriefingCardField,
 } from "@/hooks/use-briefing-flow";
+import { formatTargetAccountsInput, isAccountListMode } from "@/lib/agent/target-accounts";
 import type { ExtractedProduct, ParsedBriefing } from "@/types/agent";
 
 export type ConfirmationCardVariant = "briefing" | "product" | "leads";
@@ -40,8 +41,9 @@ interface AgentConfirmationCardProps {
   ) => Promise<{ ok: boolean; error?: string }>;
 }
 
-// Ordem dos chips do briefing.
+// Ordem dos chips do briefing. Story 24.17: "Contas" e o primeiro, so no modo lista.
 const BRIEFING_CHIP_FIELDS: BriefingCardField[] = [
+  "targetAccounts",
   "jobTitles",
   "location",
   "technology",
@@ -56,6 +58,7 @@ const BRIEFING_CHIP_FIELDS: BriefingCardField[] = [
 ];
 
 function rawFieldValue(briefing: ParsedBriefing, field: BriefingCardField): string {
+  if (field === "targetAccounts") return formatTargetAccountsInput(briefing.targetAccounts);
   const value = briefing[field];
   if (value == null) return "";
   if (Array.isArray(value)) return value.join(", ");
@@ -92,6 +95,12 @@ function ChipEditor({ field, initial, disabled, onSave, onCancel }: ChipEditorPr
         {BRIEFING_FIELD_LABELS[field]}
         {field === "jobTitles" && (
           <span className="text-muted-foreground font-normal"> (separe por virgula)</span>
+        )}
+        {field === "targetAccounts" && (
+          <span className="text-muted-foreground font-normal">
+            {" "}
+            (dominio ou Nome (dominio), separe por virgula)
+          </span>
         )}
       </label>
       {options ? (
@@ -199,7 +208,10 @@ export function AgentConfirmationCard({
             Confira os parametros da prospeccao
           </p>
           <div className="flex flex-wrap gap-2 mb-3">
-            {BRIEFING_CHIP_FIELDS.map((field) => {
+            {BRIEFING_CHIP_FIELDS.filter((field) =>
+              // Story 24.17: "Contas" so no modo lista; "Tecnologia" nao roda no modo lista.
+              isAccountListMode(briefing) ? field !== "technology" : field !== "targetAccounts"
+            ).map((field) => {
               const value = briefing[field];
               const isEmpty =
                 value == null || value === "" || (Array.isArray(value) && value.length === 0);

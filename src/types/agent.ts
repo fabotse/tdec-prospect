@@ -137,6 +137,30 @@ export interface ParsedBriefing {
   // Substituem o piso de qualidade (porte) e a falta de localizacao na BUSCA DIRETA.
   // Ausente/null = comportamento anterior (sem ICP).
   icpDefaults?: IcpSearchDefaults | null;
+  // Story 24.17: modo lista de contas (ABM). Com contas, `search_companies` fica pulado e o
+  // `search_leads` busca por dominio (`q_organization_domains_list`). Ausente/null/vazio =
+  // comportamento anterior (busca por cargo + localizacao).
+  targetAccounts?: TargetAccount[] | null;
+  // Story 24.17: contas citadas que foram removidas por supressao (negociacao em andamento).
+  // Mantem o modo lista mesmo quando todas foram removidas.
+  suppressedAccounts?: SuppressedAccount[] | null;
+  // Story 24.17: true quando os cargos vieram do ICP (o usuario so citou as contas).
+  jobTitlesFromIcp?: boolean;
+}
+
+/** Story 24.17: conta-alvo do modo lista. `domain` null = o agente precisa perguntar o site. */
+export interface TargetAccount {
+  name: string | null;
+  domain: string | null;
+  /** "high" = dominio citado pelo usuario ou certo; "low" = deduzido pelo nome (confirme). */
+  confidence: "high" | "low";
+}
+
+/** Story 24.17: conta removida da busca por supressao. */
+export interface SuppressedAccount {
+  name: string | null;
+  domain: string;
+  reason: string;
 }
 
 /** Story 24.14: defaults de busca derivados do ICP (faixas canonicas da Apollo). */

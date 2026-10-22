@@ -14,6 +14,11 @@
  */
 
 import type { ParsedBriefing } from "@/types/agent";
+import {
+  hasUnresolvedAccounts,
+  isAccountListMode,
+  resolvedAccountDomains,
+} from "@/lib/agent/target-accounts";
 
 /**
  * Faixas de qualidade aplicadas por padrão na busca direta quando o usuário não
@@ -90,12 +95,17 @@ export interface EffectiveSearchLocations {
 /**
  * Localizacao efetiva da busca de leads: o `location` do usuario vence; senao, os locais
  * do ICP; senao, nenhum.
+ * Story 24.17: no modo lista de contas, so o `location` do usuario (o ICP nao se aplica).
  */
 export function resolveSearchLocations(
-  briefing: Pick<ParsedBriefing, "location" | "icpDefaults">
+  briefing: Pick<ParsedBriefing, "location" | "icpDefaults"> &
+    Partial<Pick<ParsedBriefing, "targetAccounts" | "suppressedAccounts" | "skipSteps">>
 ): EffectiveSearchLocations {
   if (briefing.location) {
     return { locations: [briefing.location], fromIcp: false };
+  }
+  if (isAccountListMode(briefing)) {
+    return { locations: [], fromIcp: false };
   }
   const icpLocations = briefing.icpDefaults?.locations ?? [];
   if (icpLocations.length > 0) {
@@ -106,9 +116,33 @@ export function resolveSearchLocations(
 
 /** true quando a busca tem alguma localizacao efetiva (do usuario ou do ICP). */
 export function hasSearchLocation(
-  briefing: Pick<ParsedBriefing, "location" | "icpDefaults">
+  briefing: Pick<ParsedBriefing, "location" | "icpDefaults"> &
+    Partial<Pick<ParsedBriefing, "targetAccounts" | "suppressedAccounts" | "skipSteps">>
 ): boolean {
   return resolveSearchLocations(briefing).locations.length > 0;
+}
+
+/**
+ * Story 24.17: regra UNICA de avanco da busca (o `canProceed` do `/parse`, o `canConfirm` do
+ * card e os `canProceed` reconciliados do hook).
+ * - Modo lista de contas: cargos >= 1, >= 1 conta restante e nenhuma conta sem dominio
+ *   (localizacao nao e exigida).
+ * - Fora dele: cargos + localizacao efetiva (do usuario ou do ICP).
+ * O fluxo de leads importados e tratado por cada consumidor, como antes.
+ */
+export function canProceedWithSearch(
+  briefing: Pick<ParsedBriefing, "jobTitles" | "location" | "icpDefaults"> &
+    Partial<Pick<ParsedBriefing, "targetAccounts" | "suppressedAccounts" | "skipSteps">>
+): boolean {
+  const hasJobTitles = (briefing.jobTitles?.length ?? 0) > 0;
+  if (isAccountListMode(briefing)) {
+    return (
+      hasJobTitles &&
+      (briefing.targetAccounts?.length ?? 0) > 0 &&
+      !hasUnresolvedAccounts(briefing.targetAccounts)
+    );
+  }
+  return hasJobTitles && hasSearchLocation(briefing);
 }
 
 /** Inicio/fim numerico de uma faixa canonica ("201-500" -> 201/500, "10001+" -> 10001/null). */
@@ -192,5 +226,37 @@ export function buildDirectSearchFilters(
     companySizes,
     ...(locations.length > 0 ? { locations } : {}),
     ...(briefing.industry ? { industries: [briefing.industry] } : {}),
+  };
+}
+
+// ==============================================
+// Story 24.17 — filtros do modo lista de contas (SSOT)
+// ==============================================
+
+/** Filtros da busca por dominio do modo lista (mesma forma do ramo por dominios do step). */
+export type AccountSearchFilters = {
+  domains: string[];
+  titles: string[];
+  perPage: number;
+  page: number;
+  locations?: string[];
+};
+
+/**
+ * Monta os filtros da busca do modo lista: dominios das contas resolvidas + cargos. Porte e
+ * industria nao entram (como no ramo por dominios de hoje), e o local so quando o usuario
+ * informou um (o ICP nao se aplica). Fonte unica da busca real e da viabilidade do `/plan`.
+ */
+export function buildAccountSearchFilters(
+  briefing: Pick<ParsedBriefing, "jobTitles" | "location" | "targetAccounts">,
+  perPage: number
+): AccountSearchFilters {
+  const location = briefing.location?.trim();
+  return {
+    domains: resolvedAccountDomains(briefing.targetAccounts),
+    titles: briefing.jobTitles,
+    perPage,
+    page: 1,
+    ...(location ? { locations: [location] } : {}),
   };
 }

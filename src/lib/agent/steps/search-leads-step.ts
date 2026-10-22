@@ -9,7 +9,21 @@
 import { BaseStep } from "./base-step";
 import { ApolloService } from "@/lib/services/apollo";
 import { getInjectableServiceApiKey } from "@/lib/agent/service-keys";
-import { buildDirectSearchFilters, resolveSearchLocations } from "@/lib/agent/search-defaults";
+import {
+  buildAccountSearchFilters,
+  buildDirectSearchFilters,
+  resolveSearchLocations,
+} from "@/lib/agent/search-defaults";
+import {
+  formatSuppressedAccountsShort,
+  isAccountListMode,
+  resolvedAccountDomains,
+} from "@/lib/agent/target-accounts";
+import {
+  ALL_ACCOUNTS_SUPPRESSED_MESSAGE,
+  findSuppressedAccounts,
+  withAccountNames,
+} from "@/lib/agent/account-suppression";
 import { diagnoseEmptySearch } from "@/lib/agent/empty-search-diagnosis";
 import { resolveLeadCount, resolveLeadsPerPage } from "@/lib/agent/agent-pricing";
 import { logAgentUsage } from "@/lib/agent/agent-usage";
@@ -24,6 +38,7 @@ import type {
   SearchLeadResult,
   ExecutionMode,
   ParsedBriefing,
+  SuppressedAccount,
 } from "@/types/agent";
 import type { LeadRow } from "@/types/lead";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -91,6 +106,8 @@ export class SearchLeadsStep extends BaseStep {
     const jobTitles = briefing.jobTitles;
     const titlesLabel = jobTitles.join(", ");
     const isDirectEntry = !previousStepOutput;
+    // Story 24.17: modo lista de contas — vem ANTES dos ramos atuais.
+    const accountListMode = isAccountListMode(briefing);
 
     // Count active (non-skipped) steps for progress message
     const { data: allSteps } = await this.supabase
@@ -99,8 +116,48 @@ export class SearchLeadsStep extends BaseStep {
       .eq("execution_id", input.executionId);
     const activeSteps = allSteps?.filter((s) => s.status !== "skipped").length ?? 5;
 
+    // Story 24.17: re-supressao sobre os dominios da lista (cobre contas vindas do chip).
+    let accountDomains: string[] = [];
+    let suppressedAccounts: SuppressedAccount[] = [];
+    if (accountListMode) {
+      const listDomains = resolvedAccountDomains(briefing.targetAccounts);
+      const newlySuppressed = withAccountNames(
+        await findSuppressedAccounts(this.supabase, this.tenantId, listDomains),
+        briefing.targetAccounts
+      );
+      const suppressedDomains = new Set(newlySuppressed.map((a) => a.domain));
+      accountDomains = listDomains.filter((d) => !suppressedDomains.has(d));
+
+      const previous = (briefing.suppressedAccounts ?? []).filter(
+        (a) => !suppressedDomains.has(a.domain)
+      );
+      suppressedAccounts = [...previous, ...newlySuppressed];
+
+      if (newlySuppressed.length > 0) {
+        await this.supabase.from("agent_messages").insert({
+          execution_id: input.executionId,
+          role: "system",
+          content: `Removi da busca: ${formatSuppressedAccountsShort(newlySuppressed)}.`,
+          metadata: { stepNumber: this.stepNumber, messageType: "text" },
+        });
+      }
+
+      if (accountDomains.length === 0) {
+        throw new Error(ALL_ACCOUNTS_SUPPRESSED_MESSAGE);
+      }
+    }
+
     // Send progress message
-    if (isDirectEntry) {
+    if (accountListMode) {
+      await this.supabase.from("agent_messages").insert({
+        execution_id: input.executionId,
+        role: "system",
+        content: `Etapa ${this.stepNumber}/${activeSteps}: Buscando leads (${titlesLabel}) ${
+          accountDomains.length === 1 ? "na 1 conta" : `nas ${accountDomains.length} contas`
+        } da sua lista...`,
+        metadata: { stepNumber: this.stepNumber, messageType: "progress" },
+      });
+    } else if (isDirectEntry) {
       await this.supabase.from("agent_messages").insert({
         execution_id: input.executionId,
         role: "system",
@@ -125,6 +182,27 @@ export class SearchLeadsStep extends BaseStep {
     const apolloApiKey = await getInjectableServiceApiKey(this.tenantId, "apollo", "Apollo");
     const service = new ApolloService(this.tenantId, apolloApiKey);
     let domains: string[] = [];
+
+    if (accountListMode) {
+      // Story 24.17: busca por dominio nas contas restantes, com os cargos do briefing (ou do
+      // ICP, ja resolvidos no parse). Porte, industria e local do ICP nao entram. Mesmo
+      // universo da 24.16 e mesmo `buildSearchOutput` (Fit Score, ordem, corte do autopilot).
+      const filters = {
+        ...buildAccountSearchFilters(briefing, resolveLeadsPerPage(briefing)),
+        domains: accountDomains,
+      };
+      const result = await this.searchPeopleLogged(service, filters, input.executionId);
+      return this.buildSearchOutput(
+        result,
+        jobTitles,
+        accountDomains,
+        filters,
+        briefing,
+        input.mode,
+        input.executionId,
+        { suppressedAccounts }
+      );
+    }
 
     if (isDirectEntry) {
       // Story 17.10: Direct entry — search open market by briefing filters.
@@ -236,7 +314,9 @@ export class SearchLeadsStep extends BaseStep {
     filters: Record<string, unknown>,
     briefing: ParsedBriefing,
     mode: ExecutionMode | undefined,
-    executionId: string
+    executionId: string,
+    // Story 24.17: campos extras do modo lista (ex.: `suppressedAccounts`), mesclados no `data`.
+    extraData?: Record<string, unknown>
   ): Promise<StepOutput> {
     const leads: SearchLeadResult[] = result.leads.map((lead: LeadRow) => mapLeadRowToSearchLeadResult(lead));
     const totalFound = result.pagination.totalEntries;
@@ -263,6 +343,7 @@ export class SearchLeadsStep extends BaseStep {
           // (empty-state + chips). JSONB no output do step: zero migration (NFR5).
           emptyResult: true,
           emptyDiagnosis: diagnoseEmptySearch(briefing, filters),
+          ...extraData,
         },
         cost: { apollo_search: 0 },
       };
@@ -297,6 +378,7 @@ export class SearchLeadsStep extends BaseStep {
         searchFilters: filters,
         leadCount,
         fitScoring: { source: scoring.source, counts: countFitGrades(outputLeads) },
+        ...extraData,
       },
       cost: {
         apollo_search: outputLeads.length * CREDITS_PER_LEAD,

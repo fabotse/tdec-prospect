@@ -19,6 +19,7 @@
  *     então um valor fora dos buckets canônicos ("<11") chega inválido.
  */
 
+import { isAccountListMode } from "@/lib/agent/target-accounts";
 import {
   QUALITY_MIN_COMPANY_SIZES,
   QUALITY_MIN_COMPANY_SIZE_LABEL,
@@ -283,7 +284,9 @@ function readStringArray(value: unknown): string[] {
 type DiagnosisBriefing = Pick<
   ParsedBriefing,
   "technology" | "jobTitles" | "location" | "companySize" | "industry" | "icpDefaults"
->;
+> &
+  // Story 24.17: opcionais — no modo lista de contas os textos falam da lista, nao da etapa anterior.
+  Partial<Pick<ParsedBriefing, "targetAccounts" | "suppressedAccounts" | "skipSteps">>;
 
 /**
  * Diagnostica uma busca que voltou vazia e propõe ajustes determinísticos.
@@ -312,11 +315,21 @@ export function diagnoseEmptySearch(
   ];
 
   if (branch === "domains") {
+    const domainsLabel = `${domains.length} ${domains.length === 1 ? "domínio" : "domínios"}`;
+    const accountListMode = isAccountListMode(briefing);
     activeFilters.push({
       label: "Empresas",
-      value: `${domains.length} ${domains.length === 1 ? "domínio" : "domínios"} da etapa anterior`,
-      note: "Tamanho e indústria não entram nesta etapa — os leads são buscados dentro das empresas já aprovadas.",
+      value: accountListMode
+        ? `${domainsLabel} da sua lista de contas`
+        : `${domainsLabel} da etapa anterior`,
+      note: accountListMode
+        ? "Tamanho e indústria não entram no modo lista — os leads são buscados direto nas contas da sua lista."
+        : "Tamanho e indústria não entram nesta etapa — os leads são buscados dentro das empresas já aprovadas.",
     });
+
+    const where = accountListMode
+      ? `nas ${domains.length} ${domains.length === 1 ? "conta" : "contas"} da sua lista`
+      : `nas ${domains.length} ${domains.length === 1 ? "empresa" : "empresas"} da etapa anterior`;
 
     return {
       branch,
@@ -325,9 +338,7 @@ export function diagnoseEmptySearch(
       probableCauses: [
         {
           code: "job_titles_in_companies",
-          text: `Nenhuma pessoa com esses cargos (${titlesLabel}) foi encontrada nas ${domains.length} ${
-            domains.length === 1 ? "empresa" : "empresas"
-          } da etapa anterior. Ajustar cargos ou localização é o que muda o resultado aqui — filtros de tamanho e indústria não são aplicados nesta etapa.`,
+          text: `Nenhuma pessoa com esses cargos (${titlesLabel}) foi encontrada ${where}. Ajustar cargos ou localização é o que muda o resultado aqui — filtros de tamanho e indústria não são aplicados nesta etapa.`,
         },
       ],
       suggestedChips: buildLocationChips(location),

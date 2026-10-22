@@ -20,6 +20,7 @@ import {
   toParserUsage,
   type ParserUsage,
 } from "./parser-config";
+import { sanitizeTargetAccounts } from "./target-accounts";
 
 // ==============================================
 // ZOD SCHEMA — Validates OpenAI response
@@ -106,6 +107,9 @@ export const briefingResponseSchema = z.object({
   // Story 22.15: mesma politica fail-open dos demais metadados — ausente ou invalido
   // (nao-string, > 100 chars) cai para null sem derrubar o parse inteiro.
   segmentName: segmentNameSchema.default(null).catch(null),
+  // Story 24.17: contas-alvo (modo lista / ABM). Cru aqui (`z.unknown()`) e saneado item a
+  // item por `sanitizeTargetAccounts` — um item ruim nunca derruba o parse (fail-open para []).
+  targetAccounts: z.unknown().optional(),
 });
 
 export type BriefingResponse = z.infer<typeof briefingResponseSchema>;
@@ -138,7 +142,11 @@ Extraia SOMENTE quando o usuario mencionar; nunca invente. Ausentes = null.
   - NAO confunda leadCount com emailCount: quantidade de LEADS/contatos/pessoas -> leadCount; quantidade de E-MAILS/mensagens da sequencia ("3 e-mails", "sequencia de 2") -> emailCount. Uma frase com as duas ("10 leads e 3 e-mails") preenche as duas (leadCount=10, emailCount=3).
 - segmentName (string | null): nome do SEGMENTO (lista em "Meus Leads") onde os leads aprovados devem ser salvos. Extraia SOMENTE quando o usuario pedir explicitamente um nome de segmento/lista ("coloca no segmento Teste Atibaia", "salva esses leads na lista Clientes SP", "agrupa num segmento chamado X"). Maximo de 100 caracteres. NAO confunda com campaignDescription: descricao/tema da campanha ("campanha de Black Friday") e campaignDescription e mantem segmentName null; so o pedido explicito de segmento/lista preenche segmentName. Null quando o usuario nao pedir.
   - Se o usuario PERGUNTAR se da para colocar os leads num segmento ("da pra colocar esses leads num segmento?"), responda AFIRMATIVAMENTE no questionText e CITE o nome que sera usado — o nome que ele pediu, ou o nome da campanha quando ele nao pediu nenhum. Nunca ignore a pergunta.
+- targetAccounts (array | []): EMPRESAS-ALVO especificas que o usuario quer atingir (modo lista de contas / ABM). Cada item: { "name": string | null, "domain": string | null, "confidence": "high" | "low" }. Preencha SOMENTE quando o usuario citar empresas especificas pelo nome ("quero falar com o Banco X e a Empresa Y") ou colar sites/dominios ("bancox.com.br, empresay.com"). Sem empresas especificas, retorne [].
+  - domain: o site oficial da empresa, so o dominio (ex.: "bancox.com.br"). Use "high" apenas quando o usuario colou o dominio ou quando voce tem CERTEZA do dominio oficial.
+  - Nome ambiguo ou dominio incerto: de o seu melhor palpite com confidence "low", ou domain null quando nao tiver palpite. NUNCA invente uma empresa que o usuario nao citou.
 - skipSteps (string[]): Etapas a pular. Default [].
+  - Se o usuario citar empresas-alvo especificas (targetAccounts nao vazio), adicione "search_companies" no skipSteps (a busca vai direto nas contas, por dominio).
   - Se o usuario NAO selecionar tecnologia, ou recusar/remover um filtro de tecnologia, adicione "search_companies" no skipSteps (a busca sera por cargo + localizacao, sem a etapa de filtro por tecnologia).
   - Se o usuario selecionar afirmativamente uma tecnologia atual, NAO adicione "search_companies" no skipSteps.
   - Se o usuario indicar que ja possui leads/contatos proprios (ex: "ja tenho os contatos", "quero importar meus leads", "tenho uma planilha de leads", "leads proprios", "minha lista de emails", "CSV com contatos"), adicione ["search_companies", "search_leads"] no skipSteps.
@@ -151,14 +159,14 @@ REGRAS:
 4. Interprete abreviacoes e sinonimos em portugues (ex: "SP" = "Sao Paulo", "TI" = "Tecnologia da Informacao").
 5. Para jobTitles, normalize para o formato padrao (ex: "CTOs" -> "CTO", "heads de TI" -> "Head de TI").
 6. Se o usuario mencionar um produto especifico (ex: "nosso produto X", "quem usa o Y"), extraia o nome em productMentioned.
-6.1. objective/urgency/campaignDescription/emailCount/leadCount/segmentName sao METADADOS DE CAMPANHA: NAO alteram nextAction, skipSteps nem os parametros de busca. A regra de avancar (cargo + localizacao) segue igual — esses campos nunca sao exigidos para prosseguir e nunca travam a conversa.
+6.1. objective/urgency/campaignDescription/emailCount/leadCount/segmentName sao METADADOS DE CAMPANHA: NAO alteram nextAction, skipSteps nem os parametros de busca. A regra de avancar (cargo + localizacao, ou cargo + lista de contas) segue igual — esses campos nunca sao exigidos para prosseguir e nunca travam a conversa.
 
 CONVERSA (nextAction + questionText):
 Voce recebe a conversa inteira (mensagens do usuario e do agente). Alem dos parametros acima, decida a proxima acao da CONVERSA e escreva a mensagem natural a exibir.
 
 - nextAction (string): a intencao do proximo passo. Valores possiveis:
-  - "ask": ainda falta cargo OU localizacao (parametros primarios). NUNCA exija tecnologia (ela e opcional).
-  - "confirm": ja ha cargo + localizacao e voce esta apresentando/re-apresentando o resumo para o usuario confirmar, inclusive apos aplicar uma correcao pedida por ele.
+  - "ask": ainda falta cargo OU localizacao (parametros primarios). NUNCA exija tecnologia (ela e opcional). Com lista de contas (targetAccounts), a localizacao NAO e exigida.
+  - "confirm": ja ha cargo + localizacao (ou cargo + lista de contas) e voce esta apresentando/re-apresentando o resumo para o usuario confirmar, inclusive apos aplicar uma correcao pedida por ele.
   - "proceed": o usuario, DIANTE de um resumo ja apresentado antes no historico, autoriza claramente iniciar (ex: "pode mandar", "bora", "manda bala", "isso, segue", "segue o baile"). So use "proceed" quando houver um resumo previo no historico E uma autorizacao inequivoca do usuario.
   - "register_product": use quando (a) o usuario PEDE EXPLICITAMENTE para cadastrar um produto ("quero cadastrar meu produto X antes", "cadastra o produto Y"), OU (b) o agente ACABOU DE OFERECER o cadastro no historico ("Nao encontrei o produto '...'. Quer cadastrar agora?") E o usuario AFIRMA ("sim", "pode cadastrar", "vamos nessa", "manda"). Se o usuario RECUSA a oferta ("nao", "depois", "segue sem produto", "nao precisa"), NAO use "register_product" — use "confirm" (seguir para o resumo). Nunca invente um produto que o usuario nao citou.
   - "import_leads": use quando o usuario indica ter LEADS/CONTATOS PROPRIOS para usar diretamente ("ja tenho minha lista", "tenho uma planilha de contatos", "quero importar meus leads", "minha base de e-mails", "na verdade eu ja tenho meus contatos"). Para MANTER COERENCIA com o pipeline, sempre que emitir "import_leads" tambem inclua ["search_companies", "search_leads"] em skipSteps (a regra de skipSteps para leads proprios acima e este nextAction andam JUNTOS).
@@ -167,7 +175,8 @@ Voce recebe a conversa inteira (mensagens do usuario e do agente). Alem dos para
 REGRAS DA CONVERSA:
 7. nextAction e questionText sao sobre a CONVERSA — nunca alteram os parametros de busca acima. Na duvida entre "ask" e "confirm", prefira "ask" (default seguro).
 8. Escreva questionText SEMPRE em portugues do Brasil, direto e amigavel. Nunca invente parametros so para poder confirmar.
-9. So devolva "proceed" se o historico ja contiver um resumo apresentado pelo agente E o usuario o estiver autorizando agora. Uma correcao ("troca o cargo pra CFO", "na verdade em SP") NAO e "proceed" — e "confirm" (aplique a correcao e reapresente).`;
+9. So devolva "proceed" se o historico ja contiver um resumo apresentado pelo agente E o usuario o estiver autorizando agora. Uma correcao ("troca o cargo pra CFO", "na verdade em SP") NAO e "proceed" — e "confirm" (aplique a correcao e reapresente).
+10. MODO LISTA DE CONTAS: vale quando o usuario cita empresas-alvo especificas ou cola dominios. Nesse modo as contas substituem a busca de empresas e NAO exigem localizacao (so cargo; sem cargo, o sistema pode usar os do ICP). A correcao mais recente prevalece: se o usuario tirar ou trocar contas, devolva a lista atualizada completa; se ele desistir da lista, devolva targetAccounts [].`;
 
 // ==============================================
 // SERVICE
@@ -247,6 +256,13 @@ export class BriefingParserService {
       }
 
       const raw = validated.data;
+      const targetAccounts = sanitizeTargetAccounts(
+        raw.targetAccounts,
+        history
+          .filter((turn) => turn.role === "user")
+          .map((turn) => turn.content)
+          .join("\n")
+      );
 
       const briefing: ParsedBriefing = {
         technology: raw.technology,
@@ -268,6 +284,10 @@ export class BriefingParserService {
         // Story 22.15: sem esta linha o segmentName some em silencio (o objeto e montado
         // campo-a-campo, sem spread do raw — armadilha de strip #1).
         segmentName: raw.segmentName,
+        // Story 24.17: contas saneadas (dominio normalizado, confianca "high" quando o
+        // dominio aparece no texto do usuario). Sem esta linha somem (armadilha de strip #1).
+        // Sem contas, a chave nao entra (briefing identico ao de antes).
+        ...(targetAccounts.length > 0 ? { targetAccounts } : {}),
       };
 
       return {

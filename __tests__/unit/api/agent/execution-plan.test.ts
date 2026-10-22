@@ -346,6 +346,35 @@ describe("GET /api/agent/executions/[executionId]/plan", () => {
       expect(json.data.viability).toEqual({ estimatedResults: 248, isLow: false });
     });
 
+    it("Story 24.17: modo lista conta a busca por dominio nas contas (sem porte/local do ICP)", async () => {
+      mockExecution({
+        ...DIRECT_BRIEFING,
+        jobTitles: ["CISO"],
+        location: null,
+        industry: null,
+        icpDefaults: { companySizes: ["201-500"], locations: ["SP"] },
+        targetAccounts: [
+          { name: "Banco X", domain: "bancox.com.br", confidence: "high" },
+          { name: "Empresa W", domain: null, confidence: "low" },
+        ],
+      });
+      mockSearchPeople.mockResolvedValue({
+        leads: [],
+        pagination: { totalEntries: 12, page: 1, perPage: 1, totalPages: 12 },
+      });
+
+      const response = await GET(createRequest("?viability=1"), createParams());
+      const json = await response.json();
+
+      expect(mockSearchPeople).toHaveBeenCalledWith({
+        domains: ["bancox.com.br"],
+        titles: ["CISO"],
+        perPage: 1,
+        page: 1,
+      });
+      expect(json.data.viability).toEqual({ estimatedResults: 12, isLow: false });
+    });
+
     it("Story 24.10: loga 1 linha people_search da viabilidade com tenant e executionId", async () => {
       mockExecution(DIRECT_BRIEFING);
       mockSearchPeople.mockResolvedValue({

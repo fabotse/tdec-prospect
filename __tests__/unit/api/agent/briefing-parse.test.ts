@@ -84,6 +84,16 @@ vi.mock("@/lib/agent/agent-usage", () => ({
   logAgentUsage: (...args: unknown[]) => mockLogAgentUsage(...args),
 }));
 
+// Story 24.17: supressao de contas (suite propria em account-suppression.test.ts).
+const mockFindSuppressedAccounts = vi.fn();
+vi.mock("@/lib/agent/account-suppression", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/agent/account-suppression")>();
+  return {
+    ...actual,
+    findSuppressedAccounts: (...args: unknown[]) => mockFindSuppressedAccounts(...args),
+  };
+});
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -165,6 +175,7 @@ describe("POST /api/agent/briefing/parse", () => {
     vi.clearAllMocks();
     mockFrom.mockImplementation(defaultMockFrom);
     mockGenerateSuggestions.mockReturnValue({});
+    mockFindSuppressedAccounts.mockResolvedValue([]);
     // Story 24.14: default = tenant sem ICP (comportamento identico ao de antes).
     mockReadTenantICP.mockResolvedValue({
       jobTitles: [],
@@ -1188,6 +1199,182 @@ describe("POST /api/agent/briefing/parse", () => {
       const json = await (await POST(createRequest(VALID_BODY))).json();
 
       expect(json.briefing.icpDefaults).toBeNull();
+    });
+  });
+
+  describe("Story 24.17 — modo lista de contas", () => {
+    const TENANT_ICP = {
+      jobTitles: ["CISO", "CTO"],
+      industries: [],
+      companySizes: ["201-500"],
+      geographicFocus: ["SP"],
+    };
+
+    function listResult(overrides: Record<string, unknown> = {}) {
+      return {
+        ...FULL_PARSE_RESULT,
+        briefing: {
+          ...FULL_PARSE_RESULT.briefing,
+          technology: null,
+          industry: null,
+          location: null,
+          jobTitles: ["CISO"],
+          targetAccounts: [
+            { name: "Banco X", domain: "bancox.com.br", confidence: "high" },
+            { name: "Empresa Y", domain: "empresay.com", confidence: "high" },
+          ],
+          ...overrides,
+        },
+      };
+    }
+
+    beforeEach(() => {
+      mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+      mockReadTenantICP.mockResolvedValue({
+        jobTitles: [],
+        industries: [],
+        companySizes: [],
+        geographicFocus: [],
+      });
+    });
+
+    it("nomes: 2 contas, search_companies pulado, sem exigir local", async () => {
+      mockParse.mockResolvedValue(listResult());
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(json.briefing.targetAccounts).toHaveLength(2);
+      expect(json.briefing.skipSteps).toContain("search_companies");
+      expect(json.canProceed).toBe(true);
+      expect(json.missingFields).not.toContain("location");
+      expect(json.missingFields).not.toContain("targetAccounts");
+      expect(json.briefing.suppressedAccounts).toBeNull();
+    });
+
+    it("zera a tecnologia e forca search_companies pulado", async () => {
+      mockParse.mockResolvedValue(listResult({ technology: "Netskope", skipSteps: [] }));
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(json.briefing.technology).toBeNull();
+      expect(json.briefing.skipSteps).toEqual(["search_companies"]);
+    });
+
+    it("conta sem dominio: canProceed false e targetAccounts em missingFields", async () => {
+      mockParse.mockResolvedValue(
+        listResult({ targetAccounts: [{ name: "Empresa W", domain: null, confidence: "low" }] })
+      );
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(json.canProceed).toBe(false);
+      expect(json.missingFields).toContain("targetAccounts");
+    });
+
+    it("dominio low: canProceed true", async () => {
+      mockParse.mockResolvedValue(
+        listResult({
+          targetAccounts: [{ name: "Banco X", domain: "bancox.com.br", confidence: "low" }],
+        })
+      );
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(json.canProceed).toBe(true);
+    });
+
+    it("sem cargos do usuario, usa os do ICP com jobTitlesFromIcp", async () => {
+      mockReadTenantICP.mockResolvedValue(TENANT_ICP);
+      mockParse.mockResolvedValue(listResult({ jobTitles: [] }));
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(json.briefing.jobTitles).toEqual(["CISO", "CTO"]);
+      expect(json.briefing.jobTitlesFromIcp).toBe(true);
+      expect(json.canProceed).toBe(true);
+    });
+
+    it("sem cargos e sem ICP: canProceed false e pergunta cargo", async () => {
+      mockParse.mockResolvedValue(listResult({ jobTitles: [] }));
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(json.canProceed).toBe(false);
+      expect(json.missingFields).toContain("jobTitles");
+      expect(json.briefing.jobTitlesFromIcp).toBeUndefined();
+    });
+
+    it("suprimida: removida da lista, vai para suppressedAccounts com o nome", async () => {
+      mockFindSuppressedAccounts.mockResolvedValue([
+        { name: null, domain: "bancox.com.br", reason: "negociacao em andamento (oportunidade com reuniao marcada)" },
+      ]);
+      mockParse.mockResolvedValue(listResult());
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(mockFindSuppressedAccounts).toHaveBeenCalledWith(
+        expect.anything(),
+        "tenant-456",
+        ["bancox.com.br", "empresay.com"]
+      );
+      expect(json.briefing.targetAccounts).toEqual([
+        { name: "Empresa Y", domain: "empresay.com", confidence: "high" },
+      ]);
+      expect(json.briefing.suppressedAccounts).toEqual([
+        {
+          name: "Banco X",
+          domain: "bancox.com.br",
+          reason: "negociacao em andamento (oportunidade com reuniao marcada)",
+        },
+      ]);
+      expect(json.canProceed).toBe(true);
+    });
+
+    it("todas suprimidas: canProceed false e targetAccounts em missingFields", async () => {
+      mockFindSuppressedAccounts.mockResolvedValue([
+        { name: null, domain: "bancox.com.br", reason: "negociacao em andamento (oportunidade em contato)" },
+      ]);
+      mockParse.mockResolvedValue(
+        listResult({
+          targetAccounts: [{ name: "Banco X", domain: "bancox.com.br", confidence: "high" }],
+        })
+      );
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(json.briefing.targetAccounts).toEqual([]);
+      expect(json.briefing.suppressedAccounts).toHaveLength(1);
+      expect(json.canProceed).toBe(false);
+      expect(json.missingFields).toContain("targetAccounts");
+      expect(json.missingFields).not.toContain("location");
+    });
+
+    it("importados: contas null e fluxo importado igual", async () => {
+      mockParse.mockResolvedValue(
+        listResult({ skipSteps: ["search_companies", "search_leads"], jobTitles: [] })
+      );
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(json.briefing.targetAccounts).toBeNull();
+      expect(json.briefing.suppressedAccounts).toBeNull();
+      expect(mockFindSuppressedAccounts).not.toHaveBeenCalled();
+      expect(json.canProceed).toBe(true);
+    });
+
+    it("sem contas: briefing sem as chaves novas e supressao nao consultada", async () => {
+      mockParse.mockResolvedValue({
+        ...FULL_PARSE_RESULT,
+        briefing: { ...FULL_PARSE_RESULT.briefing, technology: null },
+      });
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(json.briefing).not.toHaveProperty("targetAccounts");
+      expect(json.briefing).not.toHaveProperty("suppressedAccounts");
+      expect(json.briefing).not.toHaveProperty("jobTitlesFromIcp");
+      expect(mockFindSuppressedAccounts).not.toHaveBeenCalled();
+      expect(json.canProceed).toBe(true);
     });
   });
 });

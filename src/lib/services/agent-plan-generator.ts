@@ -13,6 +13,7 @@ import {
   resolveSearchLocations,
 } from "@/lib/agent/search-defaults";
 import { resolveLeadCount } from "@/lib/agent/agent-pricing";
+import { isAccountListMode, resolvedAccountDomains } from "@/lib/agent/target-accounts";
 
 // Story 24.13: sufixo " — até N leads" nos ramos ativos da busca, so quando N existe.
 function leadCountSuffix(b: ParsedBriefing): string {
@@ -51,6 +52,13 @@ export const PIPELINE_STEPS: StepMetadata[] = [
     descriptionFn: (b) => {
       if (b.skipSteps?.includes("search_leads")) {
         return "Etapa pulada — leads fornecidos pelo usuario";
+      }
+      // Story 24.17: modo lista de contas — busca por dominio nas contas, sem porte/ICP.
+      if (isAccountListMode(b)) {
+        const count = resolvedAccountDomains(b.targetAccounts).length;
+        const titles = b.jobTitles.length > 0 ? b.jobTitles.join(", ") : "cargos";
+        const where = count === 1 ? "na 1 conta" : `nas ${count} contas`;
+        return `Buscar ${titles} ${where} da sua lista (busca por dominio, sem busca de empresas)${leadCountSuffix(b)}`;
       }
       if (b.skipSteps?.includes("search_companies")) {
         // Story 22.6 (AC3): exibe o tamanho EFETIVO da busca direta antes da confirmacao —
