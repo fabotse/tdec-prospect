@@ -12,8 +12,18 @@ import { getInjectableServiceApiKey } from "@/lib/agent/service-keys";
 import {
   buildAccountSearchFilters,
   buildDirectSearchFilters,
+  locationFiltersForScope,
+  resolveLocationScope,
   resolveSearchLocations,
 } from "@/lib/agent/search-defaults";
+import {
+  findContactedLeads,
+  isReviewEligible,
+  orderByScreening,
+  screenLeads,
+  summarizeScreening,
+  suppressedLeadsMessage,
+} from "@/lib/agent/lead-screening";
 import {
   formatSuppressedAccountsShort,
   isAccountListMode,
@@ -48,6 +58,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // ==============================================
 
 const CREDITS_PER_LEAD = 1;
+
+/** Story 24.15: mensagem quando o cargo exato trouxe pouco e a busca ampliou. */
+export const SIMILAR_TITLES_FALLBACK_MESSAGE =
+  "Poucos resultados com o cargo exato; ampliei para cargos parecidos.";
+
+type PeopleSearchFilters = Parameters<ApolloService["searchPeople"]>[0];
+type PeopleSearchResult = Awaited<ReturnType<ApolloService["searchPeople"]>>;
 
 /**
  * Story 22.14 (AC6): mensagem do autopilot quando a busca volta vazia.
@@ -191,16 +208,16 @@ export class SearchLeadsStep extends BaseStep {
         ...buildAccountSearchFilters(briefing, resolveLeadsPerPage(briefing)),
         domains: accountDomains,
       };
-      const result = await this.searchPeopleLogged(service, filters, input.executionId);
+      const search = await this.searchWithTitleFallback(service, filters, briefing, input.executionId);
       return this.buildSearchOutput(
-        result,
+        search.result,
         jobTitles,
         accountDomains,
-        filters,
+        search.filters,
         briefing,
         input.mode,
         input.executionId,
-        { suppressedAccounts }
+        { suppressedAccounts, ...search.extraData }
       );
     }
 
@@ -214,8 +231,17 @@ export class SearchLeadsStep extends BaseStep {
       // Story 24.16: pagina = universo de 3-5x N (teto 100) — sem N, 25 (fonte unica em agent-pricing).
       const filters = buildDirectSearchFilters(briefing, resolveLeadsPerPage(briefing));
 
-      const result = await this.searchPeopleLogged(service, filters, input.executionId);
-      return this.buildSearchOutput(result, jobTitles, [], filters, briefing, input.mode, input.executionId);
+      const search = await this.searchWithTitleFallback(service, filters, briefing, input.executionId);
+      return this.buildSearchOutput(
+        search.result,
+        jobTitles,
+        [],
+        search.filters,
+        briefing,
+        input.mode,
+        input.executionId,
+        search.extraData
+      );
     }
 
     // Normal flow: extract domains from previous step companies
@@ -244,21 +270,54 @@ export class SearchLeadsStep extends BaseStep {
       domains,
       titles: jobTitles,
       // Story 24.14: local do usuario, senao os do ICP (mesma fonte da busca direta).
-      ...(domainLocations.length > 0 ? { locations: domainLocations } : {}),
+      // Story 24.15: mesma regra de escopo da busca direta (sede da empresa por padrao).
+      ...locationFiltersForScope(domainLocations, resolveLocationScope(briefing)),
+      includeSimilarTitles: false,
       perPage: resolveLeadsPerPage(briefing),
       page: 1,
     };
 
-    const result = await this.searchPeopleLogged(service, filters, input.executionId);
+    const search = await this.searchWithTitleFallback(service, filters, briefing, input.executionId);
     return this.buildSearchOutput(
-      result,
+      search.result,
       jobTitles,
       domains,
-      filters,
+      search.filters,
       briefing,
       input.mode,
-      input.executionId
+      input.executionId,
+      search.extraData
     );
+  }
+
+  /**
+   * Story 24.15: cargo exato primeiro (`includeSimilarTitles: false`). Se voltar menos leads
+   * que N (ou nenhum, sem N), refaz UMA vez com cargos parecidos. Os filtros devolvidos sao
+   * os efetivos (os da 2a chamada quando ampliou), para o "Buscar mais" seguir igual.
+   */
+  private async searchWithTitleFallback<F extends PeopleSearchFilters>(
+    service: ApolloService,
+    filters: F,
+    briefing: ParsedBriefing,
+    executionId: string
+  ): Promise<{ result: PeopleSearchResult; filters: F; extraData: Record<string, unknown> }> {
+    const exactFilters = { ...filters, includeSimilarTitles: false };
+    const exact = await this.searchPeopleLogged(service, exactFilters, executionId);
+    // A pagina e limitada por perPage (<= 100) e N pode ir a 500: pagina cheia nao amplia.
+    const threshold = Math.min(resolveLeadCount(briefing) ?? 1, filters.perPage ?? Infinity);
+    if (exact.leads.length >= threshold) {
+      return { result: exact, filters: exactFilters, extraData: {} };
+    }
+
+    const broadFilters = { ...filters, includeSimilarTitles: true };
+    const broad = await this.searchPeopleLogged(service, broadFilters, executionId);
+    await this.supabase.from("agent_messages").insert({
+      execution_id: executionId,
+      role: "system",
+      content: SIMILAR_TITLES_FALLBACK_MESSAGE,
+      metadata: { stepNumber: this.stepNumber, messageType: "text" },
+    });
+    return { result: broad, filters: broadFilters, extraData: { similarTitlesFallback: true } };
   }
 
   /**
@@ -268,9 +327,9 @@ export class SearchLeadsStep extends BaseStep {
    */
   private async searchPeopleLogged(
     service: ApolloService,
-    filters: Parameters<ApolloService["searchPeople"]>[0],
+    filters: PeopleSearchFilters,
     executionId: string
-  ): Promise<Awaited<ReturnType<ApolloService["searchPeople"]>>> {
+  ): Promise<PeopleSearchResult> {
     const start = Date.now();
     try {
       const result = await service.searchPeople(filters);
@@ -318,8 +377,28 @@ export class SearchLeadsStep extends BaseStep {
     // Story 24.17: campos extras do modo lista (ex.: `suppressedAccounts`), mesclados no `data`.
     extraData?: Record<string, unknown>
   ): Promise<StepOutput> {
-    const leads: SearchLeadResult[] = result.leads.map((lead: LeadRow) => mapLeadRowToSearchLeadResult(lead));
+    const mappedLeads: SearchLeadResult[] = result.leads.map((lead: LeadRow) => mapLeadRowToSearchLeadResult(lead));
     const totalFound = result.pagination.totalEntries;
+
+    // Story 24.15: triagem antes do Fit Score — remove suprimidos e marca orgaos publicos e
+    // ja contatados. Fail-open: leitura falha -> nada removido.
+    const contactMap = await findContactedLeads(
+      this.supabase,
+      this.tenantId,
+      mappedLeads.map((l) => l.apolloId)
+    );
+    const screened = screenLeads(mappedLeads, contactMap);
+    const leads = screened.leads;
+    const screenedRows = screened.keptIndexes.map((i) => result.leads[i]);
+    const screening = summarizeScreening(leads, screened.suppressedCount);
+    if (screened.suppressedCount > 0) {
+      await this.supabase.from("agent_messages").insert({
+        execution_id: executionId,
+        role: "system",
+        content: suppressedLeadsMessage(screened.suppressedCount),
+        metadata: { stepNumber: this.stepNumber, messageType: "text" },
+      });
+    }
 
     // Story 22.14 (Trap #5): o gatilho e SEMPRE a lista vazia, nunca `totalFound === 0`.
     // `totalFound` vem de `pagination.totalEntries` e uma pagina alem do fim devolve
@@ -343,6 +422,7 @@ export class SearchLeadsStep extends BaseStep {
           // (empty-state + chips). JSONB no output do step: zero migration (NFR5).
           emptyResult: true,
           emptyDiagnosis: diagnoseEmptySearch(briefing, filters),
+          screening,
           ...extraData,
         },
         cost: { apollo_search: 0 },
@@ -351,22 +431,32 @@ export class SearchLeadsStep extends BaseStep {
 
     // Story 24.16: Fit Score (regras + 1 chamada de LLM, fail-open). O score casa com o
     // `LeadRow` pelo indice, antes de qualquer reordenacao.
-    const scoring = await this.scoreSearchLeads(result.leads, briefing, executionId);
-    const scoredLeads = sortByFitGrade(
-      leads.map((lead, i) => ({
-        ...lead,
-        fitScore: scoring.results[i].fitScore,
-        fitReason: scoring.results[i].fitReason,
-      }))
+    const scoring = await this.scoreSearchLeads(screenedRows, briefing, executionId);
+    // Story 24.15: elegiveis (A->B->C), depois ja contatados, depois orgaos publicos.
+    const scoredLeads = orderByScreening(
+      sortByFitGrade(
+        leads.map((lead, i) => ({
+          ...lead,
+          fitScore: scoring.results[i].fitScore,
+          fitReason: scoring.results[i].fitReason,
+        }))
+      )
     );
 
     // Story 24.13: N vai no output (o previewData do gate e o proprio data, entao a
     // revisao pre-seleciona N). Sem gate (modo != guided), o create_campaign enriquece
     // TODOS os leads do output — corta nos N primeiros para o custo bater com o pedido.
     // Story 24.16: o corte roda DEPOIS da ordenacao, entao leva os N melhores.
+    // Story 24.15: sem gate, so os elegiveis seguem (orgaos publicos e ja contatados nao).
     const leadCount = resolveLeadCount(briefing);
-    const outputLeads =
-      mode !== "guided" && leadCount !== null ? scoredLeads.slice(0, leadCount) : scoredLeads;
+    let outputLeads = scoredLeads;
+    if (mode !== "guided") {
+      const eligible = scoredLeads.filter(isReviewEligible);
+      if (eligible.length === 0) {
+        throw new Error(EMPTY_LEAD_SEARCH_MESSAGE);
+      }
+      outputLeads = leadCount !== null ? eligible.slice(0, leadCount) : eligible;
+    }
 
     return {
       success: true,
@@ -378,6 +468,7 @@ export class SearchLeadsStep extends BaseStep {
         searchFilters: filters,
         leadCount,
         fitScoring: { source: scoring.source, counts: countFitGrades(outputLeads) },
+        screening,
         ...extraData,
       },
       cost: {

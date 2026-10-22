@@ -76,6 +76,9 @@ export const briefingResponseSchema = z.object({
   technology: z.string().nullable(),
   jobTitles: z.array(z.string()).default([]),
   location: locationSchema,
+  // Story 24.15: escopo do local (sede da empresa x onde a pessoa esta). Ausente ou invalido
+  // cai para null (= sede da empresa), sem derrubar o parse.
+  locationScope: z.enum(["company", "person"]).nullable().catch(null),
   companySize: z.string().nullable(),
   industry: z.string().nullable(),
   productMentioned: z.string().nullable(),
@@ -126,6 +129,7 @@ Extraia os seguintes campos do texto do usuario:
 
 - jobTitles (string[]): Cargos-alvo para prospeccao (parametro primario). Exemplos: CTO, Head de TI, CISO, Diretor de Tecnologia. Se o usuario nao mencionar cargos, retorne array vazio [].
 - location (string | null): Localizacao geografica (parametro primario). Exemplos: Sao Paulo, Brasil, LATAM, EUA. Null se nao mencionado.
+- locationScope ("company" | "person" | null): A QUEM a localizacao se refere. "person" SOMENTE quando o usuario pede explicitamente onde a PESSOA esta ("que morem em", "baseados em", "pela localizacao da pessoa"). "company" quando pede explicitamente a sede/localizacao da EMPRESA ("empresas com sede em", "empresas de SP"). Caso contrario (ex.: "CISO em SP"), null — o padrao e a sede da empresa.
 - technology (string | null): Filtro OPCIONAL. Tecnologia ou ferramenta que as empresas-alvo usam. Exemplos: Netskope, AWS, Salesforce, SAP, Kubernetes. Extraia SOMENTE quando o usuario escolher ou afirmar positivamente a tecnologia atual; caso contrario retorne null (nunca invente nem sugira). Mencoes negadas ou recusadas (ex: "nao tenho tecnologia", "sem filtro de tech", "nao quero mais Netskope") NAO contam como tecnologia selecionada.
 - industry (string | null): Filtro OPCIONAL. Industria ou setor. Exemplos: fintech, saude, varejo, educacao. Null se nao mencionado.
 - companySize (string | null): Tamanho da empresa. Exemplos: "50-200", "enterprise", "startup", "PME". Null se nao mencionado.
@@ -268,6 +272,9 @@ export class BriefingParserService {
         technology: raw.technology,
         jobTitles: raw.jobTitles,
         location: raw.location,
+        // Story 24.15: sem esta linha o locationScope some em silencio (armadilha de strip #1).
+        // Null (nao pedido) nao entra: briefing identico ao de antes = sede da empresa.
+        ...(raw.locationScope ? { locationScope: raw.locationScope } : {}),
         companySize: raw.companySize,
         industry: raw.industry,
         productSlug: null, // Resolved later via KB (Task 3)

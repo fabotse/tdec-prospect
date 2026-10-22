@@ -317,11 +317,20 @@ export class ApolloService extends ExternalService {
 
     if (filters.titles?.length) {
       addArrayParam("person_titles", filters.titles);
-      addParam("include_similar_titles", "true");
+      // Story 24.15: default true keeps the manual search identical
+      addParam(
+        "include_similar_titles",
+        String(filters.includeSimilarTitles ?? true)
+      );
     }
 
     if (filters.locations?.length) {
       addArrayParam("person_locations", filters.locations);
+    }
+
+    // Story 24.15: company HQ location
+    if (filters.organizationLocations?.length) {
+      addArrayParam("organization_locations", filters.organizationLocations);
     }
 
     if (filters.companySizes?.length) {
@@ -341,11 +350,17 @@ export class ApolloService extends ExternalService {
     if (filters.keywords) {
       keywordParts.push(filters.keywords);
     }
-    if (filters.industries?.length) {
+    // Story 24.15: mapped Apollo industries go in organization_industries[]
+    const orgIndustries = filters.organizationIndustries ?? [];
+    const hasOrgIndustries = orgIndustries.length > 0;
+    if (filters.industries?.length && !hasOrgIndustries) {
       keywordParts.push(...filters.industries);
     }
     if (keywordParts.length > 0) {
       addParam("q_keywords", keywordParts.join(" "));
+    }
+    if (hasOrgIndustries) {
+      addArrayParam("organization_industries", orgIndustries);
     }
 
     // Story 3.5.1: AC #4 - Email status filter

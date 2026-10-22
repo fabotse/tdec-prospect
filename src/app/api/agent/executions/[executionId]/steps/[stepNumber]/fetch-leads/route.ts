@@ -14,6 +14,12 @@ import { ApolloService } from "@/lib/services/apollo";
 import { readServiceApiKey } from "@/lib/agent/service-keys";
 import { mapLeadRowToSearchLeadResult } from "@/lib/agent/steps/search-leads-step";
 import { logAgentUsage } from "@/lib/agent/agent-usage";
+import {
+  findContactedLeads,
+  orderByScreening,
+  screenLeads,
+  summarizeScreening,
+} from "@/lib/agent/lead-screening";
 import type { ApolloSearchFilters } from "@/types/apollo";
 import type { SearchLeadResult } from "@/types/agent";
 
@@ -200,9 +206,18 @@ export async function POST(
     );
   }
 
+  // Story 24.15: mesma triagem do step (antes do dedupe/corte) — remove suprimidos e marca
+  // orgaos publicos e ja contatados. Fail-open.
+  const contactMap = await findContactedLeads(
+    supabase,
+    profile.tenant_id,
+    allLeads.map((l) => l.apolloId)
+  );
+  const screened = screenLeads(allLeads, contactMap);
+
   // Deduplicate by email (case-insensitive), fallback to apolloId
   const seen = new Set<string>();
-  const deduplicated = allLeads.filter((lead) => {
+  const deduplicated = screened.leads.filter((lead) => {
     const key = lead.email
       ? lead.email.toLowerCase()
       : lead.apolloId ?? null;
@@ -213,7 +228,9 @@ export async function POST(
   });
 
   // Truncate to desiredCount after dedup to ensure user gets the requested amount
-  const finalLeads = deduplicated.slice(0, desiredCount);
+  // Story 24.15: elegiveis primeiro, depois ja contatados, depois orgaos publicos.
+  const finalLeads = orderByScreening(deduplicated).slice(0, desiredCount);
+  const screening = summarizeScreening(finalLeads, screened.suppressedCount);
 
   // Update step output in DB
   const existingCost = (stepRecord.cost as Record<string, number>) ?? {};
@@ -224,7 +241,7 @@ export async function POST(
   const { error: updateError } = await supabase
     .from("agent_steps")
     .update({
-      output: { ...existingOutput, leads: finalLeads, totalFetched: finalLeads.length },
+      output: { ...existingOutput, leads: finalLeads, totalFetched: finalLeads.length, screening },
       cost: { ...existingCost, apollo_search: previousApolloSearch + additionalCost },
     })
     .eq("execution_id", executionId)
@@ -242,6 +259,7 @@ export async function POST(
       leads: finalLeads,
       totalFetched: finalLeads.length,
       totalFound: existingOutput.totalFound as number,
+      screening,
       cost: { apollo_search: previousApolloSearch + additionalCost },
     },
   });

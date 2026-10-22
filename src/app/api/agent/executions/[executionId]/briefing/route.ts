@@ -21,6 +21,9 @@ const briefingUpdateSchema = z.object({
   technology: z.string().nullable(),
   jobTitles: z.array(z.string()),
   location: z.string().nullable(),
+  // Story 24.15: escopo do local. Mesma armadilha de strip — sem declarar, o PATCH
+  // descartaria o "onde a pessoa esta" e a busca voltaria para a sede da empresa.
+  locationScope: z.enum(["company", "person"]).nullable().optional(),
   companySize: z.string().nullable(),
   industry: z.string().nullable(),
   productSlug: z.string().nullable(),

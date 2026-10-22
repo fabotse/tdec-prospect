@@ -65,6 +65,20 @@ describe("Apollo Types", () => {
   // ==============================================
 
   describe("transformFiltersToApollo", () => {
+    it("Story 24.15: espelha organizationLocations, organizationIndustries e includeSimilarTitles", () => {
+      const result = transformFiltersToApollo({
+        titles: ["CISO"],
+        includeSimilarTitles: false,
+        organizationLocations: ["SP"],
+        organizationIndustries: ["banking"],
+      });
+
+      expect(result.include_similar_titles).toBe(false);
+      expect(result.organization_locations).toEqual(["SP"]);
+      expect(result.organization_industries).toEqual(["banking"]);
+      expect(result.person_locations).toBeUndefined();
+    });
+
     it("transforms basic filters to Apollo API format", () => {
       const filters: ApolloSearchFilters = {
         titles: ["CEO", "CTO"],

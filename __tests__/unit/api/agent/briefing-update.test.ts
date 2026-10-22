@@ -353,6 +353,34 @@ describe("PATCH /api/agent/executions/[executionId]/briefing", () => {
     expect(json.error.code).toBe("VALIDATION_ERROR");
   });
 
+  // Story 24.15: locationScope sobrevive ao strip do z.object.
+  it("deve PRESERVAR locationScope no briefing enviado ao update (24.15 - armadilha do strip)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const briefing = { ...VALID_BRIEFING, locationScope: "person" };
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing, status: "pending" },
+      error: null,
+    });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(createRequest(briefing), createParams());
+    expect(response.status).toBe(200);
+
+    const updateArg = chain.update.mock.calls[0][0] as { briefing: Record<string, unknown> };
+    expect(updateArg.briefing.locationScope).toBe("person");
+  });
+
+  it("deve rejeitar locationScope invalido no PATCH (24.15)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const response = await PATCH(
+      createRequest({ ...VALID_BRIEFING, locationScope: "planeta" }),
+      createParams()
+    );
+    expect(response.status).toBe(400);
+  });
+
   // Story 24.14: icpDefaults sobrevive ao strip do z.object (senao a busca volta ao piso 11+).
   it("deve PRESERVAR icpDefaults no briefing enviado ao update (24.14 - armadilha do strip)", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);

@@ -516,6 +516,36 @@ describe("BriefingParserService", () => {
     });
 
     // ==============================================
+    // Story 24.15: escopo do local (sede da empresa x pessoa)
+    // ==============================================
+
+    it("deve repassar locationScope 'person' (24.15 - 'CISO que more em SP')", async () => {
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, locationScope: "person" });
+      const result = await BriefingParserService.parse("CISO que more em SP", "sk-test");
+      expect(result.briefing.locationScope).toBe("person");
+    });
+
+    it("locationScope ausente ou invalido nao entra no briefing (padrao = empresa, 24.15)", async () => {
+      mockOpenAIResponse(FULL_BRIEFING_RESPONSE);
+      const absent = await BriefingParserService.parse("CISO em SP", "sk-test");
+      expect(absent.briefing).not.toHaveProperty("locationScope");
+
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, locationScope: "planeta" });
+      const invalid = await BriefingParserService.parse("CISO em SP", "sk-test");
+      expect(invalid.briefing).not.toHaveProperty("locationScope");
+      expect(invalid.briefing.jobTitles).toEqual(["CTO"]);
+    });
+
+    it("o prompt explica o locationScope (24.15)", async () => {
+      mockOpenAIResponse(FULL_BRIEFING_RESPONSE);
+      await BriefingParserService.parse("briefing", "sk-test");
+      const request = mockCreate.mock.calls[0][0] as { messages: Array<{ role: string; content: string }> };
+      const system = request.messages[0].content;
+      expect(system).toContain("locationScope");
+      expect(system).toContain("que morem em");
+    });
+
+    // ==============================================
     // Story 24.13: quantos leads (leadCount / N)
     // ==============================================
 

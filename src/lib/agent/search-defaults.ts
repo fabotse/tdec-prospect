@@ -14,6 +14,7 @@
  */
 
 import type { ParsedBriefing } from "@/types/agent";
+import { resolveApolloIndustries } from "@/lib/agent/apollo-industries";
 import {
   hasUnresolvedAccounts,
   isAccountListMode,
@@ -114,6 +115,28 @@ export function resolveSearchLocations(
   return { locations: [], fromIcp: false };
 }
 
+/**
+ * Story 24.15: escopo do local na busca de leads do agente. Padrao = sede da empresa
+ * (`organization_locations`); `"person"` so quando o usuario pediu onde a pessoa esta.
+ */
+export function resolveLocationScope(
+  briefing: Partial<Pick<ParsedBriefing, "locationScope">> | null | undefined
+): "company" | "person" {
+  return briefing?.locationScope === "person" ? "person" : "company";
+}
+
+/**
+ * Story 24.15: o local no campo certo da Apollo conforme o escopo — `organizationLocations`
+ * (sede, padrao) ou `locations` (pessoa). Lista vazia → nada.
+ */
+export function locationFiltersForScope(
+  locations: string[],
+  scope: "company" | "person"
+): { locations?: string[]; organizationLocations?: string[] } {
+  if (locations.length === 0) return {};
+  return scope === "person" ? { locations } : { organizationLocations: locations };
+}
+
 /** true quando a busca tem alguma localizacao efetiva (do usuario ou do ICP). */
 export function hasSearchLocation(
   briefing: Pick<ParsedBriefing, "location" | "icpDefaults"> &
@@ -197,6 +220,10 @@ export type DirectSearchFilters = {
   companySizes: string[];
   locations?: string[];
   industries?: string[];
+  // Story 24.15
+  organizationLocations?: string[];
+  organizationIndustries?: string[];
+  includeSimilarTitles: boolean;
 };
 
 /**
@@ -212,20 +239,29 @@ export function buildDirectSearchFilters(
   briefing: Pick<
     ParsedBriefing,
     "jobTitles" | "location" | "industry" | "companySize" | "icpDefaults"
-  >,
+  > &
+    Partial<Pick<ParsedBriefing, "locationScope">>,
   perPage: number
 ): DirectSearchFilters {
   const { companySizes } = resolveDirectSearchCompanySizes(briefing);
   // Story 24.14: local do usuario, senao os do ICP.
   const { locations } = resolveSearchLocations(briefing);
+  // Story 24.15: sede da empresa por padrao; industria mapeada vai em organization_industries.
+  const scope = resolveLocationScope(briefing);
+  const apolloIndustries = resolveApolloIndustries(briefing.industry);
 
   return {
     titles: briefing.jobTitles,
     perPage,
     page: 1,
     companySizes,
-    ...(locations.length > 0 ? { locations } : {}),
-    ...(briefing.industry ? { industries: [briefing.industry] } : {}),
+    includeSimilarTitles: false,
+    ...locationFiltersForScope(locations, scope),
+    ...(apolloIndustries
+      ? { organizationIndustries: apolloIndustries }
+      : briefing.industry
+        ? { industries: [briefing.industry] }
+        : {}),
   };
 }
 
@@ -240,6 +276,7 @@ export type AccountSearchFilters = {
   perPage: number;
   page: number;
   locations?: string[];
+  includeSimilarTitles: boolean; // Story 24.15
 };
 
 /**
@@ -257,6 +294,7 @@ export function buildAccountSearchFilters(
     titles: briefing.jobTitles,
     perPage,
     page: 1,
+    includeSimilarTitles: false,
     ...(location ? { locations: [location] } : {}),
   };
 }

@@ -13,7 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { sortByFitGrade } from "@/lib/agent/fit-score-rules";
-import type { FitGrade } from "@/types/agent";
+import { isReviewEligible, orderByScreening } from "@/lib/agent/lead-screening";
+import type { FitGrade, LeadScreeningSummary } from "@/types/agent";
 import { triggerNextStepChecked } from "@/lib/agent/client-utils";
 import { reportTriggerFailure } from "@/lib/agent/report-trigger-failure";
 import { useAgentStore } from "@/stores/use-agent-store";
@@ -37,6 +38,10 @@ interface LeadPreview {
   /** Story 24.16: Fit Score do step. Ausente em execucoes antigas e nos leads do fetch-leads. */
   fitScore?: FitGrade | null;
   fitReason?: string | null;
+  /** Story 24.15: orgao publico (oculto por padrao, fora da pre-selecao). */
+  publicSector?: boolean;
+  /** Story 24.15: lead ja abordado (badge, fora da pre-selecao). */
+  contactStatus?: "already_contacted" | null;
 }
 
 interface AgentLeadReviewProps {
@@ -50,6 +55,8 @@ interface AgentLeadReviewProps {
     emptyDiagnosis?: EmptySearchDiagnosis;
     /** Story 24.13: quantos leads o usuario pediu (N). Ausente em execucoes antigas. */
     leadCount?: number | null;
+    /** Story 24.15: contagens da triagem (suprimidos removidos, publicos, ja contatados). */
+    screening?: LeadScreeningSummary;
   };
   executionId: string;
   stepNumber: number;
@@ -92,12 +99,19 @@ function mergeFitScores(previous: LeadPreview[], fetched: LeadPreview[]): LeadPr
     const score = scoreByApolloId.get(lead.apolloId);
     return score ? { ...lead, ...score } : lead;
   });
-  return sortByFitGrade(merged);
+  return orderByScreening(sortByFitGrade(merged));
 }
 
-/** Indices dos `count` primeiros leads. */
-function firstIndices(count: number): Set<number> {
-  return new Set(Array.from({ length: count }, (_, i) => i));
+/**
+ * Story 24.15: indices dos `count` primeiros leads ELEGIVEIS (nem orgao publico, nem ja
+ * contatado). `count` null = todos os elegiveis.
+ */
+function firstEligibleIndices(leads: LeadPreview[], count: number | null): Set<number> {
+  const indices: number[] = [];
+  leads.forEach((lead, i) => {
+    if (isReviewEligible(lead)) indices.push(i);
+  });
+  return new Set(count === null ? indices : indices.slice(0, count));
 }
 
 export function AgentLeadReview({
@@ -110,16 +124,19 @@ export function AgentLeadReview({
 }: AgentLeadReviewProps) {
   // Story 17.12: local leads state (updated after fetch-more)
   // Story 24.16: a ordem e a do output (ja A -> B -> C); lead sem nota fica no fim.
+  // Story 24.15: elegiveis primeiro, depois ja contatados, depois orgaos publicos.
   const [localLeads, setLocalLeads] = useState<LeadPreview[]>(() =>
-    sortByFitGrade(data.leads ?? [])
+    orderByScreening(sortByFitGrade(data.leads ?? []))
   );
   // Story 24.13: com N, pre-seleciona os N primeiros; sem N, todos (como antes).
+  // Story 24.15: so os elegiveis entram na pre-selecao.
   const requestedCount = validLeadCount(data.leadCount);
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(() =>
-    requestedCount !== null
-      ? firstIndices(Math.min(requestedCount, data.leads?.length ?? 0))
-      : new Set((data.leads ?? []).map((_, i) => i))
+    firstEligibleIndices(orderByScreening(sortByFitGrade(data.leads ?? [])), requestedCount)
   );
+  // Story 24.15: orgaos publicos ocultos por padrao; o toggle os inclui na lista.
+  const [showPublicSector, setShowPublicSector] = useState(false);
+  const [screening, setScreening] = useState<LeadScreeningSummary | undefined>(data.screening);
   const [filter, setFilter] = useState("");
   const [loading, setLoading] = useState<"approve" | "reject" | null>(null);
   const [localActionTaken, setLocalActionTaken] = useState<"approved" | "rejected" | null>(null);
@@ -160,21 +177,38 @@ export function AgentLeadReview({
       : null;
   const needsFetch = selectedQuantity !== null && selectedQuantity > localLeads.length;
 
+  const publicSectorCount = localLeads.filter((lead) => lead.publicSector).length;
+
   const filteredLeads = useMemo(() => {
-    if (!filter.trim()) return localLeads.map((lead, i) => ({ lead, index: i }));
-    const lower = filter.toLowerCase();
-    return localLeads
+    const visible = localLeads
       .map((lead, i) => ({ lead, index: i }))
+      .filter(({ lead }) => showPublicSector || !lead.publicSector);
+    if (!filter.trim()) return visible;
+    const lower = filter.toLowerCase();
+    return visible
       .filter(
         ({ lead }) =>
           lead.name.toLowerCase().includes(lower) ||
           (lead.companyName?.toLowerCase().includes(lower) ?? false) ||
           (lead.title?.toLowerCase().includes(lower) ?? false)
       );
-  }, [localLeads, filter]);
+  }, [localLeads, filter, showPublicSector]);
+
+  // Story 24.15: ocultar os orgaos publicos tira eles da selecao (oculto nunca e aprovado).
+  const togglePublicSector = () => {
+    if (showPublicSector) {
+      const newSet = new Set(selectedIndices);
+      localLeads.forEach((lead, i) => {
+        if (lead.publicSector) newSet.delete(i);
+      });
+      setSelectedIndices(newSet);
+    }
+    setShowPublicSector(!showPublicSector);
+  };
 
   const selectedCount = selectedIndices.size;
-  const allFilteredSelected = filteredLeads.every(({ index }) => selectedIndices.has(index));
+  const allFilteredSelected =
+    filteredLeads.length > 0 && filteredLeads.every(({ index }) => selectedIndices.has(index));
 
   const toggleAll = () => {
     const newSet = new Set(selectedIndices);
@@ -218,8 +252,10 @@ export function AgentLeadReview({
       const newLeads = mergeFitScores(localLeads, result.data.leads as LeadPreview[]);
       setLocalLeads(newLeads);
       setHasExpanded(true);
+      if (result.data.screening) setScreening(result.data.screening as LeadScreeningSummary);
       // Story 24.13: seleciona os Q primeiros (ou todos, se vieram menos). 24.16: os melhores.
-      setSelectedIndices(firstIndices(Math.min(selectedQuantity, newLeads.length)));
+      // Story 24.15: so entre os elegiveis.
+      setSelectedIndices(firstEligibleIndices(newLeads, selectedQuantity));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao buscar leads");
     } finally {
@@ -230,13 +266,15 @@ export function AgentLeadReview({
   // Story 24.13: Q dentro do lote carregado — reseleciona os Q primeiros, sem chamada externa.
   const handleSelectQuantity = () => {
     if (!selectedQuantity || needsFetch) return;
-    setSelectedIndices(firstIndices(selectedQuantity));
+    setSelectedIndices(firstEligibleIndices(localLeads, selectedQuantity));
   };
 
   const handleApprove = async () => {
     setLoading("approve");
     setError(null);
-    const selectedLeads = localLeads.filter((_, i) => selectedIndices.has(i));
+    const selectedLeads = localLeads.filter(
+      (lead, i) => selectedIndices.has(i) && (showPublicSector || !lead.publicSector)
+    );
     try {
       const response = await fetch(
         `/api/agent/executions/${executionId}/steps/${stepNumber}/approve`,
@@ -562,6 +600,28 @@ export function AgentLeadReview({
           </div>
         </div>
 
+        {(screening?.suppressed ?? 0) > 0 && (
+          <p className="text-xs text-muted-foreground" data-testid="suppressed-leads-note">
+            {screening?.suppressed} lead(s) suprimido(s) removido(s) da lista.
+          </p>
+        )}
+
+        {publicSectorCount > 0 && (
+          <div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={togglePublicSector}
+              disabled={isDisabled}
+              data-testid="toggle-public-sector"
+            >
+              {showPublicSector
+                ? "Ocultar orgaos publicos"
+                : `Incluir ${publicSectorCount} de orgaos publicos`}
+            </Button>
+          </div>
+        )}
+
         <Input
           placeholder="Filtrar por nome, empresa ou cargo..."
           value={filter}
@@ -616,6 +676,20 @@ export function AgentLeadReview({
                   </TableCell>
                   <TableCell>
                     <span className="font-medium">{lead.name}</span>
+                    {lead.contactStatus === "already_contacted" && (
+                      <Badge
+                        variant="outline"
+                        className="ml-2"
+                        data-testid="lead-already-contacted"
+                      >
+                        Já contatado
+                      </Badge>
+                    )}
+                    {lead.publicSector && (
+                      <Badge variant="outline" className="ml-2" data-testid="lead-public-sector">
+                        Órgão público
+                      </Badge>
+                    )}
                     {lead.fitReason && (
                       <p className="text-xs text-muted-foreground" data-testid="fit-reason">
                         {lead.fitReason}

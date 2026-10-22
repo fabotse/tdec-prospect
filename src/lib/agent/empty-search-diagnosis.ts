@@ -306,8 +306,14 @@ export function diagnoseEmptySearch(
   const jobTitles = filterTitles.length > 0 ? filterTitles : briefing.jobTitles;
   const titlesLabel = jobTitles.length > 0 ? jobTitles.join(", ") : "sem filtro";
 
+  // Story 24.15: o local pode ter ido como local da pessoa (`locations`) ou sede da empresa
+  // (`organizationLocations`).
   const filterLocations = readStringArray(filters.locations);
-  const location = filterLocations[0] ?? briefing.location ?? null;
+  const filterOrgLocations = readStringArray(filters.organizationLocations);
+  const location = filterLocations[0] ?? filterOrgLocations[0] ?? briefing.location ?? null;
+  // Story 24.15: industria mapeada vai por categoria (`organizationIndustries`), nao por texto.
+  const industryByCategory = readStringArray(filters.organizationIndustries).length > 0;
+  const industryTextual = Boolean(briefing.industry) && !industryByCategory;
 
   const activeFilters: ActiveFilterLine[] = [
     { label: "Cargos", value: titlesLabel },
@@ -387,7 +393,7 @@ export function diagnoseEmptySearch(
   activeFilters.push({
     label: "Indústria",
     value: briefing.industry ?? "sem filtro",
-    ...(briefing.industry
+    ...(industryTextual
       ? {
           note: "A busca por indústria é feita por TEXTO (palavra-chave), não por categoria — é o filtro mais impreciso da busca aberta.",
         }
@@ -403,7 +409,7 @@ export function diagnoseEmptySearch(
     });
   }
 
-  if (briefing.industry) {
+  if (industryTextual) {
     probableCauses.push({
       code: "industry_textual",
       text: `A indústria ("${briefing.industry}") vira uma busca por texto livre, não por categoria. Basta o termo não bater com o cadastro das empresas para o resultado zerar — é a causa mais comum de busca vazia.`,

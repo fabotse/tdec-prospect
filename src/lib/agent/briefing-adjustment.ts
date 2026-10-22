@@ -194,6 +194,8 @@ export function mergeAdjustedBriefing(
     icpDefaults: parsed.icpDefaults ?? persisted.icpDefaults ?? null,
     // Story 24.17: contas e origem dos cargos (regras acima).
     ...accountFields,
+    // Story 24.15: escopo do local — o valor do parse vence; ausencia PRESERVA o persistido.
+    ...(parsed.locationScope ? { locationScope: parsed.locationScope } : {}),
   };
   // Story 24.17: no modo lista a tecnologia nao roda (search_companies pulado) — um parse
   // sem contas nao pode trazer uma tecnologia para dentro de uma execucao no modo lista.
@@ -313,6 +315,11 @@ export function buildAdjustmentSummary(
         (effectiveLocations.fromIcp
           ? `${effectiveLocations.locations.join(", ")} (do seu ICP)`
           : "sem filtro")
+      }${
+        // Story 24.15: mesmo sufixo do resumo do briefing (use-briefing-flow).
+        merged.locationScope === "person" && effectiveLocations.locations.length > 0
+          ? " (onde a pessoa esta)"
+          : ""
       }`
     );
     const isDirectSearch =

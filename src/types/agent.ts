@@ -114,6 +114,10 @@ export interface ParsedBriefing {
   technology: string | null;
   jobTitles: string[];
   location: string | null;
+  // Story 24.15: escopo do local na busca de leads. "company" (sede da empresa,
+  // `organization_locations`) ou "person" (onde a pessoa esta, `person_locations`).
+  // Ausente/null = "company".
+  locationScope?: "company" | "person" | null;
   companySize: string | null;
   industry: string | null;
   productSlug: string | null;
@@ -316,6 +320,17 @@ export interface SearchLeadResult {
   fitScore?: FitGrade | null;
   /** Story 24.16: justificativa de 1 linha do Fit Score (<= 120 caracteres). */
   fitReason?: string | null;
+  /** Story 24.15: organizacao com nome de orgao publico (oculta por padrao na revisao). */
+  publicSector?: boolean;
+  /** Story 24.15: lead ja abordado pelo tenant (fora da pre-selecao). */
+  contactStatus?: "already_contacted" | null;
+}
+
+/** Story 24.15: contagens da triagem dos resultados da busca. */
+export interface LeadScreeningSummary {
+  suppressed: number;
+  publicSector: number;
+  alreadyContacted: number;
 }
 
 /** Story 24.16: origem e distribuicao do Fit Score no output do `search_leads`. */
@@ -331,6 +346,8 @@ export interface SearchLeadsOutput {
   domainsSearched: string[];
   searchFilters?: Record<string, unknown>; // Story 17.12: filtros para re-paginacao
   fitScoring?: FitScoringSummary; // Story 24.16
+  screening?: LeadScreeningSummary; // Story 24.15
+  similarTitlesFallback?: boolean; // Story 24.15: ampliou para cargos parecidos
 }
 
 // === Create Campaign Output (Story 17.3 AC #4) ===

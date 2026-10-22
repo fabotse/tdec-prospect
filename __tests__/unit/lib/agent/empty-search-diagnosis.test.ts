@@ -622,3 +622,35 @@ describe("diagnoseEmptySearch — modo lista de contas (24.17)", () => {
     expect(result.probableCauses[0].text).toContain("da etapa anterior");
   });
 });
+
+describe("diagnoseEmptySearch — Story 24.15 (busca mais precisa)", () => {
+  it("le o local de organizationLocations (sede da empresa)", () => {
+    const result = diagnoseEmptySearch(
+      briefing({ location: null }),
+      directFilters({ locations: undefined, organizationLocations: ["Campinas"] })
+    );
+    expect(filterValue(result, "Localização")?.value).toBe("Campinas");
+    expect(causeCodes(result)).toContain("narrow_location");
+  });
+
+  it("industria por categoria (organizationIndustries) nao vira causa industry_textual", () => {
+    const result = diagnoseEmptySearch(
+      briefing({ location: "Sao Paulo, Brazil", industry: "fintech" }),
+      directFilters({
+        locations: undefined,
+        organizationLocations: ["Sao Paulo, Brazil"],
+        organizationIndustries: ["financial services", "banking"],
+      })
+    );
+    expect(causeCodes(result)).not.toContain("industry_textual");
+    expect(filterValue(result, "Indústria")?.note).toBeUndefined();
+  });
+
+  it("industria como texto (industries) segue com a causa industry_textual", () => {
+    const result = diagnoseEmptySearch(
+      briefing({ location: "Sao Paulo, Brazil", industry: "biotech espacial" }),
+      directFilters({ organizationLocations: ["Sao Paulo, Brazil"], industries: ["biotech espacial"] })
+    );
+    expect(causeCodes(result)).toContain("industry_textual");
+  });
+});

@@ -252,9 +252,13 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
   }
   // Story 24.14: sem local do usuario, o local do ICP (quando houver) e o efetivo.
   const effectiveLocations = resolveSearchLocations(briefing);
-  if (briefing.location) lines.push(`- Localizacao: ${briefing.location}`);
+  // Story 24.15: com escopo "pessoa", a linha diz que o local e onde a pessoa esta.
+  const personScope = briefing.locationScope === "person" ? " (onde a pessoa esta)" : "";
+  if (briefing.location) lines.push(`- Localizacao: ${briefing.location}${personScope}`);
   else if (effectiveLocations.fromIcp) {
-    lines.push(`- Localizacao: ${effectiveLocations.locations.join(", ")} (do seu ICP)`);
+    lines.push(
+      `- Localizacao: ${effectiveLocations.locations.join(", ")} (do seu ICP)${personScope}`
+    );
   }
   if (briefing.companySize) lines.push(`- Tamanho: ${briefing.companySize}`);
   if (briefing.industry) lines.push(`- Industria: ${briefing.industry}`);

@@ -369,6 +369,7 @@ describe("GET /api/agent/executions/[executionId]/plan", () => {
       expect(mockSearchPeople).toHaveBeenCalledWith({
         domains: ["bancox.com.br"],
         titles: ["CISO"],
+        includeSimilarTitles: false,
         perPage: 1,
         page: 1,
       });
@@ -423,7 +424,9 @@ describe("GET /api/agent/executions/[executionId]/plan", () => {
       // SSOT `buildDirectSearchFilters`: uma estimativa com filtros diferentes da busca
       // real seria uma estimativa que mente.
       expect(filters.companySizes).not.toContain("1-10");
-      expect(filters.locations).toEqual(["Atibaia"]);
+      // Story 24.15: sede da empresa + cargo exato; industria sem mapa segue como texto.
+      expect(filters.organizationLocations).toEqual(["Atibaia"]);
+      expect(filters.includeSimilarTitles).toBe(false);
       expect(filters.industries).toEqual(["clinicas de estetica"]);
     });
 

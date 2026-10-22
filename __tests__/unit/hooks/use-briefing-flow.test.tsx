@@ -5002,6 +5002,45 @@ describe("useBriefingFlow", () => {
 // Story 24.14 — briefing a partir do ICP
 // ==============================================
 
+describe("useBriefingFlow — Story 24.15 (escopo do local)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    restoreFetch();
+  });
+
+  async function summaryFor(briefingOverrides: Record<string, unknown>) {
+    createMockFetch([
+      {
+        url: /\/api\/agent\/briefing\/parse$/,
+        method: "POST",
+        response: mockJsonResponse({
+          ...COMPLETE_PARSE_RESPONSE,
+          briefing: { ...COMPLETE_PARSE_RESPONSE.briefing, ...briefingOverrides },
+        }),
+      },
+    ]);
+    const { result } = renderHook(() => useBriefingFlow());
+    await act(async () => {
+      await result.current.processMessage("CISO em SP", EXEC_ID, mockSendAgentMessage);
+    });
+    return mockSendAgentMessage.mock.calls.at(-1)?.[1] as string;
+  }
+
+  it("locationScope person: a linha de local diz '(onde a pessoa esta)'", async () => {
+    const summary = await summaryFor({ locationScope: "person" });
+    expect(summary).toContain("- Localizacao: Sao Paulo (onde a pessoa esta)");
+  });
+
+  it("padrao (empresa): a linha de local nao muda", async () => {
+    const summary = await summaryFor({});
+    expect(summary).toContain("- Localizacao: Sao Paulo\n");
+    expect(summary).not.toContain("onde a pessoa esta");
+  });
+});
+
 describe("useBriefingFlow — Story 24.14 (ICP)", () => {
   const ICP_DEFAULTS = { companySizes: ["201-500", "501-1000"], locations: ["SP"] };
   const PROPOSAL: ParsedBriefing = {

@@ -462,3 +462,36 @@ describe("Story 24.17 — contas no ajuste", () => {
     expect(summary).not.toContain("- Contas:");
   });
 });
+
+describe("Story 24.15 - locationScope no ajuste", () => {
+  it("mergeAdjustedBriefing: o locationScope do parse vence", () => {
+    const merged = mergeAdjustedBriefing(
+      { ...PERSISTED, locationScope: "company" },
+      { ...PARSED, locationScope: "person" }
+    );
+    expect(merged.locationScope).toBe("person");
+  });
+
+  it("mergeAdjustedBriefing: ausencia no parse PRESERVA o locationScope anterior", () => {
+    expect(mergeAdjustedBriefing({ ...PERSISTED, locationScope: "person" }, PARSED).locationScope).toBe(
+      "person"
+    );
+    expect(
+      mergeAdjustedBriefing({ ...PERSISTED, locationScope: "person" }, { ...PARSED, locationScope: null })
+        .locationScope
+    ).toBe("person");
+    expect(mergeAdjustedBriefing(PERSISTED, PARSED)).not.toHaveProperty("locationScope");
+  });
+});
+
+describe("Story 24.15 - locationScope no resumo do ajuste", () => {
+  it("escopo pessoa: '- Localizacao: ... (onde a pessoa esta)'; padrao sem sufixo", () => {
+    const person: ParsedBriefing = { ...PERSISTED, locationScope: "person" };
+    expect(buildAdjustmentSummary(person, person, "search_leads", null)).toContain(
+      "- Localizacao: Sao Paulo (onde a pessoa esta)"
+    );
+    const summary = buildAdjustmentSummary(PERSISTED, PERSISTED, "search_leads", null);
+    expect(summary).toContain("- Localizacao: Sao Paulo");
+    expect(summary).not.toContain("onde a pessoa esta");
+  });
+});

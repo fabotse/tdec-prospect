@@ -1092,3 +1092,187 @@ describe("AgentLeadReview — Story 24.16 Fit Score", () => {
     expect(screen.getByRole("checkbox", { name: "Selecionar Lead 31" })).not.toBeChecked();
   });
 });
+
+describe("AgentLeadReview — Story 24.15 triagem", () => {
+  const lead = (
+    name: string,
+    extra: { publicSector?: boolean; contactStatus?: "already_contacted" } = {}
+  ) => ({
+    name,
+    title: "CISO",
+    companyName: extra.publicSector ? `Prefeitura ${name}` : `Empresa ${name}`,
+    email: null,
+    apolloId: `apollo-${name}`,
+    ...extra,
+  });
+
+  const screenedData = {
+    totalFound: 5,
+    leads: [
+      lead("E1"),
+      lead("E2"),
+      lead("C1", { contactStatus: "already_contacted" }),
+      lead("P1", { publicSector: true }),
+      lead("P2", { publicSector: true }),
+    ],
+    jobTitles: ["CISO"],
+    screening: { suppressed: 2, publicSector: 2, alreadyContacted: 1 },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { stepNumber: 2, status: "approved", nextStep: 3 } }),
+    });
+  });
+
+  it("orgaos publicos ficam ocultos; ja contatado tem badge; pre-selecao so de elegiveis", () => {
+    render(<AgentLeadReview data={screenedData} executionId="exec-001" stepNumber={2} totalSteps={5} />);
+
+    expect(screen.queryByText("P1")).toBeNull();
+    expect(screen.getByText("C1")).toBeInTheDocument();
+    expect(screen.getAllByTestId("lead-already-contacted")).toHaveLength(1);
+    expect(screen.getByText("2 de 5 leads selecionados")).toBeInTheDocument();
+    expect(screen.getByLabelText("Selecionar C1")).not.toBeChecked();
+    expect(screen.getByText("2 lead(s) suprimido(s) removido(s) da lista.")).toBeInTheDocument();
+  });
+
+  it("toggle inclui e oculta os orgaos publicos (ocultos saem da selecao)", () => {
+    render(<AgentLeadReview data={screenedData} executionId="exec-001" stepNumber={2} totalSteps={5} />);
+
+    const toggle = screen.getByTestId("toggle-public-sector");
+    expect(toggle).toHaveTextContent("Incluir 2 de orgaos publicos");
+    fireEvent.click(toggle);
+
+    expect(screen.getByText("P1")).toBeInTheDocument();
+    expect(screen.getAllByTestId("lead-public-sector")).toHaveLength(2);
+    expect(screen.getByLabelText("Selecionar P1")).not.toBeChecked();
+    fireEvent.click(screen.getByLabelText("Selecionar P1"));
+    expect(screen.getByText("3 de 5 leads selecionados")).toBeInTheDocument();
+
+    expect(toggle).toHaveTextContent("Ocultar orgaos publicos");
+    fireEvent.click(toggle);
+    expect(screen.queryByText("P1")).toBeNull();
+    expect(screen.getByText("2 de 5 leads selecionados")).toBeInTheDocument();
+  });
+
+  it("sem publicos nao mostra o toggle; sem suprimidos nao mostra a linha", () => {
+    render(
+      <AgentLeadReview
+        data={{ totalFound: 1, leads: [lead("E1")], jobTitles: ["CISO"] }}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+      />
+    );
+    expect(screen.queryByTestId("toggle-public-sector")).toBeNull();
+    expect(screen.queryByTestId("suppressed-leads-note")).toBeNull();
+  });
+
+  it("com N, pre-seleciona os N primeiros elegiveis (pula ja contatado mesmo se vier antes)", () => {
+    render(
+      <AgentLeadReview
+        data={{
+          totalFound: 4,
+          leads: [lead("C1", { contactStatus: "already_contacted" }), lead("E1"), lead("E2"), lead("E3")],
+          jobTitles: ["CISO"],
+          leadCount: 2,
+        }}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+      />
+    );
+    expect(screen.getByText("2 de 4 leads selecionados")).toBeInTheDocument();
+    expect(screen.getByLabelText("Selecionar E1")).toBeChecked();
+    expect(screen.getByLabelText("Selecionar E2")).toBeChecked();
+    expect(screen.getByLabelText("Selecionar E3")).not.toBeChecked();
+    expect(screen.getByLabelText("Selecionar C1")).not.toBeChecked();
+  });
+
+  it("Selecionar Q leads: seleciona os Q primeiros elegiveis (pula ja contatado)", () => {
+    render(
+      <AgentLeadReview
+        data={{
+          totalFound: 4,
+          leads: [lead("E1"), lead("C1", { contactStatus: "already_contacted" }), lead("E2"), lead("E3")],
+          jobTitles: ["CISO"],
+        }}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+      />
+    );
+
+    fireEvent.change(screen.getByTestId("lead-quantity-input"), { target: { value: "2" } });
+    fireEvent.click(screen.getByTestId("lead-quantity-action"));
+
+    expect(screen.getByLabelText("Selecionar E1")).toBeChecked();
+    expect(screen.getByLabelText("Selecionar E2")).toBeChecked();
+    expect(screen.getByLabelText("Selecionar C1")).not.toBeChecked();
+    expect(screen.getByLabelText("Selecionar E3")).not.toBeChecked();
+  });
+
+  it("todos ocultos (so orgaos publicos): o 'Selecionar todos' nao aparece marcado", () => {
+    render(
+      <AgentLeadReview
+        data={{ totalFound: 1, leads: [lead("P1", { publicSector: true })], jobTitles: ["CISO"] }}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+      />
+    );
+    expect(screen.getByLabelText("Selecionar todos")).not.toBeChecked();
+  });
+
+  it("aprovar nao envia orgaos publicos ocultos nem ja contatados nao selecionados", async () => {
+    render(<AgentLeadReview data={screenedData} executionId="exec-001" stepNumber={2} totalSteps={5} />);
+
+    fireEvent.click(screen.getByText("Aprovar (2 leads)"));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/agent/executions/exec-001/steps/2/approve",
+        expect.anything()
+      );
+    });
+    const call = mockFetch.mock.calls.find(([url]) => String(url).endsWith("/approve"));
+    const body = JSON.parse((call?.[1] as { body: string }).body);
+    expect(body.approvedData.leads.map((l: { name: string }) => l.name)).toEqual(["E1", "E2"]);
+  });
+
+  it("Buscar mais: pre-seleciona so elegiveis e atualiza a linha de suprimidos", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: {
+            leads: [lead("E1"), lead("E2"), lead("E3"), lead("C1", { contactStatus: "already_contacted" }), lead("P1", { publicSector: true })],
+            totalFetched: 5,
+            totalFound: 50,
+            screening: { suppressed: 4, publicSector: 1, alreadyContacted: 1 },
+            cost: {},
+          },
+        }),
+    });
+
+    render(
+      <AgentLeadReview
+        data={{ totalFound: 50, leads: [lead("E1")], jobTitles: ["CISO"] }}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+      />
+    );
+
+    fireEvent.change(screen.getByTestId("lead-quantity-input"), { target: { value: "5" } });
+    fireEvent.click(screen.getByText("Buscar 5 leads"));
+
+    await waitFor(() => {
+      expect(screen.getByText("3 de 50 leads selecionados")).toBeInTheDocument();
+    });
+    expect(screen.getByText("4 lead(s) suprimido(s) removido(s) da lista.")).toBeInTheDocument();
+    expect(screen.getByTestId("toggle-public-sector")).toHaveTextContent("Incluir 1 de orgaos publicos");
+  });
+});

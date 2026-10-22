@@ -11,6 +11,7 @@ import {
   formatCompanySizesLabel,
   hasSearchLocation,
   resolveDirectSearchCompanySizes,
+  resolveLocationScope,
   resolveSearchLocations,
 } from "@/lib/agent/search-defaults";
 
@@ -104,7 +105,8 @@ describe("search-defaults — Story 24.14 (ICP)", () => {
       25
     );
     expect(filters.companySizes).toEqual(["201-500", "501-1000"]);
-    expect(filters.locations).toEqual(["SP"]);
+    // Story 24.15: sede da empresa por padrao.
+    expect(filters.organizationLocations).toEqual(["SP"]);
   });
 
   it("buildDirectSearchFilters sem ICP fica identico (piso 11+ e sem locations)", () => {
@@ -179,6 +181,7 @@ describe("search-defaults — modo lista de contas (24.17)", () => {
     expect(buildAccountSearchFilters(base, 25)).toEqual({
       domains: ["bancox.com.br", "empresay.com"],
       titles: ["CISO"],
+      includeSimilarTitles: false,
       perPage: 25,
       page: 1,
     });
@@ -224,5 +227,62 @@ describe("search-defaults — modo lista de contas (24.17)", () => {
     expect(
       canProceedWithSearch({ ...base, targetAccounts: null, icpDefaults: null, location: "SP" })
     ).toBe(true);
+  });
+});
+
+describe("search-defaults — busca mais precisa (24.15)", () => {
+  const briefing = {
+    jobTitles: ["CISO"],
+    location: "SP",
+    industry: null,
+    companySize: null,
+    icpDefaults: null,
+  };
+
+  it("resolveLocationScope: padrao company; person so quando pedido", () => {
+    expect(resolveLocationScope({})).toBe("company");
+    expect(resolveLocationScope({ locationScope: null })).toBe("company");
+    expect(resolveLocationScope({ locationScope: "company" })).toBe("company");
+    expect(resolveLocationScope({ locationScope: "person" })).toBe("person");
+    expect(resolveLocationScope(null)).toBe("company");
+  });
+
+  it("local da empresa: organizationLocations, sem locations, cargo exato", () => {
+    const filters = buildDirectSearchFilters(briefing, 25);
+    expect(filters.organizationLocations).toEqual(["SP"]);
+    expect(filters.locations).toBeUndefined();
+    expect(filters.includeSimilarTitles).toBe(false);
+  });
+
+  it("local da pessoa: locations, sem organizationLocations", () => {
+    const filters = buildDirectSearchFilters({ ...briefing, locationScope: "person" }, 25);
+    expect(filters.locations).toEqual(["SP"]);
+    expect(filters.organizationLocations).toBeUndefined();
+  });
+
+  it("industria mapeada vai em organizationIndustries (sem industries)", () => {
+    const filters = buildDirectSearchFilters({ ...briefing, industry: "Fintech" }, 25);
+    expect(filters.organizationIndustries).toEqual(["financial services", "banking"]);
+    expect(filters.industries).toBeUndefined();
+  });
+
+  it("industria sem mapa segue como texto (industries)", () => {
+    const filters = buildDirectSearchFilters({ ...briefing, industry: "biotech espacial" }, 25);
+    expect(filters.industries).toEqual(["biotech espacial"]);
+    expect(filters.organizationIndustries).toBeUndefined();
+  });
+
+  it("modo lista: local continua em locations (pessoa) e cargo exato", () => {
+    const filters = buildAccountSearchFilters(
+      {
+        jobTitles: ["CISO"],
+        location: "SP",
+        targetAccounts: [{ name: "A", domain: "a.com", confidence: "high" }],
+      },
+      25
+    );
+    expect(filters.locations).toEqual(["SP"]);
+    expect(filters).not.toHaveProperty("organizationLocations");
+    expect(filters.includeSimilarTitles).toBe(false);
   });
 });

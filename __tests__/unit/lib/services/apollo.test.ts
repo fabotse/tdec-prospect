@@ -321,6 +321,62 @@ describe("ApolloService", () => {
       expect(result.pagination.totalPages).toBe(500); // Capped at 500
       expect(result.pagination.totalEntries).toBe(100000);
     });
+
+    // Story 24.15: query string da busca do agente x busca manual
+    describe("query string (Story 24.15)", () => {
+      async function queryFor(filters: Parameters<ApolloService["searchPeople"]>[0]) {
+        const { mock } = createMockFetch([
+          { url: /apollo\.io/, response: mockJsonResponse({ total_entries: 0, people: [] }) },
+        ]);
+        await serviceWithTenant.searchPeople(filters);
+        const url = String(mock.mock.calls[0][0]);
+        return url.slice(url.indexOf("?") + 1);
+      }
+
+      it("busca manual (sem campos novos): query identica a de antes", async () => {
+        const query = await queryFor({
+          titles: ["CEO"],
+          locations: ["Sao Paulo, Brazil"],
+          industries: ["fintech"],
+          keywords: "pagamentos",
+          page: 1,
+          perPage: 25,
+        });
+        expect(query).toBe(
+          "page=1&per_page=25&person_titles[]=CEO&include_similar_titles=true" +
+            "&person_locations[]=Sao%20Paulo%2C%20Brazil&q_keywords=pagamentos%20fintech"
+        );
+      });
+
+      it("local da empresa: organization_locations[], sem person_locations, cargo exato", async () => {
+        const query = await queryFor({
+          titles: ["CISO"],
+          organizationLocations: ["SP"],
+          includeSimilarTitles: false,
+        });
+        expect(query).toContain("organization_locations[]=SP");
+        expect(query).not.toContain("person_locations");
+        expect(query).toContain("include_similar_titles=false");
+      });
+
+      it("industria mapeada: organization_industries[] e fora do q_keywords", async () => {
+        const query = await queryFor({
+          titles: ["CFO"],
+          industries: ["Fintech"],
+          organizationIndustries: ["financial services", "banking"],
+        });
+        expect(query).toContain(
+          "organization_industries[]=financial%20services&organization_industries[]=banking"
+        );
+        expect(query).not.toContain("q_keywords");
+      });
+
+      it("industria sem mapa: q_keywords como hoje", async () => {
+        const query = await queryFor({ titles: ["CFO"], industries: ["biotech espacial"] });
+        expect(query).toContain("q_keywords=biotech%20espacial");
+        expect(query).not.toContain("organization_industries");
+      });
+    });
   });
 
   describe("handleError (Story 3.2)", () => {
