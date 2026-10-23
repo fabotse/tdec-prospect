@@ -206,3 +206,7 @@ Status: done
 - Falha de leitura do ICP no servidor mostra a dica de preencher o ICP; o diagnostico de busca vazia mostra so o primeiro local do ICP.
 - O LLM pode copiar porte/local do texto da proposta para o briefing num ajuste por texto (valor vira escolha explicita, igual ao ICP).
 
+
+## Ajuste pós-loop (2026-10-23)
+
+Consulta somente leitura em produção (`scripts/db-ro.sh`): o ICP do tenant tem só `company_sizes: ["11-50"]`, sem cargos, setores nem região. Com a regra original, toda busca do agente sem porte informado ficaria restrita a empresas de 11 a 50 funcionários. Ajuste: `buildIcpSearchDefaults` devolve `null` quando o ICP não tem cargos (mesmo critério da proposta), então um ICP pela metade não estreita a busca; o piso de qualidade de antes continua valendo. Teste novo em `icp-briefing.test.ts`. Lint, typecheck e suíte completa verdes (8636 testes).

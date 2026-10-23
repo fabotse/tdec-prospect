@@ -22,29 +22,37 @@ function icp(overrides: Partial<TenantICP> = {}): TenantICP {
 }
 
 describe("icp-briefing — buildIcpSearchDefaults", () => {
+  // ICP configurado (com cargos): so assim os defaults valem.
+  const configured = (overrides: Partial<TenantICP> = {}) => icp({ jobTitles: ["CISO"], ...overrides });
+
   it("mapeia faixas iguais e mantem a ordem canonica", () => {
     expect(
-      buildIcpSearchDefaults(icp({ companySizes: ["501-1000", "201-500"], geographicFocus: [] }))
+      buildIcpSearchDefaults(configured({ companySizes: ["501-1000", "201-500"], geographicFocus: [] }))
     ).toEqual({ companySizes: ["201-500", "501-1000"], locations: [] });
   });
 
   it("'1000+' abre nas tres faixas acima de 1000", () => {
-    expect(buildIcpSearchDefaults(icp({ companySizes: ["501-1000", "1000+"] }))?.companySizes).toEqual(
+    expect(buildIcpSearchDefaults(configured({ companySizes: ["501-1000", "1000+"] }))?.companySizes).toEqual(
       ["501-1000", "1001-5000", "5001-10000", "10001+"]
     );
   });
 
   it("locais: trim, sem vazios, dedupe e teto de 10", () => {
     const geo = [" SP ", "", "SP", "RJ", ...Array.from({ length: 12 }, (_, i) => `L${i}`)];
-    const result = buildIcpSearchDefaults(icp({ geographicFocus: geo }));
+    const result = buildIcpSearchDefaults(configured({ geographicFocus: geo }));
     expect(result?.locations[0]).toBe("SP");
     expect(result?.locations[1]).toBe("RJ");
     expect(result?.locations).toHaveLength(10);
   });
 
   it("descarta faixas desconhecidas e devolve null quando as duas listas ficam vazias", () => {
-    expect(buildIcpSearchDefaults(icp({ companySizes: ["abc"], geographicFocus: ["  "] }))).toBeNull();
-    expect(buildIcpSearchDefaults(icp())).toBeNull();
+    expect(buildIcpSearchDefaults(configured({ companySizes: ["abc"], geographicFocus: ["  "] }))).toBeNull();
+    expect(buildIcpSearchDefaults(configured())).toBeNull();
+  });
+
+  it("ICP sem cargos devolve null mesmo com porte e local (ICP pela metade nao estreita a busca)", () => {
+    expect(buildIcpSearchDefaults(icp({ companySizes: ["11-50"] }))).toBeNull();
+    expect(buildIcpSearchDefaults(icp({ jobTitles: ["  "], companySizes: ["11-50"], geographicFocus: ["SP"] }))).toBeNull();
   });
 });
 

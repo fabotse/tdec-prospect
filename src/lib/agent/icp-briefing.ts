@@ -70,10 +70,15 @@ function dedupeNonEmpty(values: string[]): string[] {
  * Monta os defaults de busca a partir do ICP: portes em faixas canônicas da Apollo
  * (dedupe, ordem canônica) e locais (trim, sem vazios, dedupe), cada lista com teto de 10.
  * As duas listas vazias → `null` (sem ICP utilizável para a busca).
+ *
+ * ICP sem cargos → `null`: um ICP pela metade (ex.: só um porte esquecido no form) não pode
+ * estreitar a busca do agente sem o usuário pedir. Mesmo critério da proposta.
  */
 export function buildIcpSearchDefaults(
-  icp: Pick<TenantICP, "companySizes" | "geographicFocus">
+  icp: Pick<TenantICP, "jobTitles" | "companySizes" | "geographicFocus">
 ): IcpSearchDefaults | null {
+  if (dedupeNonEmpty(icp.jobTitles ?? []).length === 0) return null;
+
   const mapped = new Set<string>();
   for (const size of icp.companySizes ?? []) {
     for (const bucket of ICP_SIZE_TO_SEARCH_SIZES[size] ?? []) mapped.add(bucket);
