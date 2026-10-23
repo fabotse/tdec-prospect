@@ -12,6 +12,12 @@ import { createChainBuilder } from "../../../../helpers/mock-supabase";
 import type { StepInput } from "@/types/agent";
 import { ExternalServiceError } from "@/lib/services/base-service";
 import { QUALITY_MIN_COMPANY_SIZES } from "@/lib/agent/search-defaults";
+import { mergeRequestedTitles, scoreLeadByRules } from "@/lib/agent/fit-score-rules";
+import { EMPTY_TENANT_ICP } from "@/lib/agent/icp-briefing";
+import {
+  EMPTY_LEAD_SEARCH_MESSAGE,
+  SIMILAR_TITLES_FALLBACK_MESSAGE,
+} from "@/lib/agent/steps/search-leads-step";
 
 // ==============================================
 // MOCKS
@@ -58,6 +64,65 @@ const mockLogApiUsage = vi.fn();
 vi.mock("@/lib/services/usage-logger", () => ({
   logApiUsage: (...args: unknown[]) => mockLogApiUsage(...args),
 }));
+
+// Story 24.16: Fit Score. Por padrao o scorer devolve so as regras REAIS (sem LLM, sem
+// tentativa), e o ICP vem vazio.
+const mockScoreLeads = vi.fn();
+vi.mock("@/lib/agent/fit-scorer", () => ({
+  scoreLeads: (...args: unknown[]) => mockScoreLeads(...args),
+}));
+
+const mockReadTenantICP = vi.fn();
+vi.mock("@/lib/agent/contextual-suggestions", () => ({
+  readTenantICP: (...args: unknown[]) => mockReadTenantICP(...args),
+}));
+
+// Story 24.17: supressao de contas do modo lista (suite propria em account-suppression.test.ts).
+const mockFindSuppressedAccounts = vi.fn();
+vi.mock("@/lib/agent/account-suppression", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/agent/account-suppression")>();
+  return {
+    ...actual,
+    findSuppressedAccounts: (...args: unknown[]) => mockFindSuppressedAccounts(...args),
+  };
+});
+
+// Story 24.15: leitura de "ja contatado"/suprimido (suite propria em lead-screening.test.ts).
+const mockFindContactedLeads = vi.fn();
+vi.mock("@/lib/agent/lead-screening", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/agent/lead-screening")>();
+  return {
+    ...actual,
+    findContactedLeads: (...args: unknown[]) => mockFindContactedLeads(...args),
+  };
+});
+
+type ScorerParams = {
+  leads: Array<{ title: string | null; has_email: boolean }>;
+  briefing: { jobTitles: string[] };
+  icp: { jobTitles: string[] };
+  apiKey?: string;
+};
+
+function rulesOnlyScoring({ leads, briefing, icp }: ScorerParams, attempted = false) {
+  const titles = mergeRequestedTitles(briefing.jobTitles, icp.jobTitles);
+  return {
+    results: leads.map((lead) =>
+      scoreLeadByRules({ title: lead.title, hasEmail: lead.has_email }, titles)
+    ),
+    source: "rules" as const,
+    attempted,
+    succeeded: false,
+    usage: {
+      model: "gpt-5.4-mini",
+      promptTokens: 0,
+      completionTokens: 0,
+      durationMs: 0,
+      llmScored: 0,
+      ...(attempted ? { errorMessage: "timeout" } : {}),
+    },
+  };
+}
 
 // ==============================================
 // HELPERS
@@ -195,6 +260,10 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
     step = new SearchLeadsStep(2, mockSupabase as never, TENANT_ID);
 
     mockSearchPeople.mockResolvedValue(mockLeadsResponse);
+    mockReadTenantICP.mockResolvedValue(EMPTY_TENANT_ICP);
+    mockFindSuppressedAccounts.mockResolvedValue([]);
+    mockFindContactedLeads.mockResolvedValue(new Map());
+    mockScoreLeads.mockImplementation(async (params: ScorerParams) => rulesOnlyScoring(params));
     // Default: enrichment returns email for leads
     mockEnrichPerson.mockResolvedValue({
       person: { email: "enriched@example.com" },
@@ -254,10 +323,12 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
       expect(result.data.domainsSearched).toEqual(["acme.com", "beta.io"]);
 
       // Verify Apollo was called with correct filters
+      // Story 24.15: sede da empresa por padrao + cargo exato.
       expect(mockSearchPeople).toHaveBeenCalledWith({
         domains: ["acme.com", "beta.io"],
         titles: ["CTO", "VP Engineering"],
-        locations: ["Brasil"],
+        organizationLocations: ["Brasil"],
+        includeSimilarTitles: false,
         perPage: 25,
         page: 1,
       });
@@ -412,10 +483,12 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
 
       expect(result.success).toBe(true);
       expect(result.data.domainsSearched).toEqual([]);
+      // Story 24.15: sede da empresa, cargo exato e industria mapeada por categoria.
       expect(mockSearchPeople).toHaveBeenCalledWith({
         titles: ["CTO", "VP Engineering"],
-        locations: ["Sao Paulo"],
-        industries: ["fintech"],
+        organizationLocations: ["Sao Paulo"],
+        organizationIndustries: ["financial services", "banking"],
+        includeSimilarTitles: false,
         companySizes: ["50-200"],
         perPage: 25,
         page: 1,
@@ -468,8 +541,8 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
 
       expect(mockSearchPeople).toHaveBeenCalledWith(
         expect.objectContaining({
-          locations: ["Brasil"],
-          industries: ["saude"],
+          organizationLocations: ["Brasil"],
+          organizationIndustries: ["hospital & health care"],
           companySizes: ["200-500"],
         })
       );
@@ -546,7 +619,7 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
       expect(mockSearchPeople).toHaveBeenCalledWith(
         expect.objectContaining({
           domains: ["acme.com", "beta.io"],
-          locations: ["Brasil"],
+          organizationLocations: ["Brasil"],
         })
       );
     });
@@ -559,7 +632,7 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
       expect(mockSearchPeople).toHaveBeenCalledWith(
         expect.objectContaining({
           domains: ["acme.com", "beta.io"],
-          locations: ["Sao Paulo"],
+          organizationLocations: ["Sao Paulo"],
         })
       );
     });
@@ -584,8 +657,9 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
         titles: ["CTO", "VP Engineering"],
         perPage: 25,
         page: 1,
-        locations: ["Sao Paulo"],
-        industries: ["fintech"],
+        organizationLocations: ["Sao Paulo"],
+        organizationIndustries: ["financial services", "banking"],
+        includeSimilarTitles: false,
         companySizes: ["50-200"],
       });
     });
@@ -599,7 +673,8 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
       expect(result.data.searchFilters).toMatchObject({
         domains: ["acme.com", "beta.io"],
         titles: ["CTO", "VP Engineering"],
-        locations: ["Brasil"],
+        organizationLocations: ["Brasil"],
+        includeSimilarTitles: false,
         perPage: 25,
         page: 1,
       });
@@ -624,6 +699,140 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
   // ==============================================
   // Story 22.14: busca com 0 resultados nao e sucesso
   // ==============================================
+
+  // ==============================================
+  // Story 24.13: quantos leads (N)
+  // ==============================================
+
+  describe("Story 24.14 - defaults do ICP", () => {
+    const ICP = { companySizes: ["201-500", "501-1000"], locations: ["SP"] };
+
+    it("busca direta sem porte/local usa as faixas e o local do ICP (no lugar do piso)", async () => {
+      const input = createInput({ location: null, companySize: null, icpDefaults: ICP });
+      input.previousStepOutput = undefined;
+
+      await step.run(input);
+
+      const callArg = mockSearchPeople.mock.calls[0][0];
+      expect(callArg.companySizes).toEqual(["201-500", "501-1000"]);
+      expect(callArg.organizationLocations).toEqual(["SP"]);
+    });
+
+    it("o usuario vence o ICP (porte e local)", async () => {
+      const input = createInput({ location: "RJ", companySize: "51-200", icpDefaults: ICP });
+      input.previousStepOutput = undefined;
+
+      await step.run(input);
+
+      const callArg = mockSearchPeople.mock.calls[0][0];
+      expect(callArg.companySizes).toEqual(["51-200"]);
+      expect(callArg.organizationLocations).toEqual(["RJ"]);
+    });
+
+    it("ramo por dominios usa o local do ICP e nunca o porte", async () => {
+      await step.run(createInput({ location: null, companySize: null, icpDefaults: ICP }));
+
+      const callArg = mockSearchPeople.mock.calls[0][0];
+      expect(callArg.domains).toEqual(["acme.com", "beta.io"]);
+      expect(callArg.organizationLocations).toEqual(["SP"]);
+      expect(callArg.companySizes).toBeUndefined();
+    });
+
+    it("ramo por dominios sem ICP e sem local fica identico (sem locations)", async () => {
+      await step.run(createInput({ location: null }));
+
+      const callArg = mockSearchPeople.mock.calls[0][0];
+      expect(callArg.locations).toBeUndefined();
+      expect(callArg.organizationLocations).toBeUndefined();
+    });
+  });
+
+  describe("Story 24.13 - leadCount (N)", () => {
+    const makeLeadRows = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        ...mockLeadsResponse.leads[0],
+        id: `lead-${i + 1}`,
+        apollo_id: `apollo-${i + 1}`,
+        first_name: `Lead${i + 1}`,
+      }));
+
+    // Story 24.16: universo de 3-5x N (teto 100).
+    it.each([
+      [1, 5],
+      [5, 25],
+      [10, 30],
+      [20, 60],
+      [60, 100],
+      [300, 100],
+      [null, 25],
+    ])("busca direta com N = %p usa perPage %p", async (n, expected) => {
+      const input = createInput({ leadCount: n });
+      input.previousStepOutput = undefined;
+      await step.run(input);
+
+      expect(mockSearchPeople).toHaveBeenCalledWith(
+        expect.objectContaining({ perPage: expected, page: 1 })
+      );
+    });
+
+    it("busca por dominio tambem usa perPage por N", async () => {
+      await step.run(createInput({ leadCount: 20 }));
+      expect(mockSearchPeople).toHaveBeenCalledWith(
+        expect.objectContaining({ domains: ["acme.com", "beta.io"], perPage: 60 })
+      );
+    });
+
+    it("output leva leadCount (N ou null)", async () => {
+      const comN = await step.run(createInput({ leadCount: 5 }));
+      expect(comN.data.leadCount).toBe(5);
+
+      const semN = await step.run(createInput());
+      expect(semN.data.leadCount).toBeNull();
+    });
+
+    it("autopilot com N = 5 e 25 leads: output com 5 leads e apollo_search 5", async () => {
+      mockSearchPeople.mockResolvedValue({
+        leads: makeLeadRows(25),
+        pagination: { totalEntries: 300, page: 1, perPage: 25, totalPages: 12 },
+      });
+      const input = createInput({ leadCount: 5 });
+      input.mode = "autopilot";
+
+      const result = await step.run(input);
+
+      expect(result.data.leads).toHaveLength(5);
+      expect((result.data.leads as Array<{ name: string }>)[0].name).toContain("Lead1");
+      expect(result.data.totalFound).toBe(300);
+      expect(result.cost?.apollo_search).toBe(5);
+    });
+
+    it("modo guiado com N = 5: lista completa vai para a revisao (sem corte)", async () => {
+      mockSearchPeople.mockResolvedValue({
+        leads: makeLeadRows(25),
+        pagination: { totalEntries: 300, page: 1, perPage: 25, totalPages: 12 },
+      });
+      const input = createInput({ leadCount: 5 });
+      input.mode = "guided";
+
+      const result = await step.run(input);
+
+      expect(result.data.leads).toHaveLength(25);
+      expect(result.data.leadCount).toBe(5);
+    });
+
+    it("autopilot sem N: nada muda (todos os leads)", async () => {
+      mockSearchPeople.mockResolvedValue({
+        leads: makeLeadRows(25),
+        pagination: { totalEntries: 300, page: 1, perPage: 25, totalPages: 12 },
+      });
+      const input = createInput();
+      input.mode = "autopilot";
+
+      const result = await step.run(input);
+      expect(result.data.leads).toHaveLength(25);
+      expect(result.cost?.apollo_search).toBe(25);
+    });
+  });
 
   describe("Story 22.14 - busca vazia (AC #1, #6)", () => {
     /**
@@ -816,6 +1025,7 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
       const leads = result.data.leads as Array<Record<string, unknown>>;
 
       // First lead: has last_name (obfuscated) — enrichment happens in CreateCampaignStep
+      // Story 24.16: cada lead leva fitScore/fitReason (aqui, das regras).
       expect(leads[0]).toEqual({
         name: "John Do***e",
         title: "CTO",
@@ -823,6 +1033,8 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
         email: null,
         linkedinUrl: null,
         apolloId: "apollo-1",
+        fitScore: "A",
+        fitReason: "Cargo bate com o pedido (CTO) e tem e-mail disponivel",
       });
 
       // Second lead: no last_name, has linkedinUrl
@@ -833,6 +1045,8 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
         email: null,
         linkedinUrl: "https://linkedin.com/in/jane",
         apolloId: "apollo-2",
+        fitScore: "B",
+        fitReason: "Cargo bate com o pedido (VP Engineering), mas sem e-mail disponivel",
       });
     });
   });
@@ -861,6 +1075,527 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
     it("cost.apollo_search continua sendo gravado (o custo real o ignora)", async () => {
       const result = await step.run(createInput());
       expect(result.cost).toHaveProperty("apollo_search");
+    });
+  });
+
+  describe("Story 24.16 - Fit Score A/B/C", () => {
+    const row = (i: number, title: string, hasEmail = true) => ({
+      ...mockLeadsResponse.leads[0],
+      id: `lead-${i}`,
+      apollo_id: `apollo-${i}`,
+      first_name: `Lead${i}`,
+      title,
+      has_email: hasEmail,
+    });
+
+    const universe = () =>
+      Array.from({ length: 10 }, (_, i) => {
+        if (i === 7) return row(i, "CTO LATAM");
+        if (i === 3) return row(i, "Diretor Financeiro");
+        return row(i, "Analista");
+      });
+
+    it("autopilot N = 2: o corte roda depois da ordenacao e leva os 2 melhores (o A primeiro)", async () => {
+      mockSearchPeople.mockResolvedValue({
+        leads: universe(),
+        pagination: { totalEntries: 10, page: 1, perPage: 10, totalPages: 1 },
+      });
+      const input = createInput({ leadCount: 2 });
+      input.mode = "autopilot";
+
+      const result = await step.run(input);
+      const leads = result.data.leads as Array<{ apolloId: string; fitScore: string }>;
+
+      expect(leads.map((l) => l.apolloId)).toEqual(["apollo-7", "apollo-3"]);
+      expect(leads.map((l) => l.fitScore)).toEqual(["A", "B"]);
+      expect(result.cost?.apollo_search).toBe(2);
+    });
+
+    it("modo guiado: lista inteira ordenada A -> B -> C (estavel), com fitScoring", async () => {
+      mockSearchPeople.mockResolvedValue({
+        leads: universe(),
+        pagination: { totalEntries: 10, page: 1, perPage: 10, totalPages: 1 },
+      });
+
+      const input = createInput({ leadCount: 2 });
+      input.mode = "guided";
+
+      const result = await step.run(input);
+      const leads = result.data.leads as Array<{ apolloId: string; fitScore: string }>;
+
+      expect(leads).toHaveLength(10);
+      expect(leads.slice(0, 3).map((l) => l.apolloId)).toEqual(["apollo-7", "apollo-3", "apollo-0"]);
+      expect(leads.slice(2).every((l) => l.fitScore === "C")).toBe(true);
+      expect(result.data.fitScoring).toEqual({ source: "rules", counts: { A: 1, B: 1, C: 8 } });
+    });
+
+    it("passa o ICP lido e a chave OpenAI do tenant para o scorer", async () => {
+      const icp = { ...EMPTY_TENANT_ICP, jobTitles: ["CISO"], painPoints: "Vazamento" };
+      mockReadTenantICP.mockResolvedValue(icp);
+      mockGetInjectableServiceApiKey.mockImplementation(async (_t: string, service: string) =>
+        service === "openai" ? "openai-key" : "apollo-key"
+      );
+
+      await step.run(createInput());
+
+      expect(mockReadTenantICP).toHaveBeenCalledWith(TENANT_ID);
+      expect(mockGetInjectableServiceApiKey).toHaveBeenCalledWith(TENANT_ID, "openai", "OpenAI");
+      expect(mockScoreLeads).toHaveBeenCalledWith(
+        expect.objectContaining({ icp, apiKey: "openai-key", tenantId: TENANT_ID, executionId: "exec-001" })
+      );
+    });
+
+    it("LLM ok: notas do LLM, source llm, 1 chamada no custo e 1 log fit_score success", async () => {
+      mockScoreLeads.mockResolvedValue({
+        results: [
+          { fitScore: "C", fitReason: "Empresa fora do perfil" },
+          { fitScore: "A", fitReason: "Decisor de engenharia no ICP" },
+        ],
+        source: "llm",
+        attempted: true,
+        succeeded: true,
+        usage: { model: "gpt-5.4-mini", promptTokens: 900, completionTokens: 120, durationMs: 800, llmScored: 2 },
+      });
+
+      const result = await step.run(createInput());
+      const leads = result.data.leads as Array<{ apolloId: string; fitScore: string; fitReason: string }>;
+
+      expect(leads.map((l) => [l.apolloId, l.fitScore])).toEqual([
+        ["apollo-2", "A"],
+        ["apollo-1", "C"],
+      ]);
+      expect(leads[0].fitReason).toBe("Decisor de engenharia no ICP");
+      expect(result.data.fitScoring).toEqual({ source: "llm", counts: { A: 1, B: 0, C: 1 } });
+      expect(result.cost?.openai_fit_score).toBe(1);
+      expect(mockLogApiUsage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          serviceName: "openai",
+          requestType: "fit_score",
+          status: "success",
+          metadata: expect.objectContaining({
+            stepType: "search_leads",
+            executionId: "exec-001",
+            promptTokens: 900,
+            completionTokens: 120,
+          }),
+        })
+      );
+    });
+
+    it("LLM falha: regras, source rules, step success, log failed e custo de 1 chamada", async () => {
+      mockScoreLeads.mockImplementation(async (params: ScorerParams) => rulesOnlyScoring(params, true));
+
+      const result = await step.run(createInput());
+
+      expect(result.success).toBe(true);
+      expect(result.data.fitScoring).toEqual({ source: "rules", counts: { A: 1, B: 1, C: 0 } });
+      expect(result.cost?.openai_fit_score).toBe(1);
+      expect(mockLogApiUsage).toHaveBeenCalledWith(
+        expect.objectContaining({ requestType: "fit_score", status: "failed", errorMessage: "timeout" })
+      );
+    });
+
+    it("sem chave (nao tentado): sem log fit_score e custo 0", async () => {
+      const result = await step.run(createInput());
+
+      expect(result.cost?.openai_fit_score).toBe(0);
+      const requestTypes = mockLogApiUsage.mock.calls.map((call) => call[0]?.requestType);
+      expect(requestTypes).not.toContain("fit_score");
+    });
+
+    it("erro de decrypt da chave OpenAI: so regras (apiKey undefined), o step segue", async () => {
+      mockGetInjectableServiceApiKey.mockImplementation(async (_t: string, service: string) => {
+        if (service === "openai") throw new Error("Erro ao decriptar a API key do OpenAI");
+        return "apollo-key";
+      });
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const result = await step.run(createInput());
+
+      expect(result.success).toBe(true);
+      expect(mockScoreLeads).toHaveBeenCalledWith(expect.objectContaining({ apiKey: undefined }));
+    });
+
+    it("busca vazia nao chama o scorer", async () => {
+      mockSearchPeople.mockResolvedValue({
+        leads: [],
+        pagination: { totalEntries: 0, page: 1, perPage: 25, totalPages: 0 },
+      });
+      const input = createInput();
+      input.mode = "guided";
+
+      await step.run(input);
+      expect(mockScoreLeads).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Story 24.17 — modo lista de contas", () => {
+    function listInput(overrides: Partial<StepInput["briefing"]> = {}): StepInput {
+      return {
+        ...createInput({
+          technology: null,
+          jobTitles: ["CISO"],
+          location: null,
+          companySize: "50-200",
+          industry: "saas",
+          skipSteps: ["search_companies"],
+          icpDefaults: { companySizes: ["201-500"], locations: ["SP"] },
+          targetAccounts: [
+            { name: "Conta A", domain: "a.com", confidence: "high" },
+            { name: "Conta B", domain: "b.com", confidence: "low" },
+          ],
+          ...overrides,
+        }),
+        previousStepOutput: undefined,
+      };
+    }
+
+    it("busca por dominio nas contas, sem porte/industria/local do ICP", async () => {
+      const result = await step.run(listInput());
+
+      expect(mockSearchPeople).toHaveBeenCalledWith({
+        domains: ["a.com", "b.com"],
+        titles: ["CISO"],
+        includeSimilarTitles: false,
+        perPage: 25,
+        page: 1,
+      });
+      expect(result.data.domainsSearched).toEqual(["a.com", "b.com"]);
+      expect(result.data.suppressedAccounts).toEqual([]);
+      expect(result.data.leads).toHaveLength(2);
+      expect(mockScoreLeads).toHaveBeenCalled();
+      expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: expect.stringContaining("Buscando leads (CISO) nas 2 contas da sua lista..."),
+        })
+      );
+    });
+
+    it("local do usuario entra na busca", async () => {
+      await step.run(listInput({ location: "Sao Paulo" }));
+
+      expect(mockSearchPeople).toHaveBeenCalledWith(
+        expect.objectContaining({ domains: ["a.com", "b.com"], locations: ["Sao Paulo"] })
+      );
+    });
+
+    it("conta suprimida no step (via chip): avisa e busca so o resto", async () => {
+      mockFindSuppressedAccounts.mockResolvedValue([
+        { name: null, domain: "b.com", reason: "negociacao em andamento (oportunidade em contato)" },
+      ]);
+
+      const result = await step.run(listInput());
+
+      expect(mockFindSuppressedAccounts).toHaveBeenCalledWith(
+        expect.anything(),
+        TENANT_ID,
+        ["a.com", "b.com"]
+      );
+      expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          role: "system",
+          content: "Removi da busca: Conta B (negociacao em andamento (oportunidade em contato)).",
+        })
+      );
+      expect(mockSearchPeople).toHaveBeenCalledWith(
+        expect.objectContaining({ domains: ["a.com"] })
+      );
+      // fetch-leads ("Buscar mais") reaproveita searchFilters: so a conta restante, sem
+      // porte/industria/local do ICP.
+      const searchFilters = result.data.searchFilters as Record<string, unknown>;
+      expect(searchFilters.domains).toEqual(["a.com"]);
+      expect(searchFilters).not.toHaveProperty("companySizes");
+      expect(searchFilters).not.toHaveProperty("industries");
+      expect(searchFilters).not.toHaveProperty("locations");
+      expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: expect.stringContaining("Buscando leads (CISO) na 1 conta da sua lista..."),
+        })
+      );
+      expect(result.data.suppressedAccounts).toEqual([
+        {
+          name: "Conta B",
+          domain: "b.com",
+          reason: "negociacao em andamento (oportunidade em contato)",
+        },
+      ]);
+    });
+
+    it("todas suprimidas: nao busca e lanca ALL_ACCOUNTS_SUPPRESSED_MESSAGE", async () => {
+      const { ALL_ACCOUNTS_SUPPRESSED_MESSAGE } = await import(
+        "@/lib/agent/account-suppression"
+      );
+      mockFindSuppressedAccounts.mockResolvedValue([
+        { name: null, domain: "a.com", reason: "r" },
+        { name: null, domain: "b.com", reason: "r" },
+      ]);
+
+      await expect(step.run(listInput())).rejects.toThrow(ALL_ACCOUNTS_SUPPRESSED_MESSAGE);
+      expect(mockSearchPeople).not.toHaveBeenCalled();
+    });
+
+    it("mensagem de todas suprimidas vira frase bem formada como erro nao retryable", async () => {
+      const { ALL_ACCOUNTS_SUPPRESSED_MESSAGE } = await import(
+        "@/lib/agent/account-suppression"
+      );
+      const { formatStepErrorMessage } = await import("@/lib/agent/step-error-display");
+
+      expect(ALL_ACCOUNTS_SUPPRESSED_MESSAGE).not.toMatch(/tente novamente/i);
+      expect(formatStepErrorMessage(ALL_ACCOUNTS_SUPPRESSED_MESSAGE, false)).toBe(
+        "Todas as contas da sua lista estao com negociacao em andamento, entao nao busquei ninguem. Ajuste a lista de contas para seguir"
+      );
+    });
+
+    it("busca vazia: diagnostico fala da lista de contas", async () => {
+      mockSearchPeople.mockResolvedValue({
+        leads: [],
+        pagination: { totalEntries: 0, page: 1, perPage: 25, totalPages: 0 },
+      });
+
+      const result = await step.run({ ...listInput(), mode: "guided" });
+
+      expect(result.data.emptyResult).toBe(true);
+      const diagnosis = result.data.emptyDiagnosis as {
+        probableCauses: Array<{ text: string }>;
+      };
+      expect(diagnosis.probableCauses[0].text).toContain("nas 2 contas da sua lista");
+      expect(result.data.suppressedAccounts).toEqual([]);
+    });
+
+    it("sem contas: fluxo direto inalterado (supressao nao consultada)", async () => {
+      await step.run({
+        ...createInput({ technology: null, skipSteps: ["search_companies"] }),
+        previousStepOutput: undefined,
+      });
+
+      expect(mockFindSuppressedAccounts).not.toHaveBeenCalled();
+      expect(mockSearchPeople).toHaveBeenCalledWith(
+        expect.not.objectContaining({ domains: expect.anything() })
+      );
+    });
+  });
+  // ==============================================
+  // Story 24.15: busca mais precisa
+  // ==============================================
+
+  describe("Story 24.15 - busca mais precisa", () => {
+    const makeRows = (specs: Array<{ id: string; company?: string }>) =>
+      specs.map(({ id, company }) => ({
+        ...mockLeadsResponse.leads[0],
+        id: `lead-${id}`,
+        apollo_id: id,
+        first_name: `Lead-${id}`,
+        company_name: company ?? "Acme Corp",
+      }));
+    const page = (rows: unknown[]) => ({
+      leads: rows,
+      pagination: { totalEntries: rows.length, page: 1, perPage: 25, totalPages: 1 },
+    });
+    const direct = (overrides: Partial<StepInput["briefing"]> = {}) => {
+      const input = createInput({ industry: null, ...overrides });
+      input.previousStepOutput = undefined;
+      input.mode = "guided";
+      return input;
+    };
+    const fallbackMessageInserted = () =>
+      mockSupabase.messagesChain.insert.mock.calls.some(
+        ([arg]) => (arg as { content?: string }).content === SIMILAR_TITLES_FALLBACK_MESSAGE
+      );
+
+    it("local da pessoa (locationScope person): locations em vez de organizationLocations", async () => {
+      await step.run(direct({ location: "SP", locationScope: "person" }));
+      const callArg = mockSearchPeople.mock.calls[0][0];
+      expect(callArg.locations).toEqual(["SP"]);
+      expect(callArg.organizationLocations).toBeUndefined();
+    });
+
+    it("ramo por dominios com locationScope person: locations, sem organizationLocations", async () => {
+      await step.run({ ...createInput({ location: "SP", locationScope: "person" }), mode: "guided" });
+      const callArg = mockSearchPeople.mock.calls[0][0];
+      expect(callArg.domains).toEqual(["acme.com", "beta.io"]);
+      expect(callArg.locations).toEqual(["SP"]);
+      expect(callArg).not.toHaveProperty("organizationLocations");
+    });
+
+    it("N > perPage: pagina exata cheia nao amplia (1 chamada so)", async () => {
+      mockSearchPeople.mockResolvedValue(
+        page(makeRows(Array.from({ length: 100 }, (_, i) => ({ id: `a${i}` }))))
+      );
+      const result = await step.run(direct({ leadCount: 300 }));
+
+      expect(mockSearchPeople.mock.calls[0][0].perPage).toBe(100);
+      expect(mockSearchPeople).toHaveBeenCalledTimes(1);
+      expect(result.data.similarTitlesFallback).toBeUndefined();
+    });
+
+    it("industria sem mapa segue como texto", async () => {
+      await step.run(direct({ industry: "biotech espacial" }));
+      const callArg = mockSearchPeople.mock.calls[0][0];
+      expect(callArg.industries).toEqual(["biotech espacial"]);
+      expect(callArg.organizationIndustries).toBeUndefined();
+    });
+
+    it("sem ampliacao: N=5 e o exato devolve 10 -> 1 chamada so", async () => {
+      mockSearchPeople.mockResolvedValue(page(makeRows(Array.from({ length: 10 }, (_, i) => ({ id: `a${i}` })))));
+      const result = await step.run(direct({ leadCount: 5 }));
+
+      expect(mockSearchPeople).toHaveBeenCalledTimes(1);
+      expect(mockSearchPeople.mock.calls[0][0].includeSimilarTitles).toBe(false);
+      expect(result.data.similarTitlesFallback).toBeUndefined();
+      expect(fallbackMessageInserted()).toBe(false);
+    });
+
+    it("ampliacao: N=5 e o exato devolve 2 -> 2a busca com cargos parecidos", async () => {
+      mockSearchPeople
+        .mockResolvedValueOnce(page(makeRows([{ id: "a1" }, { id: "a2" }])))
+        .mockResolvedValueOnce(page(makeRows([1, 2, 3, 4, 5, 6].map((i) => ({ id: `b${i}` })))));
+
+      const result = await step.run(direct({ leadCount: 5 }));
+
+      expect(mockSearchPeople).toHaveBeenCalledTimes(2);
+      expect(mockSearchPeople.mock.calls[0][0].includeSimilarTitles).toBe(false);
+      expect(mockSearchPeople.mock.calls[1][0].includeSimilarTitles).toBe(true);
+      expect(result.data.similarTitlesFallback).toBe(true);
+      expect((result.data.searchFilters as Record<string, unknown>).includeSimilarTitles).toBe(true);
+      expect(result.data.leads).toHaveLength(6);
+      expect(fallbackMessageInserted()).toBe(true);
+      // as duas chamadas sao logadas
+      const peopleSearchLogs = mockLogApiUsage.mock.calls.filter(
+        ([arg]) => (arg as { requestType?: string }).requestType === "people_search"
+      );
+      expect(peopleSearchLogs).toHaveLength(2);
+    });
+
+    it("sem N: amplia so quando o exato vem vazio", async () => {
+      mockSearchPeople
+        .mockResolvedValueOnce(page([]))
+        .mockResolvedValueOnce(page(makeRows([{ id: "b1" }])));
+
+      const result = await step.run(direct());
+
+      expect(mockSearchPeople).toHaveBeenCalledTimes(2);
+      expect(result.data.leads).toHaveLength(1);
+    });
+
+    it("ampliacao tambem vazia -> busca vazia de hoje com os filtros efetivos", async () => {
+      mockSearchPeople.mockResolvedValue(page([]));
+
+      const result = await step.run(direct({ leadCount: 5 }));
+
+      expect(mockSearchPeople).toHaveBeenCalledTimes(2);
+      expect(result.data.emptyResult).toBe(true);
+      expect((result.data.searchFilters as Record<string, unknown>).includeSimilarTitles).toBe(true);
+      expect(result.data.similarTitlesFallback).toBe(true);
+    });
+
+    it("ramo por dominios e modo lista tambem ampliam", async () => {
+      mockSearchPeople.mockResolvedValue(page([]));
+      await step.run({ ...createInput({ leadCount: 5 }), mode: "guided" });
+      expect(mockSearchPeople).toHaveBeenCalledTimes(2);
+      expect(mockSearchPeople.mock.calls[1][0]).toMatchObject({
+        domains: ["acme.com", "beta.io"],
+        includeSimilarTitles: true,
+      });
+
+      mockSearchPeople.mockClear();
+      await step.run({
+        ...createInput({
+          technology: null,
+          jobTitles: ["CISO"],
+          location: "SP",
+          skipSteps: ["search_companies"],
+          targetAccounts: [{ name: "A", domain: "a.com", confidence: "high" }],
+        }),
+        previousStepOutput: undefined,
+        mode: "guided",
+      });
+      expect(mockSearchPeople).toHaveBeenCalledTimes(2);
+      // modo lista: local continua da pessoa
+      expect(mockSearchPeople.mock.calls[0][0]).toMatchObject({
+        domains: ["a.com"],
+        locations: ["SP"],
+        includeSimilarTitles: false,
+      });
+      expect(mockSearchPeople.mock.calls[0][0]).not.toHaveProperty("organizationLocations");
+      expect(mockSearchPeople.mock.calls[1][0].includeSimilarTitles).toBe(true);
+    });
+
+    it("triagem: remove suprimidos, marca publicos/ja contatados, ordena e grava screening", async () => {
+      mockSearchPeople.mockResolvedValue(
+        page(
+          makeRows([
+            { id: "p1", company: "Prefeitura de Campinas" },
+            { id: "c1" },
+            { id: "s1" },
+            { id: "e1" },
+          ])
+        )
+      );
+      mockFindContactedLeads.mockResolvedValue(
+        new Map([
+          ["s1", "suppressed"],
+          ["c1", "already_contacted"],
+        ])
+      );
+
+      const result = await step.run(direct());
+      const leads = result.data.leads as Array<{ apolloId: string; publicSector?: boolean; contactStatus?: string }>;
+
+      expect(mockFindContactedLeads).toHaveBeenCalledWith(mockSupabase, TENANT_ID, ["p1", "c1", "s1", "e1"]);
+      expect(leads.map((l) => l.apolloId)).toEqual(["e1", "c1", "p1"]);
+      expect(leads[1].contactStatus).toBe("already_contacted");
+      expect(leads[2].publicSector).toBe(true);
+      expect(result.data.screening).toEqual({ suppressed: 1, publicSector: 1, alreadyContacted: 1 });
+      expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: "Removi 1 lead(s) suprimido(s) (pediram para sair ou estao em negociacao).",
+        })
+      );
+      // o Fit Score roda sobre a lista ja triada (casando por indice)
+      const scorerLeads = (mockScoreLeads.mock.calls[0][0] as { leads: Array<{ apollo_id: string }> }).leads;
+      expect(scorerLeads.map((l) => l.apollo_id)).toEqual(["p1", "c1", "e1"]);
+    });
+
+    it("todos suprimidos -> caminho de busca vazia", async () => {
+      mockSearchPeople.mockResolvedValue(page(makeRows([{ id: "s1" }])));
+      mockFindContactedLeads.mockResolvedValue(new Map([["s1", "suppressed"]]));
+
+      const result = await step.run(direct());
+
+      expect(result.data.emptyResult).toBe(true);
+      expect(result.data.screening).toEqual({ suppressed: 1, publicSector: 0, alreadyContacted: 0 });
+    });
+
+    it("autopilot: 3 elegiveis + 2 publicos, N=10 -> output com os 3 elegiveis", async () => {
+      mockSearchPeople.mockResolvedValue(
+        page(
+          makeRows([
+            { id: "e1" },
+            { id: "p1", company: "Prefeitura de Santos" },
+            { id: "e2" },
+            { id: "p2", company: "Tribunal de Justica" },
+            { id: "e3" },
+          ])
+        )
+      );
+      const input = direct({ leadCount: 10 });
+      input.mode = "autopilot";
+
+      const result = await step.run(input);
+
+      const ids = (result.data.leads as Array<{ apolloId: string }>).map((l) => l.apolloId);
+      expect(ids.sort()).toEqual(["e1", "e2", "e3"]);
+      expect(result.cost?.apollo_search).toBe(3);
+    });
+
+    it("autopilot sem nenhum elegivel -> EMPTY_LEAD_SEARCH_MESSAGE", async () => {
+      mockSearchPeople.mockResolvedValue(page(makeRows([{ id: "p1", company: "Prefeitura de Santos" }])));
+      const input = direct();
+      input.mode = "autopilot";
+
+      await expect(step.run(input)).rejects.toMatchObject({
+        message: expect.stringContaining(EMPTY_LEAD_SEARCH_MESSAGE),
+      });
     });
   });
 });

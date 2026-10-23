@@ -14,7 +14,18 @@ import { BriefingParserService } from "@/lib/agent/briefing-parser-service";
 import { logAgentUsage } from "@/lib/agent/agent-usage";
 import type { ChatTurn, NextAction, ParsedBriefing } from "@/types/agent";
 import { AGENT_ERROR_CODES } from "@/types/agent";
-import { resolveContextualSuggestions } from "@/lib/agent/contextual-suggestions";
+import {
+  readTenantICP,
+  resolveContextualSuggestions,
+} from "@/lib/agent/contextual-suggestions";
+import { buildIcpSearchDefaults, ICP_PROPOSAL_MAX_TITLES } from "@/lib/agent/icp-briefing";
+import { canProceedWithSearch, hasSearchLocation } from "@/lib/agent/search-defaults";
+import {
+  hasUnresolvedAccounts,
+  isAccountListMode,
+  resolvedAccountDomains,
+} from "@/lib/agent/target-accounts";
+import { findSuppressedAccounts, withAccountNames } from "@/lib/agent/account-suppression";
 
 // ==============================================
 // REQUEST VALIDATION
@@ -77,8 +88,19 @@ function analyzeBriefingCompleteness(
     missingFields.push("jobTitles");
   }
 
-  if (!briefing.location) {
+  // Story 24.14: a localizacao do ICP (icpDefaults) satisfaz o campo.
+  // Story 24.17: no modo lista de contas a localizacao nao e exigida (nao entra).
+  const accountListMode = isAccountListMode(briefing);
+  if (!accountListMode && !hasSearchLocation(briefing)) {
     missingFields.push("location");
+  }
+
+  // Story 24.17: conta sem dominio, ou nenhuma conta restante (todas suprimidas).
+  if (
+    accountListMode &&
+    ((briefing.targetAccounts?.length ?? 0) === 0 || hasUnresolvedAccounts(briefing.targetAccounts))
+  ) {
+    missingFields.push("targetAccounts");
   }
 
   if (!briefing.industry) {
@@ -94,16 +116,12 @@ function analyzeBriefingCompleteness(
   // - location must be present (parametro primario; technology/industry sao filtros OPCIONAIS
   //   e nao contam mais como criterio para avancar)
   // - Story 17.11: imported leads flow doesn't need jobTitles or location
-  const hasJobTitles = briefing.jobTitles && briefing.jobTitles.length > 0;
-  const hasLocation = Boolean(briefing.location);
-
+  // - Story 24.17: no modo lista de contas, cargos + contas resolvidas (sem localizacao)
   const isImportedLeadsFlow =
     briefing.skipSteps?.includes("search_companies") &&
     briefing.skipSteps?.includes("search_leads");
 
-  const canProceed = Boolean(
-    (hasJobTitles && hasLocation) || isImportedLeadsFlow
-  );
+  const canProceed = Boolean(canProceedWithSearch(briefing) || isImportedLeadsFlow);
 
   return { missingFields, canProceed };
 }
@@ -236,6 +254,10 @@ export async function POST(request: Request) {
 
   const apiKey = keyLookup.apiKey;
 
+  // Story 24.14: o ICP e lido UMA vez por parse (fail-open: nunca lanca; sem ICP -> vazio)
+  // e reaproveitado pelos defaults de busca e pelas sugestoes. Em paralelo ao LLM.
+  const icpPromise = readTenantICP(profile.tenant_id);
+
   // Parse briefing
   try {
     const parseStart = Date.now();
@@ -290,12 +312,59 @@ export async function POST(request: Request) {
       skipSteps,
     };
 
+    // Story 24.14: defaults do ICP (porte + locais) gravados no briefing, ANTES da analise
+    // de completude. No fluxo de leads importados nao ha busca -> null.
+    const icp = await icpPromise;
+    resolvedBriefing.icpDefaults = isImportedLeadsFlow ? null : buildIcpSearchDefaults(icp);
+
+    // Story 24.17: modo lista de contas. No fluxo importado as contas nao valem.
+    if (isImportedLeadsFlow) {
+      resolvedBriefing.targetAccounts = null;
+      resolvedBriefing.suppressedAccounts = null;
+    } else if ((resolvedBriefing.targetAccounts?.length ?? 0) > 0) {
+      const accounts = resolvedBriefing.targetAccounts ?? [];
+      // Supressao (negociacao em andamento) ANTES da busca — fail-open.
+      const suppressed = withAccountNames(
+        await findSuppressedAccounts(
+          supabase,
+          profile.tenant_id,
+          resolvedAccountDomains(accounts)
+        ),
+        accounts
+      );
+      const suppressedDomains = new Set(suppressed.map((s) => s.domain));
+      resolvedBriefing.targetAccounts = accounts.filter(
+        (a) => !a.domain || !suppressedDomains.has(a.domain)
+      );
+      resolvedBriefing.suppressedAccounts = suppressed.length > 0 ? suppressed : null;
+      // As contas substituem a busca de empresas; a tecnologia (TheirStack) nao roda.
+      if (!resolvedBriefing.skipSteps.includes("search_companies")) {
+        resolvedBriefing.skipSteps = [...resolvedBriefing.skipSteps, "search_companies"];
+      }
+      resolvedBriefing.technology = null;
+      // Sem cargos do usuario, os do ICP.
+      if (resolvedBriefing.jobTitles.length === 0) {
+        const icpTitles = Array.from(
+          new Set((icp.jobTitles ?? []).map((t) => t.trim()).filter(Boolean))
+        ).slice(0, ICP_PROPOSAL_MAX_TITLES);
+        if (icpTitles.length > 0) {
+          resolvedBriefing.jobTitles = icpTitles;
+          resolvedBriefing.jobTitlesFromIcp = true;
+        }
+      }
+    } else {
+      // Sem contas: briefing identico ao de antes da 24.17 (sem as chaves novas).
+      delete resolvedBriefing.targetAccounts;
+      delete resolvedBriefing.suppressedAccounts;
+    }
+
     // Story 22.7: sugestoes KB-first — derivam do ICP do tenant quando disponivel,
     // com fallback fail-open pros mapas estaticos. NAO altera canProceed/missingFields/
     // skipSteps (NFR1) — sugestao e conteudo de conversa, nao gate.
     const suggestions = await resolveContextualSuggestions(
       resolvedBriefing,
-      profile.tenant_id
+      profile.tenant_id,
+      icp
     );
     const { missingFields, canProceed } = analyzeBriefingCompleteness(resolvedBriefing);
     const isComplete = missingFields.length === 0;

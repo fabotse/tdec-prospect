@@ -114,6 +114,10 @@ export interface ParsedBriefing {
   technology: string | null;
   jobTitles: string[];
   location: string | null;
+  // Story 24.15: escopo do local na busca de leads. "company" (sede da empresa,
+  // `organization_locations`) ou "person" (onde a pessoa esta, `person_locations`).
+  // Ausente/null = "company".
+  locationScope?: "company" | "person" | null;
   companySize: string | null;
   industry: string | null;
   productSlug: string | null;
@@ -125,11 +129,48 @@ export interface ParsedBriefing {
   urgency?: CampaignUrgency | null; // Story 22.5: urgencia da campanha (metadado). Null = nao especificado; default MEDIUM aplicado no CreateCampaignStep.
   campaignDescription?: string | null; // Story 22.5: descricao livre da campanha (ex.: "Black Friday"). Alimenta {{additional_description}} e o nome da campanha.
   emailCount?: number | null; // Story 22.5: quantidade de e-mails desejada (1-10). Null = heuristica por objetivo no prompt.
+  // Story 24.13: quantos leads o usuario quer (N, 1-500). Metadado: vale no plano, no custo,
+  // no volume da busca e na pre-selecao da revisao. Null = comportamento anterior (25, todos).
+  leadCount?: number | null;
   // Story 22.15: nome do SEGMENTO onde os leads aprovados sao salvos em "Meus Leads",
   // quando o usuario pede um na conversa ("coloca no segmento Teste Atibaia"). Null =
   // usa o proprio nome da campanha. NAO e filtro de busca: nunca altera skipSteps,
   // nextAction nem os parametros do Apollo. Teto de 100 chars (segments.name e VARCHAR(100)).
   segmentName?: string | null;
+  // Story 24.14: defaults de busca vindos do ICP do tenant (snapshot no parse/proposta).
+  // Substituem o piso de qualidade (porte) e a falta de localizacao na BUSCA DIRETA.
+  // Ausente/null = comportamento anterior (sem ICP).
+  icpDefaults?: IcpSearchDefaults | null;
+  // Story 24.17: modo lista de contas (ABM). Com contas, `search_companies` fica pulado e o
+  // `search_leads` busca por dominio (`q_organization_domains_list`). Ausente/null/vazio =
+  // comportamento anterior (busca por cargo + localizacao).
+  targetAccounts?: TargetAccount[] | null;
+  // Story 24.17: contas citadas que foram removidas por supressao (negociacao em andamento).
+  // Mantem o modo lista mesmo quando todas foram removidas.
+  suppressedAccounts?: SuppressedAccount[] | null;
+  // Story 24.17: true quando os cargos vieram do ICP (o usuario so citou as contas).
+  jobTitlesFromIcp?: boolean;
+}
+
+/** Story 24.17: conta-alvo do modo lista. `domain` null = o agente precisa perguntar o site. */
+export interface TargetAccount {
+  name: string | null;
+  domain: string | null;
+  /** "high" = dominio citado pelo usuario ou certo; "low" = deduzido pelo nome (confirme). */
+  confidence: "high" | "low";
+}
+
+/** Story 24.17: conta removida da busca por supressao. */
+export interface SuppressedAccount {
+  name: string | null;
+  domain: string;
+  reason: string;
+}
+
+/** Story 24.14: defaults de busca derivados do ICP (faixas canonicas da Apollo). */
+export interface IcpSearchDefaults {
+  companySizes: string[];
+  locations: string[];
 }
 
 export interface CostModel {
@@ -265,6 +306,9 @@ export interface SearchCompaniesOutput {
 
 // === Search Leads Output (Story 17.2 AC #2, #3) ===
 
+/** Story 24.16: nota de encaixe do lead no pedido e no ICP. */
+export type FitGrade = "A" | "B" | "C";
+
 export interface SearchLeadResult {
   name: string;
   title: string | null;
@@ -272,6 +316,27 @@ export interface SearchLeadResult {
   email: string | null;
   linkedinUrl: string | null;
   apolloId: string | null;
+  /** Story 24.16: Fit Score do `search_leads`. Ausente em execucoes antigas e no fetch-leads. */
+  fitScore?: FitGrade | null;
+  /** Story 24.16: justificativa de 1 linha do Fit Score (<= 120 caracteres). */
+  fitReason?: string | null;
+  /** Story 24.15: organizacao com nome de orgao publico (oculta por padrao na revisao). */
+  publicSector?: boolean;
+  /** Story 24.15: lead ja abordado pelo tenant (fora da pre-selecao). */
+  contactStatus?: "already_contacted" | null;
+}
+
+/** Story 24.15: contagens da triagem dos resultados da busca. */
+export interface LeadScreeningSummary {
+  suppressed: number;
+  publicSector: number;
+  alreadyContacted: number;
+}
+
+/** Story 24.16: origem e distribuicao do Fit Score no output do `search_leads`. */
+export interface FitScoringSummary {
+  source: "llm" | "rules";
+  counts: Record<FitGrade, number>;
 }
 
 export interface SearchLeadsOutput {
@@ -280,6 +345,9 @@ export interface SearchLeadsOutput {
   jobTitles: string[];
   domainsSearched: string[];
   searchFilters?: Record<string, unknown>; // Story 17.12: filtros para re-paginacao
+  fitScoring?: FitScoringSummary; // Story 24.16
+  screening?: LeadScreeningSummary; // Story 24.15
+  similarTitlesFallback?: boolean; // Story 24.15: ampliou para cargos parecidos
 }
 
 // === Create Campaign Output (Story 17.3 AC #4) ===

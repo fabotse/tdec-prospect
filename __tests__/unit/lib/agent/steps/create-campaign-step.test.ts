@@ -1972,6 +1972,42 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
       expect(args.leads[0].apolloId).toBe("apollo-amanda");
     });
 
+    it("Story 24.16: fitScore/fitReason do lead aprovado sobrevivem ao enrichment e chegam a persistencia", async () => {
+      setupStructureThenContent();
+      mockEnrichPerson.mockResolvedValue({
+        person: { email: "amanda@acme.com", first_name: "Amanda", last_name: "Rebel" },
+      });
+
+      const input = createInput({}, {
+        leads: [
+          {
+            name: "Amanda Re***l",
+            title: "CTO",
+            companyName: "Acme",
+            email: null,
+            linkedinUrl: null,
+            apolloId: "apollo-amanda",
+            fitScore: "A",
+            fitReason: "Cargo bate com o pedido (CTO) e tem e-mail disponivel",
+          },
+        ],
+        totalFound: 1,
+        jobTitles: ["CTO"],
+        domainsSearched: [],
+      });
+
+      const result = await step.run(input);
+      expect(result.success).toBe(true);
+
+      const args = mockPersistApprovedLeads.mock.calls[0][0] as {
+        leads: Array<Record<string, unknown>>;
+      };
+      expect(args.leads[0]).toMatchObject({
+        fitScore: "A",
+        fitReason: "Cargo bate com o pedido (CTO) e tem e-mail disponivel",
+      });
+    });
+
     it("sem segmentName no briefing, usa o nome da campanha", async () => {
       setupStructureThenContent();
 

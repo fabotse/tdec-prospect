@@ -19,7 +19,7 @@
  */
 
 import { MAX_REWRITES } from "@/lib/ai/copy-review-config";
-import type { CostActual, StepType } from "@/types/agent";
+import type { CostActual, ParsedBriefing, StepType } from "@/types/agent";
 
 // ==============================================
 // VOLUMES
@@ -34,9 +34,51 @@ export const AGENT_PIPELINE_VOLUMES = {
   companies: 2,
   /** Leads por pagina da busca Apollo do `search_leads`. */
   leadsPerSearch: 25,
+  /** Story 24.13: teto de leads por pagina da busca Apollo (limite da API). */
+  maxLeadsPerSearch: 100,
   /** E-mails da sequencia quando o usuario nao pediu uma quantidade. */
   defaultEmails: 3,
 } as const;
+
+/** Story 24.13: teto de N (mesmo limite do `fetch-leads`). */
+const MAX_LEAD_COUNT = 500;
+
+/**
+ * Story 24.13: N valido do briefing (inteiro de 1 a 500) ou null. Valor fora da faixa
+ * (JSONB com mais de um escritor) e tratado como ausente — comportamento anterior.
+ */
+export function resolveLeadCount(briefing: Pick<ParsedBriefing, "leadCount"> | null | undefined): number | null {
+  const value = briefing?.leadCount;
+  if (typeof value !== "number" || !Number.isInteger(value)) return null;
+  if (value < 1 || value > MAX_LEAD_COUNT) return null;
+  return value;
+}
+
+/**
+ * Story 24.13: quantos leads a execucao vai processar — a contagem dos importados, se
+ * houver; senao N; senao a pagina padrao (25).
+ */
+export function resolveLeadVolume(
+  briefing: Pick<ParsedBriefing, "leadCount" | "importedLeads">
+): number {
+  const importedCount = Array.isArray(briefing.importedLeads) ? briefing.importedLeads.length : 0;
+  if (importedCount > 0) return importedCount;
+  return resolveLeadCount(briefing) ?? AGENT_PIPELINE_VOLUMES.leadsPerSearch;
+}
+
+/**
+ * Story 24.16: tamanho da pagina da busca Apollo = universo de 3-5x N para o Fit Score
+ * escolher os N melhores — `min(max(3N, min(5N, 25)), 100)`; sem N, 25.
+ * Ex.: N=1 -> 5, N=5 -> 25, N=10 -> 30, N=20 -> 60, N>=34 -> 100.
+ */
+export function resolveLeadsPerPage(briefing: Pick<ParsedBriefing, "leadCount">): number {
+  const n = resolveLeadCount(briefing);
+  if (n === null) return AGENT_PIPELINE_VOLUMES.leadsPerSearch;
+  return Math.min(
+    Math.max(3 * n, Math.min(5 * n, AGENT_PIPELINE_VOLUMES.leadsPerSearch)),
+    AGENT_PIPELINE_VOLUMES.maxLeadsPerSearch
+  );
+}
 
 /** Creditos TheirStack cobrados por empresa devolvida. */
 export const THEIRSTACK_CREDITS_PER_COMPANY = 3;
@@ -140,7 +182,8 @@ export function computeStepActualCost(
     case "search_companies":
       return count(cost, "theirstack_search") * prices.theirstack;
     case "search_leads":
-      return 0;
+      // Story 24.16: 1 chamada de IA do Fit Score (a busca Apollo nao consome credito).
+      return count(cost, "openai_fit_score") * prices.openai;
     case "create_campaign": {
       const generationCalls =
         cost.openai_calls !== undefined && cost.openai_calls !== null

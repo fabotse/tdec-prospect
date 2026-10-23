@@ -323,6 +323,189 @@ describe("PATCH /api/agent/executions/[executionId]/briefing", () => {
     expect(response.status).toBe(200);
   });
 
+  // Story 24.13: leadCount (N) sobrevive ao strip do z.object e respeita 1-500.
+  it("deve PRESERVAR leadCount no briefing enviado ao update (24.13 - armadilha do strip)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const briefingWithN = { ...VALID_BRIEFING, leadCount: 5 };
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing: briefingWithN, status: "pending" },
+      error: null,
+    });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(createRequest(briefingWithN), createParams());
+    expect(response.status).toBe(200);
+
+    const updateArg = chain.update.mock.calls[0][0] as { briefing: Record<string, unknown> };
+    expect(updateArg.briefing.leadCount).toBe(5);
+  });
+
+  it.each([0, 501, 2.5])("deve rejeitar leadCount %p fora de 1-500 no PATCH (24.13)", async (value) => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const response = await PATCH(
+      createRequest({ ...VALID_BRIEFING, leadCount: value }),
+      createParams()
+    );
+    expect(response.status).toBe(400);
+    const json = await response.json();
+    expect(json.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  // Story 24.15: locationScope sobrevive ao strip do z.object.
+  it("deve PRESERVAR locationScope no briefing enviado ao update (24.15 - armadilha do strip)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const briefing = { ...VALID_BRIEFING, locationScope: "person" };
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing, status: "pending" },
+      error: null,
+    });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(createRequest(briefing), createParams());
+    expect(response.status).toBe(200);
+
+    const updateArg = chain.update.mock.calls[0][0] as { briefing: Record<string, unknown> };
+    expect(updateArg.briefing.locationScope).toBe("person");
+  });
+
+  it("deve rejeitar locationScope invalido no PATCH (24.15)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const response = await PATCH(
+      createRequest({ ...VALID_BRIEFING, locationScope: "planeta" }),
+      createParams()
+    );
+    expect(response.status).toBe(400);
+  });
+
+  // Story 24.14: icpDefaults sobrevive ao strip do z.object (senao a busca volta ao piso 11+).
+  it("deve PRESERVAR icpDefaults no briefing enviado ao update (24.14 - armadilha do strip)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const icpDefaults = { companySizes: ["201-500", "501-1000"], locations: ["SP"] };
+    const briefingWithIcp = { ...VALID_BRIEFING, icpDefaults };
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing: {}, status: "pending" },
+      error: null,
+    });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(createRequest(briefingWithIcp), createParams());
+    expect(response.status).toBe(200);
+
+    const updateArg = chain.update.mock.calls[0][0] as { briefing: Record<string, unknown> };
+    expect(updateArg.briefing.icpDefaults).toEqual(icpDefaults);
+  });
+
+  it("deve aceitar icpDefaults null (24.14)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing: {}, status: "pending" },
+      error: null,
+    });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(
+      createRequest({ ...VALID_BRIEFING, icpDefaults: null }),
+      createParams()
+    );
+    expect(response.status).toBe(200);
+  });
+
+  it("deve rejeitar icpDefaults com faixa de tamanho nao canonica (24.14)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const response = await PATCH(
+      createRequest({
+        ...VALID_BRIEFING,
+        icpDefaults: { companySizes: ["1000+"], locations: ["SP"] },
+      }),
+      createParams()
+    );
+    expect(response.status).toBe(400);
+  });
+
+  // Story 24.17: as contas sobrevivem ao strip do z.object (senao a execucao vira busca aberta).
+  it("deve PRESERVAR targetAccounts, suppressedAccounts e jobTitlesFromIcp (24.17 - strip)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    const targetAccounts = [
+      { name: "Banco X", domain: "bancox.com.br", confidence: "high" },
+      { name: "Empresa W", domain: null, confidence: "low" },
+    ];
+    const suppressedAccounts = [
+      { name: "Banco Z", domain: "bancoz.com.br", reason: "negociacao em andamento (oportunidade em contato)" },
+    ];
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing: {}, status: "pending" },
+      error: null,
+    });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(
+      createRequest({ ...VALID_BRIEFING, targetAccounts, suppressedAccounts, jobTitlesFromIcp: true }),
+      createParams()
+    );
+    expect(response.status).toBe(200);
+
+    const updateArg = chain.update.mock.calls[0][0] as { briefing: Record<string, unknown> };
+    expect(updateArg.briefing.targetAccounts).toEqual(targetAccounts);
+    expect(updateArg.briefing.suppressedAccounts).toEqual(suppressedAccounts);
+    expect(updateArg.briefing.jobTitlesFromIcp).toBe(true);
+  });
+
+  it("deve rejeitar dominio invalido em targetAccounts (24.17)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    const response = await PATCH(
+      createRequest({
+        ...VALID_BRIEFING,
+        targetAccounts: [{ name: "X", domain: "https://x.com/", confidence: "high" }],
+      }),
+      createParams()
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("deve rejeitar mais de 50 contas e reason acima de 200 (24.17)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    const tooMany = await PATCH(
+      createRequest({
+        ...VALID_BRIEFING,
+        targetAccounts: Array.from({ length: 51 }, (_, i) => ({
+          name: null,
+          domain: `e${i}.com`,
+          confidence: "high",
+        })),
+      }),
+      createParams()
+    );
+    expect(tooMany.status).toBe(400);
+
+    const longReason = await PATCH(
+      createRequest({
+        ...VALID_BRIEFING,
+        suppressedAccounts: [{ name: null, domain: "a.com", reason: "x".repeat(201) }],
+      }),
+      createParams()
+    );
+    expect(longReason.status).toBe(400);
+  });
+
+  it("deve rejeitar icpDefaults com mais de 10 locais (24.14)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+
+    const response = await PATCH(
+      createRequest({
+        ...VALID_BRIEFING,
+        icpDefaults: { companySizes: [], locations: Array.from({ length: 11 }, (_, i) => `L${i}`) },
+      }),
+      createParams()
+    );
+    expect(response.status).toBe(400);
+  });
+
   it("deve rejeitar emailCount fora do range 1-10 no PATCH (22.5)", async () => {
     mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
 

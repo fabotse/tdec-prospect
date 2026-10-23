@@ -232,6 +232,34 @@ describe("buildAdjustmentSummary (Story 22.13 AC2)", () => {
   });
 });
 
+describe("Story 24.13 - leadCount no ajuste", () => {
+  it("mergeAdjustedBriefing: o leadCount do parse vence", () => {
+    const merged = mergeAdjustedBriefing(
+      { ...PERSISTED, leadCount: 10 },
+      { ...PARSED, leadCount: 5 }
+    );
+    expect(merged.leadCount).toBe(5);
+  });
+
+  it("mergeAdjustedBriefing: ausencia no parse PRESERVA o leadCount anterior", () => {
+    const merged = mergeAdjustedBriefing({ ...PERSISTED, leadCount: 10 }, PARSED);
+    expect(merged.leadCount).toBe(10);
+    const mergedNull = mergeAdjustedBriefing(
+      { ...PERSISTED, leadCount: 10 },
+      { ...PARSED, leadCount: null }
+    );
+    expect(mergedNull.leadCount).toBe(10);
+  });
+
+  it("resumo da busca mostra '- Leads: até N' so quando N existe", () => {
+    const comN: ParsedBriefing = { ...PERSISTED, leadCount: 5 };
+    expect(buildAdjustmentSummary(comN, comN, "search_leads", null)).toContain("- Leads: até 5");
+    expect(buildAdjustmentSummary(PERSISTED, PERSISTED, "search_leads", null)).not.toContain(
+      "- Leads:"
+    );
+  });
+});
+
 describe("listRemovedFilters (Story 22.13, review P4)", () => {
   it("lista so o que existia e sumiu", () => {
     const merged = mergeAdjustedBriefing(PERSISTED, PARSED);
@@ -286,5 +314,184 @@ describe("isAdjustmentConfirmation (Story 22.13 AC3, review P1)", () => {
     // frase ambigua com keyword: o custo de errar para o lado "nao confirma" e uma
     // chamada de parse; para o outro lado, creditos gastos e a correcao perdida.
     expect(isAdjustmentConfirmation("pode ser, mas antes muda a localizacao")).toBe(false);
+  });
+});
+
+// ==============================================
+// Story 24.14 — defaults do ICP
+// ==============================================
+
+describe("Story 24.14 — icpDefaults no ajuste", () => {
+  const ICP = { companySizes: ["201-500", "501-1000"], locations: ["SP"] };
+
+  it("mergeAdjustedBriefing: o valor do parse vence", () => {
+    const next = { companySizes: ["11-50"], locations: ["RJ"] };
+    const merged = mergeAdjustedBriefing(
+      { ...PERSISTED, icpDefaults: ICP },
+      { ...PARSED, icpDefaults: next }
+    );
+    expect(merged.icpDefaults).toEqual(next);
+  });
+
+  it("mergeAdjustedBriefing: ausencia no parse preserva o snapshot", () => {
+    const merged = mergeAdjustedBriefing({ ...PERSISTED, icpDefaults: ICP }, PARSED);
+    expect(merged.icpDefaults).toEqual(ICP);
+  });
+
+  it("buildAdjustmentSummary: local e tamanho do ICP marcados na busca direta", () => {
+    const merged: ParsedBriefing = {
+      ...PERSISTED,
+      technology: null,
+      location: null,
+      companySize: null,
+      skipSteps: ["search_companies"],
+      icpDefaults: ICP,
+    };
+    const summary = buildAdjustmentSummary(PERSISTED, merged, "search_leads", null);
+    expect(summary).toContain("- Localizacao: SP (do seu ICP)");
+    expect(summary).toContain("- Tamanho: 201–1000 (do seu ICP)");
+  });
+
+  it("buildAdjustmentSummary: o usuario vence o ICP", () => {
+    const merged: ParsedBriefing = {
+      ...PERSISTED,
+      location: "RJ",
+      companySize: "51-200",
+      skipSteps: ["search_companies"],
+      icpDefaults: ICP,
+    };
+    const summary = buildAdjustmentSummary(PERSISTED, merged, "search_leads", null);
+    expect(summary).toContain("- Localizacao: RJ");
+    expect(summary).toContain("- Tamanho: 51-200");
+    expect(summary).not.toContain("do seu ICP");
+  });
+
+  it("buildAdjustmentSummary sem ICP fica identico ('sem filtro')", () => {
+    const merged: ParsedBriefing = {
+      ...PERSISTED,
+      location: null,
+      companySize: null,
+      skipSteps: ["search_companies"],
+    };
+    const summary = buildAdjustmentSummary(PERSISTED, merged, "search_leads", null);
+    expect(summary).toContain("- Localizacao: sem filtro");
+    expect(summary).toContain("- Tamanho: sem filtro");
+  });
+});
+
+// ==============================================
+// Story 24.17 — modo lista de contas no ajuste
+// ==============================================
+
+describe("Story 24.17 — contas no ajuste", () => {
+  const ACCOUNTS = [
+    { name: "Banco X", domain: "bancox.com.br", confidence: "high" as const },
+    { name: "Banco Z", domain: "bancoz.com.br", confidence: "low" as const },
+  ];
+  const LIST_PERSISTED: ParsedBriefing = {
+    technology: null,
+    jobTitles: ["CISO"],
+    location: null,
+    companySize: null,
+    industry: null,
+    productSlug: null,
+    mode: "guided",
+    skipSteps: ["search_companies"],
+    icpDefaults: { companySizes: ["201-500"], locations: ["SP"] },
+    targetAccounts: ACCOUNTS,
+    jobTitlesFromIcp: true,
+  };
+
+  it("execucao no modo lista: contas do parse substituem as persistidas", () => {
+    const parsed: ParsedBriefing = {
+      ...LIST_PERSISTED,
+      targetAccounts: [{ name: null, domain: "outra.com", confidence: "high" }],
+      suppressedAccounts: null,
+    };
+    const merged = mergeAdjustedBriefing(LIST_PERSISTED, parsed);
+    expect(merged.targetAccounts).toEqual([{ name: null, domain: "outra.com", confidence: "high" }]);
+  });
+
+  it("lista vazia no parse preserva a persistida", () => {
+    const parsed: ParsedBriefing = { ...LIST_PERSISTED, targetAccounts: undefined };
+    delete parsed.targetAccounts;
+    const merged = mergeAdjustedBriefing(LIST_PERSISTED, parsed);
+    expect(merged.targetAccounts).toEqual(ACCOUNTS);
+  });
+
+  it("execucao fora do modo lista ignora contas do parse (e a tecnologia zerada por elas)", () => {
+    const persisted: ParsedBriefing = { ...PERSISTED, technology: "Netskope", skipSteps: [] };
+    const parsed: ParsedBriefing = { ...PARSED, technology: null, targetAccounts: ACCOUNTS };
+    const merged = mergeAdjustedBriefing(persisted, parsed);
+    expect(merged.targetAccounts).toBeUndefined();
+    expect(merged.technology).toBe("Netskope");
+  });
+
+  it("jobTitlesFromIcp: ausencia preserva com os mesmos cargos; cargos novos zeram", () => {
+    const same = mergeAdjustedBriefing(LIST_PERSISTED, {
+      ...LIST_PERSISTED,
+      jobTitlesFromIcp: undefined,
+    });
+    expect(same.jobTitlesFromIcp).toBe(true);
+
+    const changed = mergeAdjustedBriefing(LIST_PERSISTED, {
+      ...LIST_PERSISTED,
+      jobTitles: ["CFO"],
+      jobTitlesFromIcp: undefined,
+    });
+    expect(changed.jobTitlesFromIcp).toBe(false);
+  });
+
+  it("execucao no modo lista: parse sem contas nao traz tecnologia", () => {
+    const parsed: ParsedBriefing = { ...LIST_PERSISTED, technology: "Netskope" };
+    delete parsed.targetAccounts;
+    const merged = mergeAdjustedBriefing(LIST_PERSISTED, parsed);
+    expect(merged.targetAccounts).toEqual(ACCOUNTS);
+    expect(merged.technology).toBeNull();
+  });
+
+  it("resumo do ajuste: linha de contas e sem porte do ICP", () => {
+    const summary = buildAdjustmentSummary(LIST_PERSISTED, LIST_PERSISTED, "search_leads", null);
+    expect(summary).toContain("- Contas: Banco X (bancox.com.br), Banco Z (bancoz.com.br — confirme)");
+    expect(summary).toContain("- Tamanho: sem filtro");
+    expect(summary).toContain("- Localizacao: sem filtro");
+  });
+
+  it("sem contas, o resumo nao tem a linha de contas", () => {
+    const summary = buildAdjustmentSummary(PERSISTED, PERSISTED, "search_leads", null);
+    expect(summary).not.toContain("- Contas:");
+  });
+});
+
+describe("Story 24.15 - locationScope no ajuste", () => {
+  it("mergeAdjustedBriefing: o locationScope do parse vence", () => {
+    const merged = mergeAdjustedBriefing(
+      { ...PERSISTED, locationScope: "company" },
+      { ...PARSED, locationScope: "person" }
+    );
+    expect(merged.locationScope).toBe("person");
+  });
+
+  it("mergeAdjustedBriefing: ausencia no parse PRESERVA o locationScope anterior", () => {
+    expect(mergeAdjustedBriefing({ ...PERSISTED, locationScope: "person" }, PARSED).locationScope).toBe(
+      "person"
+    );
+    expect(
+      mergeAdjustedBriefing({ ...PERSISTED, locationScope: "person" }, { ...PARSED, locationScope: null })
+        .locationScope
+    ).toBe("person");
+    expect(mergeAdjustedBriefing(PERSISTED, PARSED)).not.toHaveProperty("locationScope");
+  });
+});
+
+describe("Story 24.15 - locationScope no resumo do ajuste", () => {
+  it("escopo pessoa: '- Localizacao: ... (onde a pessoa esta)'; padrao sem sufixo", () => {
+    const person: ParsedBriefing = { ...PERSISTED, locationScope: "person" };
+    expect(buildAdjustmentSummary(person, person, "search_leads", null)).toContain(
+      "- Localizacao: Sao Paulo (onde a pessoa esta)"
+    );
+    const summary = buildAdjustmentSummary(PERSISTED, PERSISTED, "search_leads", null);
+    expect(summary).toContain("- Localizacao: Sao Paulo");
+    expect(summary).not.toContain("onde a pessoa esta");
   });
 });

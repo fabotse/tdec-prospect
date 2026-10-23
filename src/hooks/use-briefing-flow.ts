@@ -11,15 +11,29 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { ChatTurn, ParsedBriefing, ExtractedProduct } from "@/types/agent";
+import type { ChatTurn, ParsedBriefing, ExtractedProduct, TargetAccount } from "@/types/agent";
 import type { CreateProductInput } from "@/types/product";
 import type { BriefingParseResponse } from "@/app/api/agent/briefing/parse/route";
 import { BriefingSuggestionService } from "@/lib/agent/briefing-suggestion-service";
 import { parseLeadInput, type LeadImportResult } from "@/lib/agent/lead-import-parser";
 import {
   QUALITY_MIN_COMPANY_SIZE_LABEL,
+  canProceedWithSearch,
+  formatCompanySizesLabel,
+  hasSearchLocation,
   resolveDirectSearchCompanySizes,
+  resolveSearchLocations,
 } from "@/lib/agent/search-defaults";
+import {
+  formatSuppressedAccounts,
+  formatSuppressedAccountsShort,
+  formatTargetAccounts,
+  hasUnresolvedAccounts,
+  isAccountListMode,
+  parseTargetAccountsInput,
+  unresolvedAccountNames,
+} from "@/lib/agent/target-accounts";
+import { buildIcpProposalMessage } from "@/lib/agent/icp-briefing";
 
 // ==============================================
 // TYPES
@@ -121,6 +135,11 @@ export function generateSmartQuestion(
     return "Em qual localizacao voce quer focar a prospeccao? Ex: Sao Paulo, Brasil, LATAM.";
   }
 
+  // Story 24.17: pergunta deterministica do modo lista de contas.
+  if (field === "targetAccounts") {
+    return generateTargetAccountsQuestion(briefing);
+  }
+
   if (field === "technology") {
     if (suggestions.length > 0) {
       const sectorContext = briefing.industry
@@ -147,7 +166,29 @@ export function generateSmartQuestion(
 // location is now obligatory to advance; technology/industry/companySize are optional
 // context — tracked in missingFields for isComplete accuracy but NOT asked about in guided
 // questions (technology only resurfaces via isHelpRequest as a suggestion, never as a demand).
-const QUESTIONABLE_FIELDS = ["jobTitles", "location"];
+// Story 24.17: `targetAccounts` (conta sem dominio ou nenhuma restante) tambem e perguntado.
+const QUESTIONABLE_FIELDS = ["targetAccounts", "jobTitles", "location"];
+
+/**
+ * Story 24.17: pergunta do modo lista. Conta sem dominio -> pede o site; nenhuma conta
+ * restante (todas suprimidas) -> explica e pede outras empresas.
+ */
+export function generateTargetAccountsQuestion(briefing: ParsedBriefing): string {
+  const unresolved = unresolvedAccountNames(briefing.targetAccounts);
+  if (unresolved.length > 0) {
+    return `Qual o site (dominio) de: ${unresolved.join(", ")}? Ex.: empresa.com.br.`;
+  }
+  if ((briefing.targetAccounts?.length ?? 0) === 0 && (briefing.suppressedAccounts?.length ?? 0) > 0) {
+    return `As contas que voce citou estao suprimidas (${formatSuppressedAccounts(briefing.suppressedAccounts)}). Me diga outras empresas (nome ou dominio).`;
+  }
+  return "Quais empresas voce quer atingir? Me diga o nome ou o site (dominio) de cada uma.";
+}
+
+/** Story 24.17: aviso das contas removidas por supressao (antes da pergunta). */
+function suppressedAccountsNotice(briefing: ParsedBriefing): string {
+  if (!(briefing.suppressedAccounts?.length ?? 0)) return "";
+  return `Removi da lista: ${formatSuppressedAccountsShort(briefing.suppressedAccounts)}.`;
+}
 
 function generateSmartQuestions(
   missingFields: string[],
@@ -191,10 +232,34 @@ const URGENCY_LABELS: Record<string, string> = {
 
 function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: string[]): string {
   const lines: string[] = ["Entendi! Vou prospectar com os seguintes parametros:"];
+  // Story 24.17: modo lista de contas (sem contas, o resumo e identico ao de antes).
+  const accountListMode = isAccountListMode(briefing);
+  const accountCount = briefing.targetAccounts?.length ?? 0;
 
+  if (accountListMode) {
+    lines.push(`- Contas (${accountCount}): ${formatTargetAccounts(briefing.targetAccounts) || "nenhuma"}`);
+    if ((briefing.targetAccounts ?? []).some((a) => a.domain && a.confidence === "low")) {
+      lines.push('Confira os dominios marcados com "confirme": eu deduzi pelo nome.');
+    }
+    if ((briefing.suppressedAccounts?.length ?? 0) > 0) {
+      lines.push(`- Removidas da lista: ${formatSuppressedAccounts(briefing.suppressedAccounts)}`);
+    }
+  }
   if (briefing.technology) lines.push(`- Tecnologia: ${briefing.technology}`);
-  if (briefing.jobTitles.length > 0) lines.push(`- Cargos: ${briefing.jobTitles.join(", ")}`);
-  if (briefing.location) lines.push(`- Localizacao: ${briefing.location}`);
+  if (briefing.jobTitles.length > 0) {
+    const fromIcp = accountListMode && briefing.jobTitlesFromIcp ? " (do seu ICP)" : "";
+    lines.push(`- Cargos: ${briefing.jobTitles.join(", ")}${fromIcp}`);
+  }
+  // Story 24.14: sem local do usuario, o local do ICP (quando houver) e o efetivo.
+  const effectiveLocations = resolveSearchLocations(briefing);
+  // Story 24.15: com escopo "pessoa", a linha diz que o local e onde a pessoa esta.
+  const personScope = briefing.locationScope === "person" ? " (onde a pessoa esta)" : "";
+  if (briefing.location) lines.push(`- Localizacao: ${briefing.location}${personScope}`);
+  else if (effectiveLocations.fromIcp) {
+    lines.push(
+      `- Localizacao: ${effectiveLocations.locations.join(", ")} (do seu ICP)${personScope}`
+    );
+  }
   if (briefing.companySize) lines.push(`- Tamanho: ${briefing.companySize}`);
   if (briefing.industry) lines.push(`- Industria: ${briefing.industry}`);
 
@@ -203,6 +268,11 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
   if (briefing.urgency) lines.push(`- Urgencia: ${URGENCY_LABELS[briefing.urgency] ?? briefing.urgency}`);
   if (briefing.campaignDescription) lines.push(`- Descricao: ${briefing.campaignDescription}`);
   if (briefing.emailCount) lines.push(`- Nº de e-mails: ${briefing.emailCount}`);
+  // Story 24.13: quantos leads (N), so quando informado.
+  // Com leads importados o N e ignorado (vale a contagem dos importados) — sem a linha.
+  if (briefing.leadCount && !(briefing.importedLeads?.length ?? 0)) {
+    lines.push(`- Leads: até ${briefing.leadCount}`);
+  }
   // Story 22.15: destino dos leads em "Meus Leads". Exibido SEMPRE, espelhando o resumo
   // de ajuste (buildAdjustmentSummary): esta e a PRIMEIRA confirmacao — a que autoriza o
   // gasto — e era justamente ela que omitia para onde os leads iam no caso default.
@@ -225,6 +295,8 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
       // no ramo abaixo — suprime a nota generica "Sem filtro de tamanho de empresa.", que
       // seria contraditoria (na busca direta SEMPRE ha um filtro de tamanho aplicado).
       .filter((f) => !(f === "companySize" && isDirectSearch))
+      // Story 24.17: no modo lista nao ha busca por cargo + localizacao nem exigencia de local.
+      .filter((f) => !(accountListMode && (f === "technology" || f === "location")))
       .map((f) => fieldNotes[f])
       .filter(Boolean);
     if (notes.length > 0) {
@@ -240,17 +312,30 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
       briefing.skipSteps?.includes("search_leads")) {
     const leadCount = briefing.importedLeads?.length ?? 0;
     lines.push(`Etapas de busca de empresas e leads serao puladas — ${leadCount} leads importados serao usados diretamente.`);
+  } else if (accountListMode) {
+    // Story 24.17: no lugar da linha de busca direta e da nota de porte.
+    lines.push(
+      `Modo lista de contas: vou buscar os decisores direto ${
+        accountCount === 1 ? "nessa 1 conta" : `nessas ${accountCount} contas`
+      }, sem a busca de empresas.`
+    );
   } else if (briefing.skipSteps?.includes("search_companies")) {
     const params = [
       briefing.jobTitles.length > 0 ? briefing.jobTitles.join(", ") : null,
       briefing.industry,
-      briefing.location,
+      effectiveLocations.locations.length > 0 ? effectiveLocations.locations.join(", ") : null,
     ].filter(Boolean).join(" + ");
     lines.push(`Etapa de busca de empresas sera pulada — leads serao buscados diretamente por ${params || "cargos"}.`);
     // Story 22.6 (AC4): quando o usuario nao informou tamanho, aplica-se um piso de qualidade
     // (exclui micro-empresas). Convite NAO-bloqueante — o usuario pode so confirmar; canProceed intocado.
     // Gate derivado do SSOT (mesma fonte do step e do plano) para nunca divergir do que o Apollo recebe.
-    if (resolveDirectSearchCompanySizes(briefing).defaultsApplied) {
+    // Story 24.14: com faixas do ICP, elas substituem o piso — e o resumo diz de onde vieram.
+    const effectiveSizes = resolveDirectSearchCompanySizes(briefing);
+    if (effectiveSizes.source === "icp") {
+      lines.push(
+        `- Tamanho de empresa: ${formatCompanySizesLabel(effectiveSizes.companySizes)} funcionarios — do seu ICP, me diga se quiser mudar.`
+      );
+    } else if (effectiveSizes.defaultsApplied) {
       lines.push(`- Tamanho de empresa: ${QUALITY_MIN_COMPANY_SIZE_LABEL} — padrao de qualidade, me diga se quiser mudar.`);
     }
   }
@@ -277,6 +362,47 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
 // Story 24.5: instrucoes dos cards de confirmacao (rotulos iguais aos botoes).
 const BRIEFING_CARD_HINT =
   'Se estiver tudo certo, clique em "Confirmar" no card abaixo. Para mudar algo, edite um campo no card ou me diga o ajuste.';
+
+// ==============================================
+// STORY 24.14 — PROPOSTA A PARTIR DO ICP
+// ==============================================
+
+/** Turno do agente que abre a conversa nova com a proposta do ICP (mensagem + dica do card). */
+export function buildIcpProposalTurn(briefing: ParsedBriefing): string {
+  return `${buildIcpProposalMessage(briefing)}\n${BRIEFING_CARD_HINT}`;
+}
+
+/** Dica do estado vazio quando o tenant nao tem ICP com cargos. */
+export const ICP_MISSING_HINT =
+  "Dica: preencha o ICP na Base de Conhecimento (cargos, regioes e portes) e eu ja abro cada conversa com uma proposta de busca pronta.";
+
+/**
+ * Rotulo do chip VAZIO quando um default do ICP se aplica: `{valor} (do ICP)`.
+ * Localizacao vale em qualquer busca; tamanho so na busca direta. Sem default -> null.
+ */
+export function icpDefaultChipLabel(
+  field: string,
+  briefing: ParsedBriefing | null | undefined
+): string | null {
+  if (!briefing?.icpDefaults) return null;
+  if (field === "location") {
+    if (briefing.location) return null;
+    const { locations, fromIcp } = resolveSearchLocations(briefing);
+    return fromIcp ? `${locations.join(", ")} (do ICP)` : null;
+  }
+  if (field === "companySize") {
+    if (briefing.companySize) return null;
+    // Story 24.17: no modo lista o porte do ICP nao se aplica.
+    if (isAccountListMode(briefing)) return null;
+    const isDirectSearch =
+      Boolean(briefing.skipSteps?.includes("search_companies")) &&
+      !briefing.skipSteps?.includes("search_leads");
+    if (!isDirectSearch) return null;
+    const { source, companySizes } = resolveDirectSearchCompanySizes(briefing);
+    return source === "icp" ? `${formatCompanySizesLabel(companySizes)} (do ICP)` : null;
+  }
+  return null;
+}
 const PRODUCT_CARD_HINT =
   'Clique em "Confirmar" no card para cadastrar, em "Refazer cadastro" para recomecar ou em "Seguir sem produto". Para corrigir um dado, me diga o que mudar.';
 const LEADS_CARD_HINT =
@@ -320,9 +446,13 @@ function briefingChanged(prev: ParsedBriefing | null, next: ParsedBriefing): boo
     (prev.urgency ?? null) !== (next.urgency ?? null) ||
     (prev.campaignDescription ?? null) !== (next.campaignDescription ?? null) ||
     (prev.emailCount ?? null) !== (next.emailCount ?? null) ||
+    // Story 24.13: "sim, mas traga so 5" e uma CORRECAO — reapresenta o resumo.
+    (prev.leadCount ?? null) !== (next.leadCount ?? null) ||
     // Story 22.15: idem para o segmento — "sim, mas coloca no segmento Teste Atibaia"
     // e uma CORRECAO, nao uma confirmacao: tem que reapresentar o resumo.
     (prev.segmentName ?? null) !== (next.segmentName ?? null) ||
+    // Story 24.17: trocar/adicionar contas e uma CORRECAO.
+    formatTargetAccounts(prev.targetAccounts) !== formatTargetAccounts(next.targetAccounts) ||
     // Story 22.11 (patch review): skipSteps entra no diff. Sem isto, um turno que injeta o
     // shape de import (search_companies+search_leads) SEM mudar outro campo passa como
     // "briefing inalterado" e um "sim" o confirma direto (keywordConfirmed), pulando o guard
@@ -474,7 +604,15 @@ function carryProductSlug(
 function withRequiredMissing(briefing: ParsedBriefing, missingFields: string[]): string[] {
   const missing = new Set(missingFields);
   if (!briefing.jobTitles?.length) missing.add("jobTitles");
-  if (!briefing.location) missing.add("location");
+  // Story 24.17: no modo lista a localizacao nao e exigida; contas sem dominio (ou nenhuma) sim.
+  if (isAccountListMode(briefing)) {
+    missing.delete("location");
+    if (!(briefing.targetAccounts?.length ?? 0) || hasUnresolvedAccounts(briefing.targetAccounts)) {
+      missing.add("targetAccounts");
+    } else {
+      missing.delete("targetAccounts");
+    }
+  } else if (!hasSearchLocation(briefing)) missing.add("location");
   return Array.from(missing);
 }
 
@@ -552,9 +690,11 @@ function reconcileNonImportBriefing(briefing: ParsedBriefing): ParsedBriefing {
   const withoutImportSteps = (briefing.skipSteps ?? []).filter(
     (step) => step !== "search_leads" && step !== "search_companies"
   );
-  const skipSteps = briefing.technology
-    ? withoutImportSteps
-    : [...withoutImportSteps, "search_companies"];
+  // Story 24.17: o modo lista mantem `search_companies` pulado (as contas substituem a busca).
+  const skipSteps =
+    briefing.technology && !isAccountListMode({ ...briefing, skipSteps: withoutImportSteps })
+      ? withoutImportSteps
+      : [...withoutImportSteps, "search_companies"];
   return { ...briefing, skipSteps };
 }
 
@@ -627,11 +767,13 @@ const CARD_ACTION_STATUS: Record<BriefingCardAction, BriefingFlowStatus> = {
 
 /** Campos do briefing editaveis como chip no card. */
 export type BriefingCardField =
+  | "targetAccounts"
   | "jobTitles"
   | "location"
   | "technology"
   | "industry"
   | "companySize"
+  | "leadCount"
   | "objective"
   | "urgency"
   | "emailCount"
@@ -639,11 +781,13 @@ export type BriefingCardField =
   | "segmentName";
 
 export const BRIEFING_FIELD_LABELS: Record<BriefingCardField, string> = {
+  targetAccounts: "Contas",
   jobTitles: "Cargos",
   location: "Localizacao",
   technology: "Tecnologia",
   industry: "Industria",
   companySize: "Tamanho",
+  leadCount: "Leads",
   objective: "Objetivo",
   urgency: "Urgencia",
   emailCount: "Nº de e-mails",
@@ -657,7 +801,7 @@ export const BRIEFING_FIELD_OPTIONS: Partial<Record<BriefingCardField, Record<st
   urgency: URGENCY_LABELS,
 };
 
-type BriefingFieldValue = string | string[] | number | null;
+type BriefingFieldValue = string | string[] | number | TargetAccount[] | null;
 
 export type BriefingFieldParseResult =
   | { ok: true; value: BriefingFieldValue; display: string }
@@ -671,9 +815,16 @@ export function formatBriefingFieldValue(
   if (value == null || (Array.isArray(value) && value.length === 0) || value === "") {
     return "nao definido";
   }
+  // Story 24.17: contas com as marcas de exibicao ("— confirme", "dominio?").
+  if (field === "targetAccounts") return formatTargetAccounts(value as TargetAccount[]);
   if (Array.isArray(value)) return value.join(", ");
   if (field === "objective") return OBJECTIVE_LABELS[value as string] ?? String(value);
   if (field === "urgency") return URGENCY_LABELS[value as string] ?? String(value);
+  // Story 24.13: "Até N leads" ("Até 1 lead" no singular).
+  if (field === "leadCount") {
+    const count = Number(value);
+    return `Até ${count} ${count === 1 ? "lead" : "leads"}`;
+  }
   return String(value);
 }
 
@@ -693,6 +844,13 @@ export function parseBriefingFieldInput(
   });
 
   switch (field) {
+    case "targetAccounts": {
+      // Story 24.17: `dominio` ou `Nome (dominio)`, separados por virgula. A supressao fica
+      // para o step.
+      const parsed = parseTargetAccountsInput(text);
+      if (!parsed.ok) return { ok: false, error: parsed.error };
+      return ok(parsed.accounts);
+    }
     case "jobTitles": {
       const titles = text
         .split(",")
@@ -721,6 +879,16 @@ export function parseBriefingFieldInput(
       const count = Number(text);
       if (count < 1 || count > 10) {
         return { ok: false, error: "Informe um numero inteiro de 1 a 10." };
+      }
+      return ok(count);
+    }
+    case "leadCount": {
+      // Story 24.13: mesma faixa do PATCH (1-500, teto do fetch-leads).
+      if (!text) return ok(null);
+      if (!/^\d+$/.test(text)) return { ok: false, error: "Informe um numero inteiro de 1 a 500." };
+      const count = Number(text);
+      if (count < 1 || count > 500) {
+        return { ok: false, error: "Informe um numero inteiro de 1 a 500." };
       }
       return ok(count);
     }
@@ -811,6 +979,12 @@ export interface UseBriefingFlowReturn {
    * transcript coerente para o proximo `/parse`.
    */
   recordUserTurn: (content: string) => void;
+  /**
+   * Story 24.14: abre a conversa nova com a proposta do ICP. So age em `idle`: entra em
+   * `confirming` com o briefing proposto e grava o turno do agente na memoria (o turno NAO
+   * e persistido aqui — a execucao so nasce no primeiro gesto). Devolve se semeou.
+   */
+  seedIcpProposal: (briefing: ParsedBriefing) => boolean;
 }
 
 export function useBriefingFlow(): UseBriefingFlowReturn {
@@ -1021,9 +1195,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
         result = {
           ...result,
           briefing: reconciledBriefing,
-          canProceed: Boolean(
-            reconciledBriefing.jobTitles?.length && reconciledBriefing.location
-          ),
+          canProceed: canProceedWithSearch(reconciledBriefing),
         };
       }
 
@@ -1045,10 +1217,30 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
         // content min(1)) caem no deterministico.
         const llmQuestion =
           result.nextAction === "ask" ? (result.questionText ?? "").trim() : "";
-        const question =
-          llmQuestion !== ""
-            ? llmQuestion
-            : generateSmartQuestions(result.missingFields, result.suggestions, result.briefing);
+        // Story 24.17: no modo lista, conta sem dominio ou nenhuma restante -> a pergunta e
+        // SEMPRE a deterministica, com o aviso das removidas antes.
+        const listMode = isAccountListMode(result.briefing);
+        const accountsBlocked =
+          listMode &&
+          (!(result.briefing.targetAccounts?.length ?? 0) ||
+            hasUnresolvedAccounts(result.briefing.targetAccounts));
+        let question: string;
+        if (accountsBlocked) {
+          const accountQuestion = generateTargetAccountsQuestion(result.briefing);
+          const titlesQuestion = result.briefing.jobTitles?.length
+            ? ""
+            : generateSmartQuestion("jobTitles", result.suggestions.jobTitles ?? [], result.briefing);
+          question = [accountQuestion, titlesQuestion].filter(Boolean).join("\n");
+        } else {
+          question =
+            llmQuestion !== ""
+              ? llmQuestion
+              : generateSmartQuestions(result.missingFields, result.suggestions, result.briefing);
+        }
+        // Todas suprimidas: a propria pergunta ja cita as removidas.
+        const allSuppressed = listMode && !(result.briefing.targetAccounts?.length ?? 0);
+        const notice = listMode && !allSuppressed ? suppressedAccountsNotice(result.briefing) : "";
+        if (notice) question = `${notice}\n${question}`;
         await sendAndRecord(executionId, question, sendAgentMessage);
         return { handled: true };
       }
@@ -1486,7 +1678,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
               briefing: searchBriefing,
               missingFields: withRequiredMissing(searchBriefing, state.missingFields),
               isComplete: false,
-              canProceed: Boolean(searchBriefing.jobTitles?.length && searchBriefing.location),
+              canProceed: canProceedWithSearch(searchBriefing),
               suggestions: {},
               productMentioned: null,
               nextAction: "confirm",
@@ -1513,7 +1705,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
             ...parsed,
             briefing: searchBriefing,
             missingFields: withRequiredMissing(searchBriefing, parsed.missingFields),
-            canProceed: Boolean(searchBriefing.jobTitles?.length && searchBriefing.location),
+            canProceed: canProceedWithSearch(searchBriefing),
           },
           executionId,
           sendAgentMessage,
@@ -1707,9 +1899,10 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
         case "confirm_briefing": {
           const briefing = state.briefing;
           // Mesma regra do canProceed do /parse: cargo + localizacao, ou lista importada.
+          // Story 24.17: modo lista = cargos + contas resolvidas (sem localizacao).
           const canConfirm =
             !!briefing &&
-            ((briefing.jobTitles?.length > 0 && !!briefing.location) ||
+            (canProceedWithSearch(briefing) ||
               (isImportedLeadsFlow(briefing) && (briefing.importedLeads?.length ?? 0) > 0));
           if (!briefing || !canConfirm) {
             const base: ParsedBriefing = briefing ?? {
@@ -1831,9 +2024,31 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       if (field === "technology" && !isImportedLeadsFlow(state.briefing)) {
         briefing = reconcileNonImportBriefing(briefing);
       }
+      // Story 24.17: cargos digitados pelo usuario deixam de ser "do seu ICP".
+      if (field === "jobTitles" && briefing.jobTitlesFromIcp) {
+        briefing = { ...briefing, jobTitlesFromIcp: false };
+      }
+      // Story 24.17: contas editadas no chip. A supressao fica para o step; a conta que
+      // voltou para a lista sai das "removidas".
+      if (field === "targetAccounts") {
+        const domains = new Set(
+          ((parsed.value as TargetAccount[] | null) ?? []).map((a) => a.domain)
+        );
+        const stillSuppressed = (state.briefing.suppressedAccounts ?? []).filter(
+          (a) => !domains.has(a.domain)
+        );
+        briefing = {
+          ...briefing,
+          suppressedAccounts: stillSuppressed.length > 0 ? stillSuppressed : null,
+        };
+      }
 
       // Mantem as notas do resumo ("Sem tecnologia especifica...") coerentes com o campo.
       let missingFields = state.missingFields;
+      if (field === "targetAccounts") {
+        // Contas validas no chip: todas com dominio.
+        missingFields = state.missingFields.filter((f) => f !== "targetAccounts");
+      }
       if (TRACKED_MISSING_FIELDS.includes(field)) {
         const isEmpty =
           parsed.value == null || (Array.isArray(parsed.value) && parsed.value.length === 0);
@@ -1902,6 +2117,28 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
     conversationRef.current.push({ role: "user", content });
   }, []);
 
+  // === Story 24.14: proposta do ICP ===
+
+  // O seed roda num efeito: a memoria nao-vazia (push sincrono) impede semear duas vezes
+  // (StrictMode / re-render) e semear por cima de uma conversa que ja comecou.
+  const seedIcpProposal = useCallback((briefing: ParsedBriefing): boolean => {
+    if (state.status !== "idle" || conversationRef.current.length > 0) return false;
+    const missingFields = TRACKED_MISSING_FIELDS.filter((field) => {
+      if (field === "jobTitles") return briefing.jobTitles.length === 0;
+      if (field === "location") return !hasSearchLocation(briefing);
+      return !briefing[field as keyof ParsedBriefing];
+    });
+    setState((prev) => ({
+      ...prev,
+      status: "confirming",
+      briefing,
+      missingFields,
+      isComplete: false,
+    }));
+    conversationRef.current.push({ role: "agent", content: buildIcpProposalTurn(briefing) });
+    return true;
+  }, [state.status]);
+
   return {
     state,
     processMessage,
@@ -1912,5 +2149,6 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
     parseAdjustment,
     recordAgentTurn,
     recordUserTurn,
+    seedIcpProposal,
   };
 }

@@ -68,6 +68,16 @@ vi.mock("@/lib/agent/agent-usage", () => ({
   logAgentUsage: (...args: unknown[]) => mockLogAgentUsage(...args),
 }));
 
+// Story 24.15: leitura de "ja contatado"/suprimido (suite propria em lead-screening.test.ts).
+const mockFindContactedLeads = vi.fn();
+vi.mock("@/lib/agent/lead-screening", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/agent/lead-screening")>();
+  return {
+    ...actual,
+    findContactedLeads: (...args: unknown[]) => mockFindContactedLeads(...args),
+  };
+});
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -186,6 +196,7 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/fetch-lead
       apiKey: "apollo-key-service-role",
     });
     setupDefaultMocks();
+    mockFindContactedLeads.mockResolvedValue(new Map());
   });
 
   // --- Story 22.9: chave do Apollo via service-role ---
@@ -450,5 +461,58 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/fetch-lead
     expect(mockLogAgentUsage).toHaveBeenCalledWith(
       expect.objectContaining({ requestType: "people_search", status: "failed", executionId: EXEC_ID })
     );
+  });
+
+  // --- Story 24.15: mesma triagem do step ---
+  it("Story 24.15: remove suprimidos, marca publicos/ja contatados e grava screening", async () => {
+    const leads = [makeLead(1), makeLead(2), makeLead(3), makeLead(4)];
+    leads[1].company_name = "Prefeitura de Campinas";
+    mockSearchPeople.mockResolvedValueOnce(makePageResponse(leads, 1, 1, 4));
+    mockFindContactedLeads.mockResolvedValue(
+      new Map([
+        ["apollo-3", "suppressed"],
+        ["apollo-4", "already_contacted"],
+      ])
+    );
+    let updatedOutput: Record<string, unknown> | undefined;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "agent_executions") {
+        return createChainBuilder({ data: { id: EXEC_ID, tenant_id: "tenant-456" }, error: null });
+      }
+      if (table === "agent_steps") {
+        const chain = createChainBuilder({
+          data: {
+            step_number: 2,
+            step_type: "search_leads",
+            status: "awaiting_approval",
+            output: baseStepOutput,
+            cost: { apollo_search: 25 },
+          },
+          error: null,
+        });
+        chain.update = vi.fn((payload: { output: Record<string, unknown> }) => {
+          updatedOutput = payload.output;
+          return createChainBuilder({ data: null, error: null });
+        });
+        return chain;
+      }
+      return createChainBuilder();
+    });
+
+    const response = await POST(createRequest({ desiredCount: 25 }), createParams());
+    const json = await response.json();
+
+    expect(mockFindContactedLeads).toHaveBeenCalledWith(
+      expect.anything(),
+      "tenant-456",
+      ["apollo-1", "apollo-2", "apollo-3", "apollo-4"]
+    );
+    const ids = (json.data.leads as Array<{ apolloId: string }>).map((l) => l.apolloId);
+    expect(ids).toEqual(["apollo-1", "apollo-4", "apollo-2"]);
+    expect(json.data.leads[1].contactStatus).toBe("already_contacted");
+    expect(json.data.leads[2].publicSector).toBe(true);
+    const screening = { suppressed: 1, publicSector: 1, alreadyContacted: 1 };
+    expect(json.data.screening).toEqual(screening);
+    expect(updatedOutput?.screening).toEqual(screening);
   });
 });

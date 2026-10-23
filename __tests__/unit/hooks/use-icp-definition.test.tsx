@@ -11,6 +11,7 @@ vi.mock("@/actions/knowledge-base", () => ({
 
 import { getICPDefinition, saveICPDefinition } from "@/actions/knowledge-base";
 import { useICPDefinition } from "@/hooks/use-icp-definition";
+import { ICP_PROPOSAL_QUERY_KEY } from "@/hooks/use-icp-proposal";
 import type { ICPDefinition } from "@/types/knowledge-base";
 
 // Create a wrapper with QueryClientProvider
@@ -214,6 +215,31 @@ describe("useICPDefinition", () => {
       });
 
       expect(saveResult).toEqual({ success: true });
+    });
+
+    it("Story 24.14: invalida a proposta do agente apos salvar com sucesso", async () => {
+      vi.mocked(saveICPDefinition).mockResolvedValue({ success: true });
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      );
+
+      const { result } = renderHook(() => useICPDefinition(), { wrapper });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      await act(async () => {
+        await result.current.saveICP({
+          company_sizes: ["11-50"],
+          industries: [],
+          job_titles: [],
+          geographic_focus: [],
+          pain_points: "",
+          common_objections: "",
+        });
+      });
+
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ICP_PROPOSAL_QUERY_KEY });
     });
 
     it("should return error result on failed save", async () => {

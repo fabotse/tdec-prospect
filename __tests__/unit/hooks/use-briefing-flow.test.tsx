@@ -19,7 +19,12 @@ import {
   looksLikeLeadPaste,
   toMemoryContent,
   parseBriefingFieldInput,
+  formatBriefingFieldValue,
+  buildIcpProposalTurn,
+  icpDefaultChipLabel,
+  ICP_MISSING_HINT,
 } from "@/hooks/use-briefing-flow";
+import type { ParsedBriefing } from "@/types/agent";
 import {
   createMockFetch,
   mockJsonResponse,
@@ -3448,6 +3453,84 @@ describe("useBriefingFlow", () => {
       expect(summary).toContain("Nº de e-mails: 3");
     });
 
+    it("Story 24.13: resumo mostra '- Leads: até N' so quando N existe", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse({
+            ...COMPLETE_PARSE_RESPONSE,
+            briefing: { ...COMPLETE_PARSE_RESPONSE.briefing, leadCount: 5 },
+          }),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+      await act(async () => {
+        await result.current.processMessage("CISO em SP, traga 5", EXEC_ID, mockSendAgentMessage);
+      });
+
+      const summary = mockSendAgentMessage.mock.calls.at(-1)?.[1] as string;
+      expect(summary).toContain("- Leads: até 5");
+      expect(result.current.state.briefing?.leadCount).toBe(5);
+    });
+
+    it("Story 24.13: sem N, o resumo nao tem linha de Leads", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+
+      const { result } = renderHook(() => useBriefingFlow());
+      await act(async () => {
+        await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
+      });
+
+      const summary = mockSendAgentMessage.mock.calls.at(-1)?.[1] as string;
+      expect(summary).not.toContain("- Leads:");
+    });
+
+    it("Story 24.13: 'sim, mas traga so 5' e correcao (briefingChanged compara leadCount)", async () => {
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse(COMPLETE_PARSE_RESPONSE),
+        },
+      ]);
+      const { result } = renderHook(() => useBriefingFlow());
+      await act(async () => {
+        await result.current.processMessage("briefing", EXEC_ID, mockSendAgentMessage);
+      });
+      expect(result.current.state.status).toBe("confirming");
+
+      restoreFetch();
+      createMockFetch([
+        {
+          url: /\/api\/agent\/briefing\/parse$/,
+          method: "POST",
+          response: mockJsonResponse({
+            ...COMPLETE_PARSE_RESPONSE,
+            briefing: { ...COMPLETE_PARSE_RESPONSE.briefing, leadCount: 5 },
+            nextAction: "confirm",
+          }),
+        },
+      ]);
+      mockSendAgentMessage.mockClear();
+
+      let outcome: { handled: boolean; confirmed?: boolean } | undefined;
+      await act(async () => {
+        outcome = await result.current.processMessage("sim, mas traga so 5", EXEC_ID, mockSendAgentMessage);
+      });
+
+      expect(result.current.state.status).toBe("confirming");
+      expect(outcome?.confirmed).toBeUndefined();
+      expect(result.current.state.briefing?.leadCount).toBe(5);
+    });
+
     it("resumo inclui pergunta leve opcional de objetivo quando objective ausente (AC3/D2)", async () => {
       createMockFetch([
         {
@@ -4257,6 +4340,30 @@ describe("useBriefingFlow", () => {
         return hook.result;
       }
 
+      it("Story 24.13: com leads importados, o resumo NAO mostra '- Leads: até N' (vale a contagem importada)", async () => {
+        mockRoutes([
+          {
+            url: PARSE_URL,
+            response: mockJsonResponse({
+              ...IMPORT_RESPONSE,
+              briefing: { ...IMPORT_RESPONSE.briefing, leadCount: 10 },
+            }),
+          },
+        ]);
+        const { result } = renderHook(() => useBriefingFlow());
+        await send(result, "Ja tenho meus leads, traga 10");
+        expect(result.current.state.status).toBe("awaiting_leads_input");
+        expect(result.current.state.briefing?.leadCount).toBe(10);
+
+        await send(result, "maria@acme.com\npedro@acme.com");
+        expect(result.current.state.status).toBe("confirming_leads");
+        await click(result, "confirm_leads");
+
+        expect(result.current.state.status).toBe("confirming");
+        expect(lastAgentText()).toContain("2 leads importados");
+        expect(lastAgentText()).not.toContain("- Leads: até");
+      });
+
       it("prefere buscar (LLM sem import): briefing reconciliado para busca e segue o fluxo", async () => {
         const result = await enterLeads();
         mockRoutes([
@@ -4680,6 +4787,9 @@ describe("useBriefingFlow", () => {
         ["emailCount", "0", "1 a 10"],
         ["emailCount", "11", "1 a 10"],
         ["emailCount", "2.5", "1 a 10"],
+        ["leadCount", "0", "1 a 500"],
+        ["leadCount", "501", "1 a 500"],
+        ["leadCount", "x", "1 a 500"],
         ["objective", "VENDER", "opcoes"],
         ["urgency", "URGENTE", "opcoes"],
       ] as const)("%s = '%s' e invalido: erro inline e nada muda", async (field, raw, error) => {
@@ -4691,6 +4801,27 @@ describe("useBriefingFlow", () => {
         expect(outcome?.error).toContain(error);
         expect(result.current.state.briefing).toEqual(before);
         expect(mockSendAgentMessage).not.toHaveBeenCalled();
+      });
+
+      it("Story 24.13: chip Leads aceita 1-500 e exibe 'Até N leads' / 'Até 1 lead'", async () => {
+        expect(parseBriefingFieldInput("leadCount", "7")).toMatchObject({
+          ok: true,
+          value: 7,
+          display: "Até 7 leads",
+        });
+        expect(parseBriefingFieldInput("leadCount", "1")).toMatchObject({ display: "Até 1 lead" });
+        expect(parseBriefingFieldInput("leadCount", "500")).toMatchObject({ ok: true, value: 500 });
+        expect(parseBriefingFieldInput("leadCount", "")).toMatchObject({ ok: true, value: null });
+        expect(parseBriefingFieldInput("leadCount", "0")).toEqual({
+          ok: false,
+          error: "Informe um numero inteiro de 1 a 500.",
+        });
+        expect(formatBriefingFieldValue("leadCount", null)).toBe("nao definido");
+
+        const result = await enterConfirming();
+        const outcome = await edit(result, "leadCount", "7");
+        expect(outcome).toEqual({ ok: true });
+        expect(result.current.state.briefing?.leadCount).toBe(7);
       });
 
       it("valores validos dos enums, numero e textos opcionais (vazio vira null)", () => {
@@ -4864,5 +4995,513 @@ describe("useBriefingFlow", () => {
         expect(result.current.state.briefing?.skipSteps).not.toContain("search_leads");
       });
     });
+  });
+});
+
+// ==============================================
+// Story 24.14 — briefing a partir do ICP
+// ==============================================
+
+describe("useBriefingFlow — Story 24.15 (escopo do local)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    restoreFetch();
+  });
+
+  async function summaryFor(briefingOverrides: Record<string, unknown>) {
+    createMockFetch([
+      {
+        url: /\/api\/agent\/briefing\/parse$/,
+        method: "POST",
+        response: mockJsonResponse({
+          ...COMPLETE_PARSE_RESPONSE,
+          briefing: { ...COMPLETE_PARSE_RESPONSE.briefing, ...briefingOverrides },
+        }),
+      },
+    ]);
+    const { result } = renderHook(() => useBriefingFlow());
+    await act(async () => {
+      await result.current.processMessage("CISO em SP", EXEC_ID, mockSendAgentMessage);
+    });
+    return mockSendAgentMessage.mock.calls.at(-1)?.[1] as string;
+  }
+
+  it("locationScope person: a linha de local diz '(onde a pessoa esta)'", async () => {
+    const summary = await summaryFor({ locationScope: "person" });
+    expect(summary).toContain("- Localizacao: Sao Paulo (onde a pessoa esta)");
+  });
+
+  it("padrao (empresa): a linha de local nao muda", async () => {
+    const summary = await summaryFor({});
+    expect(summary).toContain("- Localizacao: Sao Paulo\n");
+    expect(summary).not.toContain("onde a pessoa esta");
+  });
+});
+
+describe("useBriefingFlow — Story 24.14 (ICP)", () => {
+  const ICP_DEFAULTS = { companySizes: ["201-500", "501-1000"], locations: ["SP"] };
+  const PROPOSAL: ParsedBriefing = {
+    technology: null,
+    jobTitles: ["CISO", "Head de TI"],
+    location: null,
+    companySize: null,
+    industry: null,
+    productSlug: null,
+    mode: "guided",
+    skipSteps: ["search_companies"],
+    icpDefaults: ICP_DEFAULTS,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    restoreFetch();
+  });
+
+  it("buildIcpProposalTurn: mensagem da proposta + dica do card", () => {
+    const turn = buildIcpProposalTurn(PROPOSAL);
+    expect(turn).toContain("Pelo seu ICP: CISO/Head de TI, SP, 201–1000 funcionarios. Ajusto algo?");
+    expect(turn).toContain('clique em "Confirmar" no card abaixo');
+  });
+
+  it("ICP_MISSING_HINT sugere preencher o ICP", () => {
+    expect(ICP_MISSING_HINT).toMatch(/ICP/);
+  });
+
+  it("seedIcpProposal: idle -> confirming com o briefing proposto, sem enviar nada", () => {
+    const { result } = renderHook(() => useBriefingFlow());
+
+    let seeded = false;
+    act(() => {
+      seeded = result.current.seedIcpProposal(PROPOSAL);
+    });
+
+    expect(seeded).toBe(true);
+    expect(result.current.state.status).toBe("confirming");
+    expect(result.current.state.briefing).toEqual(PROPOSAL);
+    expect(result.current.state.missingFields).not.toContain("location");
+    expect(mockSendAgentMessage).not.toHaveBeenCalled();
+  });
+
+  it("seedIcpProposal so semeia uma vez (fora de idle nao faz nada)", () => {
+    const { result } = renderHook(() => useBriefingFlow());
+    act(() => {
+      result.current.seedIcpProposal(PROPOSAL);
+    });
+    let second = true;
+    act(() => {
+      second = result.current.seedIcpProposal({ ...PROPOSAL, jobTitles: ["CFO"] });
+    });
+    expect(second).toBe(false);
+    expect(result.current.state.briefing?.jobTitles).toEqual(["CISO", "Head de TI"]);
+  });
+
+  it("o turno da proposta entra na memoria do proximo /parse (ajuste por texto)", async () => {
+    const fetchMock = createMockFetch([
+      {
+        url: /\/api\/agent\/briefing\/parse$/,
+        method: "POST",
+        response: mockJsonResponse({
+          ...COMPLETE_PARSE_RESPONSE,
+          briefing: { ...PROPOSAL, jobTitles: ["CFO"] },
+          canProceed: true,
+          missingFields: ["technology", "industry", "companySize"],
+        }),
+      },
+    ]);
+    const { result } = renderHook(() => useBriefingFlow());
+    act(() => {
+      result.current.seedIcpProposal(PROPOSAL);
+    });
+
+    await act(async () => {
+      await result.current.processMessage("troca para CFO", EXEC_ID, mockSendAgentMessage);
+    });
+
+    const body = fetchMock.calls()[0].body as { messages: Array<{ role: string; content: string }> };
+    expect(body.messages[0]).toEqual({ role: "agent", content: buildIcpProposalTurn(PROPOSAL) });
+    expect(body.messages[1]).toEqual({ role: "user", content: "troca para CFO" });
+  });
+
+  it("Confirmar no card com o local SO do ICP confirma (canConfirm)", async () => {
+    const { result } = renderHook(() => useBriefingFlow());
+    act(() => {
+      result.current.seedIcpProposal(PROPOSAL);
+    });
+
+    let outcome: { handled: boolean; confirmed?: boolean } | undefined;
+    await act(async () => {
+      outcome = await result.current.processCardAction("confirm_briefing", EXEC_ID, mockSendAgentMessage);
+    });
+
+    expect(outcome?.confirmed).toBe(true);
+    expect(result.current.state.status).toBe("confirmed");
+  });
+
+  it("proposta sem geo: Confirmar pede a localizacao (fluxo atual)", async () => {
+    const { result } = renderHook(() => useBriefingFlow());
+    act(() => {
+      result.current.seedIcpProposal({
+        ...PROPOSAL,
+        icpDefaults: { companySizes: ["201-500"], locations: [] },
+      });
+    });
+
+    await act(async () => {
+      await result.current.processCardAction("confirm_briefing", EXEC_ID, mockSendAgentMessage);
+    });
+
+    expect(result.current.state.status).toBe("awaiting_fields");
+    expect(result.current.state.missingFields).toContain("location");
+  });
+
+  it("resumo diz que local e tamanho vieram do ICP (no lugar do piso 11+)", async () => {
+    createMockFetch([
+      {
+        url: /\/api\/agent\/briefing\/parse$/,
+        method: "POST",
+        response: mockJsonResponse({
+          ...COMPLETE_PARSE_RESPONSE,
+          briefing: { ...PROPOSAL, jobTitles: ["CISO"] },
+          missingFields: ["technology", "industry", "companySize"],
+          canProceed: true,
+        }),
+      },
+    ]);
+    const { result } = renderHook(() => useBriefingFlow());
+
+    await act(async () => {
+      await result.current.processMessage("CISO", EXEC_ID, mockSendAgentMessage);
+    });
+
+    const summary = mockSendAgentMessage.mock.calls.at(-1)?.[1] as string;
+    expect(summary).toContain("- Localizacao: SP (do seu ICP)");
+    expect(summary).toContain(
+      "- Tamanho de empresa: 201–1000 funcionarios — do seu ICP, me diga se quiser mudar."
+    );
+    expect(summary).not.toContain("11+");
+  });
+
+  it("icpDefaultChipLabel: local vazio e tamanho vazio na busca direta", () => {
+    expect(icpDefaultChipLabel("location", PROPOSAL)).toBe("SP (do ICP)");
+    expect(icpDefaultChipLabel("companySize", PROPOSAL)).toBe("201–1000 (do ICP)");
+  });
+
+  it("icpDefaultChipLabel: null quando o usuario informou, fora da busca direta ou sem ICP", () => {
+    expect(icpDefaultChipLabel("location", { ...PROPOSAL, location: "RJ" })).toBeNull();
+    expect(icpDefaultChipLabel("companySize", { ...PROPOSAL, skipSteps: [] })).toBeNull();
+    expect(icpDefaultChipLabel("location", { ...PROPOSAL, icpDefaults: null })).toBeNull();
+    expect(icpDefaultChipLabel("industry", PROPOSAL)).toBeNull();
+  });
+});
+
+// ==============================================
+// Story 24.17 — modo lista de contas
+// ==============================================
+
+describe("useBriefingFlow — Story 24.17 (modo lista de contas)", () => {
+  const PARSE_URL = /\/api\/agent\/briefing\/parse$/;
+  type Hook = { current: ReturnType<typeof useBriefingFlow> };
+
+  const ACCOUNTS = [
+    { name: "Banco X", domain: "bancox.com.br", confidence: "high" as const },
+    { name: null, domain: "empresay.com", confidence: "high" as const },
+  ];
+
+  const LIST_BRIEFING: ParsedBriefing = {
+    technology: null,
+    jobTitles: ["CISO"],
+    location: null,
+    companySize: null,
+    industry: null,
+    productSlug: null,
+    mode: "guided",
+    skipSteps: ["search_companies"],
+    icpDefaults: { companySizes: ["201-500"], locations: ["SP"] },
+    targetAccounts: ACCOUNTS,
+    suppressedAccounts: null,
+  };
+
+  function parseResponse(briefing: Partial<ParsedBriefing>, extra: Record<string, unknown> = {}) {
+    return {
+      briefing: { ...LIST_BRIEFING, ...briefing },
+      missingFields: ["technology", "industry", "companySize"],
+      isComplete: false,
+      canProceed: true,
+      suggestions: {},
+      productMentioned: null,
+      nextAction: "confirm",
+      questionText: null,
+      ...extra,
+    };
+  }
+
+  function mockParse(response: unknown) {
+    restoreFetch();
+    return createMockFetch([
+      { url: PARSE_URL, method: "POST", response: mockJsonResponse(response) },
+    ]);
+  }
+
+  async function send(result: Hook, content: string) {
+    await act(async () => {
+      await result.current.processMessage(content, EXEC_ID, mockSendAgentMessage);
+    });
+  }
+
+  async function click(result: Hook, action: "confirm_briefing") {
+    let outcome: { handled: boolean; confirmed?: boolean } | undefined;
+    await act(async () => {
+      outcome = await result.current.processCardAction(action, EXEC_ID, mockSendAgentMessage);
+    });
+    return outcome;
+  }
+
+  function lastAgentText(): string {
+    return mockSendAgentMessage.mock.lastCall?.[1] as string;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    restoreFetch();
+  });
+
+  it("nomes: resumo com contas e linha do modo lista, sem exigir local, e confirma pelo card", async () => {
+    mockParse(parseResponse({}));
+    const { result } = renderHook(() => useBriefingFlow());
+    await send(result, "CISO do Banco X e da empresay.com");
+
+    expect(result.current.state.status).toBe("confirming");
+    const summary = lastAgentText();
+    expect(summary).toContain("- Contas (2): Banco X (bancox.com.br), empresay.com");
+    expect(summary).toContain(
+      "Modo lista de contas: vou buscar os decisores direto nessas 2 contas, sem a busca de empresas."
+    );
+    expect(summary).not.toContain("leads serao buscados diretamente");
+    expect(summary).not.toContain("Tamanho de empresa:");
+    expect(summary).not.toContain("Sem tecnologia especifica");
+    expect(summary).not.toContain("(do seu ICP)");
+
+    const outcome = await click(result, "confirm_briefing");
+    expect(outcome).toEqual({ handled: true, confirmed: true });
+  });
+
+  it("dominio low: aviso de confirme no resumo", async () => {
+    mockParse(
+      parseResponse({
+        targetAccounts: [{ name: "Banco Z", domain: "bancoz.com.br", confidence: "low" }],
+      })
+    );
+    const { result } = renderHook(() => useBriefingFlow());
+    await send(result, "CISO do Banco Z");
+
+    const summary = lastAgentText();
+    expect(summary).toContain("- Contas (1): Banco Z (bancoz.com.br — confirme)");
+    expect(summary).toContain('Confira os dominios marcados com "confirme": eu deduzi pelo nome.');
+  });
+
+  it("cargos do ICP aparecem com (do seu ICP)", async () => {
+    mockParse(parseResponse({ jobTitles: ["CISO", "CTO"], jobTitlesFromIcp: true }));
+    const { result } = renderHook(() => useBriefingFlow());
+    await send(result, "Banco X e empresay.com");
+
+    expect(lastAgentText()).toContain("- Cargos: CISO, CTO (do seu ICP)");
+  });
+
+  it("sem dominio: pergunta deterministica do site, mesmo com questionText do LLM", async () => {
+    mockParse(
+      parseResponse(
+        { targetAccounts: [{ name: "Empresa W", domain: null, confidence: "low" }] },
+        {
+          canProceed: false,
+          missingFields: ["targetAccounts"],
+          nextAction: "ask",
+          questionText: "Qual a localizacao?",
+        }
+      )
+    );
+    const { result } = renderHook(() => useBriefingFlow());
+    await send(result, "CISO da Empresa W");
+
+    expect(result.current.state.status).toBe("awaiting_fields");
+    expect(lastAgentText()).toBe("Qual o site (dominio) de: Empresa W? Ex.: empresa.com.br.");
+  });
+
+  it("suprimida: resumo lista as removidas", async () => {
+    mockParse(
+      parseResponse({
+        targetAccounts: [ACCOUNTS[1]],
+        suppressedAccounts: [
+          {
+            name: "Banco X",
+            domain: "bancox.com.br",
+            reason: "negociacao em andamento (oportunidade com reuniao marcada)",
+          },
+        ],
+      })
+    );
+    const { result } = renderHook(() => useBriefingFlow());
+    await send(result, "CISO do Banco X e da empresay.com");
+
+    expect(lastAgentText()).toContain(
+      "- Removidas da lista: Banco X (bancox.com.br) — negociacao em andamento (oportunidade com reuniao marcada)"
+    );
+  });
+
+  it("suprimida + conta sem dominio: aviso das removidas antes da pergunta", async () => {
+    mockParse(
+      parseResponse(
+        {
+          targetAccounts: [{ name: "Empresa W", domain: null, confidence: "low" }],
+          suppressedAccounts: [{ name: "Banco X", domain: "bancox.com.br", reason: "motivo" }],
+        },
+        { canProceed: false, missingFields: ["targetAccounts"], nextAction: "ask" }
+      )
+    );
+    const { result } = renderHook(() => useBriefingFlow());
+    await send(result, "CISO do Banco X e da Empresa W");
+
+    expect(lastAgentText()).toBe(
+      "Removi da lista: Banco X (motivo).\nQual o site (dominio) de: Empresa W? Ex.: empresa.com.br."
+    );
+  });
+
+  it("todas suprimidas: pede outras contas", async () => {
+    mockParse(
+      parseResponse(
+        {
+          targetAccounts: [],
+          suppressedAccounts: [{ name: "Banco X", domain: "bancox.com.br", reason: "motivo" }],
+        },
+        { canProceed: false, missingFields: ["targetAccounts"], nextAction: "ask" }
+      )
+    );
+    const { result } = renderHook(() => useBriefingFlow());
+    await send(result, "CISO do Banco X");
+
+    expect(lastAgentText()).toBe(
+      "As contas que voce citou estao suprimidas (Banco X (bancox.com.br) — motivo). Me diga outras empresas (nome ou dominio)."
+    );
+  });
+
+  it("chip Contas: edita a lista e tira a conta re-adicionada das removidas", async () => {
+    mockParse(
+      parseResponse({
+        targetAccounts: [ACCOUNTS[1]],
+        suppressedAccounts: [{ name: "Banco X", domain: "bancox.com.br", reason: "motivo" }],
+      })
+    );
+    const { result } = renderHook(() => useBriefingFlow());
+    await send(result, "CISO do Banco X e da empresay.com");
+
+    let outcome: { ok: boolean; error?: string } | undefined;
+    await act(async () => {
+      outcome = await result.current.editBriefingField(
+        "targetAccounts",
+        "Banco X (bancox.com.br), empresay.com",
+        EXEC_ID,
+        mockSendAgentMessage
+      );
+    });
+    expect(outcome).toEqual({ ok: true });
+    expect(result.current.state.briefing?.targetAccounts).toEqual([
+      { name: "Banco X", domain: "bancox.com.br", confidence: "high" },
+      { name: null, domain: "empresay.com", confidence: "high" },
+    ]);
+    expect(result.current.state.briefing?.suppressedAccounts).toBeNull();
+    expect(result.current.state.briefing?.skipSteps).toContain("search_companies");
+  });
+
+  it("chip Contas: nome sozinho da erro inline", async () => {
+    mockParse(parseResponse({}));
+    const { result } = renderHook(() => useBriefingFlow());
+    await send(result, "CISO do Banco X");
+
+    let outcome: { ok: boolean; error?: string } | undefined;
+    await act(async () => {
+      outcome = await result.current.editBriefingField(
+        "targetAccounts",
+        "Banco X",
+        EXEC_ID,
+        mockSendAgentMessage
+      );
+    });
+    expect(outcome).toEqual({
+      ok: false,
+      error: "Informe o dominio de: Banco X (ex.: Banco X (empresa.com.br))",
+    });
+  });
+
+  it("editar tecnologia no modo lista mantem search_companies pulado", async () => {
+    mockParse(parseResponse({}));
+    const { result } = renderHook(() => useBriefingFlow());
+    await send(result, "CISO do Banco X");
+
+    await act(async () => {
+      await result.current.editBriefingField("technology", "Netskope", EXEC_ID, mockSendAgentMessage);
+    });
+    expect(result.current.state.briefing?.skipSteps).toContain("search_companies");
+  });
+
+  it("1 conta: linha do modo lista no singular", async () => {
+    mockParse(parseResponse({ targetAccounts: [ACCOUNTS[1]] }));
+    const { result } = renderHook(() => useBriefingFlow());
+    await send(result, "CISO da empresay.com");
+
+    expect(lastAgentText()).toContain(
+      "Modo lista de contas: vou buscar os decisores direto nessa 1 conta, sem a busca de empresas."
+    );
+  });
+
+  it("editar o chip Cargos zera jobTitlesFromIcp", async () => {
+    mockParse(parseResponse({ jobTitles: ["CISO", "CTO"], jobTitlesFromIcp: true }));
+    const { result } = renderHook(() => useBriefingFlow());
+    await send(result, "Banco X e empresay.com");
+
+    await act(async () => {
+      await result.current.editBriefingField("jobTitles", "CFO", EXEC_ID, mockSendAgentMessage);
+    });
+    expect(result.current.state.briefing?.jobTitles).toEqual(["CFO"]);
+    expect(result.current.state.briefing?.jobTitlesFromIcp).toBe(false);
+  });
+
+  it("correcao so de contas no confirming ('sim, mas tira o Banco X') reapresenta o resumo", async () => {
+    mockParse(parseResponse({}));
+    const { result } = renderHook(() => useBriefingFlow());
+    await send(result, "CISO do Banco X e da empresay.com");
+    expect(result.current.state.status).toBe("confirming");
+
+    mockParse(parseResponse({ targetAccounts: [ACCOUNTS[1]] }));
+    mockSendAgentMessage.mockClear();
+    await send(result, "sim, mas tira o Banco X");
+
+    expect(result.current.state.status).toBe("confirming");
+    expect(result.current.state.briefing?.targetAccounts).toEqual([ACCOUNTS[1]]);
+    expect(lastAgentText()).toContain("- Contas (1): empresay.com");
+  });
+
+  it("helpers puros: formato e parse do chip, rotulo do ICP sem porte", () => {
+    expect(formatBriefingFieldValue("targetAccounts", ACCOUNTS)).toBe(
+      "Banco X (bancox.com.br), empresay.com"
+    );
+    expect(parseBriefingFieldInput("targetAccounts", "empresay.com")).toEqual({
+      ok: true,
+      value: [{ name: null, domain: "empresay.com", confidence: "high" }],
+      display: "empresay.com",
+    });
+    expect(icpDefaultChipLabel("companySize", LIST_BRIEFING)).toBeNull();
+    expect(icpDefaultChipLabel("location", LIST_BRIEFING)).toBeNull();
+    expect(generateSmartQuestion("targetAccounts", [], {
+      ...LIST_BRIEFING,
+      targetAccounts: [{ name: "Empresa W", domain: null, confidence: "low" }],
+    })).toBe("Qual o site (dominio) de: Empresa W? Ex.: empresa.com.br.");
   });
 });

@@ -79,6 +79,8 @@ describe("BriefingParserService", () => {
         urgency: null,
         campaignDescription: null,
         emailCount: null,
+        // Story 24.13: quantos leads (N) default null
+        leadCount: null,
         // Story 22.15: idem para o segmento de destino em "Meus Leads"
         segmentName: null,
       });
@@ -513,6 +515,83 @@ describe("BriefingParserService", () => {
       expect(result.briefing.jobTitles).toEqual(["CTO"]);
     });
 
+    // ==============================================
+    // Story 24.15: escopo do local (sede da empresa x pessoa)
+    // ==============================================
+
+    it("deve repassar locationScope 'person' (24.15 - 'CISO que more em SP')", async () => {
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, locationScope: "person" });
+      const result = await BriefingParserService.parse("CISO que more em SP", "sk-test");
+      expect(result.briefing.locationScope).toBe("person");
+    });
+
+    it("locationScope ausente ou invalido nao entra no briefing (padrao = empresa, 24.15)", async () => {
+      mockOpenAIResponse(FULL_BRIEFING_RESPONSE);
+      const absent = await BriefingParserService.parse("CISO em SP", "sk-test");
+      expect(absent.briefing).not.toHaveProperty("locationScope");
+
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, locationScope: "planeta" });
+      const invalid = await BriefingParserService.parse("CISO em SP", "sk-test");
+      expect(invalid.briefing).not.toHaveProperty("locationScope");
+      expect(invalid.briefing.jobTitles).toEqual(["CTO"]);
+    });
+
+    it("o prompt explica o locationScope (24.15)", async () => {
+      mockOpenAIResponse(FULL_BRIEFING_RESPONSE);
+      await BriefingParserService.parse("briefing", "sk-test");
+      const request = mockCreate.mock.calls[0][0] as { messages: Array<{ role: string; content: string }> };
+      const system = request.messages[0].content;
+      expect(system).toContain("locationScope");
+      expect(system).toContain("que morem em");
+    });
+
+    // ==============================================
+    // Story 24.13: quantos leads (leadCount / N)
+    // ==============================================
+
+    it("deve extrair leadCount sem confundir com emailCount (24.13 - 'traga 5')", async () => {
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, leadCount: 5 });
+
+      const result = await BriefingParserService.parse("CISO em SP, traga 5", "sk-test");
+
+      expect(result.briefing.leadCount).toBe(5);
+      expect(result.briefing.emailCount).toBeNull();
+    });
+
+    it("deve extrair leadCount e emailCount juntos (24.13 - '10 leads e 3 e-mails')", async () => {
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, leadCount: 10, emailCount: 3 });
+
+      const result = await BriefingParserService.parse("10 leads e 3 e-mails", "sk-test");
+
+      expect(result.briefing.leadCount).toBe(10);
+      expect(result.briefing.emailCount).toBe(3);
+    });
+
+    it("deve COAGIR leadCount emitido como string (24.13)", async () => {
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, leadCount: "7" });
+      const result = await BriefingParserService.parse("quero 7 contatos", "sk-test");
+      expect(result.briefing.leadCount).toBe(7);
+    });
+
+    it.each(["abc", 0, 900, 2.5])(
+      "deve cair para null (fail-open) com leadCount invalido %p sem derrubar o parse (24.13)",
+      async (value) => {
+        mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, leadCount: value });
+        const result = await BriefingParserService.parse("briefing", "sk-test");
+        expect(result.briefing.leadCount).toBeNull();
+        expect(result.briefing.jobTitles).toEqual(["CTO"]);
+      }
+    );
+
+    it("o prompt do parser separa quantidade de leads de quantidade de e-mails (24.13)", async () => {
+      mockOpenAIResponse(FULL_BRIEFING_RESPONSE);
+      await BriefingParserService.parse("briefing", "sk-test");
+      const request = mockCreate.mock.calls[0][0] as { messages: Array<{ role: string; content: string }> };
+      const system = request.messages[0].content;
+      expect(system).toContain("leadCount (number | null)");
+      expect(system).toContain("NAO confunda leadCount com emailCount");
+    });
+
     it("deve COAGIR emailCount emitido como string pelo LLM (22.5 - z.coerce)", async () => {
       // json_object as vezes devolve numeros como string; sem coercao a intencao do
       // usuario ("3 e-mails") seria descartada silenciosamente pelo .catch(null).
@@ -718,6 +797,64 @@ describe("BriefingParserService", () => {
       const result = await BriefingParserService.parse("briefing", "sk-test");
 
       expect(result.usage).toEqual({ promptTokens: 0, completionTokens: 0, model: "gpt-5.4-mini" });
+    });
+  });
+
+  describe("targetAccounts (Story 24.17)", () => {
+    it("extrai contas saneadas; dominio citado pelo usuario vira high", async () => {
+      mockOpenAIResponse({
+        ...FULL_BRIEFING_RESPONSE,
+        technology: null,
+        targetAccounts: [
+          { name: null, domain: "https://www.bancox.com.br/", confidence: "low" },
+          { name: "Empresa Y", domain: "empresay.com", confidence: "low" },
+          { name: "Banco Z", domain: "bancoz.com.br", confidence: "low" },
+        ],
+      });
+
+      const history: ChatTurn[] = [
+        { role: "user", content: "CISO em https://www.bancox.com.br/" },
+        { role: "agent", content: "Algo mais? empresay.com e bancoz.com.br?" },
+        { role: "user", content: "e a empresay.com e o Banco Z" },
+      ];
+      const result = await BriefingParserService.parse(history, "sk-test-key");
+
+      expect(result.briefing.targetAccounts).toEqual([
+        { name: null, domain: "bancox.com.br", confidence: "high" },
+        { name: "Empresa Y", domain: "empresay.com", confidence: "high" },
+        // so o agente citou o dominio -> vale a confianca do LLM
+        { name: "Banco Z", domain: "bancoz.com.br", confidence: "low" },
+      ]);
+    });
+
+    it("targetAccounts invalido nao derruba o parse e a chave nao entra", async () => {
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, targetAccounts: "Banco X" });
+
+      const result = await BriefingParserService.parse("CTO em SP", "sk-test-key");
+
+      expect(result.briefing).not.toHaveProperty("targetAccounts");
+    });
+
+    it("sem contas, o briefing nao ganha a chave (identico a hoje)", async () => {
+      mockOpenAIResponse({ ...FULL_BRIEFING_RESPONSE, targetAccounts: [] });
+
+      const result = await BriefingParserService.parse("CTO em SP", "sk-test-key");
+
+      expect(result.briefing).not.toHaveProperty("targetAccounts");
+    });
+
+    it("o prompt descreve o modo lista de contas", async () => {
+      mockOpenAIResponse(FULL_BRIEFING_RESPONSE);
+
+      await BriefingParserService.parse("CTO em SP", "sk-test-key");
+
+      const request = mockCreate.mock.calls[0][0] as {
+        messages: Array<{ role: string; content: string }>;
+      };
+      const system = request.messages[0].content;
+      expect(system).toContain("targetAccounts");
+      expect(system).toContain("MODO LISTA DE CONTAS");
+      expect(system).toContain("NUNCA invente uma empresa");
     });
   });
 });

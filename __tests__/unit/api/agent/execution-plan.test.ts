@@ -213,7 +213,8 @@ describe("GET /api/agent/executions/[executionId]/plan", () => {
     expect(json.data.totalActiveSteps).toBe(5);
     // Story 24.10: premium vem do servidor (leads × apify)
     expect(json.data.costEstimate.premiumIcebreakers).toEqual({ perLead: 0.15, total: 25 * 0.15 });
-    expect(json.data.costEstimate.steps.search_leads.estimated).toBe(0);
+    // Story 24.16: 1 chamada de IA (Fit Score) × 0,02
+    expect(json.data.costEstimate.steps.search_leads.estimated).toBeCloseTo(0.02);
   });
 
   it("deve retornar totalActiveSteps menor quando ha skipSteps", async () => {
@@ -345,6 +346,36 @@ describe("GET /api/agent/executions/[executionId]/plan", () => {
       expect(json.data.viability).toEqual({ estimatedResults: 248, isLow: false });
     });
 
+    it("Story 24.17: modo lista conta a busca por dominio nas contas (sem porte/local do ICP)", async () => {
+      mockExecution({
+        ...DIRECT_BRIEFING,
+        jobTitles: ["CISO"],
+        location: null,
+        industry: null,
+        icpDefaults: { companySizes: ["201-500"], locations: ["SP"] },
+        targetAccounts: [
+          { name: "Banco X", domain: "bancox.com.br", confidence: "high" },
+          { name: "Empresa W", domain: null, confidence: "low" },
+        ],
+      });
+      mockSearchPeople.mockResolvedValue({
+        leads: [],
+        pagination: { totalEntries: 12, page: 1, perPage: 1, totalPages: 12 },
+      });
+
+      const response = await GET(createRequest("?viability=1"), createParams());
+      const json = await response.json();
+
+      expect(mockSearchPeople).toHaveBeenCalledWith({
+        domains: ["bancox.com.br"],
+        titles: ["CISO"],
+        includeSimilarTitles: false,
+        perPage: 1,
+        page: 1,
+      });
+      expect(json.data.viability).toEqual({ estimatedResults: 12, isLow: false });
+    });
+
     it("Story 24.10: loga 1 linha people_search da viabilidade com tenant e executionId", async () => {
       mockExecution(DIRECT_BRIEFING);
       mockSearchPeople.mockResolvedValue({
@@ -393,7 +424,9 @@ describe("GET /api/agent/executions/[executionId]/plan", () => {
       // SSOT `buildDirectSearchFilters`: uma estimativa com filtros diferentes da busca
       // real seria uma estimativa que mente.
       expect(filters.companySizes).not.toContain("1-10");
-      expect(filters.locations).toEqual(["Atibaia"]);
+      // Story 24.15: sede da empresa + cargo exato; industria sem mapa segue como texto.
+      expect(filters.organizationLocations).toEqual(["Atibaia"]);
+      expect(filters.includeSimilarTitles).toBe(false);
       expect(filters.industries).toEqual(["clinicas de estetica"]);
     });
 

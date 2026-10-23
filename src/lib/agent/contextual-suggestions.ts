@@ -15,12 +15,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
   BriefingSuggestionService,
   deriveSuggestionsFromICP,
-  type ICPSuggestionInput,
 } from "@/lib/agent/briefing-suggestion-service";
+import { EMPTY_TENANT_ICP, type TenantICP } from "@/lib/agent/icp-briefing";
 import type { ParsedBriefing } from "@/types/agent";
 import type { ICPDefinition } from "@/types/knowledge-base";
 
-const EMPTY_ICP: ICPSuggestionInput = { jobTitles: [], industries: [] };
+const EMPTY_ICP: TenantICP = EMPTY_TENANT_ICP;
 
 /** Coage um valor de jsonb para `string[]`, descartando nao-arrays e elementos nao-string. */
 function toStringArray(value: unknown): string[] {
@@ -29,7 +29,7 @@ function toStringArray(value: unknown): string[] {
 
 /**
  * Le a secao `icp` de `knowledge_base` para o tenant e devolve os cargos/setores
- * curados. FAIL-OPEN: qualquer erro/ausencia -> ICP vazio (o caller cai no estatico).
+ * curados e (Story 24.14) os portes e o foco geografico. FAIL-OPEN: qualquer erro/ausencia -> ICP vazio (o caller cai no estatico).
  *
  * D3 / Trap #1 (licao da Story 21.5): `knowledge_base` esta atras de RLS
  * `is_admin()` (00007:41-47), e `is_admin()` e `role IN ('gestor','diretor')`
@@ -41,7 +41,7 @@ function toStringArray(value: unknown): string[] {
  * e retornaria `null` para um tenant com ICP preenchido mas sem descricao de
  * empresa. Lemos a secao `icp` diretamente.
  */
-export async function readTenantICP(tenantId: string): Promise<ICPSuggestionInput> {
+export async function readTenantICP(tenantId: string): Promise<TenantICP> {
   let admin: SupabaseClient;
   try {
     admin = createAdminClient();
@@ -69,6 +69,10 @@ export async function readTenantICP(tenantId: string): Promise<ICPSuggestionInpu
     return {
       jobTitles: toStringArray(icp.job_titles),
       industries: toStringArray(icp.industries),
+      companySizes: toStringArray(icp.company_sizes),
+      geographicFocus: toStringArray(icp.geographic_focus),
+      // Story 24.16: dores para o Fit Score. Nao-string -> "".
+      painPoints: typeof icp.pain_points === "string" ? icp.pain_points : "",
     };
   } catch (error) {
     console.error("[contextual-suggestions] falha ao ler ICP:", error);
@@ -88,10 +92,12 @@ export async function readTenantICP(tenantId: string): Promise<ICPSuggestionInpu
  */
 export async function resolveContextualSuggestions(
   briefing: ParsedBriefing,
-  tenantId: string
+  tenantId: string,
+  // Story 24.14: o parse ja le o ICP uma vez; quando recebido, nao ha segunda leitura.
+  icp?: TenantICP
 ): Promise<Record<string, string[]>> {
   const staticSuggestions = BriefingSuggestionService.generateSuggestions(briefing);
-  const icp = await readTenantICP(tenantId);
+  if (!icp) icp = await readTenantICP(tenantId);
   const derived = deriveSuggestionsFromICP(icp, briefing);
 
   // Derivado (KB) prevalece POR CAMPO; campos ausentes no derivado mantem o

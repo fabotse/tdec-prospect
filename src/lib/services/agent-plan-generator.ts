@@ -8,8 +8,18 @@
 import type { CostEstimate, ParsedBriefing, PlannedStep, StepType } from "@/types/agent";
 import {
   QUALITY_MIN_COMPANY_SIZE_LABEL,
+  formatCompanySizesLabel,
   resolveDirectSearchCompanySizes,
+  resolveSearchLocations,
 } from "@/lib/agent/search-defaults";
+import { resolveLeadCount } from "@/lib/agent/agent-pricing";
+import { isAccountListMode, resolvedAccountDomains } from "@/lib/agent/target-accounts";
+
+// Story 24.13: sufixo " — até N leads" nos ramos ativos da busca, so quando N existe.
+function leadCountSuffix(b: ParsedBriefing): string {
+  const n = resolveLeadCount(b);
+  return n === null ? "" : ` — até ${n} leads`;
+}
 
 // ==============================================
 // STEP METADATA
@@ -43,25 +53,40 @@ export const PIPELINE_STEPS: StepMetadata[] = [
       if (b.skipSteps?.includes("search_leads")) {
         return "Etapa pulada — leads fornecidos pelo usuario";
       }
+      // Story 24.17: modo lista de contas — busca por dominio nas contas, sem porte/ICP.
+      if (isAccountListMode(b)) {
+        const count = resolvedAccountDomains(b.targetAccounts).length;
+        const titles = b.jobTitles.length > 0 ? b.jobTitles.join(", ") : "cargos";
+        const where = count === 1 ? "na 1 conta" : `nas ${count} contas`;
+        return `Buscar ${titles} ${where} da sua lista (busca por dominio, sem busca de empresas)${leadCountSuffix(b)}`;
+      }
       if (b.skipSteps?.includes("search_companies")) {
         // Story 22.6 (AC3): exibe o tamanho EFETIVO da busca direta antes da confirmacao —
         // incluindo o piso de qualidade aplicado por padrao (sem surpresa de escopo).
         // Mesma fonte (resolveDirectSearchCompanySizes) que o step usa -> zero drift.
-        const { defaultsApplied } = resolveDirectSearchCompanySizes(b);
-        const sizeLabel = defaultsApplied
-          ? `tamanho ${QUALITY_MIN_COMPANY_SIZE_LABEL} (padrao de qualidade)`
-          : `tamanho ${b.companySize}`;
+        // Story 24.14: sem tamanho do usuario, as faixas do ICP substituem o piso.
+        const { source, companySizes } = resolveDirectSearchCompanySizes(b);
+        const sizeLabel =
+          source === "quality"
+            ? `tamanho ${QUALITY_MIN_COMPANY_SIZE_LABEL} (padrao de qualidade)`
+            : source === "icp"
+              ? `tamanho ${formatCompanySizesLabel(companySizes)} (do ICP)`
+              : `tamanho ${b.companySize}`;
+        // Story 24.14: local efetivo (usuario, senao ICP) — o mesmo que o step envia.
+        const { locations } = resolveSearchLocations(b);
         const filters = [
           b.jobTitles.length > 0 ? b.jobTitles.join(", ") : null,
           b.industry,
-          b.location,
+          locations.length > 0 ? locations.join(", ") : null,
           sizeLabel,
         ].filter(Boolean).join(" + ");
-        return `Buscar leads diretamente por ${filters || "cargos"} (sem filtro de empresa)`;
+        return `Buscar leads diretamente por ${filters || "cargos"} (sem filtro de empresa)${leadCountSuffix(b)}`;
       }
-      return b.jobTitles.length > 0
-        ? `Encontrar ${b.jobTitles.join(", ")} nas empresas via Apollo`
-        : "Encontrar contatos nas empresas via Apollo";
+      return (
+        (b.jobTitles.length > 0
+          ? `Encontrar ${b.jobTitles.join(", ")} nas empresas via Apollo`
+          : "Encontrar contatos nas empresas via Apollo") + leadCountSuffix(b)
+      );
     },
     costKey: "search_leads",
   },

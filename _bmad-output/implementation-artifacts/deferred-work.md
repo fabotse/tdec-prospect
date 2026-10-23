@@ -604,3 +604,40 @@ location: supabase/functions/reply-sweep/index.ts:24
 source_spec: `spec-23-1-webhook-e-crons-autenticados.md`
 reason: Pré-existente e fora do diff. Elas não conferem nenhum segredo próprio; quem tiver a anon key pode disparar o lote fora do horário (amplificação de custo de OpenAI/Apify; o processamento é idempotente e o monitoring é limitado por next_run_at). Para confirmar: checar no painel se as funções estão com verify_jwt ligado e se a anon key passa. Corrigir exige publicar Edge Functions (ação com OK do Fabossi).
 status: open
+
+### DW-27: O parser real (LLM) ainda nao foi testado distinguindo "traga 5" (leadCount) de "5 e-mails" (emailCount); os testes mockam a resposta da OpenAI.
+origin: spec-deferred 77271426dd7e
+location: src/lib/agent/briefing-parser-service.ts (SYSTEM_PROMPT, leadCount)
+source_spec: `spec-24-13-quantos-leads-eu-quero.md`
+reason: maybe-false: os testes de briefing-parser-service provam schema, coercao e o texto do prompt, mas nao o comportamento do modelo. Para resolver, rodar um smoke real da conversa ("CISO em SP, traga 5", "10 leads e 3 e-mails") e conferir o briefing gravado.
+status: open
+
+### DW-28: Depois de um F5, a revisao volta ao lote original (25 leads, N pre-selecionados) mesmo que o usuario ja tenha buscado mais pelo fetch-leads.
+origin: spec-deferred e86d5dbd82ba
+location: src/components/agent/AgentLeadReview.tsx (estado inicial de localLeads/selectedIndices)
+source_spec: `spec-24-13-quantos-leads-eu-quero.md`
+severity: low
+reason: Comportamento anterior a esta story (17.12): o card le o previewData imutavel da mensagem do gate, e o fetch-leads so atualiza agent_steps.output. Agora a pre-selecao tambem volta para N.
+status: open
+
+### DW-29: A chamada unica do Fit Score (ate 100 leads, gpt-5.4-mini, sem teto de tokens nem reasoning_effort) pode estourar o timeout de 20s com frequencia.
+origin: spec-deferred d54ab20a80aa
+location: src/lib/agent/fit-scorer.ts (scoreLeads) e src/lib/ai/fit-score-config.ts
+source_spec: `spec-24-16-fit-score-a-b-c-com-justificativa.md`
+reason: maybe-false: nos testes a OpenAI e mockada. Se estourar, o step segue so com regras, mas gasta ate 20s e conta 1 chamada. Para resolver, medir a latencia real num smoke com N=20 (universo de 60) e N>=34 (universo de 100) e, se preciso, reduzir o lote ou ajustar o request.
+status: open
+
+### DW-30: A qualidade das notas e justificativas do LLM real contra o ICP nunca foi verificada; todos os testes usam respostas mockadas.
+origin: spec-deferred 7c605585dc11
+location: src/lib/agent/fit-scorer.ts (FIT_SCORE_SYSTEM_PROMPT)
+source_spec: `spec-24-16-fit-score-a-b-c-com-justificativa.md`
+reason: maybe-false: os testes provam o formato do request, o parse e o merge por lead, nao o julgamento do modelo. Para resolver, rodar um smoke real ("CISO de Sao Paulo", N=2) e conferir no gate se as notas A/B/C e os motivos fazem sentido.
+status: open
+
+### DW-31: A supressao do modo lista cobre so "negociacao" (oportunidade em contacted/meeting_booked); a classe "cliente" do AC3 nao tem fonte de dados.
+origin: spec-deferred 25654eb35175
+location: src/lib/agent/account-suppression.ts (findSuppressedAccounts)
+source_spec: `spec-24-17-modo-lista-de-contas-abm.md`
+severity: medium
+reason: O epico pede remover conta suprimida "(cliente, negociacao)". Nao existe tabela de clientes nem lista de supressao (23.5 em backlog); a regra provisoria usa a Central de Oportunidades e casa pelo dominio do e-mail do lead. Resolver quando a 23.5 criar a lista de supressao: ler a tabela dentro de findSuppressedAccounts.
+status: open

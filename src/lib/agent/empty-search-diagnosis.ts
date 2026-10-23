@@ -19,9 +19,11 @@
  *     então um valor fora dos buckets canônicos ("<11") chega inválido.
  */
 
+import { isAccountListMode } from "@/lib/agent/target-accounts";
 import {
   QUALITY_MIN_COMPANY_SIZES,
   QUALITY_MIN_COMPANY_SIZE_LABEL,
+  formatCompanySizesLabel,
   resolveDirectSearchCompanySizes,
 } from "@/lib/agent/search-defaults";
 import type { ParsedBriefing } from "@/types/agent";
@@ -130,6 +132,8 @@ export type EmptySearchCauseCode =
   | "company_size_restrictive"
   | "narrow_location"
   | "quality_floor_applied"
+  // Story 24.14: sem tamanho do usuario, a busca usou as faixas do ICP
+  | "icp_company_size_applied"
   | "job_titles"
   // busca de leads (Apollo) — ramo por domínios
   | "job_titles_in_companies"
@@ -279,8 +283,10 @@ function readStringArray(value: unknown): string[] {
 
 type DiagnosisBriefing = Pick<
   ParsedBriefing,
-  "technology" | "jobTitles" | "location" | "companySize" | "industry"
->;
+  "technology" | "jobTitles" | "location" | "companySize" | "industry" | "icpDefaults"
+> &
+  // Story 24.17: opcionais — no modo lista de contas os textos falam da lista, nao da etapa anterior.
+  Partial<Pick<ParsedBriefing, "targetAccounts" | "suppressedAccounts" | "skipSteps">>;
 
 /**
  * Diagnostica uma busca que voltou vazia e propõe ajustes determinísticos.
@@ -300,8 +306,14 @@ export function diagnoseEmptySearch(
   const jobTitles = filterTitles.length > 0 ? filterTitles : briefing.jobTitles;
   const titlesLabel = jobTitles.length > 0 ? jobTitles.join(", ") : "sem filtro";
 
+  // Story 24.15: o local pode ter ido como local da pessoa (`locations`) ou sede da empresa
+  // (`organizationLocations`).
   const filterLocations = readStringArray(filters.locations);
-  const location = filterLocations[0] ?? briefing.location ?? null;
+  const filterOrgLocations = readStringArray(filters.organizationLocations);
+  const location = filterLocations[0] ?? filterOrgLocations[0] ?? briefing.location ?? null;
+  // Story 24.15: industria mapeada vai por categoria (`organizationIndustries`), nao por texto.
+  const industryByCategory = readStringArray(filters.organizationIndustries).length > 0;
+  const industryTextual = Boolean(briefing.industry) && !industryByCategory;
 
   const activeFilters: ActiveFilterLine[] = [
     { label: "Cargos", value: titlesLabel },
@@ -309,11 +321,21 @@ export function diagnoseEmptySearch(
   ];
 
   if (branch === "domains") {
+    const domainsLabel = `${domains.length} ${domains.length === 1 ? "domínio" : "domínios"}`;
+    const accountListMode = isAccountListMode(briefing);
     activeFilters.push({
       label: "Empresas",
-      value: `${domains.length} ${domains.length === 1 ? "domínio" : "domínios"} da etapa anterior`,
-      note: "Tamanho e indústria não entram nesta etapa — os leads são buscados dentro das empresas já aprovadas.",
+      value: accountListMode
+        ? `${domainsLabel} da sua lista de contas`
+        : `${domainsLabel} da etapa anterior`,
+      note: accountListMode
+        ? "Tamanho e indústria não entram no modo lista — os leads são buscados direto nas contas da sua lista."
+        : "Tamanho e indústria não entram nesta etapa — os leads são buscados dentro das empresas já aprovadas.",
     });
+
+    const where = accountListMode
+      ? `nas ${domains.length} ${domains.length === 1 ? "conta" : "contas"} da sua lista`
+      : `nas ${domains.length} ${domains.length === 1 ? "empresa" : "empresas"} da etapa anterior`;
 
     return {
       branch,
@@ -322,9 +344,7 @@ export function diagnoseEmptySearch(
       probableCauses: [
         {
           code: "job_titles_in_companies",
-          text: `Nenhuma pessoa com esses cargos (${titlesLabel}) foi encontrada nas ${domains.length} ${
-            domains.length === 1 ? "empresa" : "empresas"
-          } da etapa anterior. Ajustar cargos ou localização é o que muda o resultado aqui — filtros de tamanho e indústria não são aplicados nesta etapa.`,
+          text: `Nenhuma pessoa com esses cargos (${titlesLabel}) foi encontrada ${where}. Ajustar cargos ou localização é o que muda o resultado aqui — filtros de tamanho e indústria não são aplicados nesta etapa.`,
         },
       ],
       suggestedChips: buildLocationChips(location),
@@ -333,11 +353,26 @@ export function diagnoseEmptySearch(
 
   // --- Ramo direto: tamanho e indústria REALMENTE foram enviados ---
 
-  const { defaultsApplied } = resolveDirectSearchCompanySizes(briefing);
+  const { defaultsApplied, source: sizeSource, companySizes: effectiveSizes } =
+    resolveDirectSearchCompanySizes(briefing);
   const companySize = briefing.companySize;
   const sizeIsCanonical = isCanonicalCompanySize(companySize);
+  // Story 24.14: o que entra no lugar quando NAO ha tamanho do usuario — as faixas do ICP
+  // (quando o briefing as traz) ou o piso de qualidade. Usado no aviso dos chips.
+  const fallbackSizes = resolveDirectSearchCompanySizes({
+    companySize: null,
+    icpDefaults: briefing.icpDefaults,
+  });
+  const fallbackIcpLabel =
+    fallbackSizes.source === "icp" ? formatCompanySizesLabel(fallbackSizes.companySizes) : null;
 
-  if (defaultsApplied) {
+  if (sizeSource === "icp") {
+    activeFilters.push({
+      label: "Tamanho",
+      value: `${formatCompanySizesLabel(effectiveSizes)} (do seu ICP)`,
+      note: "Aplicado a partir do seu ICP porque você não informou tamanho.",
+    });
+  } else if (defaultsApplied) {
     activeFilters.push({
       label: "Tamanho",
       value: `${QUALITY_MIN_COMPANY_SIZE_LABEL} (padrão de qualidade)`,
@@ -358,7 +393,7 @@ export function diagnoseEmptySearch(
   activeFilters.push({
     label: "Indústria",
     value: briefing.industry ?? "sem filtro",
-    ...(briefing.industry
+    ...(industryTextual
       ? {
           note: "A busca por indústria é feita por TEXTO (palavra-chave), não por categoria — é o filtro mais impreciso da busca aberta.",
         }
@@ -374,7 +409,7 @@ export function diagnoseEmptySearch(
     });
   }
 
-  if (briefing.industry) {
+  if (industryTextual) {
     probableCauses.push({
       code: "industry_textual",
       text: `A indústria ("${briefing.industry}") vira uma busca por texto livre, não por categoria. Basta o termo não bater com o cadastro das empresas para o resultado zerar — é a causa mais comum de busca vazia.`,
@@ -392,6 +427,13 @@ export function diagnoseEmptySearch(
     probableCauses.push({
       code: "narrow_location",
       text: `A busca está limitada a uma localidade só ("${location}"). Se for uma cidade ou uma região pequena, há poucos contatos cadastrados ali — ampliar para uma área maior normalmente resolve.`,
+    });
+  }
+
+  if (sizeSource === "icp") {
+    probableCauses.push({
+      code: "icp_company_size_applied",
+      text: `Como você não informou tamanho, a busca usou as faixas do seu ICP (${formatCompanySizesLabel(effectiveSizes)}). Empresas fora dessas faixas ficaram de fora — se o alvo desta busca for outro porte, é isso que pode zerar o resultado.`,
     });
   }
 
@@ -435,7 +477,9 @@ export function diagnoseEmptySearch(
       label: "Remover filtro de tamanho",
       kind: "delta",
       delta: { companySize: null },
-      warning: `Sem tamanho informado a busca volta ao piso padrão ${QUALITY_MIN_COMPANY_SIZE_LABEL} — empresas de até 10 pessoas continuam de fora.`,
+      warning: fallbackIcpLabel
+        ? `Sem tamanho informado a busca volta para as faixas do seu ICP (${fallbackIcpLabel}).`
+        : `Sem tamanho informado a busca volta ao piso padrão ${QUALITY_MIN_COMPANY_SIZE_LABEL} — empresas de até 10 pessoas continuam de fora.`,
     });
   } else {
     suggestedChips.push({
@@ -446,7 +490,9 @@ export function diagnoseEmptySearch(
       label: "Buscar só empresas de 1 a 10 pessoas",
       kind: "delta",
       delta: { companySize: "1-10" },
-      warning: `Passa a buscar SÓ empresas de 1 a 10 pessoas, no lugar do piso ${QUALITY_MIN_COMPANY_SIZE_LABEL}.`,
+      warning: fallbackIcpLabel
+        ? `Passa a buscar SÓ empresas de 1 a 10 pessoas, no lugar das faixas do seu ICP (${fallbackIcpLabel}).`
+        : `Passa a buscar SÓ empresas de 1 a 10 pessoas, no lugar do piso ${QUALITY_MIN_COMPANY_SIZE_LABEL}.`,
     });
   }
 

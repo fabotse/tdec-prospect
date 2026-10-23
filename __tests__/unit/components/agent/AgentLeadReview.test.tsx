@@ -295,7 +295,7 @@ describe("AgentLeadReview (AC: #3, #4)", () => {
       expect(screen.queryByRole("button", { name: "500" })).toBeNull();
     });
 
-    it("does NOT show selector when totalFound <= leads.length", () => {
+    it("Story 24.13: todos carregados -> sem atalhos nem 'Mostrando', mas com o input livre", () => {
       const allFetchedData = {
         totalFound: 15,
         leads: Array.from({ length: 15 }, (_, i) => ({
@@ -311,8 +311,10 @@ describe("AgentLeadReview (AC: #3, #4)", () => {
         <AgentLeadReview data={allFetchedData} executionId="exec-001" stepNumber={2} totalSteps={5} />
       );
 
-      expect(screen.queryByText("Quantos leads deseja usar?")).toBeNull();
+      expect(screen.getByText("Quantos leads deseja usar?")).toBeInTheDocument();
+      expect(screen.getByTestId("lead-quantity-input")).toBeInTheDocument();
       expect(screen.queryByText(/Mostrando/)).toBeNull();
+      expect(screen.queryByRole("button", { name: "50" })).toBeNull();
     });
 
     it("clicking quantity option updates selected state", () => {
@@ -363,7 +365,7 @@ describe("AgentLeadReview (AC: #3, #4)", () => {
       });
     });
 
-    it("after fetch success, leads are updated and selector disappears", async () => {
+    it("after fetch success, leads are updated and the shortcut buttons disappear", async () => {
       const fetchedLeads = Array.from({ length: 100 }, (_, i) => ({
         name: `Fetched Lead ${i + 1}`,
         title: "CTO",
@@ -391,9 +393,10 @@ describe("AgentLeadReview (AC: #3, #4)", () => {
       fireEvent.click(screen.getByText("Buscar 100 leads"));
 
       await waitFor(() => {
-        // Selector should disappear
-        expect(screen.queryByText("Quantos leads deseja usar?")).toBeNull();
+        // Atalhos e "Mostrando" somem; o input livre (24.13) continua
+        expect(screen.queryByText(/Mostrando/)).toBeNull();
       });
+      expect(screen.queryByRole("button", { name: "200" })).toBeNull();
 
       // New leads should be rendered
       expect(screen.getByText("Fetched Lead 1")).toBeInTheDocument();
@@ -424,6 +427,161 @@ describe("AgentLeadReview (AC: #3, #4)", () => {
         ok: true,
         json: () => Promise.resolve({ data: { leads: [], totalFetched: 0, totalFound: 200, cost: {} } }),
       });
+    });
+  });
+
+  // ==============================================
+  // Story 24.13 — quantos leads eu quero (N)
+  // ==============================================
+
+  describe("Story 24.13 - leadCount (N) na revisao", () => {
+    const makeLeads = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        name: `Lead ${i + 1}`,
+        title: "CTO",
+        companyName: `Company ${i + 1}`,
+        email: `lead${i + 1}@test.com`,
+      }));
+
+    it("com N = 5 e 25 leads, pre-seleciona os 5 primeiros", () => {
+      render(
+        <AgentLeadReview
+          data={{ totalFound: 25, leads: makeLeads(25), jobTitles: ["CTO"], leadCount: 5 }}
+          executionId="exec-001"
+          stepNumber={2}
+          totalSteps={5}
+        />
+      );
+
+      expect(screen.getByText("5 de 25 leads selecionados")).toBeInTheDocument();
+      expect(screen.getByText("Aprovar (5 leads)")).toBeInTheDocument();
+      expect(screen.getByRole("checkbox", { name: "Selecionar Lead 5" })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "Selecionar Lead 6" })).not.toBeChecked();
+    });
+
+    it("com N = 200, 100 leads e total 900: 100 selecionados, input com 200 e 'Buscar 200 leads'", () => {
+      render(
+        <AgentLeadReview
+          data={{ totalFound: 900, leads: makeLeads(100), jobTitles: ["CTO"], leadCount: 200 }}
+          executionId="exec-001"
+          stepNumber={2}
+          totalSteps={5}
+        />
+      );
+
+      expect(screen.getByText("100 de 900 leads selecionados")).toBeInTheDocument();
+      expect(screen.getByTestId("lead-quantity-input")).toHaveValue(200);
+      expect(screen.getByText("Buscar 200 leads")).toBeInTheDocument();
+      expect(screen.getByText("Custo estimado: ~200 creditos Apollo")).toBeInTheDocument();
+    });
+
+    it("Q <= leads carregados: 'Selecionar Q leads' reseleciona os Q primeiros, sem fetch", () => {
+      render(
+        <AgentLeadReview
+          data={{ totalFound: 25, leads: makeLeads(25), jobTitles: ["CTO"] }}
+          executionId="exec-001"
+          stepNumber={2}
+          totalSteps={5}
+        />
+      );
+
+      fireEvent.change(screen.getByTestId("lead-quantity-input"), { target: { value: "10" } });
+      fireEvent.click(screen.getByText("Selecionar 10 leads"));
+
+      expect(screen.getByText("10 de 25 leads selecionados")).toBeInTheDocument();
+      expect(screen.getByRole("checkbox", { name: "Selecionar Lead 10" })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "Selecionar Lead 11" })).not.toBeChecked();
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it.each(["0", "26", "abc", ""])("Q fora da faixa (%p): botao desabilitado", (value) => {
+      render(
+        <AgentLeadReview
+          data={{ totalFound: 25, leads: makeLeads(25), jobTitles: ["CTO"] }}
+          executionId="exec-001"
+          stepNumber={2}
+          totalSteps={5}
+        />
+      );
+
+      fireEvent.change(screen.getByTestId("lead-quantity-input"), { target: { value } });
+      expect(screen.getByTestId("lead-quantity-action")).toBeDisabled();
+    });
+
+    it("Q > carregados: 'Buscar Q leads' chama fetch-leads e seleciona os Q primeiros", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: { leads: makeLeads(60), totalFetched: 60, totalFound: 200, cost: {} },
+          }),
+      });
+
+      render(
+        <AgentLeadReview
+          data={{ totalFound: 200, leads: makeLeads(25), jobTitles: ["CTO"] }}
+          executionId="exec-001"
+          stepNumber={2}
+          totalSteps={5}
+        />
+      );
+
+      fireEvent.change(screen.getByTestId("lead-quantity-input"), { target: { value: "40" } });
+      fireEvent.click(screen.getByText("Buscar 40 leads"));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          "/api/agent/executions/exec-001/steps/2/fetch-leads",
+          expect.objectContaining({ body: JSON.stringify({ desiredCount: 40 }) })
+        );
+      });
+      await waitFor(() => {
+        expect(screen.getByText("40 de 200 leads selecionados")).toBeInTheDocument();
+      });
+    });
+
+    it("N = 50 com so 30 leads (totalFound 30): 30 selecionados e input vazio, sem valor fora da faixa", () => {
+      render(
+        <AgentLeadReview
+          data={{ totalFound: 30, leads: makeLeads(30), jobTitles: ["CTO"], leadCount: 50 }}
+          executionId="exec-001"
+          stepNumber={2}
+          totalSteps={5}
+        />
+      );
+
+      expect(screen.getByText("30 de 30 leads selecionados")).toBeInTheDocument();
+      expect(screen.getByTestId("lead-quantity-input")).toHaveValue(null);
+      expect(screen.queryByText(/Buscar \d+ leads/)).toBeNull();
+    });
+
+    it("N = 200 com 25 leads e totalFound 120: input limitado a 120", () => {
+      render(
+        <AgentLeadReview
+          data={{ totalFound: 120, leads: makeLeads(25), jobTitles: ["CTO"], leadCount: 200 }}
+          executionId="exec-001"
+          stepNumber={2}
+          totalSteps={5}
+        />
+      );
+
+      expect(screen.getByTestId("lead-quantity-input")).toHaveValue(120);
+      expect(screen.getByText("Buscar 120 leads")).toBeInTheDocument();
+      expect(screen.getByTestId("lead-quantity-action")).not.toBeDisabled();
+    });
+
+    it("sem N (dados antigos), todos selecionados como hoje", () => {
+      render(
+        <AgentLeadReview
+          data={{ totalFound: 25, leads: makeLeads(25), jobTitles: ["CTO"] }}
+          executionId="exec-001"
+          stepNumber={2}
+          totalSteps={5}
+        />
+      );
+
+      expect(screen.getByText("25 de 25 leads selecionados")).toBeInTheDocument();
+      expect(screen.getByTestId("lead-quantity-input")).toHaveValue(null);
     });
   });
 
@@ -789,5 +947,332 @@ describe("AgentLeadReview — falha no disparo do proximo step (Story 24.3)", ()
       ).toBe(true);
     });
     expect(useAgentStore.getState().stepTriggerFailure).toBeNull();
+  });
+});
+
+describe("AgentLeadReview — Story 24.16 Fit Score", () => {
+  const grade = (i: number): "A" | "B" | "C" => (i % 3 === 0 ? "A" : i % 3 === 1 ? "B" : "C");
+
+  /** Leads como o Apollo devolve (sem score), apolloId = apollo-N. */
+  const apolloLeads = (count: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      name: `Lead ${i + 1}`,
+      title: "CISO",
+      companyName: `Company ${i + 1}`,
+      email: null,
+      apolloId: `apollo-${i + 1}`,
+    }));
+
+  /** Output do step: pontuado e ja ordenado A -> B -> C. */
+  const scoredOutput = (count: number) => {
+    const scored = apolloLeads(count).map((lead, i) => ({
+      ...lead,
+      fitScore: grade(i + 1),
+      fitReason: `Motivo ${i + 1}`,
+    }));
+    const rank = { A: 0, B: 1, C: 2 };
+    return scored
+      .map((lead, index) => ({ lead, index }))
+      .sort((a, b) => rank[a.lead.fitScore] - rank[b.lead.fitScore] || a.index - b.index)
+      .map(({ lead }) => lead);
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { stepNumber: 2, status: "approved", nextStep: 3 } }),
+    });
+  });
+
+  it("25 pontuados, N = 5: badges e justificativas na ordem A -> B -> C, 5 primeiros selecionados", () => {
+    const leads = scoredOutput(25);
+    render(
+      <AgentLeadReview
+        data={{ totalFound: 25, leads, jobTitles: ["CISO"], leadCount: 5 }}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+      />
+    );
+
+    expect(screen.getByText("Fit")).toBeInTheDocument();
+    const badges = screen.getAllByTestId("fit-badge").map((b) => b.textContent);
+    expect(badges).toHaveLength(25);
+    expect(badges.slice(0, 8)).toEqual(Array(8).fill("A"));
+    expect(badges[8]).toBe("B");
+    expect(badges[24]).toBe("C");
+    expect(screen.getByText(leads[0].fitReason)).toBeInTheDocument();
+
+    expect(screen.getByText("5 de 25 leads selecionados")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: `Selecionar ${leads[4].name}` })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: `Selecionar ${leads[5].name}` })).not.toBeChecked();
+  });
+
+  it("C continua selecionavel e o score viaja no approve", async () => {
+    const leads = scoredOutput(3); // A (Lead 3), B (Lead 1), C (Lead 2)
+    render(
+      <AgentLeadReview
+        data={{ totalFound: 3, leads, jobTitles: ["CISO"] }}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+      />
+    );
+
+    expect(screen.getByRole("checkbox", { name: "Selecionar Lead 2" })).toBeChecked();
+    fireEvent.click(screen.getByText("Aprovar (3 leads)"));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/agent/executions/exec-001/steps/2/approve",
+        expect.anything()
+      );
+    });
+    const approveCall = mockFetch.mock.calls.find((call) => String(call[0]).endsWith("/approve"));
+    const body = JSON.parse(approveCall?.[1]?.body as string);
+    expect(body.approvedData.leads[0]).toMatchObject({ name: "Lead 3", fitScore: "A", fitReason: "Motivo 3" });
+  });
+
+  it("legado sem fitScore: '—', ordem original e pre-selecao de hoje (todos)", () => {
+    render(
+      <AgentLeadReview
+        data={{ totalFound: 3, leads: apolloLeads(3), jobTitles: ["CISO"] }}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+      />
+    );
+
+    expect(screen.queryAllByTestId("fit-badge")).toHaveLength(0);
+    expect(screen.getAllByTestId("fit-badge-empty")).toHaveLength(3);
+    const names = screen.getAllByRole("checkbox", { name: /^Selecionar Lead/ }).map((c) =>
+      c.getAttribute("aria-label")
+    );
+    expect(names).toEqual(["Selecionar Lead 1", "Selecionar Lead 2", "Selecionar Lead 3"]);
+    expect(screen.getByText("3 de 3 leads selecionados")).toBeInTheDocument();
+  });
+
+  it("fetch-leads: os 25 mantem o score por apolloId, os 25 novos ficam com '—' no fim, seleciona os Q primeiros", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: { leads: apolloLeads(50), totalFetched: 50, totalFound: 200, cost: {} },
+        }),
+    });
+
+    render(
+      <AgentLeadReview
+        data={{ totalFound: 200, leads: scoredOutput(25), jobTitles: ["CISO"], leadCount: 5 }}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+      />
+    );
+
+    fireEvent.change(screen.getByTestId("lead-quantity-input"), { target: { value: "30" } });
+    fireEvent.click(screen.getByText("Buscar 30 leads"));
+
+    await waitFor(() => {
+      expect(screen.getByText("30 de 200 leads selecionados")).toBeInTheDocument();
+    });
+
+    const badges = screen.getAllByTestId("fit-badge").map((b) => b.textContent);
+    expect(badges).toHaveLength(25);
+    expect(badges[0]).toBe("A");
+    expect(screen.getAllByTestId("fit-badge-empty")).toHaveLength(25);
+
+    const order = screen
+      .getAllByRole("checkbox", { name: /^Selecionar Lead/ })
+      .map((c) => c.getAttribute("aria-label"));
+    expect(order[0]).toBe("Selecionar Lead 3"); // primeiro A
+    expect(order[25]).toBe("Selecionar Lead 26"); // primeiro sem nota
+    expect(screen.getByRole("checkbox", { name: "Selecionar Lead 30" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Selecionar Lead 31" })).not.toBeChecked();
+  });
+});
+
+describe("AgentLeadReview — Story 24.15 triagem", () => {
+  const lead = (
+    name: string,
+    extra: { publicSector?: boolean; contactStatus?: "already_contacted" } = {}
+  ) => ({
+    name,
+    title: "CISO",
+    companyName: extra.publicSector ? `Prefeitura ${name}` : `Empresa ${name}`,
+    email: null,
+    apolloId: `apollo-${name}`,
+    ...extra,
+  });
+
+  const screenedData = {
+    totalFound: 5,
+    leads: [
+      lead("E1"),
+      lead("E2"),
+      lead("C1", { contactStatus: "already_contacted" }),
+      lead("P1", { publicSector: true }),
+      lead("P2", { publicSector: true }),
+    ],
+    jobTitles: ["CISO"],
+    screening: { suppressed: 2, publicSector: 2, alreadyContacted: 1 },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { stepNumber: 2, status: "approved", nextStep: 3 } }),
+    });
+  });
+
+  it("orgaos publicos ficam ocultos; ja contatado tem badge; pre-selecao so de elegiveis", () => {
+    render(<AgentLeadReview data={screenedData} executionId="exec-001" stepNumber={2} totalSteps={5} />);
+
+    expect(screen.queryByText("P1")).toBeNull();
+    expect(screen.getByText("C1")).toBeInTheDocument();
+    expect(screen.getAllByTestId("lead-already-contacted")).toHaveLength(1);
+    expect(screen.getByText("2 de 5 leads selecionados")).toBeInTheDocument();
+    expect(screen.getByLabelText("Selecionar C1")).not.toBeChecked();
+    expect(screen.getByText("2 lead(s) suprimido(s) removido(s) da lista.")).toBeInTheDocument();
+  });
+
+  it("toggle inclui e oculta os orgaos publicos (ocultos saem da selecao)", () => {
+    render(<AgentLeadReview data={screenedData} executionId="exec-001" stepNumber={2} totalSteps={5} />);
+
+    const toggle = screen.getByTestId("toggle-public-sector");
+    expect(toggle).toHaveTextContent("Incluir 2 de orgaos publicos");
+    fireEvent.click(toggle);
+
+    expect(screen.getByText("P1")).toBeInTheDocument();
+    expect(screen.getAllByTestId("lead-public-sector")).toHaveLength(2);
+    expect(screen.getByLabelText("Selecionar P1")).not.toBeChecked();
+    fireEvent.click(screen.getByLabelText("Selecionar P1"));
+    expect(screen.getByText("3 de 5 leads selecionados")).toBeInTheDocument();
+
+    expect(toggle).toHaveTextContent("Ocultar orgaos publicos");
+    fireEvent.click(toggle);
+    expect(screen.queryByText("P1")).toBeNull();
+    expect(screen.getByText("2 de 5 leads selecionados")).toBeInTheDocument();
+  });
+
+  it("sem publicos nao mostra o toggle; sem suprimidos nao mostra a linha", () => {
+    render(
+      <AgentLeadReview
+        data={{ totalFound: 1, leads: [lead("E1")], jobTitles: ["CISO"] }}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+      />
+    );
+    expect(screen.queryByTestId("toggle-public-sector")).toBeNull();
+    expect(screen.queryByTestId("suppressed-leads-note")).toBeNull();
+  });
+
+  it("com N, pre-seleciona os N primeiros elegiveis (pula ja contatado mesmo se vier antes)", () => {
+    render(
+      <AgentLeadReview
+        data={{
+          totalFound: 4,
+          leads: [lead("C1", { contactStatus: "already_contacted" }), lead("E1"), lead("E2"), lead("E3")],
+          jobTitles: ["CISO"],
+          leadCount: 2,
+        }}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+      />
+    );
+    expect(screen.getByText("2 de 4 leads selecionados")).toBeInTheDocument();
+    expect(screen.getByLabelText("Selecionar E1")).toBeChecked();
+    expect(screen.getByLabelText("Selecionar E2")).toBeChecked();
+    expect(screen.getByLabelText("Selecionar E3")).not.toBeChecked();
+    expect(screen.getByLabelText("Selecionar C1")).not.toBeChecked();
+  });
+
+  it("Selecionar Q leads: seleciona os Q primeiros elegiveis (pula ja contatado)", () => {
+    render(
+      <AgentLeadReview
+        data={{
+          totalFound: 4,
+          leads: [lead("E1"), lead("C1", { contactStatus: "already_contacted" }), lead("E2"), lead("E3")],
+          jobTitles: ["CISO"],
+        }}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+      />
+    );
+
+    fireEvent.change(screen.getByTestId("lead-quantity-input"), { target: { value: "2" } });
+    fireEvent.click(screen.getByTestId("lead-quantity-action"));
+
+    expect(screen.getByLabelText("Selecionar E1")).toBeChecked();
+    expect(screen.getByLabelText("Selecionar E2")).toBeChecked();
+    expect(screen.getByLabelText("Selecionar C1")).not.toBeChecked();
+    expect(screen.getByLabelText("Selecionar E3")).not.toBeChecked();
+  });
+
+  it("todos ocultos (so orgaos publicos): o 'Selecionar todos' nao aparece marcado", () => {
+    render(
+      <AgentLeadReview
+        data={{ totalFound: 1, leads: [lead("P1", { publicSector: true })], jobTitles: ["CISO"] }}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+      />
+    );
+    expect(screen.getByLabelText("Selecionar todos")).not.toBeChecked();
+  });
+
+  it("aprovar nao envia orgaos publicos ocultos nem ja contatados nao selecionados", async () => {
+    render(<AgentLeadReview data={screenedData} executionId="exec-001" stepNumber={2} totalSteps={5} />);
+
+    fireEvent.click(screen.getByText("Aprovar (2 leads)"));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/agent/executions/exec-001/steps/2/approve",
+        expect.anything()
+      );
+    });
+    const call = mockFetch.mock.calls.find(([url]) => String(url).endsWith("/approve"));
+    const body = JSON.parse((call?.[1] as { body: string }).body);
+    expect(body.approvedData.leads.map((l: { name: string }) => l.name)).toEqual(["E1", "E2"]);
+  });
+
+  it("Buscar mais: pre-seleciona so elegiveis e atualiza a linha de suprimidos", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: {
+            leads: [lead("E1"), lead("E2"), lead("E3"), lead("C1", { contactStatus: "already_contacted" }), lead("P1", { publicSector: true })],
+            totalFetched: 5,
+            totalFound: 50,
+            screening: { suppressed: 4, publicSector: 1, alreadyContacted: 1 },
+            cost: {},
+          },
+        }),
+    });
+
+    render(
+      <AgentLeadReview
+        data={{ totalFound: 50, leads: [lead("E1")], jobTitles: ["CISO"] }}
+        executionId="exec-001"
+        stepNumber={2}
+        totalSteps={5}
+      />
+    );
+
+    fireEvent.change(screen.getByTestId("lead-quantity-input"), { target: { value: "5" } });
+    fireEvent.click(screen.getByText("Buscar 5 leads"));
+
+    await waitFor(() => {
+      expect(screen.getByText("3 de 50 leads selecionados")).toBeInTheDocument();
+    });
+    expect(screen.getByText("4 lead(s) suprimido(s) removido(s) da lista.")).toBeInTheDocument();
+    expect(screen.getByTestId("toggle-public-sector")).toHaveTextContent("Incluir 1 de orgaos publicos");
   });
 });

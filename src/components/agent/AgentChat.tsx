@@ -53,9 +53,12 @@ import {
   CARD_ACTION_LABELS,
   parseBriefingFieldInput,
   buildChipEditTurn,
+  buildIcpProposalTurn,
+  ICP_MISSING_HINT,
   type BriefingCardAction,
   type BriefingCardField,
 } from "@/hooks/use-briefing-flow";
+import { useIcpProposal } from "@/hooks/use-icp-proposal";
 import { useUser } from "@/hooks/use-user";
 import {
   mergeAdjustedBriefing,
@@ -248,7 +251,40 @@ export function AgentChat() {
     parseAdjustment,
     recordAgentTurn,
     recordUserTurn,
+    // Story 24.14: abre a conversa nova com a proposta do ICP
+    seedIcpProposal,
   } = useBriefingFlow();
+
+  // ============================================================
+  // Story 24.14 — proposta de briefing a partir do ICP
+  // ============================================================
+
+  // Conversa nova: portao de reattach aberto e nenhuma execucao. A proposta vive SO no
+  // cliente ate o primeiro gesto (texto, card ou chip) — abrir a pagina nao cria execucao.
+  const isFreshConversation = attachGateOpen && !currentExecutionId;
+  const { proposal: icpProposal, isLoaded: icpProposalLoaded } =
+    useIcpProposal(isFreshConversation);
+  // Turno da proposta ainda nao persistido (gravado UMA vez, ao criar a execucao).
+  const pendingProposalTurnRef = useRef<string | null>(null);
+  // POST de criacao em voo: o seed nao pode entrar nessa janela.
+  const creatingExecutionRef = useRef(false);
+
+  useEffect(() => {
+    if (!isFreshConversation || !icpProposal || creatingExecutionRef.current) return;
+    if (briefingState.status !== "idle") return;
+    if (seedIcpProposal(icpProposal)) {
+      pendingProposalTurnRef.current = buildIcpProposalTurn(icpProposal);
+    }
+  }, [isFreshConversation, icpProposal, briefingState.status, seedIcpProposal]);
+
+  // Proposta semeada e ainda sem execucao: so o seed leva a `confirming` sem execucao.
+  const icpIntroMessage =
+    !currentExecutionId && briefingState.status === "confirming" && briefingState.briefing
+      ? buildIcpProposalTurn(briefingState.briefing)
+      : null;
+  // ICP sem cargos (leitura OK, sem proposta) -> dica no estado vazio. Falha -> nada.
+  const icpEmptyStateHint =
+    isFreshConversation && icpProposalLoaded && !icpProposal ? ICP_MISSING_HINT : null;
 
   // Story 17.7: Sync totalSteps to store for approval gates
   useEffect(() => {
@@ -286,6 +322,41 @@ export function AgentChat() {
     },
     []
   );
+
+  // Story 24.14: cria a execucao sob demanda (primeiro gesto). Antes de devolver, persiste
+  // a mensagem da proposta do ICP (uma vez) — a ordem gravada fica proposta -> gesto.
+  const ensureExecution = useCallback(async (): Promise<string | null> => {
+    if (currentExecutionId) return currentExecutionId;
+    creatingExecutionRef.current = true;
+    try {
+      const response = await fetch("/api/agent/executions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error?.message || "Erro ao criar execucao");
+      const execId: string = result.data.id;
+      // Anexa a execucao ANTES de persistir a proposta: falha no persist nunca deixa a
+      // execucao orfa nem faz o proximo gesto criar uma segunda.
+      setCurrentExecutionId(execId);
+      const proposalTurn = pendingProposalTurnRef.current;
+      if (proposalTurn) {
+        pendingProposalTurnRef.current = null;
+        try {
+          await sendAgentMessage(execId, proposalTurn);
+        } catch {
+          toast.error("Erro ao enviar resposta do agente.");
+        }
+      }
+      return execId;
+    } catch {
+      // Fix #4: feedback ao usuario quando criacao de execucao falha
+      toast.error("Erro ao iniciar conversa. Tente novamente.");
+      return null;
+    } finally {
+      creatingExecutionRef.current = false;
+    }
+  }, [currentExecutionId, sendAgentMessage, setCurrentExecutionId]);
 
   // Helper: criar produto via API existente
   const createProduct = useCallback(
@@ -786,25 +857,9 @@ export function AgentChat() {
 
   const handleSendMessage = useCallback(
     async (content: string) => {
-      let execId = currentExecutionId;
-
-      // Criar execucao automaticamente se nao existe
-      if (!execId) {
-        try {
-          const response = await fetch("/api/agent/executions", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-          });
-          const result = await response.json();
-          if (!response.ok) throw new Error(result.error?.message || "Erro ao criar execucao");
-          execId = result.data.id;
-          setCurrentExecutionId(execId);
-        } catch {
-          // Fix #4: feedback ao usuario quando criacao de execucao falha
-          toast.error("Erro ao iniciar conversa. Tente novamente.");
-          return;
-        }
-      }
+      // Criar execucao automaticamente se nao existe (Story 24.14: sob demanda, com a
+      // proposta do ICP persistida antes do turno do usuario).
+      const execId = await ensureExecution();
 
       // Guard: execId must be defined after creation block
       if (!execId) return;
@@ -888,8 +943,7 @@ export function AgentChat() {
       }
     },
     [
-      currentExecutionId,
-      setCurrentExecutionId,
+      ensureExecution,
       sendMessageMutation,
       briefingState.status,
       processBriefing,
@@ -916,11 +970,16 @@ export function AgentChat() {
 
   const handleCardAction = useCallback(
     async (action: BriefingCardAction) => {
-      const execId = currentExecutionId;
-      if (!execId || isAgentProcessing) return;
+      if (isAgentProcessing) return;
+      setAgentProcessing(true);
+      // Story 24.14: o clique no card da proposta e o primeiro gesto -> cria a execucao.
+      const execId = await ensureExecution();
+      if (!execId) {
+        setAgentProcessing(false);
+        return;
+      }
       // O clique e um turno do usuario no historico duravel (o hook grava na memoria).
       sendMessageMutation.mutate({ executionId: execId, content: CARD_ACTION_LABELS[action] });
-      setAgentProcessing(true);
       try {
         const result = await processCardAction(action, execId, sendAgentMessage, createProduct);
         if (result.confirmed) {
@@ -938,7 +997,7 @@ export function AgentChat() {
       }
     },
     [
-      currentExecutionId,
+      ensureExecution,
       isAgentProcessing,
       sendMessageMutation,
       setAgentProcessing,
@@ -952,11 +1011,12 @@ export function AgentChat() {
 
   const handleChipEdit = useCallback(
     async (field: BriefingCardField, raw: string): Promise<{ ok: boolean; error?: string }> => {
-      const execId = currentExecutionId;
-      if (!execId) return { ok: false, error: "Conversa nao encontrada." };
       // Valida ANTES de gravar o turno: valor invalido so mostra o erro inline.
       const parsed = parseBriefingFieldInput(field, raw);
       if (!parsed.ok) return { ok: false, error: parsed.error };
+      // Story 24.14: editar um chip da proposta e o primeiro gesto -> cria a execucao.
+      const execId = await ensureExecution();
+      if (!execId) return { ok: false, error: "Erro ao iniciar conversa." };
       sendMessageMutation.mutate({
         executionId: execId,
         content: buildChipEditTurn(field, parsed.display),
@@ -977,7 +1037,7 @@ export function AgentChat() {
       }
     },
     [
-      currentExecutionId,
+      ensureExecution,
       sendMessageMutation,
       setAgentProcessing,
       editBriefingField,
@@ -1131,6 +1191,8 @@ export function AgentChat() {
       setChatInputDraft(null);
       // Story 24.3: o aviso de disparo da execucao encerrada nao atravessa.
       clearStepTriggerFailure();
+      // Story 24.14: a proposta da conversa encerrada nao atravessa (o seed refaz).
+      pendingProposalTurnRef.current = null;
       setShowAbandonDialog(false);
     } catch {
       toast.error("Erro ao encerrar a conversa. Tente novamente.");
@@ -1164,8 +1226,9 @@ export function AgentChat() {
 
   // Story 24.5: card derivado do estado do hook (nunca persistido). So numa execucao
   // pre-confirm, fora do ajuste pos-rejeicao e sem seletor de modo/plano na tela.
+  // Story 24.14: sem execucao, so a proposta do ICP mostra o card.
   const confirmationCardVariant: ConfirmationCardVariant | null =
-    !currentExecutionId ||
+    (!currentExecutionId && !icpIntroMessage) ||
     isPostConfirmExecution ||
     adjustingStep ||
     showModeSelector ||
@@ -1228,6 +1291,8 @@ export function AgentChat() {
         messages={messages}
         isAgentProcessing={isAgentProcessing}
         isFirstTime={isFirstTime}
+        introMessage={icpIntroMessage}
+        emptyStateHint={icpEmptyStateHint}
       />
       {stepTriggerFailure &&
         attachedExecutionId &&

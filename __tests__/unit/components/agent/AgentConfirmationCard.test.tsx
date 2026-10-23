@@ -57,6 +57,42 @@ describe("AgentConfirmationCard", () => {
       expect(onAction).toHaveBeenNthCalledWith(2, "adjust_briefing");
     });
 
+    it("Story 24.13: chip Leads mostra 'Até N leads', 'nao definido' sem N, e edita com input numerico", async () => {
+      const { rerender } = render(
+        <AgentConfirmationCard variant="briefing" briefing={BRIEFING} onAction={onAction} onEditField={onEditField} />
+      );
+      expect(screen.getByTestId("briefing-chip-leadCount")).toHaveTextContent("Leads:nao definido");
+
+      rerender(
+        <AgentConfirmationCard
+          variant="briefing"
+          briefing={{ ...BRIEFING, leadCount: 5 }}
+          onAction={onAction}
+          onEditField={onEditField}
+        />
+      );
+      expect(screen.getByTestId("briefing-chip-leadCount")).toHaveTextContent("Até 5 leads");
+
+      rerender(
+        <AgentConfirmationCard
+          variant="briefing"
+          briefing={{ ...BRIEFING, leadCount: 1 }}
+          onAction={onAction}
+          onEditField={onEditField}
+        />
+      );
+      expect(screen.getByTestId("briefing-chip-leadCount")).toHaveTextContent("Até 1 lead");
+
+      fireEvent.click(screen.getByTestId("briefing-chip-leadCount"));
+      const input = screen.getByTestId("chip-input-leadCount") as HTMLInputElement;
+      expect(input).toHaveAttribute("inputmode", "numeric");
+      fireEvent.change(input, { target: { value: "7" } });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("chip-save-leadCount"));
+      });
+      expect(onEditField).toHaveBeenCalledWith("leadCount", "7");
+    });
+
     it("editar um chip: abre o editor com o valor atual, salva e fecha", async () => {
       render(
         <AgentConfirmationCard variant="briefing" briefing={BRIEFING} onAction={onAction} onEditField={onEditField} />
@@ -171,5 +207,122 @@ describe("AgentConfirmationCard", () => {
       expect(screen.getByTestId("card-action-confirm_leads")).toBeDisabled();
       expect(screen.getByTestId("card-action-redo_leads")).toBeDisabled();
     });
+  });
+});
+
+// ==============================================
+// Story 24.14 — chips "(do ICP)"
+// ==============================================
+
+describe("AgentConfirmationCard — Story 24.14 (ICP)", () => {
+  const ICP_BRIEFING: ParsedBriefing = {
+    ...BRIEFING,
+    location: null,
+    companySize: null,
+    skipSteps: ["search_companies"],
+    icpDefaults: { companySizes: ["201-500", "501-1000"], locations: ["SP"] },
+  };
+
+  it("chip vazio com default do ICP mostra '{valor} (do ICP)'", () => {
+    render(<AgentConfirmationCard variant="briefing" briefing={ICP_BRIEFING} onAction={vi.fn()} />);
+    expect(screen.getByTestId("briefing-chip-location")).toHaveTextContent("SP (do ICP)");
+    expect(screen.getByTestId("briefing-chip-companySize")).toHaveTextContent("201–1000 (do ICP)");
+  });
+
+  it("valor do usuario vence o rotulo do ICP", () => {
+    render(
+      <AgentConfirmationCard
+        variant="briefing"
+        briefing={{ ...ICP_BRIEFING, location: "RJ", companySize: "51-200" }}
+        onAction={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("briefing-chip-location")).toHaveTextContent("Localizacao:RJ");
+    expect(screen.getByTestId("briefing-chip-companySize")).toHaveTextContent("Tamanho:51-200");
+  });
+
+  it("tamanho do ICP so na busca direta; sem ICP fica 'nao definido'", () => {
+    const { rerender } = render(
+      <AgentConfirmationCard
+        variant="briefing"
+        briefing={{ ...ICP_BRIEFING, technology: "React", skipSteps: [] }}
+        onAction={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("briefing-chip-companySize")).toHaveTextContent("nao definido");
+    expect(screen.getByTestId("briefing-chip-location")).toHaveTextContent("SP (do ICP)");
+
+    rerender(
+      <AgentConfirmationCard
+        variant="briefing"
+        briefing={{ ...ICP_BRIEFING, icpDefaults: null }}
+        onAction={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("briefing-chip-location")).toHaveTextContent("nao definido");
+  });
+});
+
+describe("AgentConfirmationCard — Story 24.17 (chip Contas)", () => {
+  const onAction = vi.fn();
+  const onEditField = vi.fn();
+  const LIST_BRIEFING: ParsedBriefing = {
+    ...BRIEFING,
+    location: null,
+    icpDefaults: { companySizes: ["201-500"], locations: ["SP"] },
+    targetAccounts: [
+      { name: "Banco X", domain: "bancox.com.br", confidence: "high" },
+      { name: "Banco Z", domain: "bancoz.com.br", confidence: "low" },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    onEditField.mockResolvedValue({ ok: true });
+  });
+
+  it("modo lista: chip Contas e o primeiro, com 'confirme', e sem ICP no local/porte", () => {
+    render(
+      <AgentConfirmationCard variant="briefing" briefing={LIST_BRIEFING} onAction={onAction} onEditField={onEditField} />
+    );
+
+    const chips = screen.getAllByTestId(/^briefing-chip-/);
+    expect(chips[0]).toHaveAttribute("data-testid", "briefing-chip-targetAccounts");
+    expect(chips[0]).toHaveTextContent(
+      "Contas:Banco X (bancox.com.br), Banco Z (bancoz.com.br — confirme)"
+    );
+    expect(screen.getByTestId("briefing-chip-location")).toHaveTextContent("nao definido");
+    expect(screen.getByTestId("briefing-chip-companySize")).toHaveTextContent("nao definido");
+  });
+
+  it("modo lista: chip Tecnologia escondido", () => {
+    render(
+      <AgentConfirmationCard variant="briefing" briefing={LIST_BRIEFING} onAction={onAction} onEditField={onEditField} />
+    );
+    expect(screen.queryByTestId("briefing-chip-technology")).toBeNull();
+  });
+
+  it("editor do chip Contas mantem o '— confirme' e salva pelo onEditField", async () => {
+    render(
+      <AgentConfirmationCard variant="briefing" briefing={LIST_BRIEFING} onAction={onAction} onEditField={onEditField} />
+    );
+
+    fireEvent.click(screen.getByTestId("briefing-chip-targetAccounts"));
+    const input = screen.getByTestId("chip-input-targetAccounts") as HTMLInputElement;
+    expect(input.value).toBe("Banco X (bancox.com.br), Banco Z (bancoz.com.br — confirme)");
+
+    fireEvent.change(input, { target: { value: "empresay.com" } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("chip-save-targetAccounts"));
+    });
+    expect(onEditField).toHaveBeenCalledWith("targetAccounts", "empresay.com");
+  });
+
+  it("sem contas, nao ha chip Contas", () => {
+    render(
+      <AgentConfirmationCard variant="briefing" briefing={BRIEFING} onAction={onAction} onEditField={onEditField} />
+    );
+    expect(screen.queryByTestId("briefing-chip-targetAccounts")).toBeNull();
+    expect(screen.getByTestId("briefing-chip-technology")).toBeInTheDocument();
   });
 });

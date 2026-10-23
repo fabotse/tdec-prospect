@@ -9,9 +9,13 @@ import {
   AGENT_PIPELINE_VOLUMES,
   THEIRSTACK_CREDITS_PER_COMPANY,
   computeActualCost,
+  computeStepActualCost,
   estimateAICallsForCampaign,
   formatBRL,
   formatCostLine,
+  resolveLeadCount,
+  resolveLeadVolume,
+  resolveLeadsPerPage,
   resolveUnitPrices,
   type StepCostRow,
 } from "@/lib/agent/agent-pricing";
@@ -26,6 +30,46 @@ describe("agent-pricing", () => {
       expect(AGENT_PIPELINE_VOLUMES.leadsPerSearch).toBe(25);
       expect(AGENT_PIPELINE_VOLUMES.defaultEmails).toBe(3);
       expect(THEIRSTACK_CREDITS_PER_COMPANY).toBe(3);
+    });
+  });
+
+  describe("Story 24.13 - volume de leads (N)", () => {
+    const lead = { name: "A", title: null, companyName: null, email: null, linkedinUrl: null, apolloId: null };
+
+    // Story 24.16: universo de 3-5x N — min(max(3N, min(5N, 25)), 100); sem N, 25.
+    it.each([
+      [1, 5],
+      [2, 10],
+      [5, 25],
+      [10, 30],
+      [20, 60],
+      [33, 99],
+      [34, 100],
+      [60, 100],
+      [300, 100],
+      [null, 25],
+      [undefined, 25],
+    ])("resolveLeadsPerPage com N = %p -> %p", (n, expected) => {
+      expect(resolveLeadsPerPage({ leadCount: n })).toBe(expected);
+    });
+
+    it("resolveLeadVolume: importados > N > 25", () => {
+      expect(resolveLeadVolume({ leadCount: 10, importedLeads: [lead, lead, lead, lead] })).toBe(4);
+      expect(resolveLeadVolume({ leadCount: 10 })).toBe(10);
+      expect(resolveLeadVolume({ leadCount: null })).toBe(25);
+      expect(resolveLeadVolume({ leadCount: null, importedLeads: [] })).toBe(25);
+    });
+
+    it("resolveLeadCount trata valor fora de 1-500 (JSONB legado) como ausente", () => {
+      expect(resolveLeadCount({ leadCount: 0 })).toBeNull();
+      expect(resolveLeadCount({ leadCount: 501 })).toBeNull();
+      expect(resolveLeadCount({ leadCount: 2.5 })).toBeNull();
+      expect(resolveLeadCount({ leadCount: 500 })).toBe(500);
+      expect(resolveLeadCount(null)).toBeNull();
+    });
+
+    it("teto da pagina Apollo e 100", () => {
+      expect(AGENT_PIPELINE_VOLUMES.maxLeadsPerSearch).toBe(100);
     });
   });
 
@@ -69,7 +113,7 @@ describe("agent-pricing", () => {
   describe("computeActualCost", () => {
     const steps: StepCostRow[] = [
       { step_type: "search_companies", status: "approved", cost: { theirstack_search: 6 } },
-      { step_type: "search_leads", status: "approved", cost: { apollo_search: 25 } },
+      { step_type: "search_leads", status: "approved", cost: { apollo_search: 25, openai_fit_score: 1 } },
       {
         step_type: "create_campaign",
         status: "approved",
@@ -92,12 +136,22 @@ describe("agent-pricing", () => {
 
       expect(result.currency).toBe("BRL");
       expect(result.steps.search_companies).toBeCloseTo(0.6);
-      expect(result.steps.search_leads).toBe(0);
+      // Story 24.16: 1 chamada de IA do Fit Score (apollo_search nao conta)
+      expect(result.steps.search_leads).toBeCloseTo(0.02);
       // 10 × 0,05 + 17 × 0,02 + 4 × 0,02 + 2 × 0,15
       expect(result.steps.create_campaign).toBeCloseTo(0.5 + 0.34 + 0.08 + 0.3);
       expect(result.steps.export).toBe(0);
       expect(result.steps.activate).toBe(0);
-      expect(result.total).toBeCloseTo(0.6 + 1.22);
+      expect(result.total).toBeCloseTo(0.6 + 0.02 + 1.22);
+    });
+
+    it("Story 24.16: search_leads sem openai_fit_score (execucao antiga ou sem chave) custa 0", () => {
+      expect(
+        computeStepActualCost("search_leads", { apollo_search: 25 }, DEFAULT_PRICES)
+      ).toBe(0);
+      expect(
+        computeStepActualCost("search_leads", { apollo_search: 25, openai_fit_score: 0 }, DEFAULT_PRICES)
+      ).toBe(0);
     });
 
     it("sem openai_calls usa estrutura + 2 × e-mails + icebreakers (execucoes antigas)", () => {

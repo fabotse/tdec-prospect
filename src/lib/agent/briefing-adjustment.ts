@@ -10,6 +10,12 @@
 
 import { CONFIRMATION_KEYWORDS } from "@/hooks/use-briefing-flow";
 import { STEP_LABELS } from "@/types/agent";
+import {
+  formatCompanySizesLabel,
+  resolveDirectSearchCompanySizes,
+  resolveSearchLocations,
+} from "@/lib/agent/search-defaults";
+import { formatTargetAccounts, isAccountListMode } from "@/lib/agent/target-accounts";
 import type { ParsedBriefing, StepType } from "@/types/agent";
 
 // ==============================================
@@ -141,12 +147,34 @@ export function mergeAdjustedBriefing(
   persisted: ParsedBriefing,
   parsed: ParsedBriefing
 ): ParsedBriefing {
-  return {
+  // Story 24.17: as contas so vem do parse quando a execucao JA esta no modo lista (o ajuste
+  // nao muda a forma do pipeline). Lista vazia no parse preserva a persistida.
+  const persistedListMode = isAccountListMode(persisted);
+  const parsedHasAccounts = (parsed.targetAccounts?.length ?? 0) > 0;
+  const accountFields: Partial<ParsedBriefing> = {};
+  if (persistedListMode && parsedHasAccounts) {
+    accountFields.targetAccounts = parsed.targetAccounts;
+    accountFields.suppressedAccounts = parsed.suppressedAccounts ?? null;
+  }
+  // `jobTitlesFromIcp`: o parse vence; ausencia preserva enquanto os cargos forem os mesmos.
+  const sameTitles =
+    parsed.jobTitles.length === persisted.jobTitles.length &&
+    parsed.jobTitles.every((t, i) => t === persisted.jobTitles[i]);
+  const jobTitlesFromIcp =
+    parsed.jobTitlesFromIcp ?? (sameTitles ? persisted.jobTitlesFromIcp : undefined);
+  if (jobTitlesFromIcp !== undefined) accountFields.jobTitlesFromIcp = jobTitlesFromIcp;
+  else if ("jobTitlesFromIcp" in persisted) accountFields.jobTitlesFromIcp = false;
+  // O parse zera a tecnologia quando ve contas; fora do modo lista as contas sao ignoradas,
+  // e a tecnologia persistida tambem fica.
+  const technology =
+    !persistedListMode && parsedHasAccounts ? persisted.technology : parsed.technology;
+
+  const merged: ParsedBriefing = {
     // FORMA: preservada da execucao em andamento (skipSteps, importedLeads, mode,
     // productSlug, premiumIcebreakers e qualquer outro campo ja persistido).
     ...persisted,
     // FILTROS DE BUSCA: vem do parse, inclusive quando viram null (remocao explicita).
-    technology: parsed.technology,
+    technology,
     jobTitles: parsed.jobTitles,
     location: parsed.location,
     companySize: parsed.companySize,
@@ -160,7 +188,19 @@ export function mergeAdjustedBriefing(
     // — ausencia PRESERVA. Um ajuste de busca ("tira o filtro de tamanho") nao pode zerar
     // em silencio o "coloca no segmento Teste Atibaia" pedido antes.
     segmentName: parsed.segmentName ?? persisted.segmentName ?? null,
+    // Story 24.13: quantos leads (N) — metadado, mesma regra: ausencia PRESERVA.
+    leadCount: parsed.leadCount ?? persisted.leadCount ?? null,
+    // Story 24.14: defaults do ICP — o valor do parse vence; ausencia PRESERVA o snapshot.
+    icpDefaults: parsed.icpDefaults ?? persisted.icpDefaults ?? null,
+    // Story 24.17: contas e origem dos cargos (regras acima).
+    ...accountFields,
+    // Story 24.15: escopo do local — o valor do parse vence; ausencia PRESERVA o persistido.
+    ...(parsed.locationScope ? { locationScope: parsed.locationScope } : {}),
   };
+  // Story 24.17: no modo lista a tecnologia nao roda (search_companies pulado) — um parse
+  // sem contas nao pode trazer uma tecnologia para dentro de uma execucao no modo lista.
+  if (isAccountListMode(merged)) merged.technology = null;
+  return merged;
 }
 
 // ==============================================
@@ -257,13 +297,49 @@ export function buildAdjustmentSummary(
     lines.push("");
     lines.push("Os leads ja aprovados continuam os mesmos — vou reescrever a campanha.");
   } else {
+    // Story 24.17: no modo lista, as contas (e nada de porte do ICP).
+    const accountListMode = isAccountListMode(merged);
+    if (accountListMode) {
+      lines.push(`- Contas: ${formatTargetAccounts(merged.targetAccounts) || "nenhuma"}`);
+    }
     lines.push(`- Tecnologia: ${merged.technology ?? "sem filtro"}`);
     lines.push(
       `- Cargos: ${merged.jobTitles.length > 0 ? merged.jobTitles.join(", ") : "sem filtro"}`
     );
-    lines.push(`- Localizacao: ${merged.location ?? "sem filtro"}`);
-    lines.push(`- Tamanho: ${merged.companySize ?? "sem filtro"}`);
+    // Story 24.14: sem valor do usuario, os defaults do ICP (quando houver) sao o filtro
+    // efetivo — o resumo diz de onde vieram. Sem ICP, identico ao de antes.
+    const effectiveLocations = resolveSearchLocations(merged);
+    lines.push(
+      `- Localizacao: ${
+        merged.location ??
+        (effectiveLocations.fromIcp
+          ? `${effectiveLocations.locations.join(", ")} (do seu ICP)`
+          : "sem filtro")
+      }${
+        // Story 24.15: mesmo sufixo do resumo do briefing (use-briefing-flow).
+        merged.locationScope === "person" && effectiveLocations.locations.length > 0
+          ? " (onde a pessoa esta)"
+          : ""
+      }`
+    );
+    const isDirectSearch =
+      !accountListMode &&
+      merged.skipSteps.includes("search_companies") &&
+      !merged.skipSteps.includes("search_leads");
+    const effectiveSizes = resolveDirectSearchCompanySizes(merged);
+    lines.push(
+      `- Tamanho: ${
+        merged.companySize ??
+        (isDirectSearch && effectiveSizes.source === "icp"
+          ? `${formatCompanySizesLabel(effectiveSizes.companySizes)} (do seu ICP)`
+          : "sem filtro")
+      }`
+    );
     lines.push(`- Industria: ${merged.industry ?? "sem filtro"}`);
+    // Story 24.13: so quando N existe — sem N o resumo segue identico ao de antes.
+    if (merged.leadCount) {
+      lines.push(`- Leads: até ${merged.leadCount}`);
+    }
 
     const removed = listRemovedFilters(persisted, merged);
     if (removed.length > 0) {

@@ -10,6 +10,8 @@ import { z } from "zod";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
 import { hasRejectedStep } from "@/lib/agent/step-guards";
+import { APOLLO_COMPANY_SIZE_BUCKETS } from "@/lib/agent/search-defaults";
+import { DOMAIN_REGEX, TARGET_ACCOUNTS_MAX } from "@/lib/agent/target-accounts";
 
 // ==============================================
 // REQUEST VALIDATION
@@ -19,6 +21,9 @@ const briefingUpdateSchema = z.object({
   technology: z.string().nullable(),
   jobTitles: z.array(z.string()),
   location: z.string().nullable(),
+  // Story 24.15: escopo do local. Mesma armadilha de strip — sem declarar, o PATCH
+  // descartaria o "onde a pessoa esta" e a busca voltaria para a sede da empresa.
+  locationScope: z.enum(["company", "person"]).nullable().optional(),
   companySize: z.string().nullable(),
   industry: z.string().nullable(),
   productSlug: z.string().nullable(),
@@ -46,6 +51,9 @@ const briefingUpdateSchema = z.object({
     )
     .optional(),
   emailCount: z.number().int().min(1).max(10).nullable().optional(),
+  // Story 24.13: quantos leads (N). Mesma armadilha de strip — sem declarar, o PATCH
+  // descartaria o N e plano/custo/revisao voltariam ao default de 25.
+  leadCount: z.number().int().min(1).max(500).nullable().optional(),
   // Story 22.15: mesma armadilha de strip — sem declarar `segmentName`, o PATCH o
   // descartaria antes do update e o CreateCampaignStep cairia sempre no nome da campanha,
   // engolindo o "coloca no segmento X" pedido na conversa. Teto de 100 (segments.name).
@@ -74,6 +82,41 @@ const briefingUpdateSchema = z.object({
   // em qualquer PATCH posterior (ajuste pos-rejeicao) e o usuario que pagou icebreaker
   // premium receberia standard, em silencio.
   premiumIcebreakers: z.boolean().optional(),
+  // Story 24.14: defaults do ICP (snapshot no briefing). Mesma armadilha de strip — sem
+  // declarar, o PATCH descartaria o porte/local do ICP e a busca voltaria ao piso 11+.
+  icpDefaults: z
+    .object({
+      // Vai verbatim para a Apollo: so faixas canonicas.
+      companySizes: z.array(z.enum(APOLLO_COMPANY_SIZE_BUCKETS)).max(10),
+      locations: z.array(z.string()).max(10),
+    })
+    .nullable()
+    .optional(),
+  // Story 24.17: modo lista de contas. Mesma armadilha de strip — sem declarar, o PATCH
+  // descartaria as contas e a execucao viraria uma busca aberta por cargo.
+  targetAccounts: z
+    .array(
+      z.object({
+        name: z.string().max(120).nullable(),
+        domain: z.string().regex(DOMAIN_REGEX).nullable(),
+        confidence: z.enum(["high", "low"]),
+      })
+    )
+    .max(TARGET_ACCOUNTS_MAX)
+    .nullable()
+    .optional(),
+  suppressedAccounts: z
+    .array(
+      z.object({
+        name: z.string().max(120).nullable(),
+        domain: z.string().regex(DOMAIN_REGEX),
+        reason: z.string().max(200),
+      })
+    )
+    .max(TARGET_ACCOUNTS_MAX)
+    .nullable()
+    .optional(),
+  jobTitlesFromIcp: z.boolean().optional(),
 });
 
 // ==============================================

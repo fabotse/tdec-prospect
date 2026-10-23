@@ -26,6 +26,12 @@ export interface ApolloSearchFilters {
   keywords?: string;
   domains?: string[]; // Company domains
   contactEmailStatuses?: string[]; // e.g., ["verified", "likely to engage"]
+  /** Story 24.15: HQ location of the company (organization_locations[]) */
+  organizationLocations?: string[];
+  /** Story 24.15: defaults to true when absent (manual search unchanged) */
+  includeSimilarTitles?: boolean;
+  /** Story 24.15: Apollo industry names (organization_industries[]); when set, industries stay out of q_keywords */
+  organizationIndustries?: string[];
   page?: number;
   perPage?: number;
 }
@@ -43,6 +49,8 @@ export interface ApolloAPIFilters {
   q_organization_domains?: string[];
   person_titles?: string[];
   person_locations?: string[];
+  organization_locations?: string[];
+  organization_industries?: string[];
   organization_num_employees_ranges?: string[];
   q_keywords?: string;
   contact_email_status?: string[]; // Story 3.5.1: e.g., ["verified", "likely to engage"]
@@ -152,10 +160,16 @@ export function transformFiltersToApollo(
   }
   if (filters.titles?.length) {
     apolloFilters.person_titles = filters.titles;
-    apolloFilters.include_similar_titles = true;
+    apolloFilters.include_similar_titles = filters.includeSimilarTitles ?? true;
   }
   if (filters.locations?.length) {
     apolloFilters.person_locations = filters.locations;
+  }
+  if (filters.organizationLocations?.length) {
+    apolloFilters.organization_locations = filters.organizationLocations;
+  }
+  if (filters.organizationIndustries?.length) {
+    apolloFilters.organization_industries = filters.organizationIndustries;
   }
   if (filters.companySizes?.length) {
     // Transform "11-50" to "11,50" format for Apollo API

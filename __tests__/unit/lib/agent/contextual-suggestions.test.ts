@@ -81,7 +81,11 @@ describe("contextual-suggestions (Story 22.7)", () => {
 
       const icp = await readTenantICP("tenant-1");
 
-      expect(icp).toEqual({ jobTitles: ["CRO", "Head de Vendas"], industries: ["fintech"] });
+      expect(icp).toEqual({
+        jobTitles: ["CRO", "Head de Vendas"],
+        industries: ["fintech"],
+        companySizes: [], geographicFocus: [], painPoints: "",
+      });
     });
 
     it("fail-open (ICP vazio) quando a KB nao tem a secao icp (AC2)", async () => {
@@ -89,7 +93,7 @@ describe("contextual-suggestions (Story 22.7)", () => {
 
       const icp = await readTenantICP("tenant-1");
 
-      expect(icp).toEqual({ jobTitles: [], industries: [] });
+      expect(icp).toEqual({ jobTitles: [], industries: [], companySizes: [], geographicFocus: [], painPoints: "" });
     });
 
     it("fail-open quando createAdminClient lanca (service-role ausente) — nunca 500", async () => {
@@ -99,7 +103,7 @@ describe("contextual-suggestions (Story 22.7)", () => {
 
       const icp = await readTenantICP("tenant-1");
 
-      expect(icp).toEqual({ jobTitles: [], industries: [] });
+      expect(icp).toEqual({ jobTitles: [], industries: [], companySizes: [], geographicFocus: [], painPoints: "" });
     });
 
     it("fail-open quando content vem com shape inesperado (nao-array)", async () => {
@@ -110,7 +114,7 @@ describe("contextual-suggestions (Story 22.7)", () => {
 
       const icp = await readTenantICP("tenant-1");
 
-      expect(icp).toEqual({ jobTitles: [], industries: [] });
+      expect(icp).toEqual({ jobTitles: [], industries: [], companySizes: [], geographicFocus: [], painPoints: "" });
     });
 
     it("descarta elementos nao-string do array (jsonb legado) sem lancar — nunca 500 (P1/AC2)", async () => {
@@ -129,7 +133,49 @@ describe("contextual-suggestions (Story 22.7)", () => {
 
       const icp = await readTenantICP("tenant-1");
 
-      expect(icp).toEqual({ jobTitles: ["CTO", "CFO"], industries: ["fintech"] });
+      expect(icp).toEqual({
+        jobTitles: ["CTO", "CFO"],
+        industries: ["fintech"],
+        companySizes: [], geographicFocus: [], painPoints: "",
+      });
+    });
+
+    it("Story 24.16: le pain_points como string (nao-string vira \"\")", async () => {
+      mockSingle.mockResolvedValue({
+        data: { content: { job_titles: [], pain_points: "Vazamento de dados" } },
+        error: null,
+      });
+      expect((await readTenantICP("tenant-1")).painPoints).toBe("Vazamento de dados");
+
+      mockSingle.mockResolvedValue({
+        data: { content: { job_titles: [], pain_points: 42 } },
+        error: null,
+      });
+      expect((await readTenantICP("tenant-1")).painPoints).toBe("");
+    });
+
+    it("Story 24.14: le company_sizes e geographic_focus (coercao toStringArray)", async () => {
+      mockSingle.mockResolvedValue({
+        data: {
+          content: {
+            job_titles: ["CISO"],
+            industries: [],
+            company_sizes: ["201-500", 7, "1000+"],
+            geographic_focus: ["SP", null, "RJ"],
+          },
+        },
+        error: null,
+      });
+
+      const icp = await readTenantICP("tenant-1");
+
+      expect(icp).toEqual({
+        jobTitles: ["CISO"],
+        industries: [],
+        companySizes: ["201-500", "1000+"],
+        geographicFocus: ["SP", "RJ"],
+        painPoints: "",
+      });
     });
 
     it("resolveContextualSuggestions nao lanca com ICP contendo nao-strings (fail-open ponta-a-ponta)", async () => {
@@ -181,6 +227,20 @@ describe("contextual-suggestions (Story 22.7)", () => {
       const suggestions = await resolveContextualSuggestions(createBriefing(), "tenant-1");
 
       expect(suggestions.jobTitles).toEqual(DEFAULT_JOB_TITLES);
+    });
+
+    it("Story 24.14: ICP recebido e reaproveitado — sem segunda leitura da KB", async () => {
+      const suggestions = await resolveContextualSuggestions(createBriefing(), "tenant-1", {
+        jobTitles: ["CISO"],
+        industries: [],
+        companySizes: [],
+        geographicFocus: [],
+        painPoints: "",
+      });
+
+      expect(suggestions.jobTitles).toEqual(["CISO"]);
+      expect(mockCreateAdminClient).not.toHaveBeenCalled();
+      expect(mockSingle).not.toHaveBeenCalled();
     });
 
     it("ICP parcial -> campo com material vem do ICP, o outro cai no estatico (AC2)", async () => {

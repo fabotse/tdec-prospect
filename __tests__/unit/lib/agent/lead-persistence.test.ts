@@ -781,4 +781,89 @@ describe("persistApprovedLeads (Story 22.15)", () => {
     await expect(run(db, [lead()], "   ")).rejects.toThrow(/segmento/i);
     expect(db.leads).toHaveLength(0);
   });
+
+  describe("Story 24.16 - Fase 6: Fit Score (best-effort)", () => {
+    it("lead aprovado com A: insert SEM as colunas novas, depois update fit_score/fit_reason/fit_scored_at", async () => {
+      const result = await run(db, [lead({ fitScore: "A", fitReason: "Cargo bate com o pedido (CTO)" })]);
+
+      expect(result.inserted).toBe(1);
+      expect(result.degraded).toBe(false);
+      expect(db.leads[0]).toMatchObject({
+        fit_score: "A",
+        fit_reason: "Cargo bate com o pedido (CTO)",
+      });
+      expect((db.leads[0] as unknown as Record<string, unknown>).fit_scored_at).toBeTruthy();
+
+      const insert = db.log.find((entry) => entry.table === "leads" && entry.op === "insert");
+      const insertedRows = insert?.payload as Array<Record<string, unknown>>;
+      expect(insertedRows[0]).not.toHaveProperty("fit_score");
+      expect(insertedRows[0]).not.toHaveProperty("fit_reason");
+    });
+
+    it("lead reusado tambem recebe o score (um update por linha)", async () => {
+      const seeded = db.seedLead({ apollo_id: "apollo-1", email: "maria@acme.com" });
+
+      const result = await run(db, [lead({ fitScore: "B", fitReason: "Cargo senior" })]);
+
+      expect(result.reused).toBe(1);
+      const row = db.leads.find((l) => l.id === seeded.id) as unknown as Record<string, unknown>;
+      expect(row.fit_score).toBe("B");
+      expect(row.fit_reason).toBe("Cargo senior");
+    });
+
+    it("lead sem score: nenhum update de fit", async () => {
+      await run(db, [lead({ icebreaker: null })]);
+
+      const updates = db.log.filter((entry) => entry.table === "leads" && entry.op === "update");
+      expect(updates.some((u) => (u.payload as Record<string, unknown>)?.fit_score !== undefined)).toBe(false);
+      expect(db.leads[0]).not.toHaveProperty("fit_score");
+    });
+
+    it("grade fora de A/B/C (JSONB adulterado) nao e gravada", async () => {
+      await run(db, [lead({ fitScore: "Z" as never, fitReason: "x" })]);
+      expect(db.leads[0]).not.toHaveProperty("fit_score");
+    });
+
+    it("falha no update (coluna inexistente antes da migration): so console.warn, resultado inalterado", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      db.fail("leads", "update", { code: "42703", message: 'column "fit_score" does not exist' }, 5);
+
+      const result = await run(db, [lead({ icebreaker: null, fitScore: "A", fitReason: "ok" })]);
+
+      expect(result.degraded).toBe(false);
+      expect(result.inserted).toBe(1);
+      expect(result.associated).toBe(1);
+      expect(result.leadIds).toEqual([db.leads[0].id]);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("fit score nao gravado"));
+    });
+    it("fitReason vindo do approve e cortado em 120 caracteres; vazio vira null", async () => {
+      await run(db, [
+        lead({ fitScore: "A", fitReason: "x".repeat(300) }),
+        lead({ apolloId: "apollo-2", email: "joao@acme.com", fitScore: "B", fitReason: "   " }),
+      ]);
+
+      const maria = db.leads.find((l) => l.apollo_id === "apollo-1") as unknown as Record<string, unknown>;
+      const joao = db.leads.find((l) => l.apollo_id === "apollo-2") as unknown as Record<string, unknown>;
+      expect(maria.fit_reason).toHaveLength(120);
+      expect(joao.fit_score).toBe("B");
+      expect(joao.fit_reason).toBeNull();
+    });
+
+    it("dedupe: duplicata posterior com score empresta fitScore/fitReason ao registro mesclado", async () => {
+      const result = await run(db, [
+        lead({ email: null }),
+        lead({ fitScore: "A", fitReason: "Score da duplicata" }),
+      ]);
+
+      expect(result.inserted).toBe(1);
+      const update = db.log.find(
+        (entry) =>
+          entry.table === "leads" &&
+          entry.op === "update" &&
+          (entry.payload as Record<string, unknown>)?.fit_score !== undefined
+      );
+      expect(update?.payload).toMatchObject({ fit_score: "A", fit_reason: "Score da duplicata" });
+      expect(db.leads[0]).toMatchObject({ fit_score: "A", fit_reason: "Score da duplicata" });
+    });
+  });
 });
