@@ -9,6 +9,10 @@ import {
   PIPELINE_STEPS,
 } from "@/lib/services/agent-plan-generator";
 import type { CostEstimate, ParsedBriefing } from "@/types/agent";
+import {
+  REFERENCE_ACCOUNTS,
+  confidentReferenceProfile,
+} from "../../../helpers/reference-fixtures";
 
 // ==============================================
 // HELPERS
@@ -483,5 +487,37 @@ describe("PlanGeneratorService — modo lista de contas (24.17)", () => {
       createBriefing({ technology: null, skipSteps: ["search_companies"] })
     );
     expect(description).toContain("Buscar leads diretamente por");
+  });
+});
+
+// ==============================================
+// Story 24.18 — contas parecidas
+// ==============================================
+
+describe("PlanGeneratorService — contas parecidas (24.18)", () => {
+  function searchLeadsDescription(b: ParsedBriefing): string {
+    const plan = PlanGeneratorService.generatePlan(b, createCostEstimate());
+    return plan.find((s) => s.stepType === "search_leads")?.description ?? "";
+  }
+
+  const lookalike = createBriefing({
+    technology: null,
+    jobTitles: ["CISO"],
+    location: null,
+    skipSteps: ["search_companies"],
+    referenceAccounts: REFERENCE_ACCOUNTS,
+    referenceProfile: confidentReferenceProfile(),
+  });
+
+  it("descreve a busca em empresas parecidas com o perfil efetivo", () => {
+    expect(searchLeadsDescription(lookalike)).toBe(
+      "Buscar CISO em empresas parecidas com seus clientes (setor banking, porte 201–1000, regiao Sao Paulo, Brazil)"
+    );
+  });
+
+  it("valor editado vence o perfil", () => {
+    expect(searchLeadsDescription({ ...lookalike, companySize: "51-200" })).toContain(
+      "porte 51–200"
+    );
   });
 });

@@ -16,6 +16,12 @@ import {
   resolveSearchLocations,
 } from "@/lib/agent/search-defaults";
 import { formatTargetAccounts, isAccountListMode } from "@/lib/agent/target-accounts";
+import {
+  activeReferenceProfile,
+  formatReferenceAccounts,
+  isLookalikeMode,
+  profileMatchesReferences,
+} from "@/lib/agent/reference-accounts";
 import type { ParsedBriefing, StepType } from "@/types/agent";
 
 // ==============================================
@@ -164,10 +170,26 @@ export function mergeAdjustedBriefing(
     parsed.jobTitlesFromIcp ?? (sameTitles ? persisted.jobTitlesFromIcp : undefined);
   if (jobTitlesFromIcp !== undefined) accountFields.jobTitlesFromIcp = jobTitlesFromIcp;
   else if ("jobTitlesFromIcp" in persisted) accountFields.jobTitlesFromIcp = false;
+  // Story 24.18: referencias e perfil. Ausencia PRESERVA os persistidos; o parse so vence
+  // quando a execucao ja esta no modo contas parecidas e traz referencias com o perfil delas.
+  const persistedLookalike = isLookalikeMode(persisted);
+  const parsedLookalike = isLookalikeMode(parsed);
+  if (
+    persistedLookalike &&
+    parsedLookalike &&
+    profileMatchesReferences(parsed.referenceProfile, parsed.referenceAccounts)
+  ) {
+    accountFields.referenceAccounts = parsed.referenceAccounts;
+    accountFields.referenceAccountsSource =
+      parsed.referenceAccountsSource ?? persisted.referenceAccountsSource ?? null;
+    accountFields.referenceProfile = parsed.referenceProfile;
+  }
   // O parse zera a tecnologia quando ve contas; fora do modo lista as contas sao ignoradas,
-  // e a tecnologia persistida tambem fica.
+  // e a tecnologia persistida tambem fica. Story 24.18: idem para referencias.
   const technology =
-    !persistedListMode && parsedHasAccounts ? persisted.technology : parsed.technology;
+    (!persistedListMode && parsedHasAccounts) || (!persistedLookalike && parsedLookalike)
+      ? persisted.technology
+      : parsed.technology;
 
   const merged: ParsedBriefing = {
     // FORMA: preservada da execucao em andamento (skipSteps, importedLeads, mode,
@@ -199,7 +221,7 @@ export function mergeAdjustedBriefing(
   };
   // Story 24.17: no modo lista a tecnologia nao roda (search_companies pulado) — um parse
   // sem contas nao pode trazer uma tecnologia para dentro de uma execucao no modo lista.
-  if (isAccountListMode(merged)) merged.technology = null;
+  if (isAccountListMode(merged) || isLookalikeMode(merged)) merged.technology = null;
   return merged;
 }
 
@@ -302,6 +324,12 @@ export function buildAdjustmentSummary(
     if (accountListMode) {
       lines.push(`- Contas: ${formatTargetAccounts(merged.targetAccounts) || "nenhuma"}`);
     }
+    // Story 24.18: no modo contas parecidas, os clientes de referencia.
+    if (isLookalikeMode(merged)) {
+      lines.push(
+        `- Clientes de referencia: ${formatReferenceAccounts(merged.referenceAccounts) || "nenhum"}`
+      );
+    }
     lines.push(`- Tecnologia: ${merged.technology ?? "sem filtro"}`);
     lines.push(
       `- Cargos: ${merged.jobTitles.length > 0 ? merged.jobTitles.join(", ") : "sem filtro"}`
@@ -314,7 +342,9 @@ export function buildAdjustmentSummary(
         merged.location ??
         (effectiveLocations.fromIcp
           ? `${effectiveLocations.locations.join(", ")} (do seu ICP)`
-          : "sem filtro")
+          : effectiveLocations.fromReference
+            ? `${effectiveLocations.locations.join(", ")} (dos seus clientes)`
+            : "sem filtro")
       }${
         // Story 24.15: mesmo sufixo do resumo do briefing (use-briefing-flow).
         merged.locationScope === "person" && effectiveLocations.locations.length > 0
@@ -332,10 +362,20 @@ export function buildAdjustmentSummary(
         merged.companySize ??
         (isDirectSearch && effectiveSizes.source === "icp"
           ? `${formatCompanySizesLabel(effectiveSizes.companySizes)} (do seu ICP)`
+          : isDirectSearch && effectiveSizes.source === "reference"
+            ? `${formatCompanySizesLabel(effectiveSizes.companySizes)} (dos seus clientes)`
+            : "sem filtro")
+      }`
+    );
+    const referenceIndustries = activeReferenceProfile(merged)?.industries ?? [];
+    lines.push(
+      `- Industria: ${
+        merged.industry ??
+        (referenceIndustries.length > 0
+          ? `${referenceIndustries.join(", ")} (dos seus clientes)`
           : "sem filtro")
       }`
     );
-    lines.push(`- Industria: ${merged.industry ?? "sem filtro"}`);
     // Story 24.13: so quando N existe — sem N o resumo segue identico ao de antes.
     if (merged.leadCount) {
       lines.push(`- Leads: até ${merged.leadCount}`);

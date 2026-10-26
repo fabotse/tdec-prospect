@@ -12,6 +12,10 @@ import { createClient } from "@/lib/supabase/server";
 import { hasRejectedStep } from "@/lib/agent/step-guards";
 import { APOLLO_COMPANY_SIZE_BUCKETS } from "@/lib/agent/search-defaults";
 import { DOMAIN_REGEX, TARGET_ACCOUNTS_MAX } from "@/lib/agent/target-accounts";
+import {
+  referenceAccountsSchema,
+  referenceProfileSchema,
+} from "@/lib/agent/reference-profile-schema";
 
 // ==============================================
 // REQUEST VALIDATION
@@ -117,6 +121,11 @@ const briefingUpdateSchema = z.object({
     .nullable()
     .optional(),
   jobTitlesFromIcp: z.boolean().optional(),
+  // Story 24.18: modo contas parecidas. Mesma armadilha de strip — sem declarar, o PATCH
+  // descartaria as referencias e o perfil, e a busca voltaria ao ICP/piso.
+  referenceAccounts: referenceAccountsSchema.nullable().optional(),
+  referenceAccountsSource: z.enum(["user", "suppression_list"]).nullable().optional(),
+  referenceProfile: referenceProfileSchema.nullable().optional(),
 });
 
 // ==============================================

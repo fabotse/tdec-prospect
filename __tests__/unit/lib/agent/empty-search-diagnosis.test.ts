@@ -19,6 +19,10 @@ import {
 } from "@/lib/agent/empty-search-diagnosis";
 import { QUALITY_MIN_COMPANY_SIZES } from "@/lib/agent/search-defaults";
 import type { ParsedBriefing } from "@/types/agent";
+import {
+  REFERENCE_ACCOUNTS,
+  confidentReferenceProfile,
+} from "../../../helpers/reference-fixtures";
 
 // ==============================================
 // FIXTURES
@@ -652,5 +656,31 @@ describe("diagnoseEmptySearch — Story 24.15 (busca mais precisa)", () => {
       directFilters({ organizationLocations: ["Sao Paulo, Brazil"], industries: ["biotech espacial"] })
     );
     expect(causeCodes(result)).toContain("industry_textual");
+  });
+});
+
+// ==============================================
+// Story 24.18 — perfil dos clientes de referencia
+// ==============================================
+
+describe("diagnoseEmptySearch — Story 24.18 (contas parecidas)", () => {
+  it("porte e setor do perfil aparecem como (dos seus clientes), com causa propria", () => {
+    const result = diagnoseEmptySearch(
+      briefing({
+        location: null,
+        referenceAccounts: REFERENCE_ACCOUNTS,
+        referenceProfile: confidentReferenceProfile(),
+      }),
+      directFilters({
+        companySizes: ["201-500", "501-1000"],
+        organizationIndustries: ["banking"],
+      })
+    );
+
+    expect(filterValue(result, "Tamanho")?.value).toBe("201–1000 (dos seus clientes)");
+    expect(filterValue(result, "Indústria")?.value).toBe("banking (dos seus clientes)");
+    expect(causeCodes(result)).toContain("reference_profile_applied");
+    expect(causeCodes(result)).not.toContain("job_titles");
+    expect(causeCodes(result)).not.toContain("quality_floor_applied");
   });
 });

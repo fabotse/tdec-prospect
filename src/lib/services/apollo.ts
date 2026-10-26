@@ -32,6 +32,8 @@ import type {
   ApolloBulkEnrichmentRequest,
   ApolloBulkEnrichmentResponse,
   ApolloEnrichedPerson,
+  ApolloEnrichedOrganization,
+  ApolloOrganizationEnrichResponse,
 } from "@/types/apollo";
 import { transformApolloToLeadRow } from "@/types/apollo";
 
@@ -44,6 +46,7 @@ const APOLLO_HEALTH_ENDPOINT = "/v1/auth/health";
 const APOLLO_SEARCH_ENDPOINT = "/v1/mixed_people/api_search";
 const APOLLO_ENRICH_ENDPOINT = "/v1/people/match";
 const APOLLO_BULK_ENRICH_ENDPOINT = "/v1/people/bulk_match";
+const APOLLO_ORG_ENRICH_ENDPOINT = "/v1/organizations/enrich"; // Story 24.18
 const APOLLO_BULK_LIMIT = 10;
 const APOLLO_MAX_PAGES = 500; // Story 3.8: Apollo API maximum pages limit
 
@@ -433,6 +436,32 @@ export class ApolloService extends ExternalService {
     }
 
     return response;
+  }
+
+  /**
+   * Story 24.18: Organization Enrichment por dominio (1 credito por empresa encontrada).
+   * Devolve `null` quando a Apollo nao encontra a organizacao (sem `organization` ou 404).
+   * Demais erros (chave, limite, timeout) sobem como `ExternalServiceError`.
+   */
+  async enrichOrganization(domain: string): Promise<ApolloEnrichedOrganization | null> {
+    const apiKey = await this.getApiKey();
+    const url = `${APOLLO_API_BASE}${APOLLO_ORG_ENRICH_ENDPOINT}?domain=${encodeURIComponent(domain)}`;
+    try {
+      const response = await this.request<ApolloOrganizationEnrichResponse>(url, {
+        method: "GET",
+        headers: {
+          "Cache-Control": "no-cache",
+          accept: "application/json",
+          "x-api-key": apiKey,
+        },
+      });
+      return response?.organization ?? null;
+    } catch (error) {
+      if (error instanceof ExternalServiceError && error.statusCode === 404) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   /**

@@ -62,6 +62,12 @@ vi.mock("@/lib/agent/steps/search-leads-step", () => ({
   }),
 }));
 
+// Story 24.18: dominios da Lista de Supressao (fail-open).
+const mockReadSuppressedDomains = vi.fn().mockResolvedValue([]);
+vi.mock("@/lib/agent/reference-suppression", () => ({
+  readSuppressedDomains: (...args: unknown[]) => mockReadSuppressedDomains(...args),
+}));
+
 // Story 24.10: log de uso do agente (suite propria em agent-usage.test.ts).
 const mockLogAgentUsage = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/lib/agent/agent-usage", () => ({
@@ -232,6 +238,57 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/fetch-lead
     // Falha antes de instanciar o service: nenhuma chamada paga ao Apollo.
     expect(apolloConstructorArgs).toHaveLength(0);
     expect(mockSearchPeople).not.toHaveBeenCalled();
+  });
+
+  it("Story 24.18 — contas parecidas: clientes e suprimidos continuam fora no Buscar mais", async () => {
+    const lookalikeOutput = {
+      ...baseStepOutput,
+      lookalike: {
+        references: [{ name: "Banco X", domain: "bancox.com.br", confidence: "high" }],
+        similarity: "mesmo setor de Banco X",
+        excludedCount: 0,
+      },
+    };
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "agent_executions") {
+        return createChainBuilder({ data: { id: EXEC_ID, tenant_id: "tenant-456" }, error: null });
+      }
+      if (table === "agent_steps") {
+        const chain = createChainBuilder({
+          data: {
+            step_number: 2,
+            step_type: "search_leads",
+            status: "awaiting_approval",
+            output: lookalikeOutput,
+            cost: { apollo_search: 25 },
+          },
+          error: null,
+        });
+        chain.update = vi.fn().mockReturnValue(createChainBuilder({ data: null, error: null }));
+        return chain;
+      }
+      return createChainBuilder();
+    });
+    mockReadSuppressedDomains.mockResolvedValue(["empresaw.com.br"]);
+    const client = { ...makeLead(2), company_name: "Banco X S.A." };
+    const suppressed = { ...makeLead(3), company_name: "Empresa W" };
+    const other = makeLead(4);
+    mockSearchPeople.mockResolvedValue(makePageResponse([client, suppressed, other], 1, 1, 3));
+
+    const response = await POST(createRequest({ desiredCount: 25 }), createParams());
+    const json = await response.json();
+
+    expect(mockReadSuppressedDomains).toHaveBeenCalledWith(expect.anything(), "tenant-456");
+    const companies = (json.data.leads as Array<{ companyName: string }>).map((l) => l.companyName);
+    expect(companies).not.toContain("Banco X S.A.");
+    expect(companies).not.toContain("Empresa W");
+    expect(companies).toContain("Company 4");
+  });
+
+  it("Story 24.18 — sem lookalike no output, a supressao nao e lida", async () => {
+    mockSearchPeople.mockResolvedValue(makePageResponse([makeLead(2)], 1, 1, 1));
+    await POST(createRequest({ desiredCount: 25 }), createParams());
+    expect(mockReadSuppressedDomains).not.toHaveBeenCalled();
   });
 
   // --- 200: pagination with 4 pages ---

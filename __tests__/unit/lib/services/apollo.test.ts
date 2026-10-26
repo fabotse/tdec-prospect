@@ -456,6 +456,63 @@ describe("ApolloService", () => {
   // ENRICHMENT TESTS (Story 3.2.1)
   // ==============================================
 
+  describe("enrichOrganization (Story 24.18)", () => {
+    let serviceWithKey: ApolloService;
+
+    beforeEach(() => {
+      serviceWithKey = new ApolloService("tenant-123", "injected-key");
+    });
+
+    afterEach(() => restoreFetch());
+
+    it("GET /v1/organizations/enrich?domain= com x-api-key", async () => {
+      const { mock } = createMockFetch([
+        {
+          url: /organizations\/enrich/,
+          method: "GET",
+          response: mockJsonResponse({
+            organization: {
+              id: "org-1",
+              name: "Banco X",
+              domain: "bancox.com.br",
+              industry: "banking",
+              estimated_num_employees: 300,
+              city: "Sao Paulo",
+              state: "Sao Paulo",
+              country: "Brazil",
+              technology_names: ["AWS"],
+            },
+          }),
+        },
+      ]);
+
+      const org = await serviceWithKey.enrichOrganization("bancox.com.br");
+
+      expect(mock).toHaveBeenCalledWith(
+        "https://api.apollo.io/v1/organizations/enrich?domain=bancox.com.br",
+        expect.objectContaining({
+          method: "GET",
+          headers: expect.objectContaining({ "x-api-key": "injected-key" }),
+        })
+      );
+      expect(org?.industry).toBe("banking");
+      expect(org?.technology_names).toEqual(["AWS"]);
+    });
+
+    it("sem organization -> null", async () => {
+      createMockFetch([{ url: /organizations\/enrich/, response: mockJsonResponse({}) }]);
+      await expect(serviceWithKey.enrichOrganization("nada.com")).resolves.toBeNull();
+    });
+
+    it("404 -> null; 401 sobe", async () => {
+      createMockFetch([{ url: /organizations\/enrich/, response: mockErrorResponse(404) }]);
+      await expect(serviceWithKey.enrichOrganization("nada.com")).resolves.toBeNull();
+
+      createMockFetch([{ url: /organizations\/enrich/, response: mockErrorResponse(401) }]);
+      await expect(serviceWithKey.enrichOrganization("x.com")).rejects.toThrow();
+    });
+  });
+
   describe("enrichPerson (Story 3.2.1)", () => {
     let serviceWithTenant: ApolloService;
 

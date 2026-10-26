@@ -22,7 +22,9 @@ import {
   formatBriefingFieldValue,
   buildIcpProposalTurn,
   icpDefaultChipLabel,
+  referenceChipLabel,
   ICP_MISSING_HINT,
+  type AnalyzeReferencesFn,
 } from "@/hooks/use-briefing-flow";
 import type { ParsedBriefing } from "@/types/agent";
 import {
@@ -31,6 +33,10 @@ import {
   mockErrorResponse,
   restoreFetch,
 } from "../../helpers/mock-fetch";
+import {
+  REFERENCE_ACCOUNTS,
+  confidentReferenceProfile,
+} from "../../helpers/reference-fixtures";
 
 // ==============================================
 // HELPERS
@@ -5503,5 +5509,343 @@ describe("useBriefingFlow — Story 24.17 (modo lista de contas)", () => {
       ...LIST_BRIEFING,
       targetAccounts: [{ name: "Empresa W", domain: null, confidence: "low" }],
     })).toBe("Qual o site (dominio) de: Empresa W? Ex.: empresa.com.br.");
+  });
+});
+
+// ==============================================
+// Story 24.18 — contas parecidas
+// ==============================================
+
+describe("useBriefingFlow — Story 24.18 (contas parecidas)", () => {
+  const PARSE_URL = /\/api\/agent\/briefing\/parse$/;
+  type Hook = { current: ReturnType<typeof useBriefingFlow> };
+
+  const LOOKALIKE_BRIEFING: ParsedBriefing = {
+    technology: null,
+    jobTitles: ["CISO"],
+    location: null,
+    companySize: null,
+    industry: null,
+    productSlug: null,
+    mode: "guided",
+    skipSteps: ["search_companies"],
+    icpDefaults: { companySizes: ["11-50"], locations: ["Rio de Janeiro"] },
+    referenceAccounts: REFERENCE_ACCOUNTS,
+    referenceAccountsSource: "user",
+    referenceProfile: null,
+  };
+
+  function parseResponse(briefing: Partial<ParsedBriefing>, extra: Record<string, unknown> = {}) {
+    return {
+      briefing: { ...LOOKALIKE_BRIEFING, ...briefing },
+      missingFields: ["technology", "industry", "companySize", "referenceProfile"],
+      isComplete: false,
+      canProceed: false,
+      suggestions: {},
+      productMentioned: null,
+      nextAction: "ask",
+      questionText: "Qual a localizacao?",
+      ...extra,
+    };
+  }
+
+  function mockParse(response: unknown) {
+    restoreFetch();
+    return createMockFetch([
+      { url: PARSE_URL, method: "POST", response: mockJsonResponse(response) },
+    ]);
+  }
+
+  async function send(result: Hook, content: string) {
+    await act(async () => {
+      await result.current.processMessage(content, EXEC_ID, mockSendAgentMessage);
+    });
+  }
+
+  async function click(
+    result: Hook,
+    action: "analyze_references" | "use_icp_instead" | "confirm_briefing",
+    analyze?: AnalyzeReferencesFn
+  ) {
+    let outcome: { handled: boolean; confirmed?: boolean } | undefined;
+    await act(async () => {
+      outcome = await result.current.processCardAction(
+        action,
+        EXEC_ID,
+        mockSendAgentMessage,
+        undefined,
+        analyze
+      );
+    });
+    return outcome;
+  }
+
+  function lastAgentText(): string {
+    return mockSendAgentMessage.mock.lastCall?.[1] as string;
+  }
+
+  async function reachAnalysisCard(result: Hook) {
+    mockParse(parseResponse({}));
+    await send(result, "CISO em empresas parecidas com bancox.com.br, bancoy.com.br, segz.com.br");
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    restoreFetch();
+  });
+
+  it("3 referencias: card Analisar com o custo, sem enriquecer", async () => {
+    const { result } = renderHook(() => useBriefingFlow());
+    await reachAnalysisCard(result);
+
+    expect(result.current.state.status).toBe("confirming_reference_analysis");
+    const text = lastAgentText();
+    expect(text).toContain("Custo: ate 3 creditos de enrichment da Apollo (1 por empresa)");
+    expect(text).toContain("Banco X (bancox.com.br)");
+    expect(text).not.toContain("Qual a localizacao?");
+  });
+
+  it("2 referencias: pergunta deterministica, sem card", async () => {
+    mockParse(
+      parseResponse(
+        { referenceAccounts: REFERENCE_ACCOUNTS.slice(0, 2) },
+        { missingFields: ["referenceAccounts"] }
+      )
+    );
+    const { result } = renderHook(() => useBriefingFlow());
+    await send(result, "CISO parecidas com bancox.com.br e bancoy.com.br");
+
+    expect(result.current.state.status).toBe("awaiting_fields");
+    expect(lastAgentText()).toBe(
+      "Preciso de 3 a 5 clientes de referencia (nome e site). Voce citou 2."
+    );
+  });
+
+  it("lista de supressao com 2: diz quantas encontrou, nao 'voce citou'", async () => {
+    mockParse(
+      parseResponse(
+        {
+          referenceAccounts: REFERENCE_ACCOUNTS.slice(0, 2),
+          referenceAccountsSource: "suppression_list",
+        },
+        { missingFields: ["referenceAccounts"] }
+      )
+    );
+    const { result } = renderHook(() => useBriefingFlow());
+    await send(result, "CISO parecidas com meus clientes da lista");
+
+    expect(lastAgentText()).toBe(
+      "Preciso de 3 a 5 clientes de referencia (nome e site). Encontrei 2 na Lista de Supressao."
+    );
+  });
+
+  it("lista de supressao vazia: pede as referencias", async () => {
+    mockParse(
+      parseResponse(
+        { referenceAccounts: [], referenceAccountsSource: "suppression_list" },
+        { missingFields: ["referenceAccounts"] }
+      )
+    );
+    const { result } = renderHook(() => useBriefingFlow());
+    await send(result, "CISO parecidas com meus clientes da lista");
+
+    expect(lastAgentText()).toBe(
+      "Nao encontrei clientes na Lista de Supressao. Me diga 3 a 5 clientes de referencia (nome e site)."
+    );
+  });
+
+  it("Analisar com perfil confiante: card do briefing com o perfil; proximo parse envia o perfil", async () => {
+    const { result } = renderHook(() => useBriefingFlow());
+    await reachAnalysisCard(result);
+
+    const profile = confidentReferenceProfile();
+    const analyze = vi.fn<AnalyzeReferencesFn>().mockResolvedValue({
+      profile,
+      confident: true,
+      reason: null,
+    });
+    await click(result, "analyze_references", analyze);
+
+    expect(analyze).toHaveBeenCalledWith(EXEC_ID, [
+      { name: "Banco X", domain: "bancox.com.br" },
+      { name: "Banco Y", domain: "bancoy.com.br" },
+      { name: "Seg Z", domain: "segz.com.br" },
+    ]);
+    expect(result.current.state.status).toBe("confirming");
+    expect(result.current.state.briefing?.referenceProfile).toEqual(profile);
+    const summary = lastAgentText();
+    expect(summary).toContain(
+      "- Clientes de referencia: Banco X (bancox.com.br), Banco Y (bancoy.com.br), Seg Z (segz.com.br)"
+    );
+    expect(summary).toContain(
+      "- Perfil comum: setor banking, porte 201–1000 funcionarios, regiao Sao Paulo, Brazil; tecnologias em comum: aws"
+    );
+    expect(summary).toContain(
+      "Contas parecidas: vou buscar empresas com esse perfil, sem os seus clientes e os suprimidos."
+    );
+    expect(summary).not.toContain("leads serao buscados diretamente");
+    expect(summary).not.toContain("(do seu ICP)");
+
+    // Chips do perfil
+    expect(referenceChipLabel("companySize", result.current.state.briefing)).toBe(
+      "201–1000 (dos seus clientes)"
+    );
+    expect(referenceChipLabel("location", result.current.state.briefing)).toBe(
+      "Sao Paulo, Brazil (dos seus clientes)"
+    );
+    expect(referenceChipLabel("industry", result.current.state.briefing)).toBe(
+      "banking (dos seus clientes)"
+    );
+
+    // Parse seguinte leva o perfil atual no corpo.
+    const fetchMock = mockParse(
+      parseResponse({ referenceProfile: profile }, { canProceed: true, missingFields: [] })
+    );
+    await send(result, "troca o cargo para CISO e CTO");
+    const body = fetchMock.calls()[0].body as { referenceProfile?: unknown };
+    expect(body.referenceProfile).toEqual(profile);
+
+    expect((await click(result, "confirm_briefing"))?.confirmed).toBe(true);
+  });
+
+  it("chip editado vira valor do usuario", async () => {
+    const { result } = renderHook(() => useBriefingFlow());
+    await reachAnalysisCard(result);
+    await click(
+      result,
+      "analyze_references",
+      vi.fn<AnalyzeReferencesFn>().mockResolvedValue({
+        profile: confidentReferenceProfile(),
+        confident: true,
+        reason: null,
+      })
+    );
+
+    await act(async () => {
+      await result.current.editBriefingField("companySize", "51-200", EXEC_ID, mockSendAgentMessage);
+    });
+
+    expect(result.current.state.briefing?.companySize).toBe("51-200");
+    expect(referenceChipLabel("companySize", result.current.state.briefing)).toBeNull();
+  });
+
+  it("Analisar sem cargos: pergunta os cargos", async () => {
+    mockParse(parseResponse({ jobTitles: [] }));
+    const { result } = renderHook(() => useBriefingFlow());
+    await send(result, "parecidas com bancox.com.br, bancoy.com.br, segz.com.br");
+    expect(result.current.state.status).toBe("confirming_reference_analysis");
+
+    await click(
+      result,
+      "analyze_references",
+      vi.fn<AnalyzeReferencesFn>().mockResolvedValue({
+        profile: confidentReferenceProfile(),
+        confident: true,
+        reason: null,
+      })
+    );
+
+    expect(result.current.state.status).toBe("awaiting_fields");
+    expect(lastAgentText()).toContain("cargos");
+    expect(lastAgentText()).not.toContain("localizacao");
+  });
+
+  it("perfil sem confianca: explica e pede mais ou o ICP", async () => {
+    const { result } = renderHook(() => useBriefingFlow());
+    await reachAnalysisCard(result);
+
+    await click(
+      result,
+      "analyze_references",
+      vi.fn<AnalyzeReferencesFn>().mockResolvedValue({
+        profile: null,
+        confident: false,
+        reason: "Os setores dos seus clientes nao se repetem.",
+      })
+    );
+
+    expect(result.current.state.status).toBe("awaiting_fields");
+    expect(lastAgentText()).toBe(
+      'Os setores dos seus clientes nao se repetem. Me diga mais clientes de referencia (nome e site) ou toque em "Usar o ICP".'
+    );
+  });
+
+  it("rota com erro: mesma mensagem, nao confiante", async () => {
+    const { result } = renderHook(() => useBriefingFlow());
+    await reachAnalysisCard(result);
+
+    await click(
+      result,
+      "analyze_references",
+      vi.fn<AnalyzeReferencesFn>().mockRejectedValue(new Error("rede"))
+    );
+
+    expect(result.current.state.status).toBe("awaiting_fields");
+    expect(lastAgentText()).toContain(
+      'Me diga mais clientes de referencia (nome e site) ou toque em "Usar o ICP".'
+    );
+  });
+
+  it("Usar o ICP: limpa as referencias e segue o fluxo normal do ICP", async () => {
+    const { result } = renderHook(() => useBriefingFlow());
+    await reachAnalysisCard(result);
+    const analyze = vi.fn<AnalyzeReferencesFn>();
+
+    await click(result, "use_icp_instead", analyze);
+
+    expect(analyze).not.toHaveBeenCalled();
+    expect(result.current.state.briefing).not.toHaveProperty("referenceAccounts");
+    expect(result.current.state.briefing).not.toHaveProperty("referenceProfile");
+    expect(result.current.state.status).toBe("confirming");
+    const summary = lastAgentText();
+    expect(summary).not.toContain("Clientes de referencia");
+    expect(summary).toContain("- Localizacao: Rio de Janeiro (do seu ICP)");
+  });
+
+  it("texto digitado com o card Analisar aberto vai para o /parse", async () => {
+    const { result } = renderHook(() => useBriefingFlow());
+    await reachAnalysisCard(result);
+
+    const fetchMock = mockParse(
+      parseResponse({ jobTitles: ["CISO", "CTO"] }, { missingFields: ["referenceProfile"] })
+    );
+    let outcome: { handled: boolean } | undefined;
+    await act(async () => {
+      outcome = await result.current.processMessage(
+        "acrescenta o cargo CTO",
+        EXEC_ID,
+        mockSendAgentMessage
+      );
+    });
+
+    expect(fetchMock.calls()).toHaveLength(1);
+    expect(outcome?.handled).toBe(true);
+    expect(result.current.state.briefing?.jobTitles).toEqual(["CISO", "CTO"]);
+  });
+
+  it("parse falho com o card Analisar aberto volta ao card (nao a awaiting_fields)", async () => {
+    const { result } = renderHook(() => useBriefingFlow());
+    await reachAnalysisCard(result);
+
+    restoreFetch();
+    createMockFetch([
+      { url: PARSE_URL, method: "POST", response: mockErrorResponse(500, "parse indisponivel") },
+    ]);
+    await send(result, "acrescenta o cargo CTO");
+
+    expect(result.current.state.status).toBe("confirming_reference_analysis");
+  });
+
+  it("clique fora do estado nao faz nada", async () => {
+    mockParse(parseResponse({}, { canProceed: true, missingFields: [] }));
+    const { result } = renderHook(() => useBriefingFlow());
+    await send(result, "CTO em SP");
+    const analyze = vi.fn<AnalyzeReferencesFn>();
+
+    expect(await click(result, "analyze_references", analyze)).toEqual({ handled: false });
+    expect(analyze).not.toHaveBeenCalled();
   });
 });

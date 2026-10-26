@@ -21,6 +21,7 @@ import {
   type ParserUsage,
 } from "./parser-config";
 import { sanitizeTargetAccounts } from "./target-accounts";
+import { REFERENCE_MAX } from "./reference-accounts";
 
 // ==============================================
 // ZOD SCHEMA — Validates OpenAI response
@@ -113,6 +114,11 @@ export const briefingResponseSchema = z.object({
   // Story 24.17: contas-alvo (modo lista / ABM). Cru aqui (`z.unknown()`) e saneado item a
   // item por `sanitizeTargetAccounts` — um item ruim nunca derruba o parse (fail-open para []).
   targetAccounts: z.unknown().optional(),
+  // Story 24.18: clientes de referencia (modo contas parecidas). Mesmo saneamento das contas
+  // (fail-open), com corte em 5. Null = o usuario desistiu das referencias.
+  referenceAccounts: z.unknown().optional(),
+  // Story 24.18: "use meus clientes da lista" -> as referencias vem da Lista de Supressao.
+  useSuppressionListClients: z.boolean().default(false).catch(false),
 });
 
 export type BriefingResponse = z.infer<typeof briefingResponseSchema>;
@@ -149,8 +155,14 @@ Extraia SOMENTE quando o usuario mencionar; nunca invente. Ausentes = null.
 - targetAccounts (array | []): EMPRESAS-ALVO especificas que o usuario quer atingir (modo lista de contas / ABM). Cada item: { "name": string | null, "domain": string | null, "confidence": "high" | "low" }. Preencha SOMENTE quando o usuario citar empresas especificas pelo nome ("quero falar com o Banco X e a Empresa Y") ou colar sites/dominios ("bancox.com.br, empresay.com"). Sem empresas especificas, retorne [].
   - domain: o site oficial da empresa, so o dominio (ex.: "bancox.com.br"). Use "high" apenas quando o usuario colou o dominio ou quando voce tem CERTEZA do dominio oficial.
   - Nome ambiguo ou dominio incerto: de o seu melhor palpite com confidence "low", ou domain null quando nao tiver palpite. NUNCA invente uma empresa que o usuario nao citou.
+- referenceAccounts (array | null): CLIENTES DE REFERENCIA (modo contas parecidas / lookalike) — empresas que ja sao clientes do usuario e servem de modelo para achar empresas PARECIDAS. Cada item: { "name": string | null, "domain": string | null, "confidence": "high" | "low" }, no maximo 5. Preencha quando o usuario pedir empresas "parecidas com", "como nossos clientes", "semelhantes a", "lookalike" e citar os clientes (nome ou site). Sem esse pedido, retorne null.
+  - "parecidas com X, Y e Z", "como nossos clientes X e Y" ou "lookalike de X" vao SEMPRE em referenceAccounts, NUNCA em targetAccounts (o usuario NAO quer falar com esses clientes; quer outras empresas como eles).
+  - Se o usuario disser "usar o ICP", "Usar o ICP", "desisto das referencias" ou equivalente, retorne referenceAccounts null e useSuppressionListClients false.
+  - Mesmas regras de domain/confidence de targetAccounts. NUNCA invente um cliente que o usuario nao citou.
+- useSuppressionListClients (boolean): true quando o usuario pede para usar os clientes que ja estao na lista dele como referencia ("use meus clientes da lista", "parecidas com os clientes da minha lista de supressao", "como os clientes cadastrados"). Default false.
 - skipSteps (string[]): Etapas a pular. Default [].
   - Se o usuario citar empresas-alvo especificas (targetAccounts nao vazio), adicione "search_companies" no skipSteps (a busca vai direto nas contas, por dominio).
+  - Com clientes de referencia (referenceAccounts ou useSuppressionListClients), adicione "search_companies" no skipSteps.
   - Se o usuario NAO selecionar tecnologia, ou recusar/remover um filtro de tecnologia, adicione "search_companies" no skipSteps (a busca sera por cargo + localizacao, sem a etapa de filtro por tecnologia).
   - Se o usuario selecionar afirmativamente uma tecnologia atual, NAO adicione "search_companies" no skipSteps.
   - Se o usuario indicar que ja possui leads/contatos proprios (ex: "ja tenho os contatos", "quero importar meus leads", "tenho uma planilha de leads", "leads proprios", "minha lista de emails", "CSV com contatos"), adicione ["search_companies", "search_leads"] no skipSteps.
@@ -180,7 +192,8 @@ REGRAS DA CONVERSA:
 7. nextAction e questionText sao sobre a CONVERSA — nunca alteram os parametros de busca acima. Na duvida entre "ask" e "confirm", prefira "ask" (default seguro).
 8. Escreva questionText SEMPRE em portugues do Brasil, direto e amigavel. Nunca invente parametros so para poder confirmar.
 9. So devolva "proceed" se o historico ja contiver um resumo apresentado pelo agente E o usuario o estiver autorizando agora. Uma correcao ("troca o cargo pra CFO", "na verdade em SP") NAO e "proceed" — e "confirm" (aplique a correcao e reapresente).
-10. MODO LISTA DE CONTAS: vale quando o usuario cita empresas-alvo especificas ou cola dominios. Nesse modo as contas substituem a busca de empresas e NAO exigem localizacao (so cargo; sem cargo, o sistema pode usar os do ICP). A correcao mais recente prevalece: se o usuario tirar ou trocar contas, devolva a lista atualizada completa; se ele desistir da lista, devolva targetAccounts [].`;
+10. MODO LISTA DE CONTAS: vale quando o usuario cita empresas-alvo especificas ou cola dominios. Nesse modo as contas substituem a busca de empresas e NAO exigem localizacao (so cargo; sem cargo, o sistema pode usar os do ICP). A correcao mais recente prevalece: se o usuario tirar ou trocar contas, devolva a lista atualizada completa; se ele desistir da lista, devolva targetAccounts [].
+11. MODO CONTAS PARECIDAS: vale quando o usuario quer empresas parecidas com os clientes dele (referenceAccounts ou useSuppressionListClients). O sistema analisa os clientes e define setor, porte e regiao — voce NAO preenche industry, companySize nem location a partir dos clientes (so se o usuario disser explicitamente). Nao exige localizacao. A correcao mais recente prevalece: se o usuario trocar ou acrescentar clientes, devolva a lista atualizada completa (ate 5); se ele desistir ("usar o ICP"), devolva referenceAccounts null e useSuppressionListClients false.`;
 
 // ==============================================
 // SERVICE
@@ -268,6 +281,15 @@ export class BriefingParserService {
           .join("\n")
       );
 
+      // Story 24.18: mesmo saneamento das contas, com corte em 5.
+      const referenceAccounts = sanitizeTargetAccounts(
+        raw.referenceAccounts,
+        history
+          .filter((turn) => turn.role === "user")
+          .map((turn) => turn.content)
+          .join("\n")
+      ).slice(0, REFERENCE_MAX);
+
       const briefing: ParsedBriefing = {
         technology: raw.technology,
         jobTitles: raw.jobTitles,
@@ -295,6 +317,8 @@ export class BriefingParserService {
         // dominio aparece no texto do usuario). Sem esta linha somem (armadilha de strip #1).
         // Sem contas, a chave nao entra (briefing identico ao de antes).
         ...(targetAccounts.length > 0 ? { targetAccounts } : {}),
+        // Story 24.18: referencias saneadas. Sem referencias, a chave nao entra.
+        ...(referenceAccounts.length > 0 ? { referenceAccounts } : {}),
       };
 
       return {

@@ -20,6 +20,19 @@ import {
   isAccountListMode,
   resolvedAccountDomains,
 } from "@/lib/agent/target-accounts";
+import { activeReferenceProfile, isLookalikeMode } from "@/lib/agent/reference-accounts";
+
+/** Story 24.18: campos do modo contas parecidas lidos pelos resolvedores abaixo. */
+type LookalikeFields = Partial<
+  Pick<
+    ParsedBriefing,
+    | "referenceAccounts"
+    | "referenceProfile"
+    | "targetAccounts"
+    | "suppressedAccounts"
+    | "skipSteps"
+  >
+>;
 
 /**
  * Faixas de qualidade aplicadas por padrão na busca direta quando o usuário não
@@ -48,13 +61,16 @@ export const QUALITY_MIN_COMPANY_SIZE_LABEL = "11+";
 export const APOLLO_COMPANY_SIZE_BUCKETS = ["1-10", ...QUALITY_MIN_COMPANY_SIZES] as const;
 
 /** De onde veio o porte efetivo da busca direta. */
-export type CompanySizeSource = "user" | "icp" | "quality";
+export type CompanySizeSource = "user" | "reference" | "icp" | "quality";
 
 export interface EffectiveCompanySizes {
   companySizes: string[];
   /** true quando o piso de qualidade foi aplicado (sem tamanho do usuario e sem ICP). */
   defaultsApplied: boolean;
-  /** Story 24.14: origem das faixas — usuario, ICP do tenant ou piso de qualidade. */
+  /**
+   * Story 24.14: origem das faixas — usuario, ICP do tenant ou piso de qualidade.
+   * Story 24.18: `"reference"` = perfil dos clientes de referencia (modo contas parecidas).
+   */
   source: CompanySizeSource;
 }
 
@@ -67,10 +83,15 @@ export interface EffectiveCompanySizes {
  * - Senão → aplica o piso de qualidade.
  */
 export function resolveDirectSearchCompanySizes(
-  briefing: Pick<ParsedBriefing, "companySize" | "icpDefaults">
+  briefing: Pick<ParsedBriefing, "companySize" | "icpDefaults"> & LookalikeFields
 ): EffectiveCompanySizes {
   if (briefing.companySize) {
     return { companySizes: [briefing.companySize], defaultsApplied: false, source: "user" };
+  }
+  // Story 24.18: no modo contas parecidas com perfil, as faixas dos clientes de referencia.
+  const referenceSizes = activeReferenceProfile(briefing)?.companySizes ?? [];
+  if (referenceSizes.length > 0) {
+    return { companySizes: [...referenceSizes], defaultsApplied: false, source: "reference" };
   }
   const icpSizes = briefing.icpDefaults?.companySizes ?? [];
   if (icpSizes.length > 0) {
@@ -91,6 +112,8 @@ export interface EffectiveSearchLocations {
   locations: string[];
   /** true quando os locais vieram do ICP (o usuario nao informou localizacao). */
   fromIcp: boolean;
+  /** Story 24.18: true quando os locais vieram do perfil dos clientes de referencia. */
+  fromReference?: boolean;
 }
 
 /**
@@ -99,14 +122,18 @@ export interface EffectiveSearchLocations {
  * Story 24.17: no modo lista de contas, so o `location` do usuario (o ICP nao se aplica).
  */
 export function resolveSearchLocations(
-  briefing: Pick<ParsedBriefing, "location" | "icpDefaults"> &
-    Partial<Pick<ParsedBriefing, "targetAccounts" | "suppressedAccounts" | "skipSteps">>
+  briefing: Pick<ParsedBriefing, "location" | "icpDefaults"> & LookalikeFields
 ): EffectiveSearchLocations {
   if (briefing.location) {
     return { locations: [briefing.location], fromIcp: false };
   }
   if (isAccountListMode(briefing)) {
     return { locations: [], fromIcp: false };
+  }
+  // Story 24.18: no modo contas parecidas com perfil, a regiao dos clientes de referencia.
+  const referenceLocations = activeReferenceProfile(briefing)?.locations ?? [];
+  if (referenceLocations.length > 0) {
+    return { locations: [...referenceLocations], fromIcp: false, fromReference: true };
   }
   const icpLocations = briefing.icpDefaults?.locations ?? [];
   if (icpLocations.length > 0) {
@@ -139,8 +166,7 @@ export function locationFiltersForScope(
 
 /** true quando a busca tem alguma localizacao efetiva (do usuario ou do ICP). */
 export function hasSearchLocation(
-  briefing: Pick<ParsedBriefing, "location" | "icpDefaults"> &
-    Partial<Pick<ParsedBriefing, "targetAccounts" | "suppressedAccounts" | "skipSteps">>
+  briefing: Pick<ParsedBriefing, "location" | "icpDefaults"> & LookalikeFields
 ): boolean {
   return resolveSearchLocations(briefing).locations.length > 0;
 }
@@ -151,11 +177,12 @@ export function hasSearchLocation(
  * - Modo lista de contas: cargos >= 1, >= 1 conta restante e nenhuma conta sem dominio
  *   (localizacao nao e exigida).
  * - Fora dele: cargos + localizacao efetiva (do usuario ou do ICP).
+ * - Story 24.18: modo contas parecidas: cargos >= 1, 3-5 referencias resolvidas e perfil
+ *   confiante das mesmas referencias (localizacao nao e exigida).
  * O fluxo de leads importados e tratado por cada consumidor, como antes.
  */
 export function canProceedWithSearch(
-  briefing: Pick<ParsedBriefing, "jobTitles" | "location" | "icpDefaults"> &
-    Partial<Pick<ParsedBriefing, "targetAccounts" | "suppressedAccounts" | "skipSteps">>
+  briefing: Pick<ParsedBriefing, "jobTitles" | "location" | "icpDefaults"> & LookalikeFields
 ): boolean {
   const hasJobTitles = (briefing.jobTitles?.length ?? 0) > 0;
   if (isAccountListMode(briefing)) {
@@ -164,6 +191,10 @@ export function canProceedWithSearch(
       (briefing.targetAccounts?.length ?? 0) > 0 &&
       !hasUnresolvedAccounts(briefing.targetAccounts)
     );
+  }
+  if (isLookalikeMode(briefing)) {
+    // `activeReferenceProfile` ja exige referencias suficientes e perfil confiante que casa.
+    return hasJobTitles && activeReferenceProfile(briefing) !== null;
   }
   return hasJobTitles && hasSearchLocation(briefing);
 }
@@ -240,7 +271,8 @@ export function buildDirectSearchFilters(
     ParsedBriefing,
     "jobTitles" | "location" | "industry" | "companySize" | "icpDefaults"
   > &
-    Partial<Pick<ParsedBriefing, "locationScope">>,
+    Partial<Pick<ParsedBriefing, "locationScope">> &
+    LookalikeFields,
   perPage: number
 ): DirectSearchFilters {
   const { companySizes } = resolveDirectSearchCompanySizes(briefing);
@@ -248,7 +280,16 @@ export function buildDirectSearchFilters(
   const { locations } = resolveSearchLocations(briefing);
   // Story 24.15: sede da empresa por padrao; industria mapeada vai em organization_industries.
   const scope = resolveLocationScope(briefing);
-  const apolloIndustries = resolveApolloIndustries(briefing.industry);
+  // Story 24.18: no modo contas parecidas, os setores do perfil (sem setor do usuario), ou o
+  // setor do usuario direto quando ele e um dos setores do perfil.
+  const referenceIndustries = activeReferenceProfile(briefing)?.industries ?? [];
+  const userIndustry = briefing.industry?.trim().toLowerCase() ?? "";
+  const apolloIndustries =
+    referenceIndustries.length > 0 && !userIndustry
+      ? [...referenceIndustries]
+      : userIndustry && referenceIndustries.includes(userIndustry)
+        ? [userIndustry]
+        : resolveApolloIndustries(briefing.industry);
 
   return {
     titles: briefing.jobTitles,

@@ -8,6 +8,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { POST } from "@/app/api/agent/briefing/parse/route";
 import { createChainBuilder } from "../../../helpers/mock-supabase";
+import {
+  REFERENCE_ACCOUNTS,
+  confidentReferenceProfile,
+} from "../../../helpers/reference-fixtures";
 
 // ==============================================
 // MOCKS
@@ -94,6 +98,13 @@ vi.mock("@/lib/agent/account-suppression", async (importOriginal) => {
   };
 });
 
+// Story 24.18: clientes da Lista de Supressao (fail-open; leitura real testada a parte).
+const mockReadSuppressionListClients = vi.fn();
+vi.mock("@/lib/agent/reference-suppression", () => ({
+  readSuppressionListClients: (...args: unknown[]) => mockReadSuppressionListClients(...args),
+  readSuppressedDomains: vi.fn(),
+}));
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -176,6 +187,7 @@ describe("POST /api/agent/briefing/parse", () => {
     mockFrom.mockImplementation(defaultMockFrom);
     mockGenerateSuggestions.mockReturnValue({});
     mockFindSuppressedAccounts.mockResolvedValue([]);
+    mockReadSuppressionListClients.mockResolvedValue([]);
     // Story 24.14: default = tenant sem ICP (comportamento identico ao de antes).
     mockReadTenantICP.mockResolvedValue({
       jobTitles: [],
@@ -1375,6 +1387,157 @@ describe("POST /api/agent/briefing/parse", () => {
       expect(json.briefing).not.toHaveProperty("jobTitlesFromIcp");
       expect(mockFindSuppressedAccounts).not.toHaveBeenCalled();
       expect(json.canProceed).toBe(true);
+    });
+  });
+
+  describe("Story 24.18 — contas parecidas", () => {
+    function lookalikeResult(
+      overrides: Record<string, unknown> = {},
+      rawOverrides: Record<string, unknown> = {}
+    ) {
+      return {
+        ...FULL_PARSE_RESULT,
+        briefing: {
+          ...FULL_PARSE_RESULT.briefing,
+          technology: "Netskope",
+          industry: null,
+          location: null,
+          jobTitles: ["CISO"],
+          skipSteps: [],
+          referenceAccounts: REFERENCE_ACCOUNTS,
+          ...overrides,
+        },
+        rawResponse: { ...FULL_PARSE_RESULT.rawResponse, ...rawOverrides },
+      };
+    }
+
+    beforeEach(() => {
+      mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    });
+
+    it("3 referencias: search_companies pulado, sem tecnologia, falta so o perfil", async () => {
+      mockParse.mockResolvedValue(lookalikeResult());
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(json.briefing.referenceAccounts).toHaveLength(3);
+      expect(json.briefing.referenceAccountsSource).toBe("user");
+      expect(json.briefing.skipSteps).toContain("search_companies");
+      expect(json.briefing.technology).toBeNull();
+      expect(json.briefing.referenceProfile).toBeNull();
+      expect(json.canProceed).toBe(false);
+      expect(json.missingFields).toContain("referenceProfile");
+      expect(json.missingFields).not.toContain("referenceAccounts");
+      expect(json.missingFields).not.toContain("location");
+    });
+
+    it("poucas referencias: referenceAccounts em missingFields", async () => {
+      mockParse.mockResolvedValue(
+        lookalikeResult({ referenceAccounts: REFERENCE_ACCOUNTS.slice(0, 2) })
+      );
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(json.missingFields).toContain("referenceAccounts");
+      expect(json.missingFields).not.toContain("referenceProfile");
+      expect(json.canProceed).toBe(false);
+    });
+
+    it("perfil do corpo que casa e anexado: canProceed true", async () => {
+      mockParse.mockResolvedValue(lookalikeResult());
+
+      const json = await (
+        await POST(createRequest({ ...VALID_BODY, referenceProfile: confidentReferenceProfile() }))
+      ).json();
+
+      expect(json.briefing.referenceProfile.sourceDomains).toEqual([
+        "bancox.com.br",
+        "bancoy.com.br",
+        "segz.com.br",
+      ]);
+      expect(json.canProceed).toBe(true);
+      expect(json.missingFields).not.toContain("referenceProfile");
+    });
+
+    it("perfil de outras referencias e descartado", async () => {
+      mockParse.mockResolvedValue(
+        lookalikeResult({
+          referenceAccounts: [
+            ...REFERENCE_ACCOUNTS.slice(0, 2),
+            { name: null, domain: "outro.com", confidence: "high" },
+          ],
+        })
+      );
+
+      const json = await (
+        await POST(createRequest({ ...VALID_BODY, referenceProfile: confidentReferenceProfile() }))
+      ).json();
+
+      expect(json.briefing.referenceProfile).toBeNull();
+      expect(json.canProceed).toBe(false);
+    });
+
+    it("sem cargos: usa os do ICP", async () => {
+      mockReadTenantICP.mockResolvedValue({
+        jobTitles: ["CISO", "CTO"],
+        industries: [],
+        companySizes: [],
+        geographicFocus: [],
+      });
+      mockParse.mockResolvedValue(lookalikeResult({ jobTitles: [] }));
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(json.briefing.jobTitles).toEqual(["CISO", "CTO"]);
+      expect(json.briefing.jobTitlesFromIcp).toBe(true);
+    });
+
+    it("lista de supressao: ate 5 dominios cliente, source suppression_list", async () => {
+      mockReadSuppressionListClients.mockResolvedValue(REFERENCE_ACCOUNTS);
+      mockParse.mockResolvedValue(
+        lookalikeResult({ referenceAccounts: undefined }, { useSuppressionListClients: true })
+      );
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(mockReadSuppressionListClients).toHaveBeenCalledWith(expect.anything(), "tenant-456");
+      expect(json.briefing.referenceAccounts).toEqual(REFERENCE_ACCOUNTS);
+      expect(json.briefing.referenceAccountsSource).toBe("suppression_list");
+    });
+
+    it("lista de supressao vazia: modo ligado com [] e pergunta pelas referencias", async () => {
+      mockParse.mockResolvedValue(
+        lookalikeResult({ referenceAccounts: undefined }, { useSuppressionListClients: true })
+      );
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(json.briefing.referenceAccounts).toEqual([]);
+      expect(json.missingFields).toContain("referenceAccounts");
+    });
+
+    it("com targetAccounts, referenceAccounts fica null", async () => {
+      mockParse.mockResolvedValue(
+        lookalikeResult({
+          targetAccounts: [{ name: "Banco Q", domain: "bancoq.com.br", confidence: "high" }],
+        })
+      );
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(json.briefing.referenceAccounts).toBeNull();
+      expect(json.briefing.targetAccounts).toHaveLength(1);
+    });
+
+    it("sem referencias: briefing identico ao de hoje (sem as chaves novas)", async () => {
+      mockParse.mockResolvedValue(FULL_PARSE_RESULT);
+
+      const json = await (await POST(createRequest(VALID_BODY))).json();
+
+      expect(json.briefing).not.toHaveProperty("referenceAccounts");
+      expect(json.briefing).not.toHaveProperty("referenceAccountsSource");
+      expect(json.briefing).not.toHaveProperty("referenceProfile");
+      expect(mockReadSuppressionListClients).not.toHaveBeenCalled();
     });
   });
 });

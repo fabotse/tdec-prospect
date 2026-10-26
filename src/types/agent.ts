@@ -150,6 +150,37 @@ export interface ParsedBriefing {
   suppressedAccounts?: SuppressedAccount[] | null;
   // Story 24.17: true quando os cargos vieram do ICP (o usuario so citou as contas).
   jobTitlesFromIcp?: boolean;
+  // Story 24.18: modo contas parecidas. 3-5 clientes de referencia (nome + dominio). Array
+  // (mesmo vazio) = modo ativo; ausente/null = comportamento anterior.
+  referenceAccounts?: TargetAccount[] | null;
+  // Story 24.18: de onde vieram as referencias (citadas pelo usuario ou a Lista de Supressao).
+  referenceAccountsSource?: "user" | "suppression_list" | null;
+  // Story 24.18: perfil comum derivado do enrichment da Apollo (so depois do clique em Analisar).
+  referenceProfile?: ReferenceProfile | null;
+}
+
+/** Story 24.18: empresa de referencia enriquecida na Apollo (campos null = sem dado). */
+export interface ReferenceCompany {
+  name: string | null;
+  domain: string;
+  industry: string | null;
+  employees: number | null;
+  sizeBucket: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  technologies: string[];
+}
+
+/** Story 24.18: perfil comum dos clientes de referencia (filtros da busca). */
+export interface ReferenceProfile {
+  sourceDomains: string[];
+  companies: ReferenceCompany[];
+  industries: string[];
+  companySizes: string[];
+  locations: string[];
+  technologies: string[];
+  creditsUsed: number;
 }
 
 /** Story 24.17: conta-alvo do modo lista. `domain` null = o agente precisa perguntar o site. */
