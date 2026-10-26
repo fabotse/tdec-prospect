@@ -7,6 +7,10 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AgentConfirmationCard } from "@/components/agent/AgentConfirmationCard";
 import type { ParsedBriefing } from "@/types/agent";
+import {
+  REFERENCE_ACCOUNTS,
+  confidentReferenceProfile,
+} from "../../../helpers/reference-fixtures";
 
 const BRIEFING: ParsedBriefing = {
   technology: null,
@@ -324,5 +328,74 @@ describe("AgentConfirmationCard — Story 24.17 (chip Contas)", () => {
     );
     expect(screen.queryByTestId("briefing-chip-targetAccounts")).toBeNull();
     expect(screen.getByTestId("briefing-chip-technology")).toBeInTheDocument();
+  });
+
+  describe("Story 24.18 — contas parecidas", () => {
+    const LOOKALIKE: ParsedBriefing = {
+      ...BRIEFING,
+      location: null,
+      industry: null,
+      referenceAccounts: REFERENCE_ACCOUNTS,
+      referenceAccountsSource: "user",
+      referenceProfile: null,
+    };
+
+    it("variante references: lista, custo e botoes Analisar / Usar o ICP", () => {
+      render(<AgentConfirmationCard variant="references" briefing={LOOKALIKE} onAction={onAction} />);
+
+      expect(screen.getByTestId("reference-accounts-list")).toHaveTextContent(
+        "Banco X (bancox.com.br)"
+      );
+      expect(screen.getByTestId("reference-analysis-cost")).toHaveTextContent(
+        "Custo: ate 3 creditos de enrichment da Apollo (1 por empresa)"
+      );
+      fireEvent.click(screen.getByTestId("card-action-analyze_references"));
+      fireEvent.click(screen.getByTestId("card-action-use_icp_instead"));
+      expect(onAction).toHaveBeenNthCalledWith(1, "analyze_references");
+      expect(onAction).toHaveBeenNthCalledWith(2, "use_icp_instead");
+      expect(screen.getByTestId("card-action-analyze_references")).toHaveTextContent("Analisar");
+      expect(screen.getByTestId("card-action-use_icp_instead")).toHaveTextContent("Usar o ICP");
+    });
+
+    it("referencia com dominio deduzido aparece com a marca confirme", () => {
+      render(
+        <AgentConfirmationCard
+          variant="references"
+          briefing={{
+            ...LOOKALIKE,
+            referenceAccounts: [
+              ...REFERENCE_ACCOUNTS.slice(0, 2),
+              { name: "Seg Z", domain: "segz.com.br", confidence: "low" },
+            ],
+          }}
+          onAction={onAction}
+        />
+      );
+      expect(screen.getByTestId("reference-accounts-list")).toHaveTextContent(
+        "Seg Z (segz.com.br — confirme)"
+      );
+    });
+
+    it("briefing com perfil: chips mostram (dos seus clientes) e Tecnologia some", () => {
+      render(
+        <AgentConfirmationCard
+          variant="briefing"
+          briefing={{ ...LOOKALIKE, referenceProfile: confidentReferenceProfile() }}
+          onAction={onAction}
+          onEditField={onEditField}
+        />
+      );
+
+      expect(screen.getByTestId("briefing-chip-industry")).toHaveTextContent(
+        "banking (dos seus clientes)"
+      );
+      expect(screen.getByTestId("briefing-chip-companySize")).toHaveTextContent(
+        "201–1000 (dos seus clientes)"
+      );
+      expect(screen.getByTestId("briefing-chip-location")).toHaveTextContent(
+        "Sao Paulo, Brazil (dos seus clientes)"
+      );
+      expect(screen.queryByTestId("briefing-chip-technology")).toBeNull();
+    });
   });
 });

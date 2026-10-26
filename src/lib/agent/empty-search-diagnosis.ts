@@ -20,6 +20,7 @@
  */
 
 import { isAccountListMode } from "@/lib/agent/target-accounts";
+import { activeReferenceProfile } from "@/lib/agent/reference-accounts";
 import {
   QUALITY_MIN_COMPANY_SIZES,
   QUALITY_MIN_COMPANY_SIZE_LABEL,
@@ -134,6 +135,8 @@ export type EmptySearchCauseCode =
   | "quality_floor_applied"
   // Story 24.14: sem tamanho do usuario, a busca usou as faixas do ICP
   | "icp_company_size_applied"
+  // Story 24.18: sem tamanho/setor do usuario, a busca usou o perfil dos clientes de referencia
+  | "reference_profile_applied"
   | "job_titles"
   // busca de leads (Apollo) — ramo por domínios
   | "job_titles_in_companies"
@@ -286,7 +289,9 @@ type DiagnosisBriefing = Pick<
   "technology" | "jobTitles" | "location" | "companySize" | "industry" | "icpDefaults"
 > &
   // Story 24.17: opcionais — no modo lista de contas os textos falam da lista, nao da etapa anterior.
-  Partial<Pick<ParsedBriefing, "targetAccounts" | "suppressedAccounts" | "skipSteps">>;
+  Partial<Pick<ParsedBriefing, "targetAccounts" | "suppressedAccounts" | "skipSteps">> &
+  // Story 24.18: modo contas parecidas — porte e setor vem do perfil dos clientes.
+  Partial<Pick<ParsedBriefing, "referenceAccounts" | "referenceProfile">>;
 
 /**
  * Diagnostica uma busca que voltou vazia e propõe ajustes determinísticos.
@@ -366,7 +371,13 @@ export function diagnoseEmptySearch(
   const fallbackIcpLabel =
     fallbackSizes.source === "icp" ? formatCompanySizesLabel(fallbackSizes.companySizes) : null;
 
-  if (sizeSource === "icp") {
+  if (sizeSource === "reference") {
+    activeFilters.push({
+      label: "Tamanho",
+      value: `${formatCompanySizesLabel(effectiveSizes)} (dos seus clientes)`,
+      note: "Aplicado a partir do perfil dos seus clientes de referencia porque você não informou tamanho.",
+    });
+  } else if (sizeSource === "icp") {
     activeFilters.push({
       label: "Tamanho",
       value: `${formatCompanySizesLabel(effectiveSizes)} (do seu ICP)`,
@@ -390,9 +401,16 @@ export function diagnoseEmptySearch(
     });
   }
 
+  const referenceIndustries = briefing.industry
+    ? []
+    : (activeReferenceProfile(briefing)?.industries ?? []);
   activeFilters.push({
     label: "Indústria",
-    value: briefing.industry ?? "sem filtro",
+    value:
+      briefing.industry ??
+      (referenceIndustries.length > 0
+        ? `${referenceIndustries.join(", ")} (dos seus clientes)`
+        : "sem filtro"),
     ...(industryTextual
       ? {
           note: "A busca por indústria é feita por TEXTO (palavra-chave), não por categoria — é o filtro mais impreciso da busca aberta.",
@@ -427,6 +445,15 @@ export function diagnoseEmptySearch(
     probableCauses.push({
       code: "narrow_location",
       text: `A busca está limitada a uma localidade só ("${location}"). Se for uma cidade ou uma região pequena, há poucos contatos cadastrados ali — ampliar para uma área maior normalmente resolve.`,
+    });
+  }
+
+  if (sizeSource === "reference") {
+    probableCauses.push({
+      code: "reference_profile_applied",
+      text: `A busca usou o perfil dos seus clientes de referencia (porte ${formatCompanySizesLabel(effectiveSizes)}${
+        referenceIndustries.length > 0 ? `, setor ${referenceIndustries.join(", ")}` : ""
+      }). Empresas fora desse perfil ficaram de fora — editar porte, setor ou local no card amplia a busca.`,
     });
   }
 

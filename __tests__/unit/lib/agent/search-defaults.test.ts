@@ -14,6 +14,10 @@ import {
   resolveLocationScope,
   resolveSearchLocations,
 } from "@/lib/agent/search-defaults";
+import {
+  REFERENCE_ACCOUNTS,
+  confidentReferenceProfile,
+} from "../../../helpers/reference-fixtures";
 
 describe("search-defaults — resolveDirectSearchCompanySizes", () => {
   it("aplica o piso de qualidade quando companySize é null (AC1)", () => {
@@ -284,5 +288,93 @@ describe("search-defaults — busca mais precisa (24.15)", () => {
     expect(filters.locations).toEqual(["SP"]);
     expect(filters).not.toHaveProperty("organizationLocations");
     expect(filters.includeSimilarTitles).toBe(false);
+  });
+});
+
+// ==============================================
+// Story 24.18 — modo contas parecidas
+// ==============================================
+
+describe("search-defaults — Story 24.18 (contas parecidas)", () => {
+  const base = {
+    jobTitles: ["CISO"],
+    location: null,
+    industry: null,
+    companySize: null,
+    icpDefaults: { companySizes: ["11-50"], locations: ["Rio de Janeiro"] },
+    skipSteps: ["search_companies"],
+  };
+  const lookalike = {
+    ...base,
+    referenceAccounts: REFERENCE_ACCOUNTS,
+    referenceProfile: confidentReferenceProfile(),
+  };
+
+  it("porte: usuario > perfil (source reference) > ICP", () => {
+    expect(resolveDirectSearchCompanySizes(lookalike)).toEqual({
+      companySizes: ["201-500", "501-1000"],
+      defaultsApplied: false,
+      source: "reference",
+    });
+    expect(resolveDirectSearchCompanySizes({ ...lookalike, companySize: "51-200" }).source).toBe(
+      "user"
+    );
+    // Sem perfil: ICP, como antes.
+    expect(
+      resolveDirectSearchCompanySizes({ ...lookalike, referenceProfile: null }).source
+    ).toBe("icp");
+  });
+
+  it("local: usuario > perfil (fromReference) > ICP", () => {
+    expect(resolveSearchLocations(lookalike)).toEqual({
+      locations: ["Sao Paulo, Brazil"],
+      fromIcp: false,
+      fromReference: true,
+    });
+    expect(resolveSearchLocations({ ...lookalike, location: "Curitiba" }).locations).toEqual([
+      "Curitiba",
+    ]);
+  });
+
+  it("filtros: setores, faixas e regiao do perfil", () => {
+    const filters = buildDirectSearchFilters(lookalike, 25);
+    expect(filters.organizationIndustries).toEqual(["banking"]);
+    expect(filters.companySizes).toEqual(["201-500", "501-1000"]);
+    expect(filters.organizationLocations).toEqual(["Sao Paulo, Brazil"]);
+  });
+
+  it("setor do usuario que esta no perfil vai direto; fora dele, pelo mapa da Apollo", () => {
+    expect(
+      buildDirectSearchFilters({ ...lookalike, industry: "Banking" }, 25).organizationIndustries
+    ).toEqual(["banking"]);
+    const outside = buildDirectSearchFilters({ ...lookalike, industry: "varejo" }, 25);
+    expect(outside.organizationIndustries).toEqual(["retail"]);
+  });
+
+  it("chip editado: Porte 51-200 vai para a busca", () => {
+    expect(buildDirectSearchFilters({ ...lookalike, companySize: "51-200" }, 25).companySizes).toEqual([
+      "51-200",
+    ]);
+  });
+
+  it("canProceed: cargos + referencias suficientes + perfil confiante (sem exigir local)", () => {
+    expect(canProceedWithSearch(lookalike)).toBe(true);
+    expect(canProceedWithSearch({ ...lookalike, jobTitles: [] })).toBe(false);
+    expect(canProceedWithSearch({ ...lookalike, referenceProfile: null })).toBe(false);
+    expect(
+      canProceedWithSearch({ ...lookalike, referenceAccounts: REFERENCE_ACCOUNTS.slice(0, 2) })
+    ).toBe(false);
+  });
+
+  it("sem referencias: identico a hoje", () => {
+    expect(buildDirectSearchFilters(base, 25)).toEqual({
+      titles: ["CISO"],
+      perPage: 25,
+      page: 1,
+      companySizes: ["11-50"],
+      includeSimilarTitles: false,
+      organizationLocations: ["Rio de Janeiro"],
+    });
+    expect(resolveSearchLocations(base)).toEqual({ locations: ["Rio de Janeiro"], fromIcp: true });
   });
 });

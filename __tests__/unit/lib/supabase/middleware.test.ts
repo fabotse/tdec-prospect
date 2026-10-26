@@ -109,6 +109,36 @@ describe("updateSession middleware — authorization", () => {
     });
   });
 
+  // Story 23.5: só a Lista de Supressão é liberada ao SDR (leitura).
+  describe("SDR on /settings/suppression (Story 23.5)", () => {
+    it("allows SDR on /settings/suppression (no redirect)", async () => {
+      authAs("sdr");
+      const res = await updateSession(req("/settings/suppression"));
+      expect(redirectLocation(res)).toBeNull();
+    });
+
+    it.each(["/settings/integrations", "/settings/team", "/settings/suppression-x", "/settings"])(
+      "keeps redirecting SDR away from %s",
+      async (path) => {
+        authAs("sdr");
+        const res = await updateSession(req(path));
+        expect(redirectLocation(res)).toContain("/leads");
+      }
+    );
+
+    it("still redirects unauthenticated users on /settings/suppression to /login", async () => {
+      authAs(null);
+      const res = await updateSession(req("/settings/suppression"));
+      expect(redirectLocation(res)).toContain("/login");
+    });
+
+    it("allows Gestor on /settings/suppression", async () => {
+      authAs("gestor");
+      const res = await updateSession(req("/settings/suppression"));
+      expect(redirectLocation(res)).toBeNull();
+    });
+  });
+
   describe("Gestor passes admin surfaces", () => {
     it("allows Gestor on /settings (no redirect)", async () => {
       authAs("gestor");

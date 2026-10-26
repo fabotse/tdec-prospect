@@ -6,6 +6,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PATCH } from "@/app/api/agent/executions/[executionId]/briefing/route";
 import { createChainBuilder } from "../../../helpers/mock-supabase";
+import {
+  REFERENCE_ACCOUNTS,
+  confidentReferenceProfile,
+} from "../../../helpers/reference-fixtures";
 
 // ==============================================
 // MOCKS
@@ -426,6 +430,58 @@ describe("PATCH /api/agent/executions/[executionId]/briefing", () => {
       createParams()
     );
     expect(response.status).toBe(400);
+  });
+
+  // Story 24.18: referencias e perfil sobrevivem ao strip do z.object.
+  it("deve PRESERVAR referenceAccounts, referenceAccountsSource e referenceProfile (24.18 - strip)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    const referenceProfile = confidentReferenceProfile();
+    const chain = createChainBuilder({
+      data: { id: EXEC_ID, briefing: {}, status: "pending" },
+      error: null,
+    });
+    mockFrom.mockImplementation(() => chain);
+
+    const response = await PATCH(
+      createRequest({
+        ...VALID_BRIEFING,
+        referenceAccounts: REFERENCE_ACCOUNTS,
+        referenceAccountsSource: "user",
+        referenceProfile,
+      }),
+      createParams()
+    );
+    expect(response.status).toBe(200);
+
+    const updateArg = chain.update.mock.calls[0][0] as { briefing: Record<string, unknown> };
+    expect(updateArg.briefing.referenceAccounts).toEqual(REFERENCE_ACCOUNTS);
+    expect(updateArg.briefing.referenceAccountsSource).toBe("user");
+    expect(updateArg.briefing.referenceProfile).toEqual(referenceProfile);
+  });
+
+  it("deve rejeitar mais de 5 referencias e faixa fora do canonico no perfil (24.18)", async () => {
+    mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+    const tooMany = await PATCH(
+      createRequest({
+        ...VALID_BRIEFING,
+        referenceAccounts: Array.from({ length: 6 }, (_, i) => ({
+          name: null,
+          domain: `e${i}.com`,
+          confidence: "high",
+        })),
+      }),
+      createParams()
+    );
+    expect(tooMany.status).toBe(400);
+
+    const badSize = await PATCH(
+      createRequest({
+        ...VALID_BRIEFING,
+        referenceProfile: { ...confidentReferenceProfile(), companySizes: ["50-200"] },
+      }),
+      createParams()
+    );
+    expect(badSize.status).toBe(400);
   });
 
   // Story 24.17: as contas sobrevivem ao strip do z.object (senao a execucao vira busca aberta).

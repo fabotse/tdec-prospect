@@ -716,12 +716,41 @@ describe('Sidebar', () => {
       expect(screen.getByRole('link', { name: /technographic/i })).toBeInTheDocument()
     })
 
-    it('hides Configurações and Technographic for SDR', () => {
+    it('hides Technographic for SDR', () => {
       mockUseUser.mockReturnValue(mockUserReturn({ isAdmin: false, role: 'sdr' }))
       render(<Sidebar {...defaultProps} />)
 
-      expect(screen.queryByRole('link', { name: /configurações/i })).not.toBeInTheDocument()
       expect(screen.queryByRole('link', { name: /technographic/i })).not.toBeInTheDocument()
+    })
+
+    // Story 23.5: SDR entra em Configurações direto na Lista de Supressão (só leitura)
+    it('shows Configurações to SDR pointing to /settings/suppression', () => {
+      mockUseUser.mockReturnValue(mockUserReturn({ isAdmin: false, role: 'sdr' }))
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByRole('link', { name: /configurações/i })).toHaveAttribute(
+        'href',
+        '/settings/suppression'
+      )
+    })
+
+    it('keeps Configurações pointing to /settings for Gestor', () => {
+      mockUseUser.mockReturnValue(mockUserReturn({ isAdmin: true, role: 'gestor' }))
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByRole('link', { name: /configurações/i })).toHaveAttribute(
+        'href',
+        '/settings'
+      )
+    })
+
+    it('hides Configurações from SDR while the profile is loading', () => {
+      mockUseUser.mockReturnValue(
+        mockUserReturn({ isAdmin: false, role: null, isProfileLoading: true })
+      )
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.queryByRole('link', { name: /configurações/i })).not.toBeInTheDocument()
     })
 
     it('keeps prospecting surfaces visible for SDR (no regression)', () => {

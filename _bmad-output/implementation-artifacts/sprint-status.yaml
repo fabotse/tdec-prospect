@@ -34,7 +34,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-25
-last_updated: 2026-10-21  # 23.0 adiada (story escrita, volta a backlog); epic-23 volta a backlog
+last_updated: 2026-10-26  # 23.0 adiada (story escrita, volta a backlog); epic-23 volta a backlog
 project: tdec-prospect
 project_key: NOKEY
 tracking_system: file-system
@@ -573,7 +573,7 @@ development_status:
   23-2-dependencias-sem-vulnerabilidades-criticas: done
   23-3-saude-dos-jobs-e-registro-de-erros-com-a-infraestrutura-atual: done
   23-4-ci-no-github-e-base-verde: done
-  23-5-lista-de-supressao-cadastro-e-import: backlog
+  23-5-lista-de-supressao-cadastro-e-import: awaiting-operator
   23-6-supressao-aplicada-em-todos-os-caminhos: backlog
   23-7-envio-sem-repeticao: backlog
   23-8-oportunidades-sem-falso-positivo-de-security-gateway: done
@@ -598,9 +598,9 @@ development_status:
   24-13-quantos-leads-eu-quero: done
   24-14-briefing-a-partir-do-icp: done
   24-15-busca-mais-precisa: done
-  24-16-fit-score-a-b-c-com-justificativa: awaiting-operator
+  24-16-fit-score-a-b-c-com-justificativa: done
   24-17-modo-lista-de-contas-abm: done
-  24-18-contas-parecidas-com-os-melhores-clientes: backlog
+  24-18-contas-parecidas-com-os-melhores-clientes: done
   24-19-dossie-da-conta: backlog
   24-20-motivo-para-abordar-agora: backlog
   24-21-copy-1-para-1-por-lead: backlog

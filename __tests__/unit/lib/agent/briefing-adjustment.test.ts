@@ -13,6 +13,10 @@ import {
   listRemovedFilters,
 } from "@/lib/agent/briefing-adjustment";
 import type { ParsedBriefing } from "@/types/agent";
+import {
+  REFERENCE_ACCOUNTS,
+  confidentReferenceProfile,
+} from "../../../helpers/reference-fixtures";
 
 const PERSISTED: ParsedBriefing = {
   technology: "Netskope",
@@ -493,5 +497,75 @@ describe("Story 24.15 - locationScope no resumo do ajuste", () => {
     const summary = buildAdjustmentSummary(PERSISTED, PERSISTED, "search_leads", null);
     expect(summary).toContain("- Localizacao: Sao Paulo");
     expect(summary).not.toContain("onde a pessoa esta");
+  });
+});
+
+// ==============================================
+// Story 24.18 — contas parecidas no ajuste
+// ==============================================
+
+describe("Story 24.18 — referencias no ajuste", () => {
+  const lookalikePersisted: ParsedBriefing = {
+    technology: null,
+    jobTitles: ["CISO"],
+    location: null,
+    companySize: null,
+    industry: null,
+    productSlug: null,
+    mode: "guided",
+    skipSteps: ["search_companies"],
+    referenceAccounts: REFERENCE_ACCOUNTS,
+    referenceAccountsSource: "user",
+    referenceProfile: confidentReferenceProfile(),
+  };
+  const plainParse: ParsedBriefing = {
+    technology: null,
+    jobTitles: ["CFO"],
+    location: null,
+    companySize: null,
+    industry: null,
+    productSlug: null,
+    mode: "guided",
+    skipSteps: ["search_companies"],
+  };
+
+  it("ausencia no parse preserva referencias e perfil", () => {
+    const merged = mergeAdjustedBriefing(lookalikePersisted, plainParse);
+    expect(merged.jobTitles).toEqual(["CFO"]);
+    expect(merged.referenceAccounts).toEqual(REFERENCE_ACCOUNTS);
+    expect(merged.referenceProfile).toEqual(lookalikePersisted.referenceProfile);
+    expect(merged.referenceAccountsSource).toBe("user");
+  });
+
+  it("parse sem referencias nao traz tecnologia para o modo", () => {
+    const merged = mergeAdjustedBriefing(lookalikePersisted, {
+      ...plainParse,
+      technology: "Netskope",
+    });
+    expect(merged.technology).toBeNull();
+  });
+
+  it("execucao sem referencias: parse com referencias nao muda a forma", () => {
+    const merged = mergeAdjustedBriefing(PERSISTED, {
+      ...PARSED,
+      technology: null,
+      referenceAccounts: REFERENCE_ACCOUNTS,
+      referenceProfile: confidentReferenceProfile(),
+    });
+    expect(merged.technology).toBe("Netskope");
+    expect(merged).not.toHaveProperty("referenceAccounts");
+  });
+
+  it("buildAdjustmentSummary: referencias e filtros do perfil marcados (dos seus clientes)", () => {
+    const summary = buildAdjustmentSummary(
+      lookalikePersisted,
+      lookalikePersisted,
+      "search_leads",
+      null
+    );
+    expect(summary).toContain("- Clientes de referencia: Banco X");
+    expect(summary).toContain("- Localizacao: Sao Paulo, Brazil (dos seus clientes)");
+    expect(summary).toMatch(/- Tamanho: .+ \(dos seus clientes\)/);
+    expect(summary).toContain("- Industria: banking (dos seus clientes)");
   });
 });

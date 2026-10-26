@@ -10,8 +10,14 @@
 
 "use client";
 
-import { useCallback, useRef, useState } from "react";
-import type { ChatTurn, ParsedBriefing, ExtractedProduct, TargetAccount } from "@/types/agent";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type {
+  ChatTurn,
+  ParsedBriefing,
+  ExtractedProduct,
+  ReferenceProfile,
+  TargetAccount,
+} from "@/types/agent";
 import type { CreateProductInput } from "@/types/product";
 import type { BriefingParseResponse } from "@/app/api/agent/briefing/parse/route";
 import { BriefingSuggestionService } from "@/lib/agent/briefing-suggestion-service";
@@ -34,6 +40,15 @@ import {
   unresolvedAccountNames,
 } from "@/lib/agent/target-accounts";
 import { buildIcpProposalMessage } from "@/lib/agent/icp-briefing";
+import {
+  activeReferenceProfile,
+  formatReferenceAccounts,
+  formatReferenceProfile,
+  hasEnoughReferences,
+  isLookalikeMode,
+  REFERENCE_MAX,
+  REFERENCE_MIN,
+} from "@/lib/agent/reference-accounts";
 
 // ==============================================
 // TYPES
@@ -50,7 +65,8 @@ export type BriefingFlowStatus =
   | "awaiting_product_details"
   | "confirming_product"
   | "awaiting_leads_input"    // Story 17.11: esperando usuario colar leads
-  | "confirming_leads";       // Story 17.11: preview dos leads para confirmacao
+  | "confirming_leads"        // Story 17.11: preview dos leads para confirmacao
+  | "confirming_reference_analysis"; // Story 24.18: card "Analisar" (custo do enrichment)
 
 export interface BriefingFlowState {
   status: BriefingFlowStatus;
@@ -140,6 +156,11 @@ export function generateSmartQuestion(
     return generateTargetAccountsQuestion(briefing);
   }
 
+  // Story 24.18: pergunta deterministica do modo contas parecidas.
+  if (field === "referenceAccounts") {
+    return generateReferenceAccountsQuestion(briefing);
+  }
+
   if (field === "technology") {
     if (suggestions.length > 0) {
       const sectorContext = briefing.industry
@@ -167,7 +188,56 @@ export function generateSmartQuestion(
 // context — tracked in missingFields for isComplete accuracy but NOT asked about in guided
 // questions (technology only resurfaces via isHelpRequest as a suggestion, never as a demand).
 // Story 24.17: `targetAccounts` (conta sem dominio ou nenhuma restante) tambem e perguntado.
-const QUESTIONABLE_FIELDS = ["targetAccounts", "jobTitles", "location"];
+// Story 24.18: `referenceAccounts` (menos de 3 referencias, ou alguma sem site) tambem.
+const QUESTIONABLE_FIELDS = ["targetAccounts", "referenceAccounts", "jobTitles", "location"];
+
+/**
+ * Story 24.18: pergunta do modo contas parecidas. Lista de Supressao sem clientes -> pede as
+ * referencias; senao pede 3 a 5 (e o site das que vieram sem dominio).
+ */
+export function generateReferenceAccountsQuestion(briefing: ParsedBriefing): string {
+  const accounts = briefing.referenceAccounts ?? [];
+  if (accounts.length === 0 && briefing.referenceAccountsSource === "suppression_list") {
+    return `Nao encontrei clientes na Lista de Supressao. Me diga ${REFERENCE_MIN} a ${REFERENCE_MAX} clientes de referencia (nome e site).`;
+  }
+  const found =
+    briefing.referenceAccountsSource === "suppression_list"
+      ? `Encontrei ${accounts.length} na Lista de Supressao.`
+      : `Voce citou ${accounts.length}.`;
+  const question = `Preciso de ${REFERENCE_MIN} a ${REFERENCE_MAX} clientes de referencia (nome e site). ${found}`;
+  const unresolved = unresolvedAccountNames(accounts);
+  return unresolved.length > 0
+    ? `${question} Qual o site (dominio) de: ${unresolved.join(", ")}?`
+    : question;
+}
+
+/** Story 24.18: linha de custo do card "Analisar" (1 credito de enrichment por empresa). */
+export function referenceAnalysisCostLine(count: number): string {
+  return `Custo: ate ${count} ${count === 1 ? "credito" : "creditos"} de enrichment da Apollo (1 por empresa)`;
+}
+
+/** Story 24.18: dica do card "Analisar" (rotulos iguais aos botoes). */
+const REFERENCE_CARD_HINT =
+  'Clique em "Analisar" no card para eu montar o perfil comum, ou em "Usar o ICP" para buscar pelo seu ICP.';
+
+/** Story 24.18: mensagem que acompanha o card "Analisar". */
+export function buildReferenceAnalysisMessage(briefing: ParsedBriefing): string {
+  const accounts = briefing.referenceAccounts ?? [];
+  const count = accounts.filter((a) => a.domain).length;
+  const origin =
+    briefing.referenceAccountsSource === "suppression_list" ? " (da sua Lista de Supressao)" : "";
+  return [
+    `Vou analisar seus clientes de referencia${origin} na Apollo para achar o perfil comum (setor, porte e regiao): ${formatReferenceAccounts(accounts)}.`,
+    `${referenceAnalysisCostLine(count)}.`,
+    REFERENCE_CARD_HINT,
+  ].join("\n");
+}
+
+/** Story 24.18: perfil sem confianca (ou falha da analise) -> explica e pede mais ou o ICP. */
+export function buildReferenceRetryMessage(reason: string | null | undefined): string {
+  const why = reason?.trim() || "Nao consegui analisar seus clientes na Apollo agora.";
+  return `${why} Me diga mais clientes de referencia (nome e site) ou toque em "Usar o ICP".`;
+}
 
 /**
  * Story 24.17: pergunta do modo lista. Conta sem dominio -> pede o site; nenhuma conta
@@ -245,9 +315,19 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
       lines.push(`- Removidas da lista: ${formatSuppressedAccounts(briefing.suppressedAccounts)}`);
     }
   }
+  // Story 24.18: modo contas parecidas (sem referencias, o resumo e identico ao de antes).
+  const lookalikeMode = isLookalikeMode(briefing);
+  if (lookalikeMode) {
+    lines.push(
+      `- Clientes de referencia: ${formatReferenceAccounts(briefing.referenceAccounts) || "nenhum"}`
+    );
+    const profile = activeReferenceProfile(briefing);
+    if (profile) lines.push(`- Perfil comum: ${formatReferenceProfile(profile)}`);
+  }
   if (briefing.technology) lines.push(`- Tecnologia: ${briefing.technology}`);
   if (briefing.jobTitles.length > 0) {
-    const fromIcp = accountListMode && briefing.jobTitlesFromIcp ? " (do seu ICP)" : "";
+    const fromIcp =
+      (accountListMode || lookalikeMode) && briefing.jobTitlesFromIcp ? " (do seu ICP)" : "";
     lines.push(`- Cargos: ${briefing.jobTitles.join(", ")}${fromIcp}`);
   }
   // Story 24.14: sem local do usuario, o local do ICP (quando houver) e o efetivo.
@@ -297,6 +377,11 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
       .filter((f) => !(f === "companySize" && isDirectSearch))
       // Story 24.17: no modo lista nao ha busca por cargo + localizacao nem exigencia de local.
       .filter((f) => !(accountListMode && (f === "technology" || f === "location")))
+      // Story 24.18: no modo contas parecidas o perfil define local e porte.
+      .filter(
+        (f) =>
+          !(lookalikeMode && (f === "technology" || f === "location" || f === "companySize"))
+      )
       .map((f) => fieldNotes[f])
       .filter(Boolean);
     if (notes.length > 0) {
@@ -318,6 +403,11 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
       `Modo lista de contas: vou buscar os decisores direto ${
         accountCount === 1 ? "nessa 1 conta" : `nessas ${accountCount} contas`
       }, sem a busca de empresas.`
+    );
+  } else if (lookalikeMode) {
+    // Story 24.18: no lugar da linha de busca direta e da nota de porte.
+    lines.push(
+      "Contas parecidas: vou buscar empresas com esse perfil, sem os seus clientes e os suprimidos."
     );
   } else if (briefing.skipSteps?.includes("search_companies")) {
     const params = [
@@ -403,6 +493,28 @@ export function icpDefaultChipLabel(
   }
   return null;
 }
+/**
+ * Story 24.18: rotulo do chip VAZIO no modo contas parecidas: `{valor} (dos seus clientes)`
+ * para Industria, Tamanho e Localizacao. Valor do usuario (edicao) -> null (vale o dele).
+ */
+export function referenceChipLabel(
+  field: string,
+  briefing: ParsedBriefing | null | undefined
+): string | null {
+  const profile = activeReferenceProfile(briefing);
+  if (!briefing || !profile) return null;
+  if (field === "industry" && !briefing.industry && profile.industries.length > 0) {
+    return `${profile.industries.join(", ")} (dos seus clientes)`;
+  }
+  if (field === "companySize" && !briefing.companySize && profile.companySizes.length > 0) {
+    return `${formatCompanySizesLabel(profile.companySizes)} (dos seus clientes)`;
+  }
+  if (field === "location" && !briefing.location && profile.locations.length > 0) {
+    return `${profile.locations.join(", ")} (dos seus clientes)`;
+  }
+  return null;
+}
+
 const PRODUCT_CARD_HINT =
   'Clique em "Confirmar" no card para cadastrar, em "Refazer cadastro" para recomecar ou em "Seguir sem produto". Para corrigir um dado, me diga o que mudar.';
 const LEADS_CARD_HINT =
@@ -453,6 +565,10 @@ function briefingChanged(prev: ParsedBriefing | null, next: ParsedBriefing): boo
     (prev.segmentName ?? null) !== (next.segmentName ?? null) ||
     // Story 24.17: trocar/adicionar contas e uma CORRECAO.
     formatTargetAccounts(prev.targetAccounts) !== formatTargetAccounts(next.targetAccounts) ||
+    // Story 24.18: trocar/acrescentar clientes de referencia (ou desistir deles) e CORRECAO.
+    Array.isArray(prev.referenceAccounts) !== Array.isArray(next.referenceAccounts) ||
+    formatReferenceAccounts(prev.referenceAccounts) !==
+      formatReferenceAccounts(next.referenceAccounts) ||
     // Story 22.11 (patch review): skipSteps entra no diff. Sem isto, um turno que injeta o
     // shape de import (search_companies+search_leads) SEM mudar outro campo passa como
     // "briefing inalterado" e um "sim" o confirma direto (keywordConfirmed), pulando o guard
@@ -612,7 +728,18 @@ function withRequiredMissing(briefing: ParsedBriefing, missingFields: string[]):
     } else {
       missing.delete("targetAccounts");
     }
-  } else if (!hasSearchLocation(briefing)) missing.add("location");
+  } else if (isLookalikeMode(briefing)) {
+    // Story 24.18: no modo contas parecidas a localizacao nao e exigida; referencias e perfil sim.
+    missing.delete("location");
+    missing.delete("referenceAccounts");
+    missing.delete("referenceProfile");
+    if (!hasEnoughReferences(briefing)) missing.add("referenceAccounts");
+    else if (!activeReferenceProfile(briefing)) missing.add("referenceProfile");
+  } else {
+    missing.delete("referenceAccounts");
+    missing.delete("referenceProfile");
+    if (!hasSearchLocation(briefing)) missing.add("location");
+  }
   return Array.from(missing);
 }
 
@@ -691,8 +818,10 @@ function reconcileNonImportBriefing(briefing: ParsedBriefing): ParsedBriefing {
     (step) => step !== "search_leads" && step !== "search_companies"
   );
   // Story 24.17: o modo lista mantem `search_companies` pulado (as contas substituem a busca).
+  // Story 24.18: o modo contas parecidas tambem.
+  const reshaped = { ...briefing, skipSteps: withoutImportSteps };
   const skipSteps =
-    briefing.technology && !isAccountListMode({ ...briefing, skipSteps: withoutImportSteps })
+    briefing.technology && !isAccountListMode(reshaped) && !isLookalikeMode(reshaped)
       ? withoutImportSteps
       : [...withoutImportSteps, "search_companies"];
   return { ...briefing, skipSteps };
@@ -741,7 +870,9 @@ export type BriefingCardAction =
   | "redo_product"
   | "skip_product"
   | "confirm_leads"
-  | "redo_leads";
+  | "redo_leads"
+  | "analyze_references"   // Story 24.18
+  | "use_icp_instead";     // Story 24.18
 
 /** Rotulo de cada botao — tambem e o turno do usuario gravado no historico. */
 export const CARD_ACTION_LABELS: Record<BriefingCardAction, string> = {
@@ -752,6 +883,8 @@ export const CARD_ACTION_LABELS: Record<BriefingCardAction, string> = {
   skip_product: "Seguir sem produto",
   confirm_leads: "Confirmar leads",
   redo_leads: "Colar outra lista",
+  analyze_references: "Analisar",
+  use_icp_instead: "Usar o ICP",
 };
 
 // Em qual estado cada acao vale. Fora dele o clique e ignorado ({handled:false}).
@@ -763,6 +896,8 @@ const CARD_ACTION_STATUS: Record<BriefingCardAction, BriefingFlowStatus> = {
   skip_product: "confirming_product",
   confirm_leads: "confirming_leads",
   redo_leads: "confirming_leads",
+  analyze_references: "confirming_reference_analysis",
+  use_icp_instead: "confirming_reference_analysis",
 };
 
 /** Campos do briefing editaveis como chip no card. */
@@ -925,6 +1060,19 @@ export function buildChipEditTurn(field: BriefingCardField, display: string): st
 // HOOK
 // ==============================================
 
+/** Story 24.18: resultado da analise dos clientes de referencia (rota `reference-profile`). */
+export interface ReferenceAnalysisResult {
+  profile: ReferenceProfile | null;
+  confident: boolean;
+  reason: string | null;
+}
+
+/** Story 24.18: callback injetado pelo AgentChat (no molde do `createProduct`). */
+export type AnalyzeReferencesFn = (
+  executionId: string,
+  references: Array<{ name: string | null; domain: string }>
+) => Promise<ReferenceAnalysisResult>;
+
 export interface UseBriefingFlowReturn {
   state: BriefingFlowState;
   processMessage: (
@@ -941,7 +1089,8 @@ export interface UseBriefingFlowReturn {
     action: BriefingCardAction,
     executionId: string,
     sendAgentMessage: (executionId: string, content: string) => Promise<void>,
-    createProduct?: (product: CreateProductInput) => Promise<string | null>
+    createProduct?: (product: CreateProductInput) => Promise<string | null>,
+    analyzeReferences?: AnalyzeReferencesFn
   ) => Promise<{ handled: boolean; confirmed?: boolean }>;
   /**
    * Story 24.5: edicao de um chip do card do briefing (sem /parse). Valor invalido nao
@@ -1001,6 +1150,12 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
   // antigo messageHistoryRef: string[] + join("\n"). Fornece memoria real ao LLM.
   const conversationRef = useRef<ChatTurn[]>([]);
 
+  // Story 24.18: briefing atual para o `/parse` receber o perfil dos clientes ja analisado.
+  const briefingRef = useRef<ParsedBriefing | null>(null);
+  useEffect(() => {
+    briefingRef.current = state.briefing;
+  }, [state.briefing]);
+
   // Story 24.4: contadores do ramo de produto (client-only, nunca persistidos). O nome e
   // pedido no maximo uma vez e a extracao falha no maximo uma vez antes de sair sem produto.
   const productFlowRef = useRef<{ nameAsked: boolean; detailFailures: number }>({
@@ -1029,7 +1184,12 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       const response = await fetch("/api/agent/briefing/parse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ executionId, messages: conversationRef.current }),
+        body: JSON.stringify({
+          executionId,
+          messages: conversationRef.current,
+          // Story 24.18: o perfil atual (o servidor so o anexa se casar com as referencias).
+          referenceProfile: briefingRef.current?.referenceProfile ?? undefined,
+        }),
       });
 
       if (!response.ok) {
@@ -1202,6 +1362,29 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       // Story 22.3 / D3: o gating deterministico prevalece. canProceed=false ->
       // SEMPRE pergunta (o LLM nao pode "prosseguir" sem cargo + localizacao — NFR1).
       if (!result.canProceed) {
+        // Story 24.18: referencias suficientes sem perfil -> card "Analisar" com o custo.
+        // Nenhum enrichment roda sem o clique.
+        const lookalike = isLookalikeMode(result.briefing);
+        if (
+          lookalike &&
+          hasEnoughReferences(result.briefing) &&
+          !activeReferenceProfile(result.briefing)
+        ) {
+          setState((prev) => ({
+            ...prev,
+            status: "confirming_reference_analysis",
+            briefing: result.briefing,
+            missingFields: result.missingFields,
+            isComplete: result.isComplete,
+          }));
+          await sendAndRecord(
+            executionId,
+            buildReferenceAnalysisMessage(result.briefing),
+            sendAgentMessage
+          );
+          return { handled: true };
+        }
+
         setState((prev) => ({
           ...prev,
           status: "awaiting_fields",
@@ -1224,8 +1407,16 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
           listMode &&
           (!(result.briefing.targetAccounts?.length ?? 0) ||
             hasUnresolvedAccounts(result.briefing.targetAccounts));
+        // Story 24.18: referencias insuficientes -> pergunta SEMPRE deterministica.
+        const referencesBlocked = lookalike && !hasEnoughReferences(result.briefing);
         let question: string;
-        if (accountsBlocked) {
+        if (referencesBlocked) {
+          const referenceQuestion = generateReferenceAccountsQuestion(result.briefing);
+          const titlesQuestion = result.briefing.jobTitles?.length
+            ? ""
+            : generateSmartQuestion("jobTitles", result.suggestions.jobTitles ?? [], result.briefing);
+          question = [referenceQuestion, titlesQuestion].filter(Boolean).join("\n");
+        } else if (accountsBlocked) {
           const accountQuestion = generateTargetAccountsQuestion(result.briefing);
           const titlesQuestion = result.briefing.jobTitles?.length
             ? ""
@@ -1797,7 +1988,11 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       }
 
       // Awaiting fields — check for help request or re-parse with accumulated context
-      if (currentStatus === "awaiting_fields") {
+      // Story 24.18: texto com o card "Analisar" visivel e conversa (nunca analisa).
+      if (
+        currentStatus === "awaiting_fields" ||
+        currentStatus === "confirming_reference_analysis"
+      ) {
         // Story 17.8 AC: #2 — detect help keywords and respond with suggestions
         // Story 22.7 (D5): este fast-path de ajuda e CLIENT-SIDE sincrono e NAO tem
         // acesso a Supabase/tenant, entao permanece ESTATICO de proposito. A melhoria
@@ -1845,7 +2040,7 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
           const result = await callParseAPI(executionId);
           return handleParseResult(result, executionId, sendAgentMessage, content, state.briefing, state.productMentioned);
         } catch {
-          setState((prev) => ({ ...prev, status: "awaiting_fields" }));
+          setState((prev) => ({ ...prev, status: currentStatus }));
           return { handled: false };
         }
       }
@@ -1887,7 +2082,8 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       action: BriefingCardAction,
       executionId: string,
       sendAgentMessage: (executionId: string, content: string) => Promise<void>,
-      createProduct?: (product: CreateProductInput) => Promise<string | null>
+      createProduct?: (product: CreateProductInput) => Promise<string | null>,
+      analyzeReferences?: AnalyzeReferencesFn
     ): Promise<{ handled: boolean; confirmed?: boolean }> => {
       // Clique fora do estado do card (card velho, duplo clique) nao faz nada.
       if (state.status !== CARD_ACTION_STATUS[action]) return { handled: false };
@@ -1895,7 +2091,70 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       // O clique e um turno do usuario: entra na memoria do proximo /parse.
       conversationRef.current.push({ role: "user", content: CARD_ACTION_LABELS[action] });
 
+      // Story 24.18: reavalia um briefing alterado pelo card como se viesse do /parse.
+      const reevaluate = (briefing: ParsedBriefing) =>
+        handleParseResult(
+          {
+            briefing,
+            missingFields: withRequiredMissing(briefing, state.missingFields),
+            isComplete: false,
+            canProceed: canProceedWithSearch(briefing),
+            suggestions: {},
+            productMentioned: null,
+            nextAction: "confirm",
+            questionText: null,
+          },
+          executionId,
+          sendAgentMessage,
+          CARD_ACTION_LABELS[action],
+          briefing,
+          state.productMentioned
+        );
+
       switch (action) {
+        case "analyze_references": {
+          const briefing = state.briefing;
+          if (!briefing || !hasEnoughReferences(briefing)) {
+            if (!briefing) return { handled: false };
+            return reevaluate(briefing);
+          }
+          const references = (briefing.referenceAccounts ?? [])
+            .filter((a): a is TargetAccount & { domain: string } => Boolean(a.domain))
+            .map((a) => ({ name: a.name, domain: a.domain }));
+          setState((prev) => ({ ...prev, status: "parsing" }));
+          let analysis: ReferenceAnalysisResult = { profile: null, confident: false, reason: null };
+          if (analyzeReferences) {
+            try {
+              analysis = await analyzeReferences(executionId, references);
+            } catch {
+              // rota fora: tratado como nao confiante
+            }
+          }
+          if (analysis.confident && analysis.profile) {
+            return reevaluate({ ...briefing, referenceProfile: analysis.profile });
+          }
+          setState((prev) => ({
+            ...prev,
+            status: "awaiting_fields",
+            briefing: { ...briefing, referenceProfile: null },
+          }));
+          await sendAndRecord(
+            executionId,
+            buildReferenceRetryMessage(analysis.reason),
+            sendAgentMessage
+          );
+          return { handled: true };
+        }
+
+        case "use_icp_instead": {
+          if (!state.briefing) return { handled: false };
+          const briefing: ParsedBriefing = { ...state.briefing };
+          delete briefing.referenceAccounts;
+          delete briefing.referenceAccountsSource;
+          delete briefing.referenceProfile;
+          return reevaluate(briefing);
+        }
+
         case "confirm_briefing": {
           const briefing = state.briefing;
           // Mesma regra do canProceed do /parse: cargo + localizacao, ou lista importada.
@@ -1999,7 +2258,9 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       state.briefing,
       state.missingFields,
       state.pendingProduct,
+      state.productMentioned,
       sendAndRecord,
+      handleParseResult,
       exitProductFlowBase,
       askProductNameBase,
     ]

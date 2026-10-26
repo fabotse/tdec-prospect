@@ -15,6 +15,10 @@ import { QUALITY_MIN_COMPANY_SIZES } from "@/lib/agent/search-defaults";
 import { mergeRequestedTitles, scoreLeadByRules } from "@/lib/agent/fit-score-rules";
 import { EMPTY_TENANT_ICP } from "@/lib/agent/icp-briefing";
 import {
+  REFERENCE_ACCOUNTS,
+  confidentReferenceProfile,
+} from "../../../../helpers/reference-fixtures";
+import {
   EMPTY_LEAD_SEARCH_MESSAGE,
   SIMILAR_TITLES_FALLBACK_MESSAGE,
 } from "@/lib/agent/steps/search-leads-step";
@@ -86,6 +90,13 @@ vi.mock("@/lib/agent/account-suppression", async (importOriginal) => {
     findSuppressedAccounts: (...args: unknown[]) => mockFindSuppressedAccounts(...args),
   };
 });
+
+// Story 24.18: dominios da Lista de Supressao (fail-open; suite propria do modulo puro).
+const mockReadSuppressedDomains = vi.fn();
+vi.mock("@/lib/agent/reference-suppression", () => ({
+  readSuppressedDomains: (...args: unknown[]) => mockReadSuppressedDomains(...args),
+  readSuppressionListClients: vi.fn(),
+}));
 
 // Story 24.15: leitura de "ja contatado"/suprimido (suite propria em lead-screening.test.ts).
 const mockFindContactedLeads = vi.fn();
@@ -262,6 +273,7 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
     mockSearchPeople.mockResolvedValue(mockLeadsResponse);
     mockReadTenantICP.mockResolvedValue(EMPTY_TENANT_ICP);
     mockFindSuppressedAccounts.mockResolvedValue([]);
+    mockReadSuppressedDomains.mockResolvedValue([]);
     mockFindContactedLeads.mockResolvedValue(new Map());
     mockScoreLeads.mockImplementation(async (params: ScorerParams) => rulesOnlyScoring(params));
     // Default: enrichment returns email for leads
@@ -1596,6 +1608,114 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
       await expect(step.run(input)).rejects.toMatchObject({
         message: expect.stringContaining(EMPTY_LEAD_SEARCH_MESSAGE),
       });
+    });
+  });
+
+  describe("Story 24.18 — contas parecidas", () => {
+    function lookalikeInput(overrides: Partial<StepInput["briefing"]> = {}): StepInput {
+      return {
+        ...createInput({
+          technology: null,
+          jobTitles: ["CISO"],
+          location: null,
+          companySize: null,
+          industry: null,
+          skipSteps: ["search_companies"],
+          referenceAccounts: REFERENCE_ACCOUNTS,
+          referenceAccountsSource: "user",
+          referenceProfile: confidentReferenceProfile(),
+          ...overrides,
+        }),
+        previousStepOutput: undefined,
+      };
+    }
+
+    function leadAt(company: string, id: string) {
+      return { ...mockLeadsResponse.leads[0], id, apollo_id: id, company_name: company };
+    }
+
+    it("busca com setores, faixas e regiao do perfil e prefixa o Fit Score", async () => {
+      const result = await step.run(lookalikeInput());
+
+      expect(mockSearchPeople).toHaveBeenCalledWith(
+        expect.objectContaining({
+          titles: ["CISO"],
+          companySizes: ["201-500", "501-1000"],
+          organizationIndustries: ["banking"],
+          organizationLocations: ["Sao Paulo, Brazil"],
+        })
+      );
+      expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: expect.stringContaining(
+            "Buscando leads (CISO) em empresas parecidas com seus clientes..."
+          ),
+        })
+      );
+      const leads = result.data.leads as Array<{ fitScore: string; fitReason: string }>;
+      expect(leads.length).toBeGreaterThan(0);
+      for (const lead of leads) {
+        expect(lead.fitReason.startsWith("mesmo setor e porte de Banco X; ")).toBe(true);
+      }
+      expect(result.data.lookalike).toEqual({
+        references: REFERENCE_ACCOUNTS,
+        similarity: "mesmo setor e porte de Banco X",
+        excludedCount: 0,
+      });
+    });
+
+    it("remove clientes e dominios suprimidos do resultado e avisa", async () => {
+      mockReadSuppressedDomains.mockResolvedValue(["empresaw.com.br"]);
+      mockSearchPeople.mockResolvedValue({
+        leads: [leadAt("Banco X", "a1"), leadAt("Empresa W", "a2"), leadAt("Outro Banco", "a3")],
+        pagination: { totalEntries: 3, page: 1, perPage: 25, totalPages: 1 },
+      });
+
+      const result = await step.run(lookalikeInput());
+
+      const leads = result.data.leads as Array<{ companyName: string }>;
+      expect(leads.map((l) => l.companyName)).toEqual(["Outro Banco"]);
+      expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          role: "system",
+          content: "Removi da busca 2 leads de clientes ou contas suprimidas.",
+        })
+      );
+      expect((result.data.lookalike as { excludedCount: number }).excludedCount).toBe(2);
+    });
+
+    it("leitura da supressao falha (vazia): so as referencias saem", async () => {
+      mockReadSuppressedDomains.mockResolvedValue([]);
+      mockSearchPeople.mockResolvedValue({
+        leads: [leadAt("Banco X", "a1"), leadAt("Empresa W", "a2")],
+        pagination: { totalEntries: 2, page: 1, perPage: 25, totalPages: 1 },
+      });
+
+      const result = await step.run(lookalikeInput());
+
+      const leads = result.data.leads as Array<{ companyName: string }>;
+      expect(leads.map((l) => l.companyName)).toEqual(["Empresa W"]);
+    });
+
+    it("chip de porte editado: busca usa 51-200 e a semelhanca so pelo setor", async () => {
+      const result = await step.run(lookalikeInput({ companySize: "51-200" }));
+
+      expect(mockSearchPeople).toHaveBeenCalledWith(
+        expect.objectContaining({ companySizes: ["51-200"] })
+      );
+      expect((result.data.lookalike as { similarity: string }).similarity).toBe(
+        "mesmo setor de Banco X"
+      );
+    });
+
+    it("sem referencias: fluxo direto inalterado (supressao nao lida)", async () => {
+      const result = await step.run({
+        ...createInput({ technology: null, skipSteps: ["search_companies"] }),
+        previousStepOutput: undefined,
+      });
+
+      expect(mockReadSuppressedDomains).not.toHaveBeenCalled();
+      expect(result.data).not.toHaveProperty("lookalike");
     });
   });
 });

@@ -334,6 +334,16 @@ export interface ApolloEnrichedOrganization {
   domain: string | null;
   industry: string | null;
   estimated_num_employees: number | null;
+  // Story 24.18: campos do Organization Enrichment (opcionais).
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  technology_names?: string[] | null;
+}
+
+/** Story 24.18: resposta de GET /v1/organizations/enrich. */
+export interface ApolloOrganizationEnrichResponse {
+  organization?: ApolloEnrichedOrganization | null;
 }
 
 /**

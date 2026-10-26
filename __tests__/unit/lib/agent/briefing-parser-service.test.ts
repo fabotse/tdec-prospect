@@ -857,4 +857,59 @@ describe("BriefingParserService", () => {
       expect(system).toContain("NUNCA invente uma empresa");
     });
   });
+
+  describe("referenceAccounts (Story 24.18)", () => {
+    it("extrai referencias saneadas com corte em 5", async () => {
+      mockOpenAIResponse({
+        ...FULL_BRIEFING_RESPONSE,
+        technology: null,
+        referenceAccounts: Array.from({ length: 7 }, (_, i) => ({
+          name: null,
+          domain: `cliente${i}.com.br`,
+          confidence: "low",
+        })),
+      });
+
+      const result = await BriefingParserService.parse(
+        "CISO em empresas parecidas com cliente0.com.br",
+        "sk-test-key"
+      );
+
+      expect(result.briefing.referenceAccounts).toHaveLength(5);
+      expect(result.briefing.referenceAccounts?.[0]).toEqual({
+        name: null,
+        domain: "cliente0.com.br",
+        confidence: "high",
+      });
+      expect(result.briefing.referenceAccounts?.[4]?.domain).toBe("cliente4.com.br");
+    });
+
+    it("useSuppressionListClients fail-open; sem referencias a chave nao entra", async () => {
+      mockOpenAIResponse({
+        ...FULL_BRIEFING_RESPONSE,
+        referenceAccounts: null,
+        useSuppressionListClients: "talvez",
+      });
+
+      const result = await BriefingParserService.parse("CTO em SP", "sk-test-key");
+
+      expect(result.briefing).not.toHaveProperty("referenceAccounts");
+      expect(result.rawResponse.useSuppressionListClients).toBe(false);
+    });
+
+    it("o prompt descreve o modo contas parecidas", async () => {
+      mockOpenAIResponse(FULL_BRIEFING_RESPONSE);
+
+      await BriefingParserService.parse("CTO em SP", "sk-test-key");
+
+      const request = mockCreate.mock.calls[0][0] as {
+        messages: Array<{ role: string; content: string }>;
+      };
+      const system = request.messages[0].content;
+      expect(system).toContain("referenceAccounts");
+      expect(system).toContain("NUNCA em targetAccounts");
+      expect(system).toContain("useSuppressionListClients");
+      expect(system).toContain("usar o ICP");
+    });
+  });
 });

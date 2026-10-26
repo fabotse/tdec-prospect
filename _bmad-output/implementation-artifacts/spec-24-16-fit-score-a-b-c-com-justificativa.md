@@ -2,7 +2,7 @@
 title: '24.16 — Fit Score A/B/C com justificativa'
 type: 'feature'
 created: '2026-10-22'
-status: awaiting-operator
+status: done
 operator_actions:
   - 'Aplicar no SQL Editor do Supabase de produção (kdgogyqyaxncqoyklyxx) a migration supabase/migrations/00070_add_lead_fit_score.sql (só aditiva: 3 colunas nullable em leads).'
   - 'Depois de aplicar, fazer o smoke do agente ("CISO de São Paulo", 2 leads, parar antes de gastos/ativação) e conferir no gate os badges A/B/C com justificativa e, após aprovar, leads.fit_score/fit_reason preenchidos.'
@@ -221,3 +221,26 @@ Status: awaiting-operator
 **Pendente do operador (operator_actions):** aplicar a migration 00070 no Supabase de producao e fazer o smoke do agente.
 
 **Riscos residuais:** a latencia e a qualidade do LLM real nao foram medidas (deferidos). Ate a migration ser aplicada, o score aparece na revisao mas nao e gravado em `leads` (cada execucao loga um aviso). A busca do agente muda o tamanho da pagina (N < 5 encolhe; N=2 → 10) e a ordem dos leads. Cada busca do agente com chave OpenAI custa 1 chamada de IA a mais (R$ 0,02 no preco padrao).
+
+## Smoke em produção (2026-10-26)
+
+Deploy via PR #15 (merge `824785c` na `main`, Vercel prod OK). Migration 00070 aplicada e conferida antes. Fabossi rodou o agente em produção no modo Guiado (execução `fbe21d05-9f94-466b-a521-48dc45449f3a`, "CISO de São Paulo, traga 2 leads"). Conferido na tela e no banco com `scripts/db-ro.sh`:
+
+- Revisão de leads: "2 de 85 leads selecionados" (24.13 ok), coluna Fit com badge e justificativa de 1 linha em cada lead.
+- `api_usage_logs` da chamada do Fit Score: `stepType: search_leads`, `fitSource: "llm"`, `llmScored: 10`, `gpt-5.4-mini`, **1,9 s** (o deferido de latência fica respondido para N=2; universo maior não medido).
+- `leads.fit_score`, `fit_reason` e `fit_scored_at` gravados nos 2 leads aprovados (Fase 6 funcionando).
+- `cost_actual`: `search_leads` R$ 0,02, `create_campaign` R$ 0,58, `export` R$ 0, total R$ 0,60; mensagem "Custo da execução — estimado R$ 0,60 · real R$ 0,60".
+- Todas as notas saíram **B** ("cargo bate, mas empresa de perfil incerto"): o ICP do tenant não tem porte/setor/região preenchidos, então o LLM não tem como dar A. Qualidade das notas com ICP completo segue não verificada (deferido continua aberto).
+
+**Efeito no cliente:** a etapa "Criação de Campanha" foi aprovada por engano, e o export criou no Instantly a campanha "Campanha Outbound - 26/10/2026" (`21a63421-af69-4cf6-97d3-0bf8539b6b71`, 2 leads). **Não foi ativada:** a execução foi encerrada com "Ativar Depois" (1 conta de envio do Fabossi anexada, step 5 `skipped`, execução `completed`, `activationDeferred: true`), e Fabossi apagou a campanha no Instantly. Os 3 pontos seguem funcionando: a busca de leads e o export rodaram normalmente neste smoke; campanhas rodando não foram tocadas.
+
+**Backlog anotado:** depois do export, o card de ativação só oferece "Ativar Campanha" ou "Ativar Depois" (este exige ≥1 conta marcada), sem saída de cancelar. Não mexido agora por estar no caminho do Instantly.
+
+## Operator Confirmation
+
+Confirmed 2026-10-26: the external actions this story owed were carried out.
+
+- Aplicar no SQL Editor do Supabase de produção (kdgogyqyaxncqoyklyxx) a migration supabase/migrations/00070_add_lead_fit_score.sql (só aditiva: 3 colunas nullable em leads).
+- Depois de aplicar, fazer o smoke do agente ("CISO de São Paulo", 2 leads, parar antes de gastos/ativação) e conferir no gate os badges A/B/C com justificativa e, após aprovar, leads.fit_score/fit_reason preenchidos.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._

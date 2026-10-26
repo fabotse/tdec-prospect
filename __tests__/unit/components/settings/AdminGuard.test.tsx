@@ -4,10 +4,12 @@ import { AdminGuard } from "@/components/settings/AdminGuard";
 
 // Mock next/navigation
 const mockPush = vi.fn();
+const mockUsePathname = vi.fn(() => "/settings/integrations");
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: mockPush,
   }),
+  usePathname: () => mockUsePathname(),
 }));
 
 // Mock useUser hook
@@ -165,6 +167,56 @@ describe("AdminGuard", () => {
       );
 
       expect(screen.getByTestId("custom-fallback")).toBeInTheDocument();
+    });
+  });
+
+  // Story 23.5: o não-admin passa só nos caminhos liberados
+  describe("nonAdminPaths", () => {
+    const sdr = {
+      isLoading: false,
+      isAdmin: false,
+      user: { id: "user-123", email: "sdr@test.com" },
+    };
+
+    it("renders children for non-admin on a released path", () => {
+      mockUseUser.mockReturnValue(sdr);
+      mockUsePathname.mockReturnValue("/settings/suppression");
+
+      render(
+        <AdminGuard nonAdminPaths={["/settings/suppression"]} fallback={<div>Access Denied</div>}>
+          <div>Suppression</div>
+        </AdminGuard>
+      );
+
+      expect(screen.getByText("Suppression")).toBeInTheDocument();
+      expect(screen.queryByText("Access Denied")).not.toBeInTheDocument();
+    });
+
+    it("keeps the fallback for non-admin on any other settings path", () => {
+      mockUseUser.mockReturnValue(sdr);
+      mockUsePathname.mockReturnValue("/settings/integrations");
+
+      render(
+        <AdminGuard nonAdminPaths={["/settings/suppression"]} fallback={<div>Access Denied</div>}>
+          <div>Integrations</div>
+        </AdminGuard>
+      );
+
+      expect(screen.getByText("Access Denied")).toBeInTheDocument();
+      expect(screen.queryByText("Integrations")).not.toBeInTheDocument();
+    });
+
+    it("keeps the fallback on a released path when nonAdminPaths is not passed", () => {
+      mockUseUser.mockReturnValue(sdr);
+      mockUsePathname.mockReturnValue("/settings/suppression");
+
+      render(
+        <AdminGuard fallback={<div>Access Denied</div>}>
+          <div>Suppression</div>
+        </AdminGuard>
+      );
+
+      expect(screen.getByText("Access Denied")).toBeInTheDocument();
     });
   });
 });

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { usePlatformAdmin } from "@/hooks/use-platform-admin";
+import { useUser } from "@/hooks/use-user";
+import { isNonAdminSettingsPath } from "@/lib/auth/settings-access";
 
 interface Tab {
   id: string;
@@ -13,7 +15,8 @@ interface Tab {
 }
 
 // Note: Admin access is enforced server-side via middleware (Story 2.1 - AC #5)
-// All tabs here are admin-only; middleware redirects non-admins before reaching this component
+// Tabs are admin-only, except the ones in NON_ADMIN_SETTINGS_PATHS (Story 23.5: Lista de
+// Supressão, read-only for SDR). Middleware redirects non-admins from every other tab.
 const tabs: Tab[] = [
   { id: "integrations", label: "Integrações", href: "/settings/integrations" },
   { id: "knowledge-base", label: "Base de Conhecimento", href: "/settings/knowledge-base" },
@@ -21,6 +24,7 @@ const tabs: Tab[] = [
   { id: "usage", label: "Uso da API", href: "/settings/usage" },
   { id: "monitoring", label: "Monitoramento", href: "/settings/monitoring" },
   { id: "notifications", label: "Notificações", href: "/settings/notifications" },
+  { id: "suppression", label: "Lista de Supressão", href: "/settings/suppression" },
   { id: "errors", label: "Erros", href: "/settings/errors", platformOnly: true },
   { id: "team", label: "Equipe", href: "/settings/team" },
 ];
@@ -35,7 +39,15 @@ const tabs: Tab[] = [
 export function SettingsTabs() {
   const pathname = usePathname();
   const { data: isPlatformAdmin } = usePlatformAdmin();
-  const visibleTabs = tabs.filter((tab) => !tab.platformOnly || isPlatformAdmin === true);
+  const { isAdmin, isLoading, isProfileLoading } = useUser();
+  // Enquanto o perfil carrega `isAdmin` é false: não mostra abas para o admin não ver
+  // só "Lista de Supressão" por um instante.
+  const profileReady = !isLoading && !isProfileLoading;
+  const visibleTabs = !profileReady
+    ? []
+    : tabs
+        .filter((tab) => !tab.platformOnly || isPlatformAdmin === true)
+        .filter((tab) => isAdmin || isNonAdminSettingsPath(tab.href));
 
   return (
     <nav className="flex gap-1 border-b border-border" role="tablist">

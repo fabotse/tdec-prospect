@@ -21,7 +21,9 @@ import {
   summarizeScreening,
 } from "@/lib/agent/lead-screening";
 import type { ApolloSearchFilters } from "@/types/apollo";
-import type { SearchLeadResult } from "@/types/agent";
+import { buildLookalikeExclusion } from "@/lib/agent/reference-accounts";
+import { readSuppressedDomains } from "@/lib/agent/reference-suppression";
+import type { SearchLeadResult, TargetAccount } from "@/types/agent";
 
 const CREDITS_PER_LEAD = 1;
 
@@ -206,14 +208,26 @@ export async function POST(
     );
   }
 
+  // Story 24.18: no modo contas parecidas, os clientes de referencia e os dominios da Lista
+  // de Supressao continuam fora (mesma exclusao do step; leitura fail-open).
+  const lookalike = existingOutput.lookalike as { references?: TargetAccount[] } | undefined;
+  let candidateLeads = allLeads;
+  if (lookalike) {
+    const isExcluded = buildLookalikeExclusion(
+      lookalike.references ?? [],
+      await readSuppressedDomains(supabase, profile.tenant_id)
+    );
+    candidateLeads = allLeads.filter((lead) => !isExcluded(lead.companyName));
+  }
+
   // Story 24.15: mesma triagem do step (antes do dedupe/corte) — remove suprimidos e marca
   // orgaos publicos e ja contatados. Fail-open.
   const contactMap = await findContactedLeads(
     supabase,
     profile.tenant_id,
-    allLeads.map((l) => l.apolloId)
+    candidateLeads.map((l) => l.apolloId)
   );
-  const screened = screenLeads(allLeads, contactMap);
+  const screened = screenLeads(candidateLeads, contactMap);
 
   // Deduplicate by email (case-insensitive), fallback to apolloId
   const seen = new Set<string>();

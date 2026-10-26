@@ -20,13 +20,17 @@ import {
   CARD_ACTION_LABELS,
   formatBriefingFieldValue,
   icpDefaultChipLabel,
+  referenceAnalysisCostLine,
+  referenceChipLabel,
   type BriefingCardAction,
   type BriefingCardField,
 } from "@/hooks/use-briefing-flow";
 import { formatTargetAccountsInput, isAccountListMode } from "@/lib/agent/target-accounts";
+import { formatReferenceAccounts, isLookalikeMode } from "@/lib/agent/reference-accounts";
 import type { ExtractedProduct, ParsedBriefing } from "@/types/agent";
 
-export type ConfirmationCardVariant = "briefing" | "product" | "leads";
+// Story 24.18: "references" = card "Analisar" dos clientes de referencia (com o custo).
+export type ConfirmationCardVariant = "briefing" | "product" | "leads" | "references";
 
 interface AgentConfirmationCardProps {
   variant: ConfirmationCardVariant;
@@ -210,13 +214,20 @@ export function AgentConfirmationCard({
           <div className="flex flex-wrap gap-2 mb-3">
             {BRIEFING_CHIP_FIELDS.filter((field) =>
               // Story 24.17: "Contas" so no modo lista; "Tecnologia" nao roda no modo lista.
-              isAccountListMode(briefing) ? field !== "technology" : field !== "targetAccounts"
+              // Story 24.18: nem no modo contas parecidas.
+              isAccountListMode(briefing)
+                ? field !== "technology"
+                : field !== "targetAccounts" &&
+                  !(isLookalikeMode(briefing) && field === "technology")
             ).map((field) => {
               const value = briefing[field];
               const isEmpty =
                 value == null || value === "" || (Array.isArray(value) && value.length === 0);
               // Story 24.14: chip vazio com default do ICP mostra "{valor} (do ICP)".
-              const icpLabel = isEmpty ? icpDefaultChipLabel(field, briefing) : null;
+              // Story 24.18: no modo contas parecidas, "{valor} (dos seus clientes)".
+              const icpLabel = isEmpty
+                ? (referenceChipLabel(field, briefing) ?? icpDefaultChipLabel(field, briefing))
+                : null;
               return (
                 <button
                   key={field}
@@ -257,6 +268,30 @@ export function AgentConfirmationCard({
           <div className="flex justify-end gap-2">
             {actionButton("adjust_briefing", "outline")}
             {actionButton("confirm_briefing")}
+          </div>
+        </>
+      )}
+
+      {variant === "references" && briefing && (
+        <>
+          <p className="text-body-small font-medium text-foreground mb-2">
+            Analisar clientes de referencia
+          </p>
+          <ul className="text-caption mb-2 list-disc pl-5" data-testid="reference-accounts-list">
+            {(briefing.referenceAccounts ?? []).map((account, index) => (
+              <li key={account.domain ?? `${account.name ?? "cliente"}-${index}`}>
+                {formatReferenceAccounts([account])}
+              </li>
+            ))}
+          </ul>
+          <p className="text-caption text-muted-foreground mb-3" data-testid="reference-analysis-cost">
+            {referenceAnalysisCostLine(
+              (briefing.referenceAccounts ?? []).filter((a) => a.domain).length
+            )}
+          </p>
+          <div className="flex flex-wrap justify-end gap-2">
+            {actionButton("use_icp_instead", "outline")}
+            {actionButton("analyze_references")}
           </div>
         </>
       )}

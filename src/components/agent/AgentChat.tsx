@@ -55,6 +55,7 @@ import {
   buildChipEditTurn,
   buildIcpProposalTurn,
   ICP_MISSING_HINT,
+  type AnalyzeReferencesFn,
   type BriefingCardAction,
   type BriefingCardField,
 } from "@/hooks/use-briefing-flow";
@@ -372,6 +373,39 @@ export function AgentChat() {
         return result.data.id;
       } catch {
         return null;
+      }
+    },
+    []
+  );
+
+  // Story 24.18: analise dos clientes de referencia (so pelo clique em "Analisar").
+  // Erro da rota vira resultado nao confiante com a mensagem do servidor.
+  const analyzeReferences = useCallback<AnalyzeReferencesFn>(
+    async (executionId, references) => {
+      try {
+        const response = await fetch(
+          `/api/agent/executions/${executionId}/reference-profile`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ references }),
+          }
+        );
+        const result = await response.json().catch(() => null);
+        if (!response.ok || !result) {
+          return {
+            profile: null,
+            confident: false,
+            reason: result?.error?.message ?? null,
+          };
+        }
+        return {
+          profile: result.profile ?? null,
+          confident: result.confident === true,
+          reason: result.reason ?? null,
+        };
+      } catch {
+        return { profile: null, confident: false, reason: null };
       }
     },
     []
@@ -981,7 +1015,13 @@ export function AgentChat() {
       // O clique e um turno do usuario no historico duravel (o hook grava na memoria).
       sendMessageMutation.mutate({ executionId: execId, content: CARD_ACTION_LABELS[action] });
       try {
-        const result = await processCardAction(action, execId, sendAgentMessage, createProduct);
+        const result = await processCardAction(
+          action,
+          execId,
+          sendAgentMessage,
+          createProduct,
+          analyzeReferences
+        );
         if (result.confirmed) {
           await finishBriefingConfirmation(execId);
         }
@@ -1004,6 +1044,7 @@ export function AgentChat() {
       processCardAction,
       sendAgentMessage,
       createProduct,
+      analyzeReferences,
       finishBriefingConfirmation,
       refetchMessages,
     ]
@@ -1240,7 +1281,9 @@ export function AgentChat() {
           ? "product"
           : briefingState.status === "confirming_leads"
             ? "leads"
-            : null;
+            : briefingState.status === "confirming_reference_analysis" && briefingState.briefing
+              ? "references"
+              : null;
 
   return (
     <div className="flex flex-col flex-1 min-h-0" data-testid="agent-chat">

@@ -35,10 +35,16 @@ import {
   withAccountNames,
 } from "@/lib/agent/account-suppression";
 import { diagnoseEmptySearch } from "@/lib/agent/empty-search-diagnosis";
+import {
+  buildLookalikeExclusion,
+  isLookalikeMode,
+  similarityReason,
+} from "@/lib/agent/reference-accounts";
+import { readSuppressedDomains } from "@/lib/agent/reference-suppression";
 import { resolveLeadCount, resolveLeadsPerPage } from "@/lib/agent/agent-pricing";
 import { logAgentUsage } from "@/lib/agent/agent-usage";
 import { scoreLeads, type ScoreLeadsResult } from "@/lib/agent/fit-scorer";
-import { countFitGrades, sortByFitGrade } from "@/lib/agent/fit-score-rules";
+import { countFitGrades, sortByFitGrade, truncateFitReason } from "@/lib/agent/fit-score-rules";
 import { readTenantICP } from "@/lib/agent/contextual-suggestions";
 import { EMPTY_TENANT_ICP, type TenantICP } from "@/lib/agent/icp-briefing";
 import type {
@@ -58,6 +64,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // ==============================================
 
 const CREDITS_PER_LEAD = 1;
+
+/** Story 24.18: aviso quando clientes ou contas suprimidas sairam do resultado. */
+export function lookalikeExcludedMessage(count: number): string {
+  return `Removi da busca ${count} ${count === 1 ? "lead" : "leads"} de clientes ou contas suprimidas.`;
+}
 
 /** Story 24.15: mensagem quando o cargo exato trouxe pouco e a busca ampliou. */
 export const SIMILAR_TITLES_FALLBACK_MESSAGE =
@@ -125,6 +136,8 @@ export class SearchLeadsStep extends BaseStep {
     const isDirectEntry = !previousStepOutput;
     // Story 24.17: modo lista de contas — vem ANTES dos ramos atuais.
     const accountListMode = isAccountListMode(briefing);
+    // Story 24.18: modo contas parecidas (busca direta com o perfil dos clientes).
+    const lookalikeMode = !accountListMode && isDirectEntry && isLookalikeMode(briefing);
 
     // Count active (non-skipped) steps for progress message
     const { data: allSteps } = await this.supabase
@@ -172,6 +185,13 @@ export class SearchLeadsStep extends BaseStep {
         content: `Etapa ${this.stepNumber}/${activeSteps}: Buscando leads (${titlesLabel}) ${
           accountDomains.length === 1 ? "na 1 conta" : `nas ${accountDomains.length} contas`
         } da sua lista...`,
+        metadata: { stepNumber: this.stepNumber, messageType: "progress" },
+      });
+    } else if (lookalikeMode) {
+      await this.supabase.from("agent_messages").insert({
+        execution_id: input.executionId,
+        role: "system",
+        content: `Etapa ${this.stepNumber}/${activeSteps}: Buscando leads (${titlesLabel}) em empresas parecidas com seus clientes...`,
         metadata: { stepNumber: this.stepNumber, messageType: "progress" },
       });
     } else if (isDirectEntry) {
@@ -232,6 +252,9 @@ export class SearchLeadsStep extends BaseStep {
       const filters = buildDirectSearchFilters(briefing, resolveLeadsPerPage(briefing));
 
       const search = await this.searchWithTitleFallback(service, filters, briefing, input.executionId);
+      if (lookalikeMode) {
+        return this.buildLookalikeOutput(search, jobTitles, briefing, input.mode, input.executionId);
+      }
       return this.buildSearchOutput(
         search.result,
         jobTitles,
@@ -288,6 +311,63 @@ export class SearchLeadsStep extends BaseStep {
       input.executionId,
       search.extraData
     );
+  }
+
+  /**
+   * Story 24.18: modo contas parecidas. Tira do resultado os leads dos clientes de referencia
+   * e dos dominios da Lista de Supressao (casamento por nome — a `api_search` nao devolve o
+   * dominio da empresa; leitura da lista fail-open), segue o `buildSearchOutput` de sempre e
+   * prefixa a justificativa do Fit Score com a semelhanca.
+   */
+  private async buildLookalikeOutput(
+    search: { result: PeopleSearchResult; filters: Record<string, unknown>; extraData: Record<string, unknown> },
+    jobTitles: string[],
+    briefing: ParsedBriefing,
+    mode: ExecutionMode | undefined,
+    executionId: string
+  ): Promise<StepOutput> {
+    const suppressedDomains = await readSuppressedDomains(this.supabase, this.tenantId);
+    const isExcluded = buildLookalikeExclusion(briefing.referenceAccounts, suppressedDomains);
+    const keptLeads = search.result.leads.filter((lead) => !isExcluded(lead.company_name));
+    const excludedCount = search.result.leads.length - keptLeads.length;
+    if (excludedCount > 0) {
+      await this.supabase.from("agent_messages").insert({
+        execution_id: executionId,
+        role: "system",
+        content: lookalikeExcludedMessage(excludedCount),
+        metadata: { stepNumber: this.stepNumber, messageType: "text" },
+      });
+    }
+
+    const similarity = similarityReason(briefing);
+    const output = await this.buildSearchOutput(
+      { ...search.result, leads: keptLeads },
+      jobTitles,
+      [],
+      search.filters,
+      briefing,
+      mode,
+      executionId,
+      {
+        ...search.extraData,
+        lookalike: {
+          references: briefing.referenceAccounts ?? [],
+          similarity,
+          excludedCount,
+        },
+      }
+    );
+
+    const leads = output.data.leads as SearchLeadResult[] | undefined;
+    if (Array.isArray(leads)) {
+      output.data.leads = leads.map((lead) => ({
+        ...lead,
+        fitReason: truncateFitReason(
+          lead.fitReason ? `${similarity}; ${lead.fitReason}` : similarity
+        ),
+      }));
+    }
+    return output;
   }
 
   /**

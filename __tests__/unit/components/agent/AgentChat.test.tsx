@@ -2745,6 +2745,67 @@ describe("AgentChat", () => {
       });
     }
 
+    it("Story 24.18: em confirming_reference_analysis mostra o card das referencias", () => {
+      setupDefaults({
+        executionId: "exec-123",
+        briefingStatus: "confirming_reference_analysis",
+        briefing: {
+          ...BRIEFING,
+          referenceAccounts: [
+            { name: "Banco X", domain: "bancox.com.br", confidence: "high" },
+            { name: "Banco Y", domain: "bancoy.com.br", confidence: "high" },
+            { name: null, domain: "segz.com.br", confidence: "high" },
+          ],
+        },
+      });
+      render(<AgentChat />);
+
+      expect(screen.getByTestId("agent-confirmation-card-references")).toBeInTheDocument();
+      expect(screen.getByTestId("reference-analysis-cost")).toHaveTextContent("ate 3 creditos");
+      expect(screen.getByTestId("card-action-analyze_references")).toBeInTheDocument();
+    });
+
+    it("Story 24.18: o callback analyzeReferences chama a rota e mapeia 200 e 422", async () => {
+      setupDefaults({ executionId: "exec-123", briefingStatus: "confirming", briefing: BRIEFING });
+      okFetch();
+      render(<AgentChat />);
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("card-action-adjust_briefing"));
+      });
+      await waitFor(() => expect(mockProcessCardAction).toHaveBeenCalled());
+      const analyze = mockProcessCardAction.mock.calls[0][4] as (
+        executionId: string,
+        references: Array<{ name: string | null; domain: string }>
+      ) => Promise<{ profile: unknown; confident: boolean; reason: string | null }>;
+      const references = [{ name: "Banco X", domain: "bancox.com.br" }];
+      const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+
+      const profile = { sourceDomains: ["bancox.com.br"] };
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ profile, confident: true, reason: null }),
+      });
+      await expect(analyze("exec-123", references)).resolves.toEqual({
+        profile,
+        confident: true,
+        reason: null,
+      });
+      const [url, init] = fetchMock.mock.lastCall as [string, RequestInit];
+      expect(url).toBe("/api/agent/executions/exec-123/reference-profile");
+      expect(init.method).toBe("POST");
+      expect(JSON.parse(init.body as string)).toEqual({ references });
+
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        json: () => Promise.resolve({ error: { message: "Chave da Apollo nao configurada." } }),
+      });
+      await expect(analyze("exec-123", references)).resolves.toEqual({
+        profile: null,
+        confident: false,
+        reason: "Chave da Apollo nao configurada.",
+      });
+    });
+
     it("aparece em confirming com os chips e os botoes Confirmar/Ajustar", () => {
       setupDefaults({ executionId: "exec-123", briefingStatus: "confirming", briefing: BRIEFING });
       render(<AgentChat />);
@@ -2843,6 +2904,7 @@ describe("AgentChat", () => {
       expect(mockProcessCardAction).toHaveBeenCalledWith(
         "confirm_briefing",
         "exec-123",
+        expect.any(Function),
         expect.any(Function),
         expect.any(Function)
       );
@@ -3104,6 +3166,7 @@ describe("AgentChat", () => {
         expect(mockProcessCardAction).toHaveBeenCalledWith(
           "adjust_briefing",
           "exec-new",
+          expect.any(Function),
           expect.any(Function),
           expect.any(Function)
         )

@@ -14,6 +14,25 @@ import {
 } from "@/lib/agent/search-defaults";
 import { resolveLeadCount } from "@/lib/agent/agent-pricing";
 import { isAccountListMode, resolvedAccountDomains } from "@/lib/agent/target-accounts";
+import { activeReferenceProfile, isLookalikeMode } from "@/lib/agent/reference-accounts";
+
+/**
+ * Story 24.18: perfil EFETIVO do modo contas parecidas (o que a Apollo recebe): setores,
+ * porte e regiao do perfil, ou os valores editados pelo usuario.
+ */
+function lookalikeProfileLabel(b: ParsedBriefing): string {
+  const profile = activeReferenceProfile(b);
+  const industries = b.industry ? [b.industry] : (profile?.industries ?? []);
+  const { companySizes } = resolveDirectSearchCompanySizes(b);
+  const { locations } = resolveSearchLocations(b);
+  return [
+    industries.length > 0 ? `setor ${industries.join(", ")}` : null,
+    companySizes.length > 0 ? `porte ${formatCompanySizesLabel(companySizes)}` : null,
+    locations.length > 0 ? `regiao ${locations.join(", ")}` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
 
 // Story 24.13: sufixo " — até N leads" nos ramos ativos da busca, so quando N existe.
 function leadCountSuffix(b: ParsedBriefing): string {
@@ -59,6 +78,12 @@ export const PIPELINE_STEPS: StepMetadata[] = [
         const titles = b.jobTitles.length > 0 ? b.jobTitles.join(", ") : "cargos";
         const where = count === 1 ? "na 1 conta" : `nas ${count} contas`;
         return `Buscar ${titles} ${where} da sua lista (busca por dominio, sem busca de empresas)${leadCountSuffix(b)}`;
+      }
+      // Story 24.18: modo contas parecidas — busca direta com o perfil dos clientes.
+      if (isLookalikeMode(b)) {
+        const titles = b.jobTitles.length > 0 ? b.jobTitles.join(", ") : "cargos";
+        const label = lookalikeProfileLabel(b);
+        return `Buscar ${titles} em empresas parecidas com seus clientes${label ? ` (${label})` : ""}${leadCountSuffix(b)}`;
       }
       if (b.skipSteps?.includes("search_companies")) {
         // Story 22.6 (AC3): exibe o tamanho EFETIVO da busca direta antes da confirmacao —

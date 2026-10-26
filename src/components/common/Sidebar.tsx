@@ -44,6 +44,12 @@ interface NavItem {
    * (middleware/RLS) — esconder o link é conveniência (NFR-S2), não substituto.
    */
   adminOnly?: boolean;
+  /**
+   * Story 23.5: destino do item `adminOnly` para quem não é admin (ex.: SDR em
+   * Configurações cai direto na Lista de Supressão, só leitura). Sem isto, o item
+   * continua escondido do não-admin.
+   */
+  nonAdminHref?: string;
 }
 
 const navItems: NavItem[] = [
@@ -62,7 +68,13 @@ const navItems: NavItem[] = [
   { label: "Oportunidades", href: "/opportunities", icon: Inbox },
   { label: "Insights", href: "/insights", icon: Lightbulb },
   { label: `Agente ${BRAND.name}`, href: "/agent", icon: Bot },
-  { label: "Configurações", href: "/settings", icon: Settings, adminOnly: true },
+  {
+    label: "Configurações",
+    href: "/settings",
+    icon: Settings,
+    adminOnly: true,
+    nonAdminHref: "/settings/suppression",
+  },
 ];
 
 function InsightsBadge() {
@@ -99,16 +111,22 @@ interface SidebarProps {
 
 export function Sidebar({ isCollapsed, onToggleCollapse, width, isHydrated }: SidebarProps) {
   const pathname = usePathname();
-  const { isAdmin, isLoading, isProfileLoading } = useUser();
+  const { isAdmin, isLoading, isProfileLoading, role } = useUser();
 
   // Story 20.5 (AC4/AC5) — menor privilégio na UI: só renderiza itens admin com
   // capacidade CONFIRMADA (perfil carregado E hasAdminAccess). Enquanto o perfil
   // carrega, esconde os itens admin para evitar "flash" do link; para o SDR
   // `isAdmin` nunca fica true, então os links nunca aparecem.
   const canSeeAdmin = isAdmin && !isLoading && !isProfileLoading;
-  const visibleNavItems = navItems.filter(
-    (item) => !item.adminOnly || canSeeAdmin
-  );
+  // Story 23.5: o não-admin vê itens com `nonAdminHref` só com o perfil já carregado.
+  const profileReady = !isLoading && !isProfileLoading && role != null;
+  const visibleNavItems = navItems.flatMap((item): NavItem[] => {
+    if (!item.adminOnly || canSeeAdmin) return [item];
+    if (item.nonAdminHref && profileReady && !isAdmin) {
+      return [{ ...item, href: item.nonAdminHref }];
+    }
+    return [];
+  });
   const [expandedItems, setExpandedItems] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem(STORAGE_KEY);

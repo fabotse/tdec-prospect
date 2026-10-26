@@ -26,6 +26,14 @@ import {
   resolvedAccountDomains,
 } from "@/lib/agent/target-accounts";
 import { findSuppressedAccounts, withAccountNames } from "@/lib/agent/account-suppression";
+import {
+  activeReferenceProfile,
+  hasEnoughReferences,
+  isLookalikeMode,
+  profileMatchesReferences,
+} from "@/lib/agent/reference-accounts";
+import { readSuppressionListClients } from "@/lib/agent/reference-suppression";
+import { referenceProfileSchema } from "@/lib/agent/reference-profile-schema";
 
 // ==============================================
 // REQUEST VALIDATION
@@ -43,6 +51,9 @@ const parseRequestSchema = z
     executionId: z.string().uuid(),
     messages: z.array(chatTurnSchema).min(1).optional(),
     message: z.string().min(1).optional(),
+    // Story 24.18: perfil atual dos clientes de referencia (do hook). So e anexado ao
+    // briefing quando casa com as referencias do parse. Invalido -> ignorado (fail-open).
+    referenceProfile: z.unknown().optional(),
   })
   .refine((d) => (d.messages?.length ?? 0) > 0 || Boolean(d.message), {
     message: "Forneca messages[] ou message",
@@ -90,9 +101,17 @@ function analyzeBriefingCompleteness(
 
   // Story 24.14: a localizacao do ICP (icpDefaults) satisfaz o campo.
   // Story 24.17: no modo lista de contas a localizacao nao e exigida (nao entra).
+  // Story 24.18: nem no modo contas parecidas.
   const accountListMode = isAccountListMode(briefing);
-  if (!accountListMode && !hasSearchLocation(briefing)) {
+  const lookalikeMode = isLookalikeMode(briefing);
+  if (!accountListMode && !lookalikeMode && !hasSearchLocation(briefing)) {
     missingFields.push("location");
+  }
+
+  // Story 24.18: faltam referencias (3-5 com site) ou o perfil analisado delas.
+  if (lookalikeMode) {
+    if (!hasEnoughReferences(briefing)) missingFields.push("referenceAccounts");
+    else if (!activeReferenceProfile(briefing)) missingFields.push("referenceProfile");
   }
 
   // Story 24.17: conta sem dominio, ou nenhuma conta restante (todas suprimidas).
@@ -356,6 +375,62 @@ export async function POST(request: Request) {
       // Sem contas: briefing identico ao de antes da 24.17 (sem as chaves novas).
       delete resolvedBriefing.targetAccounts;
       delete resolvedBriefing.suppressedAccounts;
+    }
+
+    // Story 24.18: modo contas parecidas (depois do bloco da 24.17).
+    const citedReferences = resolvedBriefing.referenceAccounts ?? [];
+    const wantsListClients = rawResponse.useSuppressionListClients === true;
+    if (isImportedLeadsFlow || (resolvedBriefing.targetAccounts?.length ?? 0) > 0) {
+      // Lista de contas ou leads importados prevalecem: sem referencias.
+      if (citedReferences.length > 0 || wantsListClients) {
+        resolvedBriefing.referenceAccounts = null;
+      } else {
+        delete resolvedBriefing.referenceAccounts;
+      }
+    } else if (citedReferences.length > 0) {
+      resolvedBriefing.referenceAccountsSource = "user";
+    } else if (wantsListClients) {
+      // Clientes da Lista de Supressao (5 mais recentes, fail-open: vazio -> pergunta).
+      resolvedBriefing.referenceAccounts = await readSuppressionListClients(
+        supabase,
+        profile.tenant_id
+      );
+      resolvedBriefing.referenceAccountsSource = "suppression_list";
+    } else {
+      delete resolvedBriefing.referenceAccounts;
+    }
+
+    if (isLookalikeMode(resolvedBriefing)) {
+      // O perfil substitui a busca de empresas; a tecnologia (TheirStack) nao roda.
+      if (!resolvedBriefing.skipSteps.includes("search_companies")) {
+        resolvedBriefing.skipSteps = [...resolvedBriefing.skipSteps, "search_companies"];
+      }
+      resolvedBriefing.technology = null;
+      // Sem cargos do usuario, os do ICP (como na 24.17).
+      if (resolvedBriefing.jobTitles.length === 0) {
+        const icpTitles = Array.from(
+          new Set((icp.jobTitles ?? []).map((t) => t.trim()).filter(Boolean))
+        ).slice(0, ICP_PROPOSAL_MAX_TITLES);
+        if (icpTitles.length > 0) {
+          resolvedBriefing.jobTitles = icpTitles;
+          resolvedBriefing.jobTitlesFromIcp = true;
+        }
+      }
+      // Perfil atual do hook: so vale para as MESMAS referencias.
+      const profileInput = referenceProfileSchema.safeParse(validation.data.referenceProfile);
+      if (
+        profileInput.success &&
+        profileMatchesReferences(profileInput.data, resolvedBriefing.referenceAccounts)
+      ) {
+        resolvedBriefing.referenceProfile = profileInput.data;
+      } else {
+        resolvedBriefing.referenceProfile = null;
+      }
+    } else if (resolvedBriefing.referenceAccounts !== null) {
+      // Sem referencias: briefing identico ao de antes da 24.18 (sem as chaves novas).
+      delete resolvedBriefing.referenceAccounts;
+      delete resolvedBriefing.referenceAccountsSource;
+      delete resolvedBriefing.referenceProfile;
     }
 
     // Story 22.7: sugestoes KB-first — derivam do ICP do tenant quando disponivel,
