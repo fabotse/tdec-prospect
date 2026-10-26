@@ -1,12 +1,18 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useUser } from "@/hooks/use-user";
+import { isNonAdminSettingsPath } from "@/lib/auth/settings-access";
 
 interface AdminGuardProps {
   children: React.ReactNode;
   fallback?: React.ReactNode;
+  /**
+   * Story 23.5: caminhos em que o não-admin também passa (lista serializável, vinda do
+   * layout server). A escrita nesses caminhos segue barrada na action e no RLS.
+   */
+  nonAdminPaths?: readonly string[];
 }
 
 /**
@@ -17,8 +23,9 @@ interface AdminGuardProps {
  * Uses useUser hook for consistent auth state handling
  * Redirects to login if not authenticated
  */
-export function AdminGuard({ children, fallback }: AdminGuardProps) {
+export function AdminGuard({ children, fallback, nonAdminPaths }: AdminGuardProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const { isLoading, isAdmin, user } = useUser();
 
   // Redirect to login if not authenticated
@@ -43,7 +50,7 @@ export function AdminGuard({ children, fallback }: AdminGuardProps) {
   }
 
   // If authenticated but not admin, show fallback
-  if (!isAdmin) {
+  if (!isAdmin && !(nonAdminPaths && isNonAdminSettingsPath(pathname, nonAdminPaths))) {
     return <>{fallback}</>;
   }
 

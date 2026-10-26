@@ -15,6 +15,14 @@ vi.mock('@/hooks/use-platform-admin', () => ({
   usePlatformAdmin: () => mockUsePlatformAdmin(),
 }))
 
+// Story 23.5: não-admin vê só as abas liberadas (Lista de Supressão)
+const mockUseUser = vi.fn(
+  (): { isAdmin: boolean; isLoading?: boolean; isProfileLoading?: boolean } => ({ isAdmin: true })
+)
+vi.mock('@/hooks/use-user', () => ({
+  useUser: () => mockUseUser(),
+}))
+
 describe('SettingsTabs', () => {
   describe('Rendering', () => {
     it('should render all tabs', () => {
@@ -72,6 +80,44 @@ describe('SettingsTabs', () => {
 
       expect(screen.queryByRole('tab', { name: /^erros$/i })).not.toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /equipe/i })).toBeInTheDocument()
+    })
+  })
+
+  // Story 23.5
+  describe('Lista de Supressão', () => {
+    it('renders the tab before Erros for admins', () => {
+      mockUsePathname.mockReturnValue('/settings/suppression')
+
+      render(<SettingsTabs />)
+
+      const tab = screen.getByRole('tab', { name: /lista de supressão/i })
+      expect(tab).toHaveAttribute('href', '/settings/suppression')
+      expect(tab).toHaveAttribute('aria-selected', 'true')
+      const labels = screen.getAllByRole('tab').map((t) => t.textContent)
+      expect(labels.indexOf('Lista de Supressão')).toBe(labels.indexOf('Erros') - 1)
+    })
+
+    it('shows only the released tab to non-admins (SDR)', () => {
+      mockUsePathname.mockReturnValue('/settings/suppression')
+      mockUseUser.mockReturnValueOnce({ isAdmin: false })
+      mockUsePlatformAdmin.mockReturnValueOnce({ data: false })
+
+      render(<SettingsTabs />)
+
+      const labels = screen.getAllByRole('tab').map((t) => t.textContent)
+      expect(labels).toEqual(['Lista de Supressão'])
+    })
+
+    it.each([
+      { isLoading: true, isProfileLoading: false },
+      { isLoading: false, isProfileLoading: true },
+    ])('renders no tabs while the profile loads (%o)', (loading) => {
+      mockUsePathname.mockReturnValue('/settings/suppression')
+      mockUseUser.mockReturnValueOnce({ isAdmin: false, ...loading })
+
+      render(<SettingsTabs />)
+
+      expect(screen.queryAllByRole('tab')).toHaveLength(0)
     })
   })
 
@@ -177,7 +223,7 @@ describe('SettingsTabs', () => {
       render(<SettingsTabs />)
 
       const tabs = screen.getAllByRole('tab')
-      expect(tabs).toHaveLength(8) // Integrações, Base de Conhecimento, Produtos, Uso da API, Monitoramento, Notificações, Erros, Equipe
+      expect(tabs).toHaveLength(9) // Integrações, Base de Conhecimento, Produtos, Uso da API, Monitoramento, Notificações, Lista de Supressão, Erros, Equipe
     })
 
     it('should be keyboard accessible', () => {

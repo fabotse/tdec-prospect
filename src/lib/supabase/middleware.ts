@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { hasAdminAccess } from "@/lib/auth/capabilities";
+import { isNonAdminSettingsPath } from "@/lib/auth/settings-access";
 
 export async function updateSession(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -56,8 +57,11 @@ export async function updateSession(request: NextRequest) {
   // (consistente com o gating 403 das rotas theirStack). Barrar no middleware
   // — antes de carregar a página — é a barreira de servidor real; esconder o
   // link no Sidebar (Task 2) é só conveniência (NFR-S2). Não-admin → /leads.
+  // Story 23.5: a Lista de Supressão é a única aba de Configurações liberada ao
+  // não-admin (leitura); a escrita segue barrada na action e no RLS.
   const isAdminRoute =
-    request.nextUrl.pathname.startsWith("/settings") ||
+    (request.nextUrl.pathname.startsWith("/settings") &&
+      !isNonAdminSettingsPath(request.nextUrl.pathname)) ||
     request.nextUrl.pathname.startsWith("/technographic");
 
   const isAuthRoute =

@@ -1,5 +1,6 @@
 import { SettingsTabs } from "@/components/settings/SettingsTabs";
 import { AdminGuard } from "@/components/settings/AdminGuard";
+import { NON_ADMIN_SETTINGS_PATHS } from "@/lib/auth/settings-access";
 
 /**
  * Settings layout with tabs
@@ -22,6 +23,7 @@ export default function SettingsLayout({
       </div>
 
       <AdminGuard
+        nonAdminPaths={[...NON_ADMIN_SETTINGS_PATHS]}
         fallback={
           <div className="text-center py-12">
             <p className="text-body text-foreground-muted">
