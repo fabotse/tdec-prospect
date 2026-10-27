@@ -594,7 +594,7 @@ development_status:
   24-9-revisor-automatico-de-copy: done
   24-10-custo-real-e-estimativa-honesta: done
   24-11-spike-do-treg: backlog
-  24-12-verificacao-de-e-mail-antes-do-export: backlog
+  24-12-verificacao-de-e-mail-antes-do-export: backlog  # ESCOPO REDUZIDO 2026-10-27 (Fabossi): só guardar e mostrar o email_status do Apollo, sem verificação paga e sem trava no export; não depende do spike 24.11
   24-13-quantos-leads-eu-quero: done
   24-14-briefing-a-partir-do-icp: done
   24-15-busca-mais-precisa: done

@@ -90,7 +90,7 @@ precisa de higiene de segurança/operação e o agente precisa parar de travar.
 - FR28: Usuário pode informar uma lista de contas (nomes ou domínios) e o agente busca os decisores dessas contas (modo ABM)
 - FR29: O agente busca um universo maior (3–5× N) e atribui **Fit Score A/B/C** a cada lead contra o ICP, com uma linha de justificativa; a revisão ordena por score e pré-seleciona os N melhores
 - FR30: A busca filtra pela localização da **empresa** (não só da pessoa), exclui setor público por padrão e aplica supressão + "já contatados"
-- FR31: Antes do export, o e-mail de cada lead é verificado; e-mails não verificados/catch-all são sinalizados e não exportados sem confirmação; e-mail pessoal não é revelado
+- FR31: O status do e-mail que o Apollo já devolve fica visível na revisão (não verificado = aviso), sem verificação paga e sem bloquear o export; e-mail pessoal não é revelado (escopo reduzido em 2026-10-27)
 - FR32: Spike do Treg executado e documentado (cobertura BR, qualidade de verify/find, custo, BYOK) antes de integrá-lo; integração via serviço próprio com chave por tenant
 
 **Epic 24 / Marco 3 — Dossiê & "por que agora"**
@@ -178,7 +178,7 @@ precisa de higiene de segurança/operação e o agente precisa parar de travar.
 | FR28 | Epic 24 / Marco 2 | Usuário pode informar uma lista de contas (nomes ou domínios) e o agente busca os decisore |
 | FR29 | Epic 24 / Marco 2 | O agente busca um universo maior (3–5× N) e atribui Fit Score A/B/C a cada lead contra o I |
 | FR30 | Epic 24 / Marco 2 | A busca filtra pela localização da empresa (não só da pessoa), exclui setor público por pa |
-| FR31 | Epic 24 / Marco 2 | Antes do export, o e-mail de cada lead é verificado |
+| FR31 | Epic 24 / Marco 2 | Status do e-mail (Apollo) visível na revisão, sem trava |
 | FR32 | Epic 24 / Marco 2 | Spike do Treg executado e documentado (cobertura BR, qualidade de verify/find, custo, BYOK |
 | FR33 | Epic 24 / Marco 3 | Para cada conta aprovada, o agente monta um dossiê (site, notícias 90 dias, vagas de segur |
 | FR34 | Epic 24 / Marco 3 | Cada lead recebe um gatilho "por que agora" escolhido entre os fatos |
@@ -664,28 +664,33 @@ So that a decisão de usá-lo seja baseada em cobertura, qualidade e custo medid
 **Then** fica registrada a decisão go/no-go por capacidade (verify, find, web), que define o provedor das stories seguintes
 **And** nenhum código de produção é alterado nesta story
 
-### Story 24.12: Verificação de e-mail antes do export
+### Story 24.12: Status do e-mail visível na revisão (sem custo e sem trava)
 
-**Requisitos:** FR31, FR32
+**Requisitos:** FR31 (escopo reduzido pelo Fabossi em 2026-10-27)
+
+> **Escopo revisado (Fabossi, 2026-10-27):** sem verificação externa paga (Treg ou outro) e sem bloquear o export. O Apollo já devolve `email_status` no enrichment que pagamos, e o código hoje descarta esse dado. Esta story passa a aproveitá-lo só como informação. Não depende mais do spike 24.11 nem de liberar a regra de "nenhuma trava nova no caminho até o Instantly". Reavaliar verificação paga só se a taxa de bounce no Instantly subir.
 
 As a gestor da TDec,
-I want que todo e-mail seja verificado antes de ir para o Instantly,
-So that bounces não queimem a reputação do domínio — cada lead conta quando são poucos.
+I want ver na revisão de leads se o e-mail de cada lead está verificado pelo Apollo,
+So that eu decida com informação quem aprovar, sem custo extra e sem travar o envio.
 
 **Acceptance Criteria:**
 
-**Given** a decisão do spike (24.11)
-**When** o provedor é escolhido
-**Then** a verificação usa o Treg (se go, via serviço próprio sobre `base-service`, chave por tenant criptografada — NFR5) ou o `email_status` da Apollo (se no-go), atrás da mesma interface
+**Given** o enrichment da Apollo (agente e fluxo manual) que já retorna `email_status`
+**When** o e-mail do lead é obtido
+**Then** o status (`verified`, `invalid` ou desconhecido) é guardado com o lead (coluna nullable nova, migration só aditiva — NFR7), sem nenhuma chamada paga adicional
 
-**Given** a revisão de leads do agente e o export (manual e agente)
-**When** um e-mail é inválido, não verificado ou catch-all
-**Then** o lead aparece sinalizado e não é exportado sem confirmação explícita do usuário
+**Given** a revisão de leads do agente e a lista de leads
+**When** o status é `invalid` ou desconhecido
+**Then** o lead mostra um aviso discreto ("e-mail não verificado"), ao lado do Fit Score
+
+**Given** o export para o Instantly (manual e agente) e a ativação
+**When** há leads com e-mail não verificado
+**Then** nada muda: o export não bloqueia, não filtra e não pede confirmação extra (regra nº 1)
 
 **Given** o enrichment do `create_campaign`
 **When** busca o e-mail do lead
 **Then** não revela e-mail pessoal (`revealPersonalEmails` desligado — NFR8)
-**And** cada verificação é registrada em `api_usage_logs` (NFR3)
 
 ### Story 24.13: Quantos leads eu quero
 

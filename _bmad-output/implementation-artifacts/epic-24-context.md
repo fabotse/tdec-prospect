@@ -22,7 +22,7 @@ Transformar o agente no caminho para poucos leads de altíssima qualidade. Hoje 
 
 **Marco 2 — Analista de Contas**
 - Story 24.11: Spike do Treg
-- Story 24.12: Verificação de e-mail antes do export
+- Story 24.12: Status do e-mail visível na revisão (sem custo e sem trava; escopo reduzido em 2026-10-27)
 - Story 24.13: Quantos leads eu quero
 - Story 24.14: Briefing a partir do ICP
 - Story 24.15: Busca mais precisa
@@ -58,7 +58,7 @@ Transformar o agente no caminho para poucos leads de altíssima qualidade. Hoje 
 - Confiabilidade: o step preso em `running` além do limite vira `failed` e a execução vai para `paused`. Toda gravação de checkpoint, aprovação e falha checa erro do banco. Export idempotente, com retry reaproveitando a campanha já criada no Instantly. A rota execute só aceita steps `pending`/`failed`/`rejected` (senão 409), e o PATCH de briefing só é aceito com a execução `pending`. O usuário pode refazer um step que falhou pela UI.
 - Conversa: nunca fica sem resposta e todo ramo tem saída. As confirmações (briefing, produto, leads) são feitas por botão; a keyword `includes()` fica só como fallback e nunca confirma nada sozinha. Todos os turnos entram na memória do LLM.
 - Copy: nada de dados fictícios ("Nome", "Empresa", setor "Tecnologia"). Follow-ups com estratégia e ângulo próprios por posição e numeração correta. Abrir pelo problema do lead, nunca pelo produto. Citar só provas autorizadas da KB, e sem provas não citar nenhuma. O revisor automático reescreve até 2× e, se ainda reprovar, marca para revisão humana. As correções de prompt valem também para o fluxo manual, e isso é intencional.
-- Qualificação: `leadCount` (N) respeitado no plano, no custo e na pré-seleção. Briefing proposto a partir do ICP. Busca por localização da **empresa**, sem setor público por padrão. Universo de 3–5× N, com Fit Score A/B/C e justificativa de 1 linha. Modo ABM por lista de contas. Contas parecidas a partir de 3–5 clientes de referência. E-mail verificado antes do export: inválido ou catch-all fica sinalizado e não sai sem confirmação. Nunca revelar e-mail pessoal.
+- Qualificação: `leadCount` (N) respeitado no plano, no custo e na pré-seleção. Briefing proposto a partir do ICP. Busca por localização da **empresa**, sem setor público por padrão. Universo de 3–5× N, com Fit Score A/B/C e justificativa de 1 linha. Modo ABM por lista de contas. Contas parecidas a partir de 3–5 clientes de referência. Status do e-mail do Apollo visível na revisão como aviso, sem verificação paga e sem bloquear o export (24.12 reduzida em 2026-10-27). Nunca revelar e-mail pessoal.
 - Dossiê: fatos `{fato, fonte_url, data, confiança}`, e fato sem fonte não entra. Gatilho "por que agora"; sem gatilho confiável, o lead segue a copy padrão e fica sinalizado. Copy por lead enviada em variáveis personalizadas no Instantly. Briefing de reunião que não inventa fatos. Conversa pós-execução e memória entre execuções.
 
 **Não funcionais:** pipeline determinístico, em que o LLM decide só conversa e conteúdo, nunca ordem de steps, gasto ou envio. Toda ação com custo pedida no chat passa por card + clique. Toda chamada paga é logada em `api_usage_logs` com tenant e execução. Nenhum retry cobra duas vezes, e há teto de custo por execução. Chaves novas (Treg) ficam por tenant, criptografadas com AES-256-GCM, e o runtime do agente usa service-role. Chat responde em menos de 5s. Falha de LLM ou de fonte externa degrada para o comportamento anterior e nunca trava a execução. LGPD: sem e-mail pessoal, fatos guardam a fonte. A Definition of Done inclui smoke real (tela + banco).
@@ -88,7 +88,7 @@ Transformar o agente no caminho para poucos leads de altíssima qualidade. Hoje 
 
 - 24.2 precede 24.3, porque o retry depende da proteção contra execução dupla. 24.5 reaproveita os caminhos que a 24.4 corrige. 24.14 e 24.17/24.18 usam o card da 24.5.
 - 24.7 (Provas) alimenta 24.8, 24.9, 24.21 e 24.23. 24.9 é reusado na 24.21 (checagem contra o dossiê) e na 24.24.
-- 24.11 (spike, sem código de produção) define o provedor de 24.12 e 24.19, e o serviço Treg é pré-requisito do Epic 25.
+- 24.11 (spike, sem código de produção) define o provedor de 24.19 (a 24.12 não depende mais dele desde 2026-10-27), e o serviço Treg é pré-requisito do Epic 25.
 - 24.13 (N) alimenta 24.16. 24.16 é reusado em 24.18. 24.19 alimenta 24.20, 24.21, 24.22 e 24.23. 24.6 define os ângulos dos follow-ups usados na 24.21.
 - Do Epic 23: supressão e "já contatado" (23.5–23.7) são consumidos em 24.15, 24.17, 24.18 e 24.25. Como essas stories estão em espera, aplicar "conforme a regra já existente". O export (`instantly.ts`) é compartilhado com 23.6/23.7.
 - Do Epic 21: Central de Oportunidades e loop de respostas (24.22, 24.23, 24.25). O Epic 18 é absorvido de forma reduzida (FR11–16, FR25).
