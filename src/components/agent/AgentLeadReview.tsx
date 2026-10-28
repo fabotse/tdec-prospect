@@ -20,6 +20,8 @@ import { reportTriggerFailure } from "@/lib/agent/report-trigger-failure";
 import { useAgentStore } from "@/stores/use-agent-store";
 import type { AdjustmentChip, EmptySearchDiagnosis } from "@/lib/agent/empty-search-diagnosis";
 import { Input } from "@/components/ui/input";
+import { EmailUnverifiedWarning } from "@/components/leads/EmailUnverifiedWarning";
+import type { LeadEmailStatus } from "@/lib/leads/email-status";
 import {
   Table,
   TableHeader,
@@ -42,6 +44,8 @@ interface LeadPreview {
   publicSector?: boolean;
   /** Story 24.15: lead ja abordado (badge, fora da pre-selecao). */
   contactStatus?: "already_contacted" | null;
+  /** Story 24.12: status do e-mail ja gravado no tenant (aviso so para invalid/unknown). */
+  emailStatus?: LeadEmailStatus | null;
 }
 
 interface AgentLeadReviewProps {
@@ -660,19 +664,23 @@ export function AgentLeadReview({
                     />
                   </TableCell>
                   <TableCell>
-                    {lead.fitScore ? (
-                      <Badge
-                        variant={FIT_BADGE_VARIANT[lead.fitScore]}
-                        data-testid="fit-badge"
-                        title={lead.fitReason ?? undefined}
-                      >
-                        {lead.fitScore}
-                      </Badge>
-                    ) : (
-                      <span className="text-muted-foreground" data-testid="fit-badge-empty">
-                        —
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1">
+                      {lead.fitScore ? (
+                        <Badge
+                          variant={FIT_BADGE_VARIANT[lead.fitScore]}
+                          data-testid="fit-badge"
+                          title={lead.fitReason ?? undefined}
+                        >
+                          {lead.fitScore}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground" data-testid="fit-badge-empty">
+                          —
+                        </span>
+                      )}
+                      {/* Story 24.12: aviso discreto, nao muda selecao nem ordem. */}
+                      <EmailUnverifiedWarning status={lead.emailStatus} showLabel={false} />
+                    </div>
                   </TableCell>
                   <TableCell>
                     <span className="font-medium">{lead.name}</span>

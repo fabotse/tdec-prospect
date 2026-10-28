@@ -22,6 +22,8 @@ import { ApolloService } from "@/lib/services/apollo";
 import { ExternalServiceError } from "@/lib/services/base-service";
 import { transformEnrichmentToLead, buildMatchRequest } from "@/types/apollo";
 import type { LeadRow } from "@/types/lead";
+import { normalizeApolloEmailStatus } from "@/lib/leads/email-status";
+import { persistLeadEmailStatus } from "@/lib/leads/persist-email-status";
 
 interface RouteParams {
   params: Promise<{ leadId: string }>;
@@ -118,6 +120,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         { status: 500 }
       );
     }
+
+    // Story 24.12: status do e-mail num UPDATE à parte, best-effort (antes da 00072 só loga).
+    await persistLeadEmailStatus(
+      supabase,
+      profile.tenant_id,
+      leadId,
+      normalizeApolloEmailStatus(
+        enrichmentResponse.person?.email,
+        enrichmentResponse.person?.email_status
+      )
+    );
 
     return NextResponse.json({ data: updatedLead as LeadRow });
   } catch (error) {

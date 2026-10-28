@@ -310,7 +310,8 @@ export interface ApolloEnrichedPerson {
   first_name: string;
   last_name: string; // FULL last name (not obfuscated)
   email: string | null;
-  email_status: "verified" | "invalid" | null;
+  /** Story 24.12: o Apollo devolve outros valores além de verified/invalid (ex.: "unverified"). */
+  email_status: string | null;
   title: string | null;
   city: string | null;
   state: string | null;

@@ -13,6 +13,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LeadScreeningSummary, SearchLeadResult } from "@/types/agent";
 import { SUPPRESSING_OPPORTUNITY_STATUSES } from "@/lib/agent/account-suppression";
+import { toLeadEmailStatus, type LeadEmailStatus } from "@/lib/leads/email-status";
 
 export type LeadContactStatus = "suppressed" | "already_contacted";
 
@@ -140,6 +141,57 @@ export async function findContactedLeads(
     console.warn("[lead-screening] leitura de leads falhou:", error);
     return new Map();
   }
+}
+
+/**
+ * Story 24.12: status do e-mail já gravado (`leads.email_status`) dos leads que o tenant já
+ * tem, por `apollo_id`. Leitura SEPARADA de `findContactedLeads` de propósito: antes da
+ * migration 00072 a coluna não existe e o erro aqui não pode desligar a triagem da 24.15.
+ * Fail-open: erro → `console.warn` e mapa vazio. Só entram os 3 valores conhecidos. Nunca lança.
+ */
+export async function findStoredEmailStatuses(
+  supabase: SupabaseClient,
+  tenantId: string,
+  apolloIds: Array<string | null | undefined>
+): Promise<Map<string, LeadEmailStatus>> {
+  const result = new Map<string, LeadEmailStatus>();
+  const ids = Array.from(new Set(apolloIds.filter((id): id is string => Boolean(id))));
+  if (ids.length === 0) return result;
+
+  try {
+    const { data, error } = await supabase
+      .from("leads")
+      .select("apollo_id, email_status")
+      .eq("tenant_id", tenantId)
+      .in("apollo_id", ids)
+      .not("email_status", "is", null);
+
+    if (error) {
+      console.warn("[lead-screening] leitura do status do e-mail falhou:", error);
+      return new Map();
+    }
+
+    for (const row of (data ?? []) as Array<{ apollo_id?: string | null; email_status?: unknown }>) {
+      const status = toLeadEmailStatus(row.email_status);
+      if (row.apollo_id && status && !result.has(row.apollo_id)) result.set(row.apollo_id, status);
+    }
+    return result;
+  } catch (error) {
+    console.warn("[lead-screening] leitura do status do e-mail falhou:", error);
+    return new Map();
+  }
+}
+
+/** Story 24.12: anota `emailStatus` nos leads com status gravado. Não remove nem reordena. */
+export function annotateEmailStatus<T extends SearchLeadResult>(
+  leads: T[],
+  statusMap: Map<string, LeadEmailStatus>
+): T[] {
+  if (statusMap.size === 0) return leads;
+  return leads.map((lead) => {
+    const status = lead.apolloId ? statusMap.get(lead.apolloId) : undefined;
+    return status ? { ...lead, emailStatus: status } : lead;
+  });
 }
 
 export interface ScreenLeadsResult<T extends SearchLeadResult> {

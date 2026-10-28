@@ -65,6 +65,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { EmailUnverifiedWarning } from "@/components/leads/EmailUnverifiedWarning";
+import type { LeadEmailStatus } from "@/lib/leads/email-status";
 
 // ==============================================
 // HELPERS
@@ -798,6 +800,7 @@ export function LeadTable({
                 <ContactAvailabilityCell
                   hasEmail={lead.hasEmail}
                   hasDirectPhone={lead.hasDirectPhone}
+                  emailStatus={lead.emailStatus}
                   onFocus={() =>
                     setFocusedCell({ row: rowIndex + 1, col: 6 })
                   }
@@ -1035,6 +1038,8 @@ function ResizeHandle({ onResize }: ResizeHandleProps) {
 interface ContactAvailabilityCellProps {
   hasEmail: boolean;
   hasDirectPhone: string | null;
+  /** Story 24.12: aviso "E-mail não verificado" quando invalid/unknown. */
+  emailStatus?: LeadEmailStatus | null;
   onFocus?: () => void;
   tabIndex?: number;
 }
@@ -1047,6 +1052,7 @@ interface ContactAvailabilityCellProps {
 function ContactAvailabilityCell({
   hasEmail,
   hasDirectPhone,
+  emailStatus,
   onFocus,
   tabIndex,
 }: ContactAvailabilityCellProps) {
@@ -1088,6 +1094,8 @@ function ContactAvailabilityCell({
             {phoneAvailable ? "Telefone disponível" : "Telefone não disponível"}
           </TooltipContent>
         </Tooltip>
+
+        <EmailUnverifiedWarning status={emailStatus} showLabel={false} />
       </div>
     </TableCell>
   );

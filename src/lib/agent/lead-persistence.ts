@@ -40,6 +40,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { FitGrade, LeadWithIcebreaker } from "@/types/agent";
 import { isFitGrade, truncateFitReason } from "@/lib/agent/fit-score-rules";
+import { toLeadEmailStatus, type LeadEmailStatus } from "@/lib/leads/email-status";
 
 // ==============================================
 // CONSTANTS
@@ -109,6 +110,8 @@ interface LeadRecord {
   /** Story 24.16: Fit Score do search_leads (gravado na Fase 6, best-effort). */
   fitScore: FitGrade | null;
   fitReason: string | null;
+  /** Story 24.12: status do e-mail do enrichment (gravado na Fase 7, best-effort). */
+  emailStatus: LeadEmailStatus | null;
 }
 
 interface ExistingLeadRow {
@@ -303,6 +306,8 @@ function dedupeBatch(leads: LeadWithIcebreaker[]): { records: LeadRecord[]; skip
       icebreaker: nullableString(typed.icebreaker),
       fitScore: isFitGrade(typed.fitScore) ? typed.fitScore : null,
       fitReason: isFitGrade(typed.fitScore) ? fitReasonOrNull(typed.fitReason) : null,
+      // Story 24.12: status so existe junto com um e-mail.
+      emailStatus: email ? toLeadEmailStatus(typed.emailStatus) : null,
     });
   }
 
@@ -390,6 +395,10 @@ function dedupeBatch(leads: LeadWithIcebreaker[]): { records: LeadRecord[]; skip
     if (!merged.fitScore && record.fitScore) {
       merged.fitScore = record.fitScore;
       merged.fitReason = record.fitReason;
+    }
+    // Story 24.12: o status acompanha o e-mail que ficou no registro mesclado.
+    if (!merged.emailStatus && record.emailStatus && record.email === merged.email) {
+      merged.emailStatus = record.emailStatus;
     }
   });
 
@@ -625,6 +634,14 @@ export async function persistApprovedLeads(
   const emails = records.map((r) => r.email).filter((email): email is string => Boolean(email));
   const existingRows = await fetchExistingLeads(supabase, tenantId, apolloIds, emails);
   const existingIndex = indexExistingLeads(existingRows);
+  /** Story 24.12: e-mail (normalizado) das linhas que ja existiam, para a Fase 7. */
+  const existingEmailById = new Map<string, string | null>();
+  const rememberExistingEmails = (rows: ExistingLeadRow[]): void => {
+    for (const row of rows) {
+      if (!existingEmailById.has(row.id)) existingEmailById.set(row.id, normalizeEmail(row.email));
+    }
+  };
+  rememberExistingEmails(existingRows);
 
   const entries: ResolvedEntry[] = records.map((record) => ({
     record,
@@ -721,6 +738,7 @@ export async function persistApprovedLeads(
           batch.map((e) => e.record.email).filter((email): email is string => Boolean(email))
         );
         const retryIndex = indexExistingLeads(retryRows);
+        rememberExistingEmails(retryRows);
         for (const entry of batch) {
           if (entry.existingId) continue;
           const id = matchExisting(entry.record, retryIndex);
@@ -932,6 +950,39 @@ export async function persistApprovedLeads(
       }
     } catch (error) {
       console.warn("[lead-persistence] fit score nao gravado:", error);
+    }
+  }
+
+  // --- Fase 7: status do e-mail dos persistidos (Story 24.12), best-effort ---
+  // Mesmo molde da Fase 6: separada do insert porque o codigo pode subir antes da
+  // migration 00072. Erro so loga — nao lanca, nao marca `degraded`, nao muda o resultado.
+  // Inseridos sempre; reusados so quando o e-mail da linha existente e o MESMO do registro
+  // (o status descreve aquele e-mail, nao outro que ja estava na linha).
+  const emailStatusById = new Map<string, ResolvedEntry & { existingId: string }>();
+  for (const entry of persisted) {
+    if (!entry.record.emailStatus || !entry.record.email) continue;
+    if (emailStatusById.has(entry.existingId)) continue;
+    const isInserted = insertedIds.has(entry.existingId);
+    if (!isInserted && existingEmailById.get(entry.existingId) !== entry.record.email) continue;
+    emailStatusById.set(entry.existingId, entry);
+  }
+  const withEmailStatus = Array.from(emailStatusById.values());
+
+  if (withEmailStatus.length > 0) {
+    try {
+      const allOk = await runWithConcurrency(withEmailStatus, UPDATE_CONCURRENCY, async (entry) => {
+        const { error } = await supabase
+          .from("leads")
+          .update({ email_status: entry.record.emailStatus })
+          .eq("tenant_id", tenantId)
+          .eq("id", entry.existingId);
+        return !error;
+      });
+      if (!allOk) {
+        console.warn("[lead-persistence] status do e-mail nao gravado em parte dos leads (migration 00072 aplicada?)");
+      }
+    } catch (error) {
+      console.warn("[lead-persistence] status do e-mail nao gravado:", error);
     }
   }
 

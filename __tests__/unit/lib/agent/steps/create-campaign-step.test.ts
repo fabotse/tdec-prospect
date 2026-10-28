@@ -2008,6 +2008,91 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
       });
     });
 
+    it("Story 24.12: enrichment com revealPersonalEmails false e emailStatus anotado ate a persistencia e a previa", async () => {
+      setupStructureThenContent();
+      mockEnrichPerson
+        .mockResolvedValueOnce({
+          person: { email: "amanda@acme.com", email_status: "unverified", first_name: "Amanda", last_name: "Rebel" },
+        })
+        .mockResolvedValueOnce({
+          person: { email: null, email_status: "verified", first_name: "Bruno", last_name: "Lima" },
+        });
+
+      const masked = (name: string, apolloId: string) => ({
+        name,
+        title: "CTO",
+        companyName: "Acme",
+        email: null,
+        linkedinUrl: null,
+        apolloId,
+      });
+      const result = await step.run(
+        createInput({}, {
+          leads: [masked("Amanda Re***l", "apollo-amanda"), masked("Bruno L***a", "apollo-bruno")],
+          totalFound: 2,
+          jobTitles: ["CTO"],
+          domainsSearched: [],
+        })
+      );
+      expect(result.success).toBe(true);
+
+      for (const call of mockEnrichPerson.mock.calls) {
+        expect(call[1]).toEqual({ revealPersonalEmails: false });
+      }
+      const args = mockPersistApprovedLeads.mock.calls[0][0] as {
+        leads: Array<Record<string, unknown>>;
+      };
+      expect(args.leads[0].emailStatus).toBe("unknown");
+      // Sem e-mail no enrichment: nenhum status.
+      expect(args.leads[1].emailStatus).toBeNull();
+      const preview = (result.data as { leadsWithIcebreakers: Array<Record<string, unknown>> })
+        .leadsWithIcebreakers;
+      expect(preview[0].emailStatus).toBe("unknown");
+    });
+
+    it("Story 24.12: status gravado vindo da busca nao sobrevive a enrichment sem e-mail ou com erro", async () => {
+      setupStructureThenContent();
+      mockEnrichPerson
+        .mockResolvedValueOnce({
+          person: { email: null, email_status: null, first_name: "Amanda", last_name: "Rebel" },
+        })
+        .mockRejectedValueOnce(new Error("apollo 500"))
+        .mockResolvedValueOnce({
+          person: { email: "carla@acme.com", email_status: "verified", first_name: "Carla", last_name: "Dias" },
+        });
+
+      const masked = (name: string, apolloId: string) => ({
+        name,
+        title: "CTO",
+        companyName: "Acme",
+        email: null,
+        linkedinUrl: null,
+        apolloId,
+        emailStatus: "invalid" as const,
+      });
+      const result = await step.run(
+        createInput({}, {
+          leads: [
+            masked("Amanda Re***l", "apollo-amanda"),
+            masked("Bruno L***a", "apollo-bruno"),
+            masked("Carla D***s", "apollo-carla"),
+          ],
+          totalFound: 3,
+          jobTitles: ["CTO"],
+          domainsSearched: [],
+        })
+      );
+      expect(result.success).toBe(true);
+
+      const preview = (result.data as { leadsWithIcebreakers: Array<Record<string, unknown>> })
+        .leadsWithIcebreakers;
+      expect(preview.map((l) => l.emailStatus)).toEqual([null, null, "verified"]);
+      const args = mockPersistApprovedLeads.mock.calls[0][0] as {
+        leads: Array<Record<string, unknown>>;
+      };
+      expect(args.leads.map((l) => l.emailStatus)).toEqual([null, null, "verified"]);
+    });
+
     it("sem segmentName no briefing, usa o nome da campanha", async () => {
       setupStructureThenContent();
 

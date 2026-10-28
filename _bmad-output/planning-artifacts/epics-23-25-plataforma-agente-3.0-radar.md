@@ -845,7 +845,7 @@ So that a abordagem seja baseada no que está acontecendo na empresa, não em su
 
 **Given** as fontes externas
 **When** chamadas
-**Then** usam o provedor decidido no spike (Treg `web.search`/`web.extract` se go; senão as fontes existentes), registram custo (NFR3) e respeitam teto por execução (NFR4)
+**Then** usam o Treg `web.search`/`web.extract` (decisão do spike 24.11 em 2026-10-28: GO), com Exa via Treg (filtro de data e Brasil) para notícias e vagas e cache próprio de 30 dias, registram custo (NFR3) e respeitam teto por execução aplicado no nosso código (NFR4; há provedores que cobram busca sem resultado)
 **And** falha de uma fonte não falha o step: o dossiê sai parcial e sinalizado (NFR9)
 
 **Given** o dossiê

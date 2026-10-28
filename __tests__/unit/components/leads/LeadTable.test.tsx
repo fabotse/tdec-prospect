@@ -779,6 +779,33 @@ describe("LeadTable", () => {
       expect(greenIcons.length).toBe(1);
       expect(grayIcons.length).toBe(1);
     });
+
+    // Story 24.12: aviso "E-mail não verificado" na coluna Contato
+    it.each(["invalid", "unknown"] as const)("shows unverified email warning when emailStatus is %s", (status) => {
+      renderLeadTable(
+        <LeadTable
+          leads={[{ ...mockLeads[0], emailStatus: status }]}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      const warning = screen.getByTestId("email-unverified");
+      expect(warning).toHaveTextContent("E-mail não verificado");
+      expect(warning).toHaveAttribute("title", "O Apollo não confirmou este e-mail. O envio não é bloqueado.");
+    });
+
+    it.each(["verified", null, undefined] as const)("no unverified email warning when emailStatus is %s", (status) => {
+      renderLeadTable(
+        <LeadTable
+          leads={[{ ...mockLeads[0], emailStatus: status }]}
+          selectedIds={[]}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      expect(screen.queryByTestId("email-unverified")).not.toBeInTheDocument();
+    });
   });
 
   // ==============================================

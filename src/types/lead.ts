@@ -7,6 +7,7 @@
 
 import { z } from "zod";
 import type { LinkedInPost } from "./apify";
+import { toLeadEmailStatus, type LeadEmailStatus } from "@/lib/leads/email-status";
 
 // ==============================================
 // STATUS TYPES
@@ -161,6 +162,11 @@ export interface Lead {
   linkedinPostsCache: LinkedInPostsCache | null;
   /** Story 13.1: Flag de monitoramento LinkedIn */
   isMonitored: boolean;
+  /**
+   * Story 24.12: status do e-mail no Apollo (informativo). `null`/ausente = nunca
+   * consultado (sem aviso). Opcional: leads montados fora do banco nao tem o campo.
+   */
+  emailStatus?: LeadEmailStatus | null;
 }
 
 /**
@@ -203,6 +209,8 @@ export interface LeadRow {
   linkedin_posts_cache: LinkedInPostsCache | null;
   /** Story 13.1: Flag de monitoramento LinkedIn */
   is_monitored: boolean;
+  /** Story 24.12: migration 00072. Ausente antes dela (o `select("*")` nao traz a coluna). */
+  email_status?: string | null;
 }
 
 // ==============================================
@@ -243,6 +251,8 @@ export function transformLeadRow(row: LeadRow): Lead {
     icebreakerGeneratedAt: row.icebreaker_generated_at,
     linkedinPostsCache: row.linkedin_posts_cache,
     isMonitored: row.is_monitored,
+    // Story 24.12: antes da 00072 a coluna nao vem (`undefined` -> `null`).
+    emailStatus: toLeadEmailStatus(row.email_status),
   };
 }
 

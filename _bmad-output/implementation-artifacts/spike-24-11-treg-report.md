@@ -253,3 +253,9 @@ Em `spikes/24-11-treg/`, com Node 24:
 | `node 08-analyze.mjs` e `node 09-ledger.mjs` | números agregados |
 
 A amostra sai de `sample.sql` via `scripts/db-ro.sh` para `out/candidates.csv`. Os números deste relatório estão em `out/analysis.json` e `out/ledger-summary.json` (locais, fora do git).
+
+## Decisão do Fabossi (2026-10-28)
+
+- **Pesquisa web: GO.** A 24.19 (dossiê) usa o Treg para `web.search`/`web.extract`, com **Exa via Treg** (filtro de data e Brasil) para notícias e vagas, cache próprio de 30 dias e teto de custo por execução no nosso código (alguns provedores cobram busca sem resultado).
+- **Verificação de e-mail, busca de e-mail e telefone: NO-GO.** Ficam como estão hoje (Apollo e fontes atuais). A 24.12 já usa só o `email_status` do Apollo.
+- BYOK não testado; reavaliar só se o custo por conta subir.

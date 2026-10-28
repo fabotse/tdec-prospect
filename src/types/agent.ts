@@ -6,6 +6,7 @@
  */
 
 import type { CopyReviewStatus } from "./copy-review";
+import type { LeadEmailStatus } from "@/lib/leads/email-status";
 
 // === Enums / Unions ===
 
@@ -355,6 +356,11 @@ export interface SearchLeadResult {
   publicSector?: boolean;
   /** Story 24.15: lead ja abordado pelo tenant (fora da pre-selecao). */
   contactStatus?: "already_contacted" | null;
+  /**
+   * Story 24.12: status do e-mail no Apollo (informativo, nunca filtra nem bloqueia).
+   * Ausente/null = nunca consultado (sem aviso).
+   */
+  emailStatus?: LeadEmailStatus | null;
 }
 
 /** Story 24.15: contagens da triagem dos resultados da busca. */

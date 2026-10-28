@@ -26,6 +26,7 @@ import {
   requireServiceApiKey,
 } from "@/lib/agent/service-keys";
 import { normalizeSegmentName, persistApprovedLeads } from "@/lib/agent/lead-persistence";
+import { normalizeApolloEmailStatus } from "@/lib/leads/email-status";
 import { persistAgentCampaign } from "@/lib/agent/campaign-persistence";
 import {
   TEMPLATE_LEAD_VARIABLES,
@@ -140,10 +141,16 @@ export class CreateCampaignStep extends BaseStep {
       if (typedLead.apolloId && (!typedLead.email || typedLead.name.includes("*"))) {
         enrichAttempts++;
         try {
+          // Story 24.12 (AC4 / NFR8): nunca revelar e-mail pessoal.
           const enriched = await apolloService.enrichPerson(typedLead.apolloId, {
-            revealPersonalEmails: true,
+            revealPersonalEmails: false,
           });
           const person = enriched.person;
+          // Story 24.12: o status vem SO deste enrichment (informativo; gravado best-effort
+          // na persistencia). Sem e-mail -> null, para nao herdar status antigo da busca.
+          typedLead.emailStatus = person?.email
+            ? normalizeApolloEmailStatus(person.email, person.email_status)
+            : null;
           if (person) {
             if (person.email) typedLead.email = person.email;
             const fullName = [person.first_name, person.last_name].filter(Boolean).join(" ");
@@ -152,6 +159,8 @@ export class CreateCampaignStep extends BaseStep {
           }
         } catch {
           // Enrichment failed — continue with existing data
+          // Story 24.12: sem enrichment, sem status (nao herda o da busca).
+          typedLead.emailStatus = null;
           enrichFailures++;
         }
       }

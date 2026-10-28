@@ -17,7 +17,9 @@ import {
   resolveSearchLocations,
 } from "@/lib/agent/search-defaults";
 import {
+  annotateEmailStatus,
   findContactedLeads,
+  findStoredEmailStatuses,
   isReviewEligible,
   orderByScreening,
   screenLeads,
@@ -468,7 +470,14 @@ export class SearchLeadsStep extends BaseStep {
       mappedLeads.map((l) => l.apolloId)
     );
     const screened = screenLeads(mappedLeads, contactMap);
-    const leads = screened.leads;
+    // Story 24.12: status do e-mail ja gravado (leitura separada e fail-open). So anota —
+    // nao muda triagem, ordem, pre-selecao nem elegibilidade.
+    const emailStatusMap = await findStoredEmailStatuses(
+      this.supabase,
+      this.tenantId,
+      screened.leads.map((l) => l.apolloId)
+    );
+    const leads = annotateEmailStatus(screened.leads, emailStatusMap);
     const screenedRows = screened.keptIndexes.map((i) => result.leads[i]);
     const screening = summarizeScreening(leads, screened.suppressedCount);
     if (screened.suppressedCount > 0) {

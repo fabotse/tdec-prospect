@@ -866,4 +866,71 @@ describe("persistApprovedLeads (Story 22.15)", () => {
       expect(db.leads[0]).toMatchObject({ fit_score: "A", fit_reason: "Score da duplicata" });
     });
   });
+  describe("Story 24.12 - Fase 7: status do e-mail (best-effort)", () => {
+    const statusUpdates = () =>
+      db.log.filter(
+        (entry) =>
+          entry.table === "leads" &&
+          entry.op === "update" &&
+          (entry.payload as Record<string, unknown>)?.email_status !== undefined
+      );
+
+    it("inserido: insert SEM a coluna nova, depois update de email_status", async () => {
+      const result = await run(db, [lead({ emailStatus: "unknown" })]);
+
+      expect(result.inserted).toBe(1);
+      expect(result.degraded).toBe(false);
+      expect((db.leads[0] as unknown as Record<string, unknown>).email_status).toBe("unknown");
+      const insert = db.log.find((entry) => entry.table === "leads" && entry.op === "insert");
+      expect((insert?.payload as Array<Record<string, unknown>>)[0]).not.toHaveProperty("email_status");
+    });
+
+    it("reusado com o MESMO e-mail (normalizado) recebe o status", async () => {
+      const seeded = db.seedLead({ apollo_id: "apollo-1", email: " Maria@Acme.COM " });
+
+      const result = await run(db, [lead({ emailStatus: "verified" })]);
+
+      expect(result.reused).toBe(1);
+      const row = db.leads.find((l) => l.id === seeded.id) as unknown as Record<string, unknown>;
+      expect(row.email_status).toBe("verified");
+    });
+
+    it("reusado com e-mail DIFERENTE nao recebe o status", async () => {
+      const seeded = db.seedLead({ apollo_id: "apollo-1", email: "outro@acme.com" });
+
+      const result = await run(db, [lead({ emailStatus: "invalid" })]);
+
+      expect(result.reused).toBe(1);
+      const row = db.leads.find((l) => l.id === seeded.id) as unknown as Record<string, unknown>;
+      expect(row).not.toHaveProperty("email_status");
+      expect(statusUpdates()).toHaveLength(0);
+    });
+
+    it("sem status (ou valor fora dos 3) nao grava nada", async () => {
+      await run(db, [
+        lead(),
+        lead({ apolloId: "apollo-2", email: "joao@acme.com", emailStatus: "bogus" as never }),
+      ]);
+      expect(statusUpdates()).toHaveLength(0);
+    });
+
+    it("status sem e-mail no registro nao e gravado", async () => {
+      await run(db, [lead({ email: null, emailStatus: "verified" })]);
+      expect(statusUpdates()).toHaveLength(0);
+    });
+
+    it("falha no update (antes da 00072): so console.warn, resultado inalterado", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      db.fail("leads", "update", { code: "42703", message: 'column "email_status" does not exist' }, 5);
+
+      const result = await run(db, [lead({ icebreaker: null, emailStatus: "unknown" })]);
+
+      expect(result.degraded).toBe(false);
+      expect(result.inserted).toBe(1);
+      expect(result.associated).toBe(1);
+      expect(result.leadIds).toEqual([db.leads[0].id]);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("status do e-mail nao gravado"));
+      warn.mockRestore();
+    });
+  });
 });

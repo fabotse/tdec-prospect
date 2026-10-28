@@ -1,0 +1,11 @@
+{
+  "actions": [
+    "Revise e aplique supabase/migrations/00072_add_lead_email_status.sql no SQL Editor do Supabase de producao (kdgogyqyaxncqoyklyxx). Ela so adiciona a coluna nullable leads.email_status com CHECK (verified/invalid/unknown) e nao altera nenhuma linha. Sem ela, nenhum status e gravado e nenhum aviso aparece.",
+    "Confirme que aceita a mudanca do create_campaign do agente para revealPersonalEmails=false (AC4/NFR8): um lead cujo unico e-mail no Apollo seja pessoal passa a ficar sem e-mail e sai do export do agente pelo filtro de e-mail que ja existe. Se nao aceitar, avise antes do deploy.",
+    "Depois de aplicar a 00072, enriqueca um lead pela tela de Meus Leads e confirme no banco que leads.email_status ficou verified, invalid ou unknown, e que a coluna Contato mostra o aviso 'E-mail nao verificado' so para invalid/unknown."
+  ],
+  "parked_at": "2026-10-28",
+  "run_id": "20261028-163026-1aa4",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-24-12-verificacao-de-e-mail-antes-do-export.md",
+  "story_key": "24-12-verificacao-de-e-mail-antes-do-export"
+}
