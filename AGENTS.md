@@ -20,7 +20,7 @@ Antes de dar a etapa por concluída, verificar e registrar nas Completion Notes 
 
 ### Enquanto o `.env.local` apontar para produção
 
-- Migrations: só **aditivas** (tabela, coluna nullable, índice). Nada de `DROP`, `ALTER` destrutivo, `UPDATE`/`DELETE` em dados existentes. Aplicar só com o OK do Fabossi.
+- Migrations: só **aditivas** (tabela, coluna nullable, índice). Nada de `DROP`, `ALTER` destrutivo, `UPDATE`/`DELETE` em dados existentes. Agentes escrevem, mas **nunca** aplicam; só o Fabossi aplica (não existe Supabase de teste; o `.env.local` aponta para produção). Marcar a issue no Linear com `precisa-felipe` e parar.
 - Não criar, alterar nem reagendar jobs `pg_cron`, não publicar Edge Functions e não mudar secrets/variáveis sem pedido explícito.
 - Smokes: nunca ativar campanhas de teste no Instantly, não mexer em campanhas reais do cliente e não enviar WhatsApp para leads.
 
