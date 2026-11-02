@@ -180,3 +180,15 @@ Status: awaiting-operator
 **Verificação:** `npm run lint` (0 erros, 134 warnings já existentes), `npm run typecheck` e `npm run test:run` (457 arquivos, 8912 testes, 2 skipped) passaram depois dos patches. Smoke somente leitura em produção (feito na implementação): `leads.email_status` ainda não existe (42703) e o código trata isso como "sem status". `/verify` (Playwright, dev local na porta 3001): Meus Leads carrega (`/api/leads` 200, 1.159 leads) sem nenhum aviso, como esperado antes da 00072; a revisão do agente não foi aberta porque exige rodar a execução (APIs pagas).
 
 **Riscos residuais:** sem a 00072 nada aparece e cada enrichment gera um `console.warn`; leads só com e-mail pessoal saem do export do agente (aguarda confirmação do Fabossi); a UI não foi conferida no navegador, só por testes de componente.
+
+## Smoke em produção (2026-11-02)
+
+Deploy: PR #17, merge `cb01d76`. Migration 00072 aplicada pelo Fabossi e conferida via `db-ro` (coluna nullable + CHECK, 0 de 1159 leads com status antes do smoke). `revealPersonalEmails` mantido `true` por decisão do Fabossi (commit `16bdc78`).
+
+Execução `0fa44623-af2f-4307-a319-0ec7ff58f52b`, "CISO de São Paulo, traga 2 leads", modo Guiado (plano R$ 0,60):
+- Revisão de leads: 10 exibidos, 2 pré-selecionados, Fit B. Nenhum aviso "E-mail não verificado", como esperado (nenhum status gravado ainda).
+- Aprovados os 2 leads → `create_campaign` fez o enrichment e gerou sequência + 2 icebreakers. Os 2 leads eram linhas já existentes (reusadas, mesmo e-mail): `email_status` = `verified` gravado nas duas (Fase 7). Prévia sem aviso, coerente com `verified`.
+- Parado em "Criação de Campanha" (`awaiting_approval`), **sem aprovar**: nada exportado ao Instantly. A execução antiga `8ff30be2` foi encerrada (`cancelled`) ao abrir a nova conversa.
+- Não testado em produção: o aviso para `invalid`/`unknown` (nenhum lead nesse estado ainda) e o enrichment manual de Meus Leads. Cobertos por testes unitários.
+
+**Os 3 pontos:** busca de leads e criação de campanha funcionando (smoke real); export/ativação e campanhas rodando não tocados (diff + smoke parado antes do export).
