@@ -2,7 +2,7 @@
 title: '24.12 — Status do e-mail visível na revisão (sem custo e sem trava)'
 type: 'feature'
 created: '2026-10-28'
-status: 'awaiting-operator'
+status: done
 baseline_revision: 'ffcf6a49c3db9d84ff01f055dc83210c5692c179'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -192,3 +192,12 @@ Execução `0fa44623-af2f-4307-a319-0ec7ff58f52b`, "CISO de São Paulo, traga 2 
 - Não testado em produção: o aviso para `invalid`/`unknown` (nenhum lead nesse estado ainda) e o enrichment manual de Meus Leads. Cobertos por testes unitários.
 
 **Os 3 pontos:** busca de leads e criação de campanha funcionando (smoke real); export/ativação e campanhas rodando não tocados (diff + smoke parado antes do export).
+
+## Operator Confirmation
+
+Confirmed 2026-11-02: the external actions this story owed were carried out.
+
+- Revise e aplique supabase/migrations/00072_add_lead_email_status.sql no SQL Editor do Supabase de producao (kdgogyqyaxncqoyklyxx). Ela so adiciona a coluna nullable leads.email_status com CHECK (verified/invalid/unknown) e nao altera nenhuma linha. Sem ela, nenhum status e gravado e nenhum aviso aparece.
+- Depois de aplicar a 00072, enriqueca um lead pela tela de Meus Leads e confirme no banco que leads.email_status ficou verified, invalid ou unknown, e que a coluna Contato mostra o aviso 'E-mail nao verificado' so para invalid/unknown.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
