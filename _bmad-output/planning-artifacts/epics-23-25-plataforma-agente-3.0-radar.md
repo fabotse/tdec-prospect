@@ -690,7 +690,7 @@ So that eu decida com informação quem aprovar, sem custo extra e sem travar o 
 
 **Given** o enrichment do `create_campaign`
 **When** busca o e-mail do lead
-**Then** não revela e-mail pessoal (`revealPersonalEmails` desligado — NFR8)
+**Then** o `revealPersonalEmails` continua como está hoje (`true`). Decisão do Fabossi em 2026-11-02: desligar tiraria leads do export (regra nº 1). A NFR8 fica pendente para quando a regra nº 1 permitir mudar o caminho até o Instantly
 
 ### Story 24.13: Quantos leads eu quero
 

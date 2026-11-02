@@ -2008,7 +2008,7 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
       });
     });
 
-    it("Story 24.12: enrichment com revealPersonalEmails false e emailStatus anotado ate a persistencia e a previa", async () => {
+    it("Story 24.12: enrichment com revealPersonalEmails true (inalterado) e emailStatus anotado ate a persistencia e a previa", async () => {
       setupStructureThenContent();
       mockEnrichPerson
         .mockResolvedValueOnce({
@@ -2037,7 +2037,7 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
       expect(result.success).toBe(true);
 
       for (const call of mockEnrichPerson.mock.calls) {
-        expect(call[1]).toEqual({ revealPersonalEmails: false });
+        expect(call[1]).toEqual({ revealPersonalEmails: true });
       }
       const args = mockPersistApprovedLeads.mock.calls[0][0] as {
         leads: Array<Record<string, unknown>>;

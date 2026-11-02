@@ -13,7 +13,6 @@ warnings: ['oversized']
 deferred: []
 operator_actions:
   - "Revise e aplique supabase/migrations/00072_add_lead_email_status.sql no SQL Editor do Supabase de producao (kdgogyqyaxncqoyklyxx). Ela so adiciona a coluna nullable leads.email_status com CHECK (verified/invalid/unknown) e nao altera nenhuma linha. Sem ela, nenhum status e gravado e nenhum aviso aparece."
-  - "Confirme que aceita a mudanca do create_campaign do agente para revealPersonalEmails=false (AC4/NFR8): um lead cujo unico e-mail no Apollo seja pessoal passa a ficar sem e-mail e sai do export do agente pelo filtro de e-mail que ja existe. Se nao aceitar, avise antes do deploy."
   - "Depois de aplicar a 00072, enriqueca um lead pela tela de Meus Leads e confirme no banco que leads.email_status ficou verified, invalid ou unknown, e que a coluna Contato mostra o aviso 'E-mail nao verificado' so para invalid/unknown."
 ---
 
@@ -33,7 +32,7 @@ operator_actions:
 - Gravação sempre separada do UPDATE/INSERT principal, best-effort: erro (ex.: coluna ainda inexistente antes da 00072) só loga com `console.warn`, nunca lança, nunca muda a resposta, a contagem ou o `degraded`. O código sobe seguro antes da migration.
 - Fluxo manual: `POST /api/leads/[leadId]/enrich` e `POST /api/leads/enrich/bulk` (os dois grupos, por `apollo_id` e por detalhes) gravam o status depois do UPDATE principal bem-sucedido. Nenhuma chamada nova ao Apollo.
 - Agente: o enrichment do `create_campaign` anota `emailStatus` no lead em memória (só quando `person.email` veio). `persistApprovedLeads` ganha uma fase best-effort (depois da Fase 6) que grava `email_status` nos persistidos com status: inseridos sempre; reusados só se o e-mail da linha existente, normalizado, for igual ao e-mail do registro.
-- `create_campaign`: `revealPersonalEmails: false` (AC4 / NFR8).
+- `create_campaign`: `revealPersonalEmails` continua `true` (decisão do Fabossi em 2026-11-02, ver Design Notes).
 - Revisão de leads do agente: o `search_leads` anota `emailStatus` dos leads que o tenant já tem com status gravado, por `apollo_id`, numa leitura **separada** e fail-open (erro → nenhum status, nada mais muda). Não estender o `select` de `findContactedLeads` (um erro de coluna desligaria a triagem da 24.15).
 - Prévia da campanha (`AgentCampaignPreview`) mostra o mesmo aviso por lead a partir de `leadsWithIcebreakers[].emailStatus`.
 - Lista de leads (`LeadTable`, coluna Contato): aviso quando `lead.emailStatus` é `invalid`/`unknown`. `Lead.emailStatus` vem de `email_status` (`select("*")` já traz a coluna depois da migration; antes dela, `undefined` → `null`).
@@ -80,7 +79,7 @@ operator_actions:
 - [x] `src/lib/leads/email-status.ts` -- NOVO, puro: `LeadEmailStatus`, `normalizeApolloEmailStatus(email, rawStatus)`, `isUnverifiedEmailStatus(status)`, `toLeadEmailStatus(value: unknown)` (aceita só os 3 valores), `UNVERIFIED_EMAIL_LABEL`/`UNVERIFIED_EMAIL_HINT`; e `persistLeadEmailStatus(supabase, tenantId, leadId, status)` best-effort num arquivo só-servidor `src/lib/leads/persist-email-status.ts`. -- fonte única.
 - [x] `supabase/migrations/00072_add_lead_email_status.sql` -- `ADD COLUMN IF NOT EXISTS email_status TEXT NULL` + CHECK nos 3 valores + COMMENT; cabeçalho "NÃO APLICAR sem o OK do Fabossi". -- AC1.
 - [x] Rotas `[leadId]/enrich` e `enrich/bulk` + `src/types/apollo.ts` -- gravar o status após o UPDATE OK. -- AC1.
-- [x] `create-campaign-step.ts` -- `revealPersonalEmails: false`; anotar `emailStatus`. `lead-persistence.ts` -- `emailStatus` no `LeadRecord`/merge e Fase 7 best-effort. -- AC1, AC4.
+- [x] `create-campaign-step.ts` -- anotar `emailStatus` (`revealPersonalEmails: false` revertido para `true` pelo operador em 2026-11-02). `lead-persistence.ts` -- `emailStatus` no `LeadRecord`/merge e Fase 7 best-effort. -- AC1, AC4.
 - [x] `search-leads-step.ts` (+ função nova fail-open `findStoredEmailStatuses` em `lead-screening.ts`) e `src/types/agent.ts` -- anotar `emailStatus`. -- AC2.
 - [x] `AgentLeadReview.tsx`, `AgentCampaignPreview.tsx`, `src/types/lead.ts`, `LeadTable.tsx` -- aviso discreto (ícone âmbar + texto curto/tooltip, `data-testid="email-unverified"`). -- AC2.
 - [x] Testes -- NOVO `__tests__/unit/lib/leads/email-status.test.ts` (matriz de normalização, best-effort); casos nos testes existentes do Code Map: rotas gravam/ignoram/sobrevivem ao erro, `reveal` falso, Fase 7 (inserido, reusado igual/diferente, erro não degrada), lookup fail-open, avisos renderizados só para `invalid`/`unknown`, export inalterado.
@@ -89,7 +88,7 @@ operator_actions:
 - Given um enrichment Apollo (manual ou do agente) que devolve e-mail, when o lead é gravado, then `leads.email_status` fica `verified`/`invalid`/`unknown`, sem chamada paga adicional, e a resposta da rota/persistência é a mesma de antes.
 - Given a revisão de leads do agente, a prévia da campanha ou a lista de leads, when o status é `invalid` ou `unknown`, then aparece o aviso "E-mail não verificado" (ao lado do Fit na revisão); com `verified` ou `NULL`, nenhum aviso.
 - Given leads não verificados, when o export (manual ou agente) e a ativação rodam, then nada muda: nenhum filtro, bloqueio ou confirmação extra.
-- Given o enrichment do `create_campaign`, when busca o e-mail, then chama `enrichPerson` com `revealPersonalEmails: false`.
+- Given o enrichment do `create_campaign`, when busca o e-mail, then chama `enrichPerson` com `revealPersonalEmails: true` (inalterado, decisão do operador em 2026-11-02).
 - Given `npm run lint`, `npm run typecheck` e `npm run test:run`, when executados, then passam.
 
 ## Spec Change Log
@@ -126,7 +125,7 @@ operator_actions:
 
 - **Por que `NULL` não avisa:** na revisão de leads do agente, os leads novos ainda não passaram pelo enrichment (ele roda no `create_campaign`, depois da aprovação). Tratar "nunca consultado" como "não verificado" poria o aviso em 100% dos leads e não ajudaria a decidir. O aviso fica onde há status real: leads que o tenant já tem enriquecidos (revisão), a prévia da campanha (logo depois do enrichment, antes do export) e a lista de leads.
 - **Por que UPDATE separado:** o código pode subir antes da 00072. Com o status dentro do UPDATE principal, o enrichment manual e a persistência do agente quebrariam até a migration ser aplicada (regra nº 1). Mesmo motivo da Fase 6 da 24.16.
-- **`revealPersonalEmails: false`:** pedido explícito da AC4/NFR8. Efeito colateral: um lead cujo único e-mail no Apollo seja pessoal fica sem e-mail e não entra no export (o filtro `lead.email` do export já existe). Não é trava nova; registrar nas Completion Notes.
+- **`revealPersonalEmails`:** a implementação desligou (AC4/NFR8), mas o Fabossi decidiu em 2026-11-02 manter `true`. Desligar tiraria do export os leads cujo único e-mail no Apollo é pessoal, o que mexe no ponto 3 da regra nº 1. A AC4 do épico foi reescrita.
 
 ## Verification
 
@@ -141,7 +140,7 @@ operator_actions:
 
 **O que pode mudar para o cliente:**
 - Rotas: `POST /api/leads/[leadId]/enrich` e `POST /api/leads/enrich/bulk` fazem um UPDATE extra, best-effort (`leads.email_status`), depois do UPDATE principal OK. Mesma resposta e mesma contagem. Nenhuma chamada nova ao Apollo.
-- Agente: o `create_campaign` agora chama `enrichPerson` com `revealPersonalEmails: false` (AC4/NFR8). Efeito colateral: um lead cujo único e-mail no Apollo seja pessoal fica sem e-mail e sai do export pelo filtro `lead.email` que já existe. Não é trava nova.
+- Agente: o `create_campaign` só passou a anotar `emailStatus` vindo do enrichment. O `revealPersonalEmails` continua `true` (revertido na revisão do operador, 2026-11-02), então os leads que entram no export não mudam.
 - `persistApprovedLeads`: Fase 7 nova (UPDATE best-effort de `email_status`). Erro só gera `console.warn`; `degraded` e as contagens não mudam.
 - `search_leads`: uma leitura nova e fail-open (`findStoredEmailStatuses`) que só anota `emailStatus`. Triagem, Fit Score, ordem e pré-seleção não mudam.
 - UI: aviso "E-mail não verificado" (ícone `text-warning`, tooltip) na revisão de leads (ao lado do Fit), na prévia da campanha e na coluna Contato da lista de leads. Só aparece para `invalid`/`unknown`.
@@ -151,7 +150,7 @@ operator_actions:
 **Os 3 pontos (verificados por análise do diff + testes unitários, sem smoke real de enrichment, export ou ativação):**
 1. Campanhas rodando, webhook e `reply-sweep`: nenhum arquivo desses caminhos foi tocado.
 2. Busca de leads: o único acréscimo é uma leitura fail-open. Smoke somente leitura em produção confirmou que hoje ela devolve `42703 column leads.email_status does not exist`, e o código trata esse erro como mapa vazio (testado).
-3. Criação de campanha e export/ativação: o export continua idêntico. Há um teste novo em `export-step.test.ts` que compara o payload com e sem `emailStatus`. A única mudança no caminho é `revealPersonalEmails: false`, que foi pedida na spec (veja o efeito colateral acima).
+3. Criação de campanha e export/ativação: o export continua idêntico. Há um teste novo em `export-step.test.ts` que compara o payload com e sem `emailStatus`. O `revealPersonalEmails: false` foi revertido para `true` na revisão do operador, então nada muda no caminho até o Instantly.
 
 **Verificação:** `npm run lint` (0 erros), `npm run typecheck` e `npm run test:run` (457 arquivos, 8909 testes) passaram.
 
@@ -159,14 +158,14 @@ operator_actions:
 
 Status: awaiting-operator
 
-**Resumo:** o `email_status` do enrichment do Apollo (já pago) é normalizado em `verified`/`invalid`/`unknown` e gravado best-effort em `leads.email_status` (migration 00072, aditiva, não aplicada) nos enrichments manual (individual e bulk) e do agente (Fase 7 da persistência). O aviso "E-mail não verificado" aparece só para `invalid`/`unknown` na revisão de leads do agente (ao lado do Fit, inclusive depois de "Buscar N leads"), na prévia da campanha e na coluna Contato da lista de leads. O `create_campaign` passou a usar `revealPersonalEmails: false`. Export e ativação não mudaram.
+**Resumo:** o `email_status` do enrichment do Apollo (já pago) é normalizado em `verified`/`invalid`/`unknown` e gravado best-effort em `leads.email_status` (migration 00072, aditiva, não aplicada) nos enrichments manual (individual e bulk) e do agente (Fase 7 da persistência). O aviso "E-mail não verificado" aparece só para `invalid`/`unknown` na revisão de leads do agente (ao lado do Fit, inclusive depois de "Buscar N leads"), na prévia da campanha e na coluna Contato da lista de leads. O `create_campaign` mantém `revealPersonalEmails: true` (decisão do Fabossi). Export e ativação não mudaram.
 
 **Arquivos:**
 - `src/lib/leads/email-status.ts` — normalização e textos do aviso (puro).
 - `src/lib/leads/persist-email-status.ts` — UPDATE best-effort do status.
 - `supabase/migrations/00072_add_lead_email_status.sql` — coluna nullable + CHECK.
 - `src/app/api/leads/[leadId]/enrich/route.ts`, `src/app/api/leads/enrich/bulk/route.ts` — gravam o status após o UPDATE OK.
-- `src/lib/agent/steps/create-campaign-step.ts` — `revealPersonalEmails: false` e status vindo só do enrichment.
+- `src/lib/agent/steps/create-campaign-step.ts` — status vindo só do enrichment (`revealPersonalEmails` mantido `true`).
 - `src/lib/agent/lead-persistence.ts` — `emailStatus` no registro e Fase 7.
 - `src/lib/agent/lead-screening.ts` — `findStoredEmailStatuses` (fail-open) e `annotateEmailStatus`.
 - `src/lib/agent/steps/search-leads-step.ts`, `src/app/api/agent/executions/[executionId]/steps/[stepNumber]/fetch-leads/route.ts` — anotam o status gravado.

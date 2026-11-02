@@ -141,9 +141,10 @@ export class CreateCampaignStep extends BaseStep {
       if (typedLead.apolloId && (!typedLead.email || typedLead.name.includes("*"))) {
         enrichAttempts++;
         try {
-          // Story 24.12 (AC4 / NFR8): nunca revelar e-mail pessoal.
+          // Story 24.12: mantido `true` por decisao do Fabossi (2026-11-02) — desligar
+          // tiraria do export leads cujo unico e-mail no Apollo e pessoal (regra nº 1).
           const enriched = await apolloService.enrichPerson(typedLead.apolloId, {
-            revealPersonalEmails: false,
+            revealPersonalEmails: true,
           });
           const person = enriched.person;
           // Story 24.12: o status vem SO deste enrichment (informativo; gravado best-effort
