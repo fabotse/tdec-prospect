@@ -20,6 +20,18 @@ Antes de dar a etapa por concluída, verificar e registrar nas Completion Notes 
 
 ### Enquanto o `.env.local` apontar para produção
 
-- Migrations: só **aditivas** (tabela, coluna nullable, índice). Nada de `DROP`, `ALTER` destrutivo, `UPDATE`/`DELETE` em dados existentes. Aplicar só com o OK do Fabossi.
+- Migrations: só **aditivas** (tabela, coluna nullable, índice). Nada de `DROP`, `ALTER` destrutivo, `UPDATE`/`DELETE` em dados existentes. Agentes escrevem, mas **nunca** aplicam; só o Fabossi aplica (não existe Supabase de teste; o `.env.local` aponta para produção). Marcar a issue no Linear com `precisa-felipe` e parar.
 - Não criar, alterar nem reagendar jobs `pg_cron`, não publicar Edge Functions e não mudar secrets/variáveis sem pedido explícito.
 - Smokes: nunca ativar campanhas de teste no Instantly, não mexer em campanhas reais do cliente e não enviar WhatsApp para leads.
+
+## Sincronização entre máquinas (Mac do Fabossi ↔ Eden)
+
+O trabalho acontece em duas máquinas: o Mac do Fabossi e a máquina do orquestrador Eden.
+
+- Antes de começar qualquer trabalho: `git fetch` + `git pull` no branch de trabalho e ler a issue correspondente no Linear (projeto TDec-Prospect), incluindo os comentários mais recentes.
+- Cada issue tem exatamente uma máquina dona por vez, registrada no Linear com os labels `maquina:mac` / `maquina:eden`. Não trabalhar numa issue que é da outra máquina.
+- Nunca trabalhar no mesmo branch nas duas máquinas ao mesmo tempo.
+- Ao final de cada sessão de trabalho: commit, push e comentário na issue do Linear com: o que foi feito, branch, SHA do commit, checks rodados (`npm run lint`, `npm run typecheck`, `npm run test:run`) e resultados, o que ficou pendente e o próximo dono.
+- Migrations: agentes escrevem, mas **nunca** aplicam. Marcar a issue com `precisa-felipe` e parar; o Fabossi aplica (não existe Supabase de teste; o `.env.local` aponta para produção).
+- Se o `.env.local` mudar numa máquina, sinalizar no Linear para a outra ser atualizada.
+- O `sprint-status.yaml` continua sendo a fonte da verdade do BMad; o Linear espelha.
