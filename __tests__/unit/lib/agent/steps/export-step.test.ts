@@ -368,6 +368,27 @@ describe("ExportStep (Story 17.4 AC #1, #2)", () => {
       expect(leadsArg.every((l: { email: string }) => l.email)).toBe(true);
     });
 
+    it("Story 24.12: leads invalid/unknown exportam igual (sem filtro) e o status nao vai para o Instantly", async () => {
+      const baseline = new ExportStep(4, mockSupabase as never, TENANT_ID);
+      await baseline.run(createDefaultInput());
+      const baselineLeads = mockAddLeadsToCampaign.mock.calls[0][0].leads;
+      mockAddLeadsToCampaign.mockClear();
+
+      const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
+      const prevOutput = createPreviousStepOutput();
+      const statuses = ["invalid", "unknown", "verified"] as const;
+      prevOutput.leadsWithIcebreakers = prevOutput.leadsWithIcebreakers.map((lead, i) => ({
+        ...lead,
+        emailStatus: statuses[i % statuses.length],
+      })) as typeof prevOutput.leadsWithIcebreakers;
+
+      await step.run(createDefaultInput(prevOutput as unknown as Record<string, unknown>));
+
+      const leadsArg = mockAddLeadsToCampaign.mock.calls[0][0].leads;
+      expect(leadsArg).toEqual(baselineLeads);
+      for (const lead of leadsArg) expect(lead).not.toHaveProperty("emailStatus");
+    });
+
     it("throws when all leads have no email", async () => {
       const step = new ExportStep(4, mockSupabase as never, TENANT_ID);
       const prevOutput = createPreviousStepOutput();

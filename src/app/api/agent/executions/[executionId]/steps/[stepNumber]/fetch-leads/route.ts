@@ -15,7 +15,9 @@ import { readServiceApiKey } from "@/lib/agent/service-keys";
 import { mapLeadRowToSearchLeadResult } from "@/lib/agent/steps/search-leads-step";
 import { logAgentUsage } from "@/lib/agent/agent-usage";
 import {
+  annotateEmailStatus,
   findContactedLeads,
+  findStoredEmailStatuses,
   orderByScreening,
   screenLeads,
   summarizeScreening,
@@ -228,10 +230,17 @@ export async function POST(
     candidateLeads.map((l) => l.apolloId)
   );
   const screened = screenLeads(candidateLeads, contactMap);
+  // Story 24.12: mesma anotacao do step — status do e-mail ja gravado (fail-open).
+  const emailStatusMap = await findStoredEmailStatuses(
+    supabase,
+    profile.tenant_id,
+    screened.leads.map((l) => l.apolloId)
+  );
+  const annotatedLeads = annotateEmailStatus(screened.leads, emailStatusMap);
 
   // Deduplicate by email (case-insensitive), fallback to apolloId
   const seen = new Set<string>();
-  const deduplicated = screened.leads.filter((lead) => {
+  const deduplicated = annotatedLeads.filter((lead) => {
     const key = lead.email
       ? lead.email.toLowerCase()
       : lead.apolloId ?? null;

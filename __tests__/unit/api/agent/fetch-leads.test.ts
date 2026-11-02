@@ -76,11 +76,14 @@ vi.mock("@/lib/agent/agent-usage", () => ({
 
 // Story 24.15: leitura de "ja contatado"/suprimido (suite propria em lead-screening.test.ts).
 const mockFindContactedLeads = vi.fn();
+// Story 24.12: leitura fail-open do email_status (suite propria em lead-screening.test.ts).
+const mockFindStoredEmailStatuses = vi.fn();
 vi.mock("@/lib/agent/lead-screening", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/agent/lead-screening")>();
   return {
     ...actual,
     findContactedLeads: (...args: unknown[]) => mockFindContactedLeads(...args),
+    findStoredEmailStatuses: (...args: unknown[]) => mockFindStoredEmailStatuses(...args),
   };
 });
 
@@ -203,6 +206,7 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/fetch-lead
     });
     setupDefaultMocks();
     mockFindContactedLeads.mockResolvedValue(new Map());
+    mockFindStoredEmailStatuses.mockResolvedValue(new Map());
   });
 
   // --- Story 22.9: chave do Apollo via service-role ---
@@ -571,5 +575,85 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/fetch-lead
     const screening = { suppressed: 1, publicSector: 1, alreadyContacted: 1 };
     expect(json.data.screening).toEqual(screening);
     expect(updatedOutput?.screening).toEqual(screening);
+  });
+
+  // --- Story 24.12: mesma anotacao de emailStatus do step ---
+  describe("Story 24.12 - emailStatus", () => {
+    function mockStepTables(leadsTable?: () => unknown) {
+      const captured: { output?: Record<string, unknown> } = {};
+      mockFrom.mockImplementation((table: string) => {
+        if (table === "agent_executions") {
+          return createChainBuilder({ data: { id: EXEC_ID, tenant_id: "tenant-456" }, error: null });
+        }
+        if (table === "agent_steps") {
+          const chain = createChainBuilder({
+            data: {
+              step_number: 2,
+              step_type: "search_leads",
+              status: "awaiting_approval",
+              output: baseStepOutput,
+              cost: { apollo_search: 25 },
+            },
+            error: null,
+          });
+          chain.update = vi.fn((payload: { output: Record<string, unknown> }) => {
+            captured.output = payload.output;
+            return createChainBuilder({ data: null, error: null });
+          });
+          return chain;
+        }
+        if (table === "leads" && leadsTable) return leadsTable();
+        return createChainBuilder();
+      });
+      return captured;
+    }
+
+    it("anota emailStatus na resposta e no output.leads persistido", async () => {
+      mockSearchPeople.mockResolvedValueOnce(makePageResponse([makeLead(1), makeLead(2)], 1, 1, 2));
+      mockFindStoredEmailStatuses.mockResolvedValue(new Map([["apollo-2", "invalid"]]));
+      const captured = mockStepTables();
+
+      const response = await POST(createRequest({ desiredCount: 25 }), createParams());
+      const json = await response.json();
+
+      expect(mockFindStoredEmailStatuses).toHaveBeenCalledWith(
+        expect.anything(),
+        "tenant-456",
+        ["apollo-1", "apollo-2"]
+      );
+      const byId = (leads: Array<{ apolloId: string; emailStatus?: string }>) =>
+        Object.fromEntries(leads.map((l) => [l.apolloId, l.emailStatus]));
+      expect(byId(json.data.leads)).toEqual({ "apollo-1": undefined, "apollo-2": "invalid" });
+      expect(byId(captured.output?.leads as Array<{ apolloId: string; emailStatus?: string }>)).toEqual({
+        "apollo-1": undefined,
+        "apollo-2": "invalid",
+      });
+    });
+
+    it("lookup falhando (coluna inexistente) nao muda mais nada", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { findStoredEmailStatuses: actualLookup } = await vi.importActual<
+        typeof import("@/lib/agent/lead-screening")
+      >("@/lib/agent/lead-screening");
+      mockFindStoredEmailStatuses.mockImplementation(actualLookup);
+
+      mockSearchPeople.mockResolvedValueOnce(makePageResponse([makeLead(1), makeLead(2)], 1, 1, 2));
+      const baseline = mockStepTables();
+      const baselineJson = await (await POST(createRequest({ desiredCount: 25 }), createParams())).json();
+      const baselineOutput = baseline.output;
+
+      mockSearchPeople.mockResolvedValueOnce(makePageResponse([makeLead(1), makeLead(2)], 1, 1, 2));
+      const failing = mockStepTables(() =>
+        createChainBuilder({ data: null, error: { code: "42703", message: "column leads.email_status does not exist" } })
+      );
+      const response = await POST(createRequest({ desiredCount: 25 }), createParams());
+      const json = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(json).toEqual(baselineJson);
+      expect(failing.output).toEqual(baselineOutput);
+      for (const lead of json.data.leads) expect(lead).not.toHaveProperty("emailStatus");
+      warn.mockRestore();
+    });
   });
 });

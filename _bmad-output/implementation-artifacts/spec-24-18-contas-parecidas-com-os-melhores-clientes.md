@@ -312,3 +312,14 @@ Arquivos da entrega original (inalterados nesta passada): ver Code Map e Complet
 - Falha parcial da Apollo (429) aparece como "não encontrei dados".
 - Depois de um perfil sem confiança, "Usar o ICP" só funciona digitado; sair do modo depende do parser respeitar a regra 11.
 - O custo do enrichment fica em `api_usage_logs`, fora do `cost_actual`.
+
+## Smoke em produção (2026-10-26)
+
+Deploy via PR #16 (merge `a1d5c72`, Vercel prod OK), com a migration 00071 aplicada. Smoke feito pelo Claude via Playwright, execução `8ff30be2-c35a-4666-b2b0-aa4926944673`, modo Guiado, "CISO de São Paulo, traga 2 leads":
+
+- Fluxo normal inalterado: o parser não ligou o modo contas parecidas (briefing sem `referenceAccounts`, `useSuppressionListClients` nulo), o agente não pediu clientes de referência, plano igual ao anterior (R$ 0,60).
+- Revisão: 2 de 85 leads pré-selecionados, Fit B com justificativa; `api_usage_logs` do Fit Score com `fitSource: llm`, 10 leads, 2,5 s; os 2 leads aprovados gravados com `fit_score` B.
+- Parado em "Criação de Campanha" (`awaiting_approval`), **sem aprovar**: nada exportado ao Instantly.
+- Não testado: o modo contas parecidas em si (precisa de nomes de clientes reais e gasta créditos Apollo); fica para um smoke com o Fabossi.
+
+**Os 3 pontos:** busca de leads funcionando (smoke real); export/Instantly e campanhas rodando não tocados (diff + smoke parado antes do export).

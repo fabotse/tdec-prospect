@@ -2,7 +2,7 @@
 title: 'Story 23.5 — Lista de supressão: cadastro e import'
 type: 'feature'
 created: '2026-10-26'
-status: 'awaiting-operator'
+status: done
 baseline_revision: 'f5330616386b797cb041638bebbbf57120548a78'
 review_loop_iteration: 0
 followup_review_recommended: true
@@ -189,3 +189,25 @@ Status: awaiting-operator
 **Riscos residuais:** import em lotes sem transação (falha no meio deixa os lotes anteriores gravados, com aviso da contagem); lista carregada inteira no cliente; SQL testado em PGlite com stubs, não no Supabase real; SDR passa a ver o link "Configurações".
 
 **Devido pelo operador:** ver `operator_actions` no frontmatter.
+
+## Smoke em produção (2026-10-26)
+
+Deploy via PR #16 (merge `a1d5c72` na `main`, Vercel prod OK). Migration 00071 aplicada pelo Fabossi e conferida com `scripts/db-ro.sh` (tabela com RLS ligada, 3 policies SELECT/INSERT/DELETE, 7 constraints, 3 índices). Smoke feito pelo Claude via Playwright em https://tdec-prospect.vercel.app, logado como gestor:
+
+- Aba Configurações → Lista de Supressão aparece entre as abas do admin; lista vazia mostra "Nenhum domínio ou e-mail na lista de supressão".
+- Adicionar manual: `https://www.Smoke-Teste-TDec.com.br/contato` com motivo Cliente gravou `domain` / `smoke-teste-tdec.com.br` / `cliente` / `manual` com `created_by` preenchido. Remover pede confirmação e apagou a linha.
+- Import CSV no formato do Excel em português (UTF-8 com BOM, separador `;`, CRLF, cabeçalho `dominio;motivo`, 3 linhas: domínio, e-mail e URL): "3 aceitas, 0 ignoradas", tipos e motivos corretos, origem "Import CSV", URL normalizada. As 3 entradas de teste foram removidas; tabela terminou com 0 linhas.
+- Não testado em produção: acesso como SDR (sem conta SDR disponível). Fechado com o OK do Fabossi (2026-10-27) com base na revisão do diff (middleware, AdminGuard, SettingsTabs, Sidebar) e nos testes unitários que cobrem SDR só leitura e o redirect de `/settings/integrations`.
+- Observação (cosmético): o diálogo de remover diz "deixa de estar bloqueado para campanhas", mas nenhum envio lê a lista até a 23.6.
+
+**Os 3 pontos:** nenhum caminho de envio, busca ou export lê a tabela (revisão do diff); o smoke do agente no mesmo deploy (spec 24.18) rodou busca normalmente.
+
+## Operator Confirmation
+
+Confirmed 2026-10-27: the external actions this story owed were carried out.
+
+- Aplicar a migration supabase/migrations/00071_create_suppression_entries.sql no SQL Editor do projeto kdgogyqyaxncqoyklyxx (rodar antes o PRE-CHECK do cabeçalho e terminar com NOTIFY pgrst, 'reload schema';).
+- Depois de aplicar, abrir Configurações → Lista de Supressão como gestor e conferir adicionar, remover e importar um CSV de teste (incluindo um CSV salvo pelo Excel em português); depois remover as entradas de teste.
+- Logado como SDR, clicar em Configurações na sidebar e conferir que cai na Lista de Supressão só em leitura, e que /settings/integrations redireciona para /leads.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._

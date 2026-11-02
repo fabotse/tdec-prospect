@@ -17,6 +17,8 @@ import { reportTriggerFailure } from "@/lib/agent/report-trigger-failure";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { CopyReviewBadge } from "@/components/builder/CopyReviewBadge";
 import type { CopyReviewStatus } from "@/types/copy-review";
+import { EmailUnverifiedWarning } from "@/components/leads/EmailUnverifiedWarning";
+import type { LeadEmailStatus } from "@/lib/leads/email-status";
 
 // === Types ===
 
@@ -33,6 +35,8 @@ interface LeadIcebreaker {
   name: string;
   companyName: string | null;
   icebreaker: string | null;
+  /** Story 24.12: status do e-mail do enrichment (aviso so para invalid/unknown). */
+  emailStatus?: LeadEmailStatus | null;
 }
 
 interface CampaignPreviewData {
@@ -320,6 +324,7 @@ export function AgentCampaignPreview({
                         {lead.companyName}
                       </span>
                     )}
+                    <EmailUnverifiedWarning status={lead.emailStatus} />
                   </div>
                   <span className="text-xs text-muted-foreground text-right shrink-0 max-w-[50%]">
                     {lead.icebreaker ?? "Sem icebreaker"}

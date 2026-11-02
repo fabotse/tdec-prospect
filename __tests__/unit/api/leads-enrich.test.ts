@@ -434,10 +434,13 @@ describe("POST /api/leads/enrich/bulk", () => {
       const updateChain1 = createChainBuilder({ data: { id: VALID_UUID }, error: null });
       const updateChain2 = createChainBuilder({ data: { id: VALID_UUID_2 }, error: null });
 
+      // Story 24.12: cada UPDATE OK e seguido do UPDATE best-effort do email_status.
       mockFrom
         .mockReturnValueOnce(fetchChain)
         .mockReturnValueOnce(updateChain1)
-        .mockReturnValueOnce(updateChain2);
+        .mockReturnValueOnce(createChainBuilder())
+        .mockReturnValueOnce(updateChain2)
+        .mockReturnValueOnce(createChainBuilder());
 
       // Group 1: enrichPeople for leads WITH apollo_id
       mockEnrichPeople.mockResolvedValue([
@@ -501,10 +504,13 @@ describe("POST /api/leads/enrich/bulk", () => {
       const updateChain1 = createChainBuilder({ data: { id: VALID_UUID }, error: null });
       const updateChain2 = createChainBuilder({ data: { id: VALID_UUID_2 }, error: null });
 
+      // Story 24.12: cada UPDATE OK e seguido do UPDATE best-effort do email_status.
       mockFrom
         .mockReturnValueOnce(fetchChain)
         .mockReturnValueOnce(updateChain1)
-        .mockReturnValueOnce(updateChain2);
+        .mockReturnValueOnce(createChainBuilder())
+        .mockReturnValueOnce(updateChain2)
+        .mockReturnValueOnce(createChainBuilder());
 
       mockEnrichPeopleByDetails.mockResolvedValue([
         {
@@ -548,5 +554,133 @@ describe("POST /api/leads/enrich/bulk", () => {
       expect(callArgs[0]).not.toHaveProperty("reveal_personal_emails");
       expect(callArgs[0]).not.toHaveProperty("reveal_phone_number");
     });
+  });
+});
+
+// ============================================
+// STORY 24.12 - email_status best-effort
+// ============================================
+
+describe("Story 24.12 - email_status do enrichment", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetCurrentUserProfile.mockResolvedValue(PROFILE);
+  });
+
+  const person = (overrides: Record<string, unknown> = {}) => ({
+    id: "apollo-1", first_name: "João", last_name: "Silva",
+    email: "joao@test.com", email_status: "verified", title: null,
+    city: null, state: null, country: null,
+    linkedin_url: null, photo_url: null, employment_history: [],
+    ...overrides,
+  });
+
+  function singleRequest(): NextRequest {
+    return new NextRequest("http://localhost/api/leads/test-id/enrich", { method: "POST" });
+  }
+
+  function bulkRequest(body: unknown): NextRequest {
+    return new NextRequest("http://localhost/api/leads/enrich/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  const lead = { id: VALID_UUID, apollo_id: "apollo-1", first_name: "João", last_name: "Silva", company_name: null, email: null, linkedin_url: null };
+
+  it.each([
+    ["verified", "verified"],
+    ["invalid", "invalid"],
+    ["unverified", "unknown"],
+    [null, "unknown"],
+  ])("individual: grava email_status %s -> %s num UPDATE separado", async (raw, expected) => {
+    const updateChain = createChainBuilder({ data: { id: VALID_UUID }, error: null });
+    const statusChain = createChainBuilder();
+    mockFrom
+      .mockReturnValueOnce(createChainBuilder({ data: lead, error: null }))
+      .mockReturnValueOnce(updateChain)
+      .mockReturnValueOnce(statusChain);
+    mockEnrichPerson.mockResolvedValue({ person: person({ email_status: raw }), organization: null });
+
+    const response = await enrichSingle(singleRequest(), { params: Promise.resolve({ leadId: VALID_UUID }) });
+
+    expect(response.status).toBe(200);
+    expect(updateChain.update).toHaveBeenCalledWith(expect.not.objectContaining({ email_status: expect.anything() }));
+    expect(statusChain.update).toHaveBeenCalledWith({ email_status: expected });
+    expect(statusChain.eq).toHaveBeenCalledWith("tenant_id", "tenant-1");
+    expect(statusChain.eq).toHaveBeenCalledWith("id", VALID_UUID);
+  });
+
+  it("individual: sem e-mail no enrichment nao grava status", async () => {
+    mockFrom
+      .mockReturnValueOnce(createChainBuilder({ data: lead, error: null }))
+      .mockReturnValueOnce(createChainBuilder({ data: { id: VALID_UUID }, error: null }));
+    mockEnrichPerson.mockResolvedValue({ person: person({ email: null, email_status: null }), organization: null });
+
+    const response = await enrichSingle(singleRequest(), { params: Promise.resolve({ leadId: VALID_UUID }) });
+
+    expect(response.status).toBe(200);
+    expect(mockFrom).toHaveBeenCalledTimes(2);
+  });
+
+  it("individual: falha do UPDATE do status (antes da 00072) nao muda a resposta", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockFrom
+      .mockReturnValueOnce(createChainBuilder({ data: lead, error: null }))
+      .mockReturnValueOnce(createChainBuilder({ data: { id: VALID_UUID, apollo_id: "apollo-1" }, error: null }))
+      .mockReturnValueOnce(createChainBuilder({ data: null, error: { code: "42703", message: "column email_status does not exist" } }));
+    mockEnrichPerson.mockResolvedValue({ person: person(), organization: null });
+
+    const response = await enrichSingle(singleRequest(), { params: Promise.resolve({ leadId: VALID_UUID }) });
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.data).toEqual({ id: VALID_UUID, apollo_id: "apollo-1" });
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("individual: UPDATE principal falhou -> nao grava status", async () => {
+    mockFrom
+      .mockReturnValueOnce(createChainBuilder({ data: lead, error: null }))
+      .mockReturnValueOnce(createChainBuilder({ data: null, error: { message: "boom" } }));
+    mockEnrichPerson.mockResolvedValue({ person: person(), organization: null });
+
+    const response = await enrichSingle(singleRequest(), { params: Promise.resolve({ leadId: VALID_UUID }) });
+
+    expect(response.status).toBe(500);
+    expect(mockFrom).toHaveBeenCalledTimes(2);
+  });
+
+  it("bulk: grava status nos dois grupos e a contagem nao muda quando o status falha", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const leads = [
+      lead,
+      { id: VALID_UUID_2, apollo_id: null, first_name: "Maria", last_name: "Santos", company_name: "Corp", email: null, linkedin_url: null },
+    ];
+    const statusChain1 = createChainBuilder({ data: null, error: { code: "42703" } });
+    const statusChain2 = createChainBuilder();
+    mockFrom
+      .mockReturnValueOnce(createChainBuilder({ data: leads, error: null }))
+      .mockReturnValueOnce(createChainBuilder({ data: { id: VALID_UUID }, error: null }))
+      .mockReturnValueOnce(statusChain1)
+      .mockReturnValueOnce(createChainBuilder({ data: { id: VALID_UUID_2 }, error: null }))
+      .mockReturnValueOnce(statusChain2);
+    mockEnrichPeople.mockResolvedValue([person({ email_status: "invalid" })]);
+    mockEnrichPeopleByDetails.mockResolvedValue([
+      { person: person({ id: "apollo-2", email: "maria@corp.com", email_status: "guessed" }), organization: null },
+    ]);
+
+    const response = await enrichBulk(bulkRequest({ leadIds: [VALID_UUID, VALID_UUID_2] }));
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.data.enriched).toBe(2);
+    expect(data.data.failed).toBe(0);
+    expect(statusChain1.update).toHaveBeenCalledWith({ email_status: "invalid" });
+    expect(statusChain2.update).toHaveBeenCalledWith({ email_status: "unknown" });
+    expect(statusChain2.eq).toHaveBeenCalledWith("id", VALID_UUID_2);
+    warn.mockRestore();
   });
 });

@@ -5,7 +5,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  annotateEmailStatus,
   findContactedLeads,
+  findStoredEmailStatuses,
   isPublicSectorOrganization,
   isReviewEligible,
   orderByScreening,
@@ -34,7 +36,7 @@ function buildClient(byTable: Record<string, Result>) {
   const from = vi.fn((table: string) => {
     const result = byTable[table] ?? { data: [], error: null };
     const chain: Record<string, unknown> = {};
-    for (const m of ["select", "eq", "in"]) chain[m] = vi.fn(() => chain);
+    for (const m of ["select", "eq", "in", "not"]) chain[m] = vi.fn(() => chain);
     chain.then = (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) =>
       result instanceof Error ? Promise.reject(result).catch(reject) : Promise.resolve(result).then(resolve);
     chains[table] = chain as Record<string, ReturnType<typeof vi.fn>>;
@@ -199,5 +201,65 @@ describe("screenLeads / isReviewEligible / summarizeScreening / orderByScreening
     expect(suppressedLeadsMessage(2)).toBe(
       "Removi 2 lead(s) suprimido(s) (pediram para sair ou estao em negociacao)."
     );
+  });
+});
+
+describe("Story 24.12 - findStoredEmailStatuses (fail-open)", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  it("le email_status por apollo_id do tenant, so os 3 valores conhecidos", async () => {
+    const { client, chains } = buildClient({
+      leads: {
+        data: [
+          { apollo_id: "a1", email_status: "verified" },
+          { apollo_id: "a2", email_status: "unknown" },
+          { apollo_id: "a3", email_status: "bogus" },
+          { apollo_id: null, email_status: "invalid" },
+        ],
+        error: null,
+      },
+    });
+
+    const map = await findStoredEmailStatuses(client, "tenant-1", ["a1", "a2", "a3", null, "a1"]);
+
+    expect(Array.from(map.entries())).toEqual([
+      ["a1", "verified"],
+      ["a2", "unknown"],
+    ]);
+    expect(chains.leads.select).toHaveBeenCalledWith("apollo_id, email_status");
+    expect(chains.leads.eq).toHaveBeenCalledWith("tenant_id", "tenant-1");
+    expect(chains.leads.in).toHaveBeenCalledWith("apollo_id", ["a1", "a2", "a3"]);
+  });
+
+  it("sem apollo_id nao consulta o banco", async () => {
+    const { client, from } = buildClient({});
+    const map = await findStoredEmailStatuses(client, "tenant-1", [null, undefined]);
+    expect(map.size).toBe(0);
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  it("erro do banco (coluna inexistente antes da 00072) -> mapa vazio", async () => {
+    const { client } = buildClient({
+      leads: { data: null, error: { code: "42703", message: "column leads.email_status does not exist" } },
+    });
+    const map = await findStoredEmailStatuses(client, "tenant-1", ["a1"]);
+    expect(map.size).toBe(0);
+    expect(console.warn).toHaveBeenCalled();
+  });
+
+  it("excecao -> mapa vazio, nunca lanca", async () => {
+    const { client } = buildClient({ leads: new Error("network") });
+    await expect(findStoredEmailStatuses(client, "tenant-1", ["a1"])).resolves.toEqual(new Map());
+  });
+
+  it("annotateEmailStatus anota sem remover nem reordenar", () => {
+    const leads = [lead("a1"), lead("a2"), lead(null)];
+    const annotated = annotateEmailStatus(leads, new Map([["a2", "invalid" as const]]));
+    expect(annotated.map((l) => l.apolloId)).toEqual(["a1", "a2", null]);
+    expect(annotated[0]).not.toHaveProperty("emailStatus");
+    expect(annotated[1].emailStatus).toBe("invalid");
+    expect(annotateEmailStatus(leads, new Map())).toBe(leads);
   });
 });

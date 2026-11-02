@@ -100,11 +100,14 @@ vi.mock("@/lib/agent/reference-suppression", () => ({
 
 // Story 24.15: leitura de "ja contatado"/suprimido (suite propria em lead-screening.test.ts).
 const mockFindContactedLeads = vi.fn();
+// Story 24.12: leitura fail-open do email_status (suite propria em lead-screening.test.ts).
+const mockFindStoredEmailStatuses = vi.fn();
 vi.mock("@/lib/agent/lead-screening", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/agent/lead-screening")>();
   return {
     ...actual,
     findContactedLeads: (...args: unknown[]) => mockFindContactedLeads(...args),
+    findStoredEmailStatuses: (...args: unknown[]) => mockFindStoredEmailStatuses(...args),
   };
 });
 
@@ -275,6 +278,7 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
     mockFindSuppressedAccounts.mockResolvedValue([]);
     mockReadSuppressedDomains.mockResolvedValue([]);
     mockFindContactedLeads.mockResolvedValue(new Map());
+    mockFindStoredEmailStatuses.mockResolvedValue(new Map());
     mockScoreLeads.mockImplementation(async (params: ScorerParams) => rulesOnlyScoring(params));
     // Default: enrichment returns email for leads
     mockEnrichPerson.mockResolvedValue({
@@ -1566,6 +1570,47 @@ describe("SearchLeadsStep (AC #1, #2, #3)", () => {
       // o Fit Score roda sobre a lista ja triada (casando por indice)
       const scorerLeads = (mockScoreLeads.mock.calls[0][0] as { leads: Array<{ apollo_id: string }> }).leads;
       expect(scorerLeads.map((l) => l.apollo_id)).toEqual(["p1", "c1", "e1"]);
+    });
+
+    it("Story 24.12: anota emailStatus gravado sem mudar triagem, ordem nem Fit Score", async () => {
+      mockSearchPeople.mockResolvedValue(
+        page(makeRows([{ id: "p1", company: "Prefeitura de Campinas" }, { id: "c1" }, { id: "s1" }, { id: "e1" }]))
+      );
+      mockFindContactedLeads.mockResolvedValue(
+        new Map([
+          ["s1", "suppressed"],
+          ["c1", "already_contacted"],
+        ])
+      );
+      mockFindStoredEmailStatuses.mockResolvedValue(
+        new Map([
+          ["e1", "invalid"],
+          ["c1", "verified"],
+        ])
+      );
+
+      const result = await step.run(direct());
+      const leads = result.data.leads as Array<{ apolloId: string; emailStatus?: string }>;
+
+      // so os que sobraram da triagem sao consultados
+      expect(mockFindStoredEmailStatuses).toHaveBeenCalledWith(mockSupabase, TENANT_ID, ["p1", "c1", "e1"]);
+      expect(leads.map((l) => l.apolloId)).toEqual(["e1", "c1", "p1"]);
+      expect(leads[0].emailStatus).toBe("invalid");
+      expect(leads[1].emailStatus).toBe("verified");
+      expect(leads[2]).not.toHaveProperty("emailStatus");
+      expect(result.data.screening).toEqual({ suppressed: 1, publicSector: 1, alreadyContacted: 1 });
+      const scorerLeads = (mockScoreLeads.mock.calls[0][0] as { leads: Array<{ apollo_id: string }> }).leads;
+      expect(scorerLeads.map((l) => l.apollo_id)).toEqual(["p1", "c1", "e1"]);
+    });
+
+    it("Story 24.12: lookup vazio (fail-open) -> nenhum emailStatus, resto igual", async () => {
+      mockSearchPeople.mockResolvedValue(page(makeRows([{ id: "e1" }, { id: "e2" }])));
+
+      const result = await step.run(direct());
+      const leads = result.data.leads as Array<Record<string, unknown>>;
+
+      expect(leads).toHaveLength(2);
+      for (const lead of leads) expect(lead).not.toHaveProperty("emailStatus");
     });
 
     it("todos suprimidos -> caminho de busca vazia", async () => {

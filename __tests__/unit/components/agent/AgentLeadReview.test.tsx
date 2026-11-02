@@ -1275,4 +1275,43 @@ describe("AgentLeadReview — Story 24.15 triagem", () => {
     expect(screen.getByText("4 lead(s) suprimido(s) removido(s) da lista.")).toBeInTheDocument();
     expect(screen.getByTestId("toggle-public-sector")).toHaveTextContent("Incluir 1 de orgaos publicos");
   });
+  describe("Story 24.12 - aviso de e-mail nao verificado", () => {
+    const dataWithStatus = {
+      ...defaultData,
+      leads: [
+        { ...defaultData.leads[0], fitScore: "A" as const, emailStatus: "invalid" as const },
+        { ...defaultData.leads[1], emailStatus: "verified" as const },
+        { ...defaultData.leads[2], emailStatus: "unknown" as const },
+      ],
+    };
+
+    it("mostra o aviso so para invalid/unknown, ao lado do Fit, sem mudar a pre-selecao", () => {
+      render(
+        <AgentLeadReview data={dataWithStatus} executionId="exec-001" stepNumber={2} totalSteps={5} />
+      );
+
+      const warnings = screen.getAllByTestId("email-unverified");
+      expect(warnings).toHaveLength(2);
+      expect(warnings[0]).toHaveAttribute(
+        "title",
+        "O Apollo não confirmou este e-mail. O envio não é bloqueado."
+      );
+      expect(warnings[0]).toHaveTextContent("E-mail não verificado");
+      // ao lado do badge Fit (mesma celula)
+      expect(warnings[0].parentElement).toContainElement(screen.getByTestId("fit-badge"));
+      expect(screen.getByText("3 de 3 leads selecionados")).toBeInTheDocument();
+    });
+
+    it("status ausente ou NULL: nenhum aviso", () => {
+      render(
+        <AgentLeadReview
+          data={{ ...defaultData, leads: [{ ...defaultData.leads[0], emailStatus: null }, defaultData.leads[1]] }}
+          executionId="exec-001"
+          stepNumber={2}
+          totalSteps={5}
+        />
+      );
+      expect(screen.queryByTestId("email-unverified")).not.toBeInTheDocument();
+    });
+  });
 });

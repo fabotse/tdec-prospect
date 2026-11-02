@@ -460,3 +460,34 @@ describe("AgentCampaignPreview — status do revisor (Story 24.9)", () => {
     expect(sent.approvedData.emailBlocks[1].review.status).toBe("needs_human_review");
   });
 });
+
+describe("AgentCampaignPreview — aviso de e-mail nao verificado (Story 24.12)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { stepNumber: 3, status: "approved", nextStep: 4 } }),
+    });
+  });
+
+  it("mostra o aviso por lead so para invalid/unknown", () => {
+    const data = createDefaultData();
+    data.leadsWithIcebreakers = [
+      { name: "Ana Silva", companyName: "Acme", icebreaker: "x", emailStatus: "unknown" },
+      { name: "Bruno Costa", companyName: "TechCo", icebreaker: null, emailStatus: "verified" },
+      { name: "Carla Dias", companyName: "Beta", icebreaker: null, emailStatus: null },
+    ] as unknown as typeof data.leadsWithIcebreakers;
+    data.totalLeads = 3;
+
+    renderComponent({ data });
+
+    const warnings = screen.getAllByTestId("email-unverified");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toHaveTextContent("E-mail não verificado");
+  });
+
+  it("sem emailStatus (execucoes antigas): nenhum aviso", () => {
+    renderComponent();
+    expect(screen.queryByTestId("email-unverified")).not.toBeInTheDocument();
+  });
+});

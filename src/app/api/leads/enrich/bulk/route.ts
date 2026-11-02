@@ -20,6 +20,8 @@ import { z } from "zod";
 import { ApolloService } from "@/lib/services/apollo";
 import { transformEnrichmentToLead, buildMatchRequest } from "@/types/apollo";
 import type { LeadRow } from "@/types/lead";
+import { normalizeApolloEmailStatus } from "@/lib/leads/email-status";
+import { persistLeadEmailStatus } from "@/lib/leads/persist-email-status";
 
 const BATCH_SIZE = 10; // Apollo bulk API limit
 
@@ -147,6 +149,13 @@ export async function POST(request: NextRequest) {
           } else {
             result.enriched++;
             result.leads.push(updatedLead as LeadRow);
+            // Story 24.12: best-effort, nunca lança nem muda a contagem.
+            await persistLeadEmailStatus(
+              supabase,
+              profile.tenant_id,
+              lead.id,
+              normalizeApolloEmailStatus(enrichedPerson.email, enrichedPerson.email_status)
+            );
           }
         } else {
           result.notFound++;
@@ -189,6 +198,13 @@ export async function POST(request: NextRequest) {
           } else {
             result.enriched++;
             result.leads.push(updatedLead as LeadRow);
+            // Story 24.12: best-effort, nunca lança nem muda a contagem.
+            await persistLeadEmailStatus(
+              supabase,
+              profile.tenant_id,
+              lead.id,
+              normalizeApolloEmailStatus(match.person.email, match.person.email_status)
+            );
           }
         } else {
           result.notFound++;
