@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/fabossi/.local/bin/bmad-loop relay SessionStart"
+            "command": "\"$HOME/.local/bin/bmad-loop\" relay SessionStart"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/fabossi/.local/bin/bmad-loop relay Stop"
+            "command": "\"$HOME/.local/bin/bmad-loop\" relay Stop"
           }
         ]
       }
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/fabossi/.local/bin/bmad-loop relay SessionEnd"
+            "command": "\"$HOME/.local/bin/bmad-loop\" relay SessionEnd"
           }
         ]
       }
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/fabossi/.local/bin/bmad-loop relay PreCompact"
+            "command": "\"$HOME/.local/bin/bmad-loop\" relay PreCompact"
           }
         ]
       }
@@ -45,7 +45,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/fabossi/.local/bin/bmad-loop relay Notification"
+            "command": "\"$HOME/.local/bin/bmad-loop\" relay Notification"
           }
         ]
       }
