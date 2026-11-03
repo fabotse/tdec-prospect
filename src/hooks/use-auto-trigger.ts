@@ -71,8 +71,19 @@ export function useAutoTrigger({ executionId, steps, mode }: UseAutoTriggerOptio
       ? ["completed", "approved", "skipped"]
       : ["skipped"];
 
+    // Story 24.19: o `research_accounts` nao tem gate (informativo). No modo guiado ele
+    // conclui `completed` e o pipeline segue sozinho para o `create_campaign`.
+    // Fail-open: se ele terminar `failed` (ex.: o sweeper liberou uma linha que nao
+    // conseguiu gravar a conclusao), o pipeline TAMBEM segue — o dossie nunca trava a
+    // campanha. Vale nos dois modos.
+    const isResearch = (s: AgentStep) => s.step_type === "research_accounts";
+    const isEligible = (s: AgentStep) =>
+      triggerAfterStatuses.includes(s.status) ||
+      (mode === "guided" && s.status === "completed" && isResearch(s)) ||
+      (s.status === "failed" && isResearch(s));
+
     const eligibleSteps = steps
-      .filter((s) => triggerAfterStatuses.includes(s.status))
+      .filter(isEligible)
       .sort((a, b) => b.step_number - a.step_number);
 
     if (eligibleSteps.length === 0) return;

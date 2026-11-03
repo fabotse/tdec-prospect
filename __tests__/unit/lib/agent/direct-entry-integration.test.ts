@@ -87,18 +87,20 @@ describe("Direct Entry Integration (Story 17.10)", () => {
       expect(steps[1].description).toContain("Sao Paulo");
       expect(steps[1].description).toContain("sem filtro de empresa");
 
-      // Steps 3-5 devem estar normais
+      // Steps 3-6 devem estar normais (Story 24.19: 3 = research_accounts)
       expect(steps[2].skipped).toBe(false);
       expect(steps[3].skipped).toBe(false);
       expect(steps[4].skipped).toBe(false);
+      expect(steps[5].skipped).toBe(false);
     });
 
-    it("contagem de steps ativos e 4 quando 1 step skipped (AC: #4)", () => {
+    // Story 24.19: 6 steps (research_accounts entre search_leads e create_campaign).
+    it("contagem de steps ativos e 5 quando 1 step skipped (AC: #4)", () => {
       const briefing = createDirectEntryBriefing();
       const steps = PlanGeneratorService.generatePlan(briefing, createCostEstimate());
 
       const activeSteps = steps.filter((s) => !s.skipped);
-      expect(activeSteps).toHaveLength(4);
+      expect(activeSteps).toHaveLength(5);
 
       // Numeracao: "Etapa 1 de 4" para o primeiro step ativo
       const firstActive = activeSteps[0];

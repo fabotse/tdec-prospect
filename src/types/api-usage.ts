@@ -15,7 +15,8 @@ export type UsageServiceName =
   | "snovio"
   | "instantly"
   | "openai"
-  | "theirstack"; // Story 24.10 (migration 00065)
+  | "theirstack" // Story 24.10 (migration 00065)
+  | "treg"; // Story 24.19 (migration 00073)
 
 /**
  * Status of an API usage log entry
@@ -104,6 +105,7 @@ export const SERVICE_COST_RATES: Record<UsageServiceName, number> = {
   instantly: 0, // Not tracked yet
   openai: 0, // Not tracked yet
   theirstack: 0, // Story 24.10: custo em BRL vem de cost_models, nao daqui
+  treg: 0, // Story 24.19: custo real vem do header X-Treg-Cost-Micro (metadata.costUsd)
 };
 
 /**

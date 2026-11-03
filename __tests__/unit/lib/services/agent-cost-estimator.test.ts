@@ -132,9 +132,11 @@ describe("CostEstimatorService", () => {
       );
       // create_campaign: 25 × 0,05 + 47 × 0,02 = 1,25 + 0,94 = 2,19
       expect(result.steps.create_campaign.estimated).toBeCloseTo(2.19);
+      // Story 24.19: research = min(25 × US$ 0,02, teto US$ 0,50) × 5,50 = 2,75
+      expect(result.steps.research_accounts.estimated).toBeCloseTo(2.75);
       expect(result.steps.export.estimated).toBe(0);
       expect(result.steps.activate.estimated).toBe(0);
-      expect(result.total).toBeCloseTo(2.81);
+      expect(result.total).toBeCloseTo(2.81 + 2.75);
       expect(result.currency).toBe("BRL");
     });
 
@@ -150,7 +152,8 @@ describe("CostEstimatorService", () => {
       expect(result.steps.search_companies.estimated).toBeCloseTo(2 * 3 * 0.2);
       expect(result.steps.create_campaign.estimated).toBeCloseTo(25 * 0.1 + 47 * 0.05);
       expect(result.steps.search_leads.estimated).toBeCloseTo(0.05);
-      expect(result.total).toBeCloseTo(1.2 + 0.05 + 2.5 + 2.35);
+      // Story 24.19: + research (sem `treg` no DB -> default 5,50 × US$ 0,50)
+      expect(result.total).toBeCloseTo(1.2 + 0.05 + 2.5 + 2.35 + 2.75);
     });
 
     it("respeita skipSteps com custo 0", () => {
@@ -204,6 +207,34 @@ describe("CostEstimatorService", () => {
 
       expect(result.steps.create_campaign.estimated).toBeCloseTo(2.19 + 3.75);
       expect(result.steps.create_campaign.description).toContain("icebreakers premium");
+    });
+
+    // Story 24.19: pesquisa das contas = min(leads × US$ 0,02, teto) × cambio
+    // (+ leads × apify + leads × 10 × openai com o toggle de LinkedIn).
+    describe("research_accounts (Story 24.19)", () => {
+      it("sem toggle: min(leads × 0,02, 0,50) × treg", () => {
+        const few = CostEstimatorService.estimateCosts(new Map(), createBriefing({ leadCount: 5 }));
+        expect(few.steps.research_accounts.estimated).toBeCloseTo(5 * 0.02 * 5.5);
+        const many = CostEstimatorService.estimateCosts(new Map(), createBriefing({ leadCount: 100 }));
+        expect(many.steps.research_accounts.estimated).toBeCloseTo(0.5 * 5.5);
+        expect(many.steps.research_accounts.description).toContain("US$ 0.50");
+      });
+
+      it("com toggle: soma perfis Apify e 10 classificacoes de posts por lead", () => {
+        const result = CostEstimatorService.estimateCosts(
+          new Map(),
+          createBriefing({ leadCount: 5, premiumIcebreakers: true })
+        );
+        expect(result.steps.research_accounts.estimated).toBeCloseTo(5 * 0.02 * 5.5 + 5 * 0.15 + 5 * 10 * 0.02);
+        expect(result.steps.research_accounts.description).toContain("perfis LinkedIn");
+      });
+
+      it("usa o cambio do cost_models quando existe e 0 se o step for pulado", () => {
+        const custom = CostEstimatorService.estimateCosts(new Map([["treg", 6]]), createBriefing({ leadCount: 10 }));
+        expect(custom.steps.research_accounts.estimated).toBeCloseTo(10 * 0.02 * 6);
+        const skipped = CostEstimatorService.estimateCosts(new Map(), createBriefing({ skipSteps: ["research_accounts"] }));
+        expect(skipped.steps.research_accounts.estimated).toBe(0);
+      });
     });
 
     it("premium total = 0 quando create_campaign esta em skipSteps", () => {

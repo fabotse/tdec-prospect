@@ -11,7 +11,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Building2, Users, Mail, Upload, Play, Loader2, AlertCircle, RotateCcw, Linkedin } from "lucide-react";
+import { Building2, Users, Mail, Upload, Play, Loader2, AlertCircle, RotateCcw, Linkedin, FileSearch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
@@ -40,6 +40,7 @@ interface PlanData {
 const STEP_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   search_companies: Building2,
   search_leads: Users,
+  research_accounts: FileSearch, // Story 24.19
   create_campaign: Mail,
   export: Upload,
   activate: Play,

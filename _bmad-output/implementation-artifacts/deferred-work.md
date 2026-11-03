@@ -642,3 +642,19 @@ source_spec: `spec-24-17-modo-lista-de-contas-abm.md`
 severity: medium
 reason: O epico pede remover conta suprimida "(cliente, negociacao)". Nao existe tabela de clientes nem lista de supressao (23.5 em backlog); a regra provisoria usa a Central de Oportunidades e casa pelo dominio do e-mail do lead. Resolver quando a 23.5 criar a lista de supressao: ler a tabela dentro de findSuppressedAccounts.
 status: open
+
+### DW-32: Numeração "Etapa N/M" inconsistente entre steps (search_leads/create_campaign contam só os não pulados; export/activate usam stepNumber/total_steps).
+origin: spec-deferred 637284a86e33
+location: src/lib/agent/steps/export-step.ts:130, src/lib/agent/steps/activate-step.ts:161, src/lib/agent/steps/create-campaign-step.ts:197
+source_spec: `spec-24-19-dossie-da-conta.md`
+severity: low
+reason: Já existia antes da 24.19 (export/activate usavam stepNumber/5 enquanto create_campaign contava os steps ativos). No fluxo de entrada direta o chat pode mostrar "Etapa 3/5" e depois "Etapa 5/6".
+status: open
+
+### DW-33: A função do sweeper de steps travados (00067) não tem o rótulo de research_accounts e mostra o identificador cru no chat.
+origin: spec-deferred 434f8590f733
+location: supabase/migrations/00067_sweep_stuck_agent_steps.sql:92
+source_spec: `spec-24-19-dossie-da-conta.md`
+severity: low
+reason: O CASE em supabase/migrations/00067_sweep_stuck_agent_steps.sql:92-99 cobre só os 5 steps antigos; o ELSE devolve "research_accounts". Corrigir exige uma migration nova com CREATE OR REPLACE FUNCTION de uma função usada pelo pg_cron, o que só o Fabossi aplica.
+status: open

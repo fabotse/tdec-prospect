@@ -81,6 +81,7 @@ describe("agent-pricing", () => {
         apify: 0.15,
         openai: 0.02,
         instantly: 0,
+        treg: 5.5, // Story 24.19: BRL por US$ 1
       });
     });
 
@@ -198,6 +199,28 @@ describe("agent-pricing", () => {
       const first = computeActualCost(steps, DEFAULT_PRICES);
       const second = computeActualCost(steps, DEFAULT_PRICES);
       expect(second).toEqual(first);
+    });
+  });
+
+  describe("Story 24.19 - custo real do research_accounts", () => {
+    it("treg_usd × cambio + apify × perfil + openai_relevance × chamada", () => {
+      expect(
+        computeStepActualCost(
+          "research_accounts",
+          { treg_usd: 0.04, treg_calls: 8, apify: 2, openai_relevance: 5 },
+          DEFAULT_PRICES
+        )
+      ).toBeCloseTo(0.04 * 5.5 + 2 * 0.15 + 5 * 0.02);
+      expect(computeStepActualCost("research_accounts", {}, DEFAULT_PRICES)).toBe(0);
+    });
+
+    it("entra no total da execucao", () => {
+      const actual = computeActualCost(
+        [{ step_type: "research_accounts", status: "completed", cost: { treg_usd: 0.1 } }],
+        DEFAULT_PRICES
+      );
+      expect(actual.steps.research_accounts).toBeCloseTo(0.55);
+      expect(actual.total).toBeCloseTo(0.55);
     });
   });
 

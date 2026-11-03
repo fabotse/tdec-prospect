@@ -19,6 +19,7 @@ import type {
 import { STEP_LABELS } from "@/types/agent";
 import { SearchCompaniesStep } from "./steps/search-companies-step";
 import { SearchLeadsStep } from "./steps/search-leads-step";
+import { ResearchAccountsStep } from "./steps/research-accounts-step";
 import { CreateCampaignStep } from "./steps/create-campaign-step";
 import { ExportStep } from "./steps/export-step";
 import { ActivateStep } from "./steps/activate-step";
@@ -145,11 +146,16 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
     let previousStepOutput: Record<string, unknown> | undefined;
     if (stepNumber > 1) {
       // Story 17.7: Find last non-skipped step (may not be stepNumber-1 if previous was skipped)
+      //
+      // Story 24.19: linhas `research_accounts` NUNCA sao "o step anterior". O dossie e
+      // informativo: o `create_campaign` recebe exatamente o output do `search_leads` de
+      // antes, e o proprio research le o `search_leads` tambem.
       const { data: prevStep } = await this.supabase
         .from("agent_steps")
         .select("output, status")
         .eq("execution_id", executionId)
         .lt("step_number", stepNumber)
+        .neq("step_type", "research_accounts")
         .in("status", ["completed", "approved"])
         .order("step_number", { ascending: false })
         .limit(1)
@@ -157,11 +163,13 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
 
       if (!prevStep?.output) {
         // Story 17.10: Check if all previous steps are skipped (direct entry flow)
+        // Story 24.19: o research `completed` no fluxo importado nao conta aqui.
         const { data: prevSteps } = await this.supabase
           .from("agent_steps")
           .select("status")
           .eq("execution_id", executionId)
-          .lt("step_number", stepNumber);
+          .lt("step_number", stepNumber)
+          .neq("step_type", "research_accounts");
 
         const allSkipped = prevSteps != null && prevSteps.length > 0 && prevSteps.every((s) => s.status === "skipped");
         if (!allSkipped) {
@@ -564,6 +572,8 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
         return new SearchCompaniesStep(stepNumber, this.supabase, this.apiKey, tenantId);
       case "search_leads":
         return new SearchLeadsStep(stepNumber, this.supabase, tenantId);
+      case "research_accounts":
+        return new ResearchAccountsStep(stepNumber, this.supabase, tenantId);
       case "create_campaign":
         return new CreateCampaignStep(stepNumber, this.supabase, tenantId);
       case "export":
@@ -752,6 +762,14 @@ export class DeterministicOrchestrator implements IPipelineOrchestrator {
             `• Leads: ${pluralize(toCount(output?.totalFound), "contato encontrado", "contatos encontrados")} via Apollo`
           );
           break;
+        case "research_accounts": {
+          // Story 24.19: informativo — o dossie nao muda a campanha.
+          const summary = output?.summary as Record<string, unknown> | undefined;
+          lines.push(
+            `• Pesquisa das contas: ${pluralize(toCount(summary?.researched), "dossie", "dossies")} com ${pluralize(toCount(summary?.facts), "fato", "fatos")} com fonte`
+          );
+          break;
+        }
         case "create_campaign": {
           const structure = output?.structure as Record<string, unknown> | undefined;
           lines.push(

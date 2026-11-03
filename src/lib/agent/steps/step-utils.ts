@@ -25,6 +25,7 @@ import { requireServiceApiKey } from "@/lib/agent/service-keys";
  */
 const SERVICE_LABELS: Record<string, string> = {
   instantly: "Instantly",
+  treg: "Treg",
 };
 
 export async function getServiceApiKey(

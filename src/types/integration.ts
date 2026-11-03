@@ -20,6 +20,7 @@ export const SERVICE_NAMES = [
   "apify",
   "zapi",
   "theirstack",
+  "treg", // Story 24.19 (migration 00073)
 ] as const;
 
 export type ServiceName = (typeof SERVICE_NAMES)[number];
@@ -35,6 +36,7 @@ export const SERVICE_LABELS: Record<ServiceName, string> = {
   apify: "Apify",
   zapi: "Z-API",
   theirstack: "theirStack",
+  treg: "Treg",
 };
 
 // ==============================================

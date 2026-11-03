@@ -123,13 +123,17 @@ describe("Imported Leads Flow Integration (Story 17.11)", () => {
       expect(steps[1].skipped).toBe(true);
       expect(steps[1].description).toBe("Etapa pulada — leads fornecidos pelo usuario");
 
-      // Step 3 active with imported leads count
+      // Story 24.19: step 3 = research_accounts (ativo, informativo)
+      expect(steps[2].stepType).toBe("research_accounts");
       expect(steps[2].skipped).toBe(false);
-      expect(steps[2].description).toContain("2 leads importados");
 
-      // Steps 4,5 active
+      // Step 4 (create_campaign) active with imported leads count
       expect(steps[3].skipped).toBe(false);
+      expect(steps[3].description).toContain("2 leads importados");
+
+      // Steps 5,6 active
       expect(steps[4].skipped).toBe(false);
+      expect(steps[5].skipped).toBe(false);
     });
   });
 
@@ -234,8 +238,9 @@ describe("Imported Leads Flow Integration (Story 17.11)", () => {
       const plan = PlanGeneratorService.generatePlan(briefing, createCostEstimate());
       expect(plan[0].skipped).toBe(true);
       expect(plan[1].skipped).toBe(true);
-      expect(plan[2].skipped).toBe(false);
-      expect(plan[2].description).toContain("2 leads importados");
+      expect(plan[2].skipped).toBe(false); // Story 24.19: research_accounts
+      expect(plan[3].skipped).toBe(false);
+      expect(plan[3].description).toContain("2 leads importados");
 
       // 5. CreateCampaignStep would receive:
       //    - previousStepOutput: undefined (all prev steps skipped)

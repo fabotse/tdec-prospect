@@ -8,9 +8,12 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CostEstimate, CostModel, ParsedBriefing } from "@/types/agent";
+import { DOSSIER_CONFIG } from "@/lib/agent/dossier/config";
 import {
   AGENT_DEFAULT_COSTS,
   AGENT_PIPELINE_VOLUMES,
+  DOSSIER_ESTIMATE_USD_PER_LEAD,
+  DOSSIER_ESTIMATE_POSTS_PER_LEAD,
   THEIRSTACK_CREDITS_PER_COMPANY,
   estimateAICallsForCampaign,
   formatBRL,
@@ -125,6 +128,22 @@ export class CostEstimatorService {
         ? ` + ${leads} perfis LinkedIn × ${formatBRL(prices.apify)} (icebreakers premium)`
         : "");
 
+    // Story 24.19: pesquisa das contas = Treg ate o teto da execucao (US$ x cambio) e, com
+    // o toggle de LinkedIn, perfis Apify + classificacao dos posts (ate 10 por lead).
+    const researchSkipped = skipSet.has("research_accounts");
+    const researchUsd = Math.min(
+      leads * DOSSIER_ESTIMATE_USD_PER_LEAD,
+      DOSSIER_CONFIG.maxCostUsdPerExecution
+    );
+    const researchPremium = usePremiumIcebreakers
+      ? leads * prices.apify + leads * DOSSIER_ESTIMATE_POSTS_PER_LEAD * prices.openai
+      : 0;
+    const researchDescription =
+      `até US$ ${researchUsd.toFixed(2)} de pesquisa web (Treg) × ${formatBRL(prices.treg)}` +
+      (usePremiumIcebreakers
+        ? ` + ${leads} perfis LinkedIn × ${formatBRL(prices.apify)} + até ${leads * DOSSIER_ESTIMATE_POSTS_PER_LEAD} classificações de posts × ${formatBRL(prices.openai)}`
+        : "");
+
     const stepCosts: Record<string, { estimated: number; description: string }> = {
       search_companies: {
         estimated: skipSet.has("search_companies") ? 0 : credits * prices.theirstack,
@@ -134,6 +153,10 @@ export class CostEstimatorService {
         // Story 24.16: 1 chamada de IA do Fit Score por busca (teto estrutural).
         estimated: skipSet.has("search_leads") ? 0 : 1 * prices.openai,
         description: "1 chamada de IA (Fit Score); busca Apollo não consome créditos",
+      },
+      research_accounts: {
+        estimated: researchSkipped ? 0 : researchUsd * prices.treg + researchPremium,
+        description: researchDescription,
       },
       create_campaign: {
         estimated: createCampaignSkipped

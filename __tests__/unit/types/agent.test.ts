@@ -46,8 +46,8 @@ describe("Agent Types (AC: #3)", () => {
     });
 
     it("StepType accepts valid values", () => {
-      const types: StepType[] = ["search_companies", "search_leads", "create_campaign", "export", "activate"];
-      expect(types).toHaveLength(5);
+      const types: StepType[] = ["search_companies", "search_leads", "research_accounts", "create_campaign", "export", "activate"];
+      expect(types).toHaveLength(6);
     });
 
     it("StepStatus accepts valid values", () => {
@@ -426,10 +426,11 @@ describe("Agent Types (AC: #3)", () => {
       expect(STEP_LABELS.create_campaign).toBe("Criacao de Campanha");
       expect(STEP_LABELS.export).toBe("Exportacao");
       expect(STEP_LABELS.activate).toBe("Ativacao");
+      expect(STEP_LABELS.research_accounts).toBe("Pesquisa das Contas"); // Story 24.19
     });
 
-    it("has exactly 5 entries", () => {
-      expect(Object.keys(STEP_LABELS)).toHaveLength(5);
+    it("has exactly 6 entries", () => {
+      expect(Object.keys(STEP_LABELS)).toHaveLength(6);
     });
   });
 });
