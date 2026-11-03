@@ -79,7 +79,9 @@ export async function POST(
 
   // Re-gerar plano (consistencia)
   const costModels = await CostEstimatorService.ensureCostModels(supabase, profile.tenant_id);
-  const costEstimate = CostEstimatorService.estimateCosts(costModels, nextBriefing);
+  // FEL-57: sem chave do Treg a pesquisa das contas e pulada e nao entra na estimativa.
+  const tregConfigured = await CostEstimatorService.isTregConfigured(profile.tenant_id);
+  const costEstimate = CostEstimatorService.estimateCosts(costModels, nextBriefing, { tregConfigured });
   const steps = PlanGeneratorService.generatePlan(nextBriefing, costEstimate);
 
   // Story 17.10: Criar agent_steps para TODOS os steps (skipped ficam como "pending"

@@ -9,8 +9,13 @@ import {
   corporateEmailDomain,
   domainBrand,
   dossierStatus,
+  cleanSiteText,
+  isOutsideBrazil,
   isOwnPost,
   isoDate,
+  looksSpanish,
+  mentionsBrazil,
+  mentionsForeignPlace,
   isThirdPartyLinkedInUrl,
   jobFacts,
   mentionsCompany,
@@ -122,6 +127,254 @@ describe("siteFact", () => {
     expect(siteFact({ output: { pages: [{ markdown: "curto" }] } }, "https://x.com", NOW, 500)).toBeNull();
     expect(siteFact({ output: { pages: [] } }, "https://x.com", NOW, 500)).toBeNull();
     expect(siteFact(null, "https://x.com", NOW, 500)).toBeNull();
+  });
+});
+
+describe("siteFact — menu da pagina (FEL-57)", () => {
+  const about =
+    "Somos uma empresa brasileira de seguranca da informacao com mais de 20 anos de mercado, atendendo bancos, seguradoras e o varejo com SOC 24x7, resposta a incidentes e consultoria em nuvem. ";
+  const NAV = "Pular para o conteúdo Fale com um especialista Login PT EN ES…";
+
+  it("exemplo real: menu numa linha so, colado no texto, sai do fato", () => {
+    const fact = siteFact({ output: { pages: [{ title: "Acme Sec", markdown: `${NAV} ${about.repeat(2)}` }] } }, "https://acme.com.br", NOW, 500);
+    expect(fact).not.toBeNull();
+    expect(fact!.fato.startsWith("Acme Sec — Somos uma empresa brasileira")).toBe(true);
+    for (const junk of ["Pular para o conteúdo", "Fale com um especialista", "Login", "PT EN ES"]) {
+      expect(fact!.fato).not.toContain(junk);
+    }
+  });
+
+  it("menu em linhas de markdown (skip link, CTA, login, idiomas) sai; o conteudo fica", () => {
+    const markdown = [
+      "[Pular para o conteúdo](#main)",
+      "* [Fale com um especialista](/contato)",
+      "* [Login](/login)",
+      "[PT](/pt) | [EN](/en) | [ES](/es)",
+      "Menu",
+      `# Seguranca para o seu negocio`,
+      about,
+      about,
+    ].join("\n");
+    const text = cleanSiteText(markdown);
+    expect(text.startsWith("Seguranca para o seu negocio Somos uma empresa")).toBe(true);
+    expect(text).not.toMatch(/Pular|especialista|Login|\bPT\b|\bEN\b|\bES\b|Menu/);
+  });
+
+  it("frases comerciais com palavras de menu ficam intactas (sem evidencia de navegacao)", () => {
+    for (const phrase of [
+      "Soluções em segurança para empresas.",
+      "Home office seguro para times distribuidos.",
+      "A empresa",
+      "Suporte ao cliente e especialistas para empresas de todos os portes.",
+      "Fale com um especialista e agende uma demonstração do nosso SOC.",
+      "Contato direto com o time de resposta a incidentes.",
+    ]) {
+      expect(cleanSiteText(`${phrase} ${about}`).startsWith(phrase)).toBe(true);
+      // Tambem como linha propria (titulo/paragrafo curto), nao so colada no texto.
+      expect(cleanSiteText(`${phrase}\n${about}`).startsWith(phrase)).toBe(true);
+    }
+  });
+
+  it("regressao: skip link numa linha nao corta a linha de conteudo seguinte", () => {
+    const text = cleanSiteText("[Pular para o conteúdo](#main)\nSuporte ao cliente e especialistas para empresas de todos os portes.");
+    expect(text).toBe("Suporte ao cliente e especialistas para empresas de todos os portes.");
+    // Seletor de idioma numa linha tambem nao corta a linha seguinte.
+    expect(cleanSiteText("PT EN ES\nFale com um especialista e agende uma demonstração.")).toBe(
+      "Fale com um especialista e agende uma demonstração."
+    );
+    // O exemplo original (tudo numa linha so) continua limpo.
+    expect(cleanSiteText(`${NAV} ${about}`).startsWith("Somos uma empresa brasileira")).toBe(true);
+  });
+
+  it("menu com separadores e linha so de links sai; paragrafo com link no meio fica", () => {
+    const text = cleanSiteText(
+      ["Home | Sobre | Soluções | Contato", "[Blog](/blog) [Carreiras](/carreiras)", `Conheça a [plataforma](/p) que protege bancos. ${about}`].join("\n")
+    );
+    expect(text.startsWith("Conheça a plataforma que protege bancos.")).toBe(true);
+  });
+
+  it("<script>/<style> multilinha (e comentario HTML) nao vazam para o texto, em HTML e em markdown", () => {
+    const html = [
+      "<html><head><style>",
+      "body { color: red; }",
+      ".menu { display: none; }",
+      "</style>",
+      '<script type="text/javascript">',
+      "window.dataLayer = window.dataLayer || [];",
+      "function gtag(){dataLayer.push(arguments);}",
+      "</script><!-- comentario",
+      "multilinha -->",
+      `</head><body><p>${about}</p></body></html>`,
+    ].join("\n");
+    const fromHtml = cleanSiteText(html);
+    expect(fromHtml.startsWith("Somos uma empresa brasileira")).toBe(true);
+    expect(fromHtml).not.toMatch(/color|display|dataLayer|gtag|comentario|multilinha/);
+
+    const markdown = `# Acme\n\n<script>\nvar x = 1;\nconsole.log(x);\n</script>\n\n${about}\n<style>\n.a{b:c}\n</style>`;
+    const fromMarkdown = cleanSiteText(markdown);
+    expect(fromMarkdown).not.toMatch(/var x|console|\.a\{|b:c/);
+    expect(fromMarkdown).toContain("Somos uma empresa brasileira");
+  });
+
+  it("sobrou pouco depois da limpeza: usa a meta description / og:description", () => {
+    const description = "Consultoria em seguranca da informacao e SOC 24x7 para bancos e seguradoras no Brasil.";
+    const viaMeta = siteFact(
+      { output: { pages: [{ title: "Acme Sec", markdown: `${NAV}\nBem-vindo`, metadata: { "og:description": description } }] } },
+      "https://acme.com.br",
+      NOW,
+      500
+    );
+    expect(viaMeta!.fato).toBe(`Acme Sec — ${description}`);
+    const viaDescription = siteFact(
+      { output: { pages: [{ markdown: NAV, description }] } },
+      "https://acme.com.br",
+      NOW,
+      500
+    );
+    expect(viaDescription!.fato).toBe(description);
+  });
+
+  it("so menu e sem description util: sem fato", () => {
+    expect(siteFact({ output: { pages: [{ title: "Acme", markdown: NAV.repeat(10) }] } }, "https://acme.com.br", NOW, 500)).toBeNull();
+    expect(
+      siteFact({ output: { pages: [{ markdown: NAV, metadata: { description: "curta" } }] } }, "https://acme.com.br", NOW, 500)
+    ).toBeNull();
+  });
+});
+
+describe("newsFacts — fora do Brasil (FEL-57)", () => {
+  const ctx = { companyName: "Santos Brasil", domain: "santosbrasil.com.br", now: NOW, windowDays: 90 };
+  const acme = { companyName: "Acme", domain: "acme.com.br", now: NOW, windowDays: 90 };
+
+  it("caso da issue (dataportuaria.com, espanhol, fato de porto estrangeiro): descartado", () => {
+    // Evidencia que derruba: cita porto/pais estrangeiro (San Antonio, Chile), nao cita o
+    // Brasil nem localidade brasileira (o nome "Santos Brasil" nao conta) E a publicacao
+    // e estrangeira (texto em espanhol).
+    const exa = {
+      results: [
+        {
+          url: "https://dataportuaria.com/noticia/santos-brasil-chile",
+          title: "Santos Brasil anunció una nueva inversión en el puerto de San Antonio, Chile",
+          text: "La compañía informó que el proyecto del terminal de contenedores estará listo en 2027.",
+          publishedDate: "2026-10-01T00:00:00.000Z",
+        },
+        {
+          url: "https://valor.globo.com/empresas/santos-brasil",
+          title: "Santos Brasil anuncia investimento de R$ 1 bilhão no terminal de Santos",
+          publishedDate: "2026-10-02T00:00:00.000Z",
+        },
+      ],
+    };
+    expect(newsFacts(exa, ctx, 5).map((f) => f.fonte_url)).toEqual(["https://valor.globo.com/empresas/santos-brasil"]);
+  });
+
+  it("dataportuaria.com em espanhol sobre o porto de SANTOS fica (fato brasileiro, publicacao estrangeira)", () => {
+    const exa = {
+      results: [
+        {
+          url: "https://dataportuaria.com/noticia/santos-brasil-anuncio",
+          title: "Santos Brasil anunció una nueva inversión en el puerto de Santos para ampliar su terminal",
+          text: "La compañía informó que el proyecto de expansión del terminal de contenedores estará listo en 2027.",
+          publishedDate: "2026-10-01T00:00:00.000Z",
+        },
+      ],
+    };
+    expect(newsFacts(exa, ctx, 5)).toHaveLength(1);
+  });
+
+  it("regressao: fonte .pt em espanhol sobre Santos/Vitoria (com e sem acento) fica, em noticias e vagas", () => {
+    const titles = [
+      "Acme amplía su terminal en Santos",
+      "Acme amplía su terminal en Vitória",
+      "Acme amplía su terminal en Vitoria",
+      "Acme amplía su terminal en Paranaguá",
+      "Acme invierte en el puerto de Itajaí y en Suape",
+      "Acme abre oficina en São Francisco do Sul",
+      "Acme llega a Pecém con nuevo terminal",
+    ];
+    const news = { results: titles.map((title, i) => ({ url: `https://eco.sapo.pt/${i}`, title, publishedDate: "2026-10-01" })) };
+    expect(newsFacts(news, acme, 10)).toHaveLength(titles.length);
+
+    const jobs = {
+      results: [
+        { url: "https://eco.sapo.pt/v1", title: "Oportunidades: analista de redes en Acme, Santos", publishedDate: "2026-10-20" },
+        { url: "https://eco.sapo.pt/v2", title: "Oportunidades: analista de redes en Acme, Vitória", publishedDate: "2026-10-20" },
+      ],
+    };
+    expect(jobFacts(jobs, acme, 5).map((f) => f.fonte_url)).toEqual(["https://eco.sapo.pt/v1", "https://eco.sapo.pt/v2"]);
+  });
+
+  it("lista ampliada: porto/cidade brasileira (com e sem acento) segura a noticia mesmo citando lugar estrangeiro", () => {
+    const places = ["Santos", "Vitória", "Vitoria", "Paranaguá", "Paranagua", "Itajaí", "Suape", "Pecém", "Rio Grande", "Itaguaí", "São Francisco do Sul", "Manaus", "Campinas", "Natal", "Goiânia"];
+    for (const place of places) {
+      const title = `Acme cierra la operación en Buenos Aires y amplía su terminal en ${place}`;
+      expect(mentionsBrazil(title, "Acme", "acme.com.br")).toBe(true);
+      expect(isOutsideBrazil("https://eco.sapo.pt/x", { title }, acme)).toBe(false);
+    }
+    // Sem o lugar brasileiro, o mesmo texto cai (fato e publicacao estrangeiros).
+    expect(isOutsideBrazil("https://eco.sapo.pt/x", { title: "Acme cierra la operación en Buenos Aires" }, acme)).toBe(true);
+  });
+
+  it("na duvida fica: espanhol/ccTLD estrangeiro SEM lugar nenhum e portugues citando outro pais", () => {
+    const exa = {
+      results: [
+        { url: "https://eco.sapo.pt/a", title: "Acme amplía su terminal de contenedores", publishedDate: "2026-10-01" },
+        { url: "https://news.com/b", title: "El grupo Acme anunció los resultados del año", publishedDate: "2026-10-01" },
+        // Veiculo brasileiro em .com, portugues, fato com a Argentina: fica.
+        { url: "https://valor.globo.com/c", title: "Acme fecha contrato de exportação com a Argentina", publishedDate: "2026-10-01" },
+        { url: "https://exame.com/d", title: "Acme exporta para a China e o Chile", publishedDate: "2026-10-01" },
+      ],
+    };
+    expect(newsFacts(exa, acme, 5)).toHaveLength(4);
+  });
+
+  it("cobertura estrangeira de fato brasileiro fica; fato estrangeiro em publicacao estrangeira cai", () => {
+    const exa = {
+      results: [
+        { url: "https://www.eleconomista.com.mx/a", title: "Santos Brasil amplía su terminal en São Paulo", publishedDate: "2026-10-01" },
+        { url: "https://eco.sapo.pt/b", title: "Operadora brasileira Santos Brasil compra terminal", publishedDate: "2026-10-01" },
+        { url: "https://www.elpais.es/c", title: "Santos Brasil invierte en el puerto", text: "La inversión en Rio de Janeiro suma 300 millones.", publishedDate: "2026-10-01" },
+        { url: "https://news.com/d", title: "El grupo Santos Brasil anunció una inversión en Buenos Aires con los socios", publishedDate: "2026-10-01" },
+        { url: "https://news.com/e", title: "El fondo de El Salvador compra parte de Santos Brasil y sus terminales", publishedDate: "2026-10-01" },
+        { url: "https://www.clarin.com.ar/f", title: "Santos Brasil amplia terminal en Bahía Blanca", publishedDate: "2026-10-01" },
+      ],
+    };
+    expect(newsFacts(exa, ctx, 10).map((f) => f.fonte_url)).toEqual([
+      "https://www.eleconomista.com.mx/a",
+      "https://eco.sapo.pt/b",
+      "https://www.elpais.es/c",
+    ]);
+  });
+
+  it("mentionsBrazil / mentionsForeignPlace ignoram o nome da empresa e a marca do dominio", () => {
+    expect(mentionsBrazil("Santos Brasil amplia terminal", "Santos Brasil", "santosbrasil.com.br")).toBe(false);
+    expect(mentionsBrazil("Santos Brasil amplia terminal em Pernambuco", "Santos Brasil", "santosbrasil.com.br")).toBe(true);
+    expect(mentionsBrazil("Empresa brasileña invierte", null, "x.com")).toBe(true);
+    expect(mentionsBrazil("Banco do Brasil lucra", "Banco do Brasil", "bb.com.br")).toBe(false);
+    expect(mentionsBrazil("Acme llega a Vitória", "Acme", "acme.com.br")).toBe(true);
+    expect(mentionsBrazil("Acme abre planta en Bahía Blanca", "Acme", "acme.com.br")).toBe(false);
+    expect(mentionsForeignPlace("Banco de Chile lucra", "Banco de Chile", "bancochile.cl")).toBe(false);
+    expect(mentionsForeignPlace("A Acme usa IA no atendimento", "Acme", "acme.com.br")).toBe(false);
+  });
+
+  it("vagas seguem o mesmo filtro", () => {
+    const exa = {
+      results: [
+        { url: "https://empleos.com/1", title: "Oportunidades: analista de seguridad de la información y redes en Santos Brasil, Buenos Aires", publishedDate: "2026-10-20" },
+        { url: "https://gupy.io/2", title: "Vaga Analista de Segurança da Informação - Santos Brasil", publishedDate: "2026-10-20" },
+        { url: "https://empleos.com/3", title: "Oportunidades: analista de seguridad de la información y redes en Santos Brasil, São Paulo", publishedDate: "2026-10-20" },
+      ],
+    };
+    expect(jobFacts(exa, ctx, 5).map((f) => f.fonte_url)).toEqual(["https://gupy.io/2", "https://empleos.com/3"]);
+  });
+
+  it("detector de idioma e .br: na duvida, nao e espanhol; .br nunca cai", () => {
+    expect(looksSpanish("¿Qué pasa con el puerto?")).toBe(true);
+    expect(looksSpanish("El grupo anunció los resultados del año")).toBe(true);
+    expect(looksSpanish("Grupo anuncia os resultados do ano e a expansão")).toBe(false);
+    expect(looksSpanish("Santos Brasil")).toBe(false);
+    expect(looksSpanish("")).toBe(false);
+    expect(isOutsideBrazil("https://foo.com.br/x", { title: "El grupo anunció en Buenos Aires los resultados" }, ctx)).toBe(false);
   });
 });
 

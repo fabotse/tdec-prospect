@@ -173,7 +173,9 @@ export class ApifyService extends ExternalService {
       const { items } = await client.dataset(run.defaultDatasetId).listItems();
 
       // AC #3: Parse results to LinkedInPost array
-      const posts = this.parseLinkedInPosts(items);
+      // FEL-57: `rawIndexes` = posicao de cada post no dataset BRUTO (antes do descarte de
+      // itens vazios). Aditivo: `posts` e o mesmo de sempre.
+      const { posts, rawIndexes } = this.parseLinkedInPostsIndexed(items);
 
       // AC #3: Empty results return empty array (not error)
       return {
@@ -181,6 +183,7 @@ export class ApifyService extends ExternalService {
         posts,
         profileUrl: linkedinUrl,
         fetchedAt,
+        rawIndexes,
       };
     } catch (error) {
       // AC #4: Handle specific error scenarios
@@ -228,26 +231,37 @@ export class ApifyService extends ExternalService {
    * Parse Apify actor results to LinkedInPost array
    * AC #3: Response parsing with type safety
    */
-  private parseLinkedInPosts(items: unknown[]): LinkedInPost[] {
+  private parseLinkedInPostsIndexed(items: unknown[]): { posts: LinkedInPost[]; rawIndexes: number[] } {
     if (!Array.isArray(items)) {
-      return [];
+      return { posts: [], rawIndexes: [] };
     }
 
-    return items
-      .filter((item): item is Record<string, unknown> => {
-        return item !== null && typeof item === "object";
+    // FEL-57: mesmo parsing e mesmo descarte de antes, guardando a posicao no dataset.
+    const kept = items
+      .map((item, rawIndex) => ({ item, rawIndex }))
+      .filter((entry): entry is { item: Record<string, unknown>; rawIndex: number } => {
+        return entry.item !== null && typeof entry.item === "object";
       })
-      .map((item) => ({
-        postUrl: String(item.postUrl ?? item.url ?? ""),
-        text: String(item.text ?? item.content ?? ""),
-        publishedAt: String(item.publishedAt ?? item.postedAt ?? ""),
-        likesCount: this.safeParseInt(item.likesCount ?? item.likes),
-        commentsCount: this.safeParseInt(item.commentsCount ?? item.comments),
-        repostsCount: item.repostsCount !== undefined ? this.safeParseInt(item.repostsCount) : undefined,
-        authorName: item.authorName !== undefined ? String(item.authorName) : undefined,
-        authorHeadline: item.authorHeadline !== undefined ? String(item.authorHeadline) : undefined,
-      }))
-      .filter((post) => post.postUrl || post.text); // Filter out empty posts
+      .map(({ item, rawIndex }) => ({ rawIndex, post: this.toLinkedInPost(item) }))
+      .filter(({ post }) => post.postUrl || post.text); // Filter out empty posts
+
+    return {
+      posts: kept.map(({ post }) => post),
+      rawIndexes: kept.map(({ rawIndex }) => rawIndex),
+    };
+  }
+
+  private toLinkedInPost(item: Record<string, unknown>): LinkedInPost {
+    return {
+      postUrl: String(item.postUrl ?? item.url ?? ""),
+      text: String(item.text ?? item.content ?? ""),
+      publishedAt: String(item.publishedAt ?? item.postedAt ?? ""),
+      likesCount: this.safeParseInt(item.likesCount ?? item.likes),
+      commentsCount: this.safeParseInt(item.commentsCount ?? item.comments),
+      repostsCount: item.repostsCount !== undefined ? this.safeParseInt(item.repostsCount) : undefined,
+      authorName: item.authorName !== undefined ? String(item.authorName) : undefined,
+      authorHeadline: item.authorHeadline !== undefined ? String(item.authorHeadline) : undefined,
+    };
   }
 
   /**

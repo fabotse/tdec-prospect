@@ -7,6 +7,7 @@
 
 import type { CopyReviewStatus } from "./copy-review";
 import type { LeadEmailStatus } from "@/lib/leads/email-status";
+import type { ReusablePostsByUrl } from "@/lib/agent/dossier/icebreaker-posts";
 
 // === Enums / Unions ===
 
@@ -447,6 +448,12 @@ export interface ResearchAccountsOutput {
   flags: ResearchAccountsFlags;
   /** Gasto da execucao no Treg + Apify (US$), o que o teto controla. */
   costUsd: number;
+  /**
+   * FEL-57: posts BRUTOS (antes do filtro do dossie, cortados no limite do icebreaker) de
+   * cada perfil buscado com sucesso nesta execucao, por `linkedinUrl`. O `create_campaign`
+   * os usa no lugar de buscar de novo. Ausente = nada a reaproveitar (busca como hoje).
+   */
+  icebreakerPosts?: ReusablePostsByUrl;
 }
 
 // === Create Campaign Output (Story 17.3 AC #4) ===

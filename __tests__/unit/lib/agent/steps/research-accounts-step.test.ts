@@ -394,6 +394,8 @@ describe("ResearchAccountsStep — feliz", () => {
       expect(log).toMatchObject({ tenantId: TENANT, executionId: EXEC, stepType: "research_accounts", status: "success", calls: 1 });
       expect(["treg.web.search", "treg.web.extract", "exa.web.search"]).toContain(log.requestType);
       expect(log.metadata.costUsd).toBeCloseTo(log.metadata.costMicro / 1_000_000, 9);
+      // FEL-57: o custo (US$) tambem vai para `estimated_cost`, como no Apify.
+      expect(log.estimatedCost).toBe(log.metadata.costUsd);
     }
   });
 
@@ -719,6 +721,115 @@ describe("ResearchAccountsStep — posts (toggle de LinkedIn)", () => {
   });
 });
 
+describe("ResearchAccountsStep — posts para o icebreaker premium (FEL-57)", () => {
+  const Y = { targetAccounts: [{ name: "Empresa Y", domain: "empresay.com", confidence: "high" as const }] };
+  const RUI_URL = "https://www.linkedin.com/in/rui";
+  const RAW = [
+    { postUrl: "https://www.linkedin.com/feed/update/1", text: "Repost de terceiro", publishedAt: "2026-10-30T00:00:00Z", likesCount: 1, commentsCount: 0, authorName: "Outra Pessoa" },
+    { postUrl: "https://www.linkedin.com/feed/update/2", text: "Post de 2024", publishedAt: "2024-01-01T00:00:00Z", likesCount: 2, commentsCount: 0 },
+    { postUrl: "https://www.linkedin.com/feed/update/3", text: "Zero trust e SOC", publishedAt: "2026-10-20T00:00:00Z", likesCount: 3, commentsCount: 1 },
+    { postUrl: "https://www.linkedin.com/feed/update/4", text: "Quarto post", publishedAt: "2026-10-10T00:00:00Z", likesCount: 4, commentsCount: 0 },
+  ];
+  const rui = () => lead({ name: "Rui", companyName: "Empresa Y", email: "rui@empresay.com", apolloId: "ap-3", linkedinUrl: RUI_URL });
+
+  beforeEach(() => {
+    mockGetServiceApiKeyOrNull.mockImplementation(async (_t: string, service: string) => (service === "apify" ? "apify-key" : null));
+    mockLoadKBContext.mockResolvedValue(null);
+    mockClassify.mockResolvedValue({ isRelevant: false, reasoning: "", promptTokens: 0, completionTokens: 0 });
+  });
+
+  it("guarda os posts BRUTOS (antes de janela/autoria/classificador) das posicoes 0-2 do dataset, na ordem", async () => {
+    const apify = { fetchLinkedInPosts: vi.fn().mockResolvedValue({ success: true, posts: RAW, rawIndexes: [0, 1, 2, 3], profileUrl: RUI_URL, fetchedAt: "2026-11-03T11:59:00.000Z" }) };
+    const db = createDb();
+    const result = await createStep(db, createTreg(), { apify }).run(createInput({ premiumIcebreakers: true, ...Y }, [rui()]));
+
+    expect(apify.fetchLinkedInPosts).toHaveBeenCalledTimes(1);
+    expect(outputOf(result).icebreakerPosts).toEqual({
+      [RUI_URL]: { posts: RAW.slice(0, 3), fetchedAt: "2026-11-03T11:59:00.000Z", fetchLimit: 10 },
+    });
+    // Vai para o checkpoint (o `create_campaign` le de la).
+    expect((checkpoint(db)!.output as { icebreakerPosts?: unknown }).icebreakerPosts).toEqual(outputOf(result).icebreakerPosts);
+    // Nenhum post virou fato (classificador disse irrelevante), mas os brutos ficam.
+    expect((db.insertsTo("account_dossier_facts").flat() as Array<{ kind: string }>).filter((f) => f.kind === "post")).toEqual([]);
+  });
+
+  it("item vazio entre os 3 primeiros do dataset: guarda so o que a busca com limite 3 traria", async () => {
+    // Dataset [P1, vazio, P2, P3, P4]: o ApifyService devolve [P1, P2, P3, P4] nas posicoes [0, 2, 3, 4].
+    const apify = { fetchLinkedInPosts: vi.fn().mockResolvedValue({ success: true, posts: RAW, rawIndexes: [0, 2, 3, 4], profileUrl: RUI_URL, fetchedAt: "2026-11-03T11:59:00.000Z" }) };
+    const result = await createStep(createDb(), createTreg(), { apify }).run(createInput({ premiumIcebreakers: true, ...Y }, [rui()]));
+    expect(outputOf(result).icebreakerPosts![RUI_URL].posts).toEqual(RAW.slice(0, 2));
+  });
+
+  it("busca vazia ou sem posicoes do dataset: nada guardado (o create_campaign busca como hoje)", async () => {
+    const empty = { fetchLinkedInPosts: vi.fn().mockResolvedValue({ success: true, posts: [], rawIndexes: [], profileUrl: RUI_URL, fetchedAt: "2026-11-03T11:59:00.000Z" }) };
+    const r1 = await createStep(createDb(), createTreg(), { apify: empty }).run(createInput({ premiumIcebreakers: true, ...Y }, [rui()]));
+    expect(outputOf(r1).icebreakerPosts).toBeUndefined();
+    const noIndexes = { fetchLinkedInPosts: vi.fn().mockResolvedValue({ success: true, posts: RAW, profileUrl: RUI_URL, fetchedAt: "2026-11-03T11:59:00.000Z" }) };
+    const r2 = await createStep(createDb(), createTreg(), { apify: noIndexes }).run(createInput({ premiumIcebreakers: true, ...Y }, [rui()]));
+    expect(outputOf(r2).icebreakerPosts).toBeUndefined();
+  });
+
+  it("falha, excecao ou timeout do Apify: NADA guardado (o create_campaign busca como hoje)", async () => {
+    const failing = { fetchLinkedInPosts: vi.fn().mockResolvedValue({ success: false, posts: [], error: "x", profileUrl: RUI_URL, fetchedAt: "x" }) };
+    const r1 = await createStep(createDb(), createTreg(), { apify: failing }).run(createInput({ premiumIcebreakers: true, ...Y }, [rui()]));
+    expect(outputOf(r1).icebreakerPosts).toBeUndefined();
+
+    const throwing = { fetchLinkedInPosts: vi.fn().mockRejectedValue(new Error("boom")) };
+    const r2 = await createStep(createDb(), createTreg(), { apify: throwing }).run(createInput({ premiumIcebreakers: true, ...Y }, [rui()]));
+    expect(outputOf(r2).icebreakerPosts).toBeUndefined();
+
+    // Apify que nunca responde: o step para no prazo duro e nao guarda nada.
+    vi.useFakeTimers();
+    try {
+      const hanging = { fetchLinkedInPosts: vi.fn().mockReturnValue(new Promise(() => {})) };
+      const run = createStep(createDb(), createTreg(), { apify: hanging }).run(createInput({ premiumIcebreakers: true, ...Y }, [rui()]));
+      await vi.advanceTimersByTimeAsync(mockConfig.hardDeadlineMs + mockConfig.finalizeBudgetMs + 2_000);
+      const r3 = await run;
+      expect(hanging.fetchLinkedInPosts).toHaveBeenCalledTimes(1);
+      expect(outputOf(r3).icebreakerPosts).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("toggle desligado ou sem chave do Apify: sem `icebreakerPosts`", async () => {
+    const apify = { fetchLinkedInPosts: vi.fn() };
+    const off = await createStep(createDb(), createTreg(), { apify }).run(createInput({ premiumIcebreakers: false, ...Y }, [rui()]));
+    expect(outputOf(off).icebreakerPosts).toBeUndefined();
+    mockGetServiceApiKeyOrNull.mockResolvedValue(null);
+    const noKey = await createStep(createDb(), createTreg(), { apify }).run(createInput({ premiumIcebreakers: true, ...Y }, [rui()]));
+    expect(outputOf(noKey).icebreakerPosts).toBeUndefined();
+    expect(apify.fetchLinkedInPosts).not.toHaveBeenCalled();
+  });
+
+  it("checkpoint minimo (fallback) nao leva os posts", async () => {
+    const apify = { fetchLinkedInPosts: vi.fn().mockResolvedValue({ success: true, posts: RAW, rawIndexes: [0, 1, 2, 3], profileUrl: RUI_URL, fetchedAt: "2026-11-03T11:59:00.000Z" }) };
+    const db = createDb();
+    // O 1o checkpoint (completo) falha em todas as tentativas; o minimo grava.
+    const original = db.from.getMockImplementation()!;
+    db.from.mockImplementation((table: string) => {
+      const chain = original(table);
+      if (table !== "agent_steps") return chain;
+      const then = chain.then;
+      chain.then = (resolve, reject) => {
+        const update = chain.update.mock.calls[0]?.[0] as { output?: { accounts?: unknown[]; flags?: { persistFailed?: boolean } } } | undefined;
+        if (update?.output && !update.output.flags?.persistFailed) {
+          return Promise.resolve({ data: null, error: { message: "payload grande" } }).then(resolve, reject);
+        }
+        return then.call(chain, resolve, reject);
+      };
+      return chain;
+    });
+    const result = await createStep(db, createTreg(), { apify }).run(createInput({ premiumIcebreakers: true, ...Y }, [rui()]));
+    expect(outputOf(result).icebreakerPosts).toBeDefined(); // havia posts para descartar
+    const minimal = db.updates
+      .map((u) => u.payload as { status?: string; output?: Record<string, unknown> })
+      .find((u) => u.status === "completed" && (u.output?.flags as { persistFailed?: boolean } | undefined)?.persistFailed);
+    expect(minimal).toBeDefined();
+    expect(minimal!.output).not.toHaveProperty("icebreakerPosts");
+  }, 15_000);
+});
+
 describe("ResearchAccountsStep — excecao inesperada", () => {
   it("nunca lanca: completed com flags.unexpectedError", async () => {
     mockReadServiceApiKey.mockRejectedValue(new Error("explodiu"));
@@ -955,6 +1066,8 @@ describe("ResearchAccountsStep — custo de chamada sem resposta (2a revisao Cod
     expect(timeoutLog).toMatchObject({
       status: "failed",
       calls: 1,
+      // FEL-57: sem resposta, `estimated_cost` leva o teto reservado (igual ao metadata).
+      estimatedCost: 0.01,
       metadata: { costUsd: 0.01, costMicro: null, costEstimated: true, costBasis: "reserved_cap", reservedUsd: 0.01, httpStatus: 0 },
     });
     for (const log of logs.filter((l) => l !== timeoutLog)) {

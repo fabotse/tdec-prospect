@@ -55,6 +55,7 @@ import type {
 import type { AIModel } from "@/types/ai-provider";
 import type { AIContextVariables } from "@/lib/services/knowledge-base-context";
 import { fetchKnowledgeBaseProofs } from "@/lib/services/knowledge-base-proofs";
+import { ICEBREAKER_POSTS_LIMIT, readReusablePosts } from "@/lib/agent/dossier/icebreaker-posts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ==============================================
@@ -62,6 +63,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // ==============================================
 
 const ICEBREAKER_BATCH_SIZE = 5;
+/** FEL-57: espera maxima pela leitura dos posts do dossie (ms); depois, busca como hoje. */
+const DOSSIER_POSTS_READ_TIMEOUT_MS = 3000;
 const MAX_IB_EXAMPLES_IN_PROMPT = 3;
 
 /**
@@ -296,10 +299,16 @@ export class CreateCampaignStep extends BaseStep {
       // Story 22.2: caminho premium (LinkedIn via Apify) quando o toggle esta ligado no briefing.
       const usePremium = Boolean(briefing.premiumIcebreakers);
       const apifyKey = usePremium ? await this.getApifyApiKey() : null;
+      // FEL-57: posts que o `research_accounts` DESTA execucao ja buscou (fail-open: vazio
+      // = todo lead busca no Apify como hoje). So consultado no caminho premium.
+      const dossierPosts =
+        usePremium && apifyKey
+          ? await this.loadDossierPosts(input.executionId)
+          : new Map<string, LinkedInPost[]>();
       const icebreakerExamples = await this.loadIcebreakerExamples();
       const formattedExamples = CreateCampaignStep.formatIcebreakerExamples(icebreakerExamples, "lead");
       ({ leadsWithIcebreakers, icebreakerStats, apifyCalls } = await this.generateIcebreakers(
-        leads, aiVars, provider, formattedExamples, usePremium, apifyKey, input.executionId
+        leads, aiVars, provider, formattedExamples, usePremium, apifyKey, input.executionId, dossierPosts
       ));
 
       // 2.11 - Sub-step D: Generate email content
@@ -738,6 +747,39 @@ export class CreateCampaignStep extends BaseStep {
     return getServiceApiKeyOrNull(this.tenantId, "apify");
   }
 
+  /**
+   * FEL-57: posts do LinkedIn que o `research_accounts` desta execucao buscou no Apify
+   * (`output.icebreakerPosts`), por `linkedinUrl`. So a linha `completed` DESTA execucao
+   * conta. NUNCA lanca: qualquer falha ou duvida devolve um mapa vazio e o icebreaker
+   * premium busca no Apify exatamente como antes.
+   */
+  private async loadDossierPosts(executionId: string): Promise<Map<string, LinkedInPost[]>> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const read = (async () => {
+        const { data, error } = await this.supabase
+          .from("agent_steps")
+          .select("output")
+          .eq("execution_id", executionId)
+          .eq("step_type", "research_accounts")
+          .eq("status", "completed")
+          .maybeSingle();
+        if (error || !data) return new Map<string, LinkedInPost[]>();
+        return readReusablePosts((data as { output?: unknown }).output, Date.now());
+      })();
+      // Leitura pendurada nao segura o step: passado o prazo, segue pelo caminho de hoje.
+      read.catch(() => undefined);
+      const timeout = new Promise<Map<string, LinkedInPost[]>>((resolve) => {
+        timer = setTimeout(() => resolve(new Map()), DOSSIER_POSTS_READ_TIMEOUT_MS);
+      });
+      return await Promise.race([read, timeout]);
+    } catch {
+      return new Map();
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   private parseStructureJSON(text: string): { items: CampaignStructureItem[] } {
     let parsed: { items?: unknown[] };
     try {
@@ -827,7 +869,8 @@ export class CreateCampaignStep extends BaseStep {
     formattedExamples: string,
     usePremium: boolean,
     apifyKey: string | null,
-    executionId?: string
+    executionId?: string,
+    dossierPosts: Map<string, LinkedInPost[]> = new Map()
   ): Promise<{
     leadsWithIcebreakers: LeadWithIcebreaker[];
     icebreakerStats: { generated: number; premium: number; standard: number; failed: number; skipped: number };
@@ -848,7 +891,8 @@ export class CreateCampaignStep extends BaseStep {
           // Caminho premium: toggle ligado + key + lead com LinkedIn. Fail-open para standard.
           if (premiumEnabled && apifyService && apifyKey && lead.linkedinUrl) {
             const premiumText = await this.generateSinglePremiumIcebreaker(
-              lead, aiVars, provider, apifyService, apifyKey, () => { apifyCalls++; }, executionId
+              lead, aiVars, provider, apifyService, apifyKey, () => { apifyCalls++; }, executionId,
+              dossierPosts.get(lead.linkedinUrl)
             );
             if (premiumText) {
               return { text: premiumText, kind: "premium" };
@@ -887,6 +931,10 @@ export class CreateCampaignStep extends BaseStep {
    * icebreaker_premium_generation (nao duplica scraping). Fail-open: retorna null em
    * qualquer degradacao (sem posts, Apify falha, prompt/AI falha) para o chamador cair
    * no caminho standard. Espelha a politica de processPostCategory da rota enrich-icebreaker.
+   *
+   * FEL-57: com `reusedPosts` NAO VAZIO (o que a busca com limite 3 traria, ja buscado
+   * pelo `research_accounts` desta execucao), NAO chama o Apify nem loga chamada: o resto
+   * do caminho (prompt e geracao) e identico. Sem eles, busca como hoje.
    */
   private async generateSinglePremiumIcebreaker(
     lead: SearchLeadResult,
@@ -895,53 +943,20 @@ export class CreateCampaignStep extends BaseStep {
     apifyService: ApifyService,
     apifyKey: string,
     onApifyCall: () => void,
-    executionId?: string
+    executionId?: string,
+    reusedPosts?: LinkedInPost[]
   ): Promise<string | null> {
     if (!lead.linkedinUrl) return null;
 
-    const apifyStart = Date.now();
-    let postsResult: Awaited<ReturnType<ApifyService["fetchLinkedInPosts"]>>;
-    try {
-      onApifyCall();
-      postsResult = await apifyService.fetchLinkedInPosts(apifyKey, lead.linkedinUrl, 3);
-    } catch (error) {
-      // fetchLinkedInPosts nao deveria lancar (retorna success:false), mas protegemos assim mesmo.
-      await logApifyFailure({
-        tenantId: this.tenantId,
-        errorMessage: error instanceof Error ? error.message : "Erro Apify",
-        durationMs: Date.now() - apifyStart,
-        metadata: { linkedinProfileUrl: lead.linkedinUrl, postLimit: 3, source: "agent", executionId, stepType: "create_campaign" },
-      });
-      return null; // fallback standard
+    let posts: LinkedInPost[];
+    if (reusedPosts && reusedPosts.length > 0 && reusedPosts.length <= ICEBREAKER_POSTS_LIMIT) {
+      posts = reusedPosts;
+    } else {
+      // Sem posts reaproveitaveis (inclusive lista vazia): busca no Apify como hoje.
+      const fetched = await this.fetchPremiumPosts(lead.linkedinUrl, apifyService, apifyKey, onApifyCall, executionId);
+      if (!fetched) return null; // fallback standard
+      posts = fetched;
     }
-
-    const durationMs = Date.now() - apifyStart;
-
-    if (!postsResult.success || postsResult.posts.length === 0) {
-      if (!postsResult.success) {
-        await logApifyFailure({
-          tenantId: this.tenantId,
-          errorMessage: postsResult.error || "Erro Apify",
-          durationMs,
-          metadata: { linkedinProfileUrl: lead.linkedinUrl, postLimit: 3, source: "agent", executionId, stepType: "create_campaign" },
-        });
-      } else {
-        await logApifySuccess({
-          tenantId: this.tenantId,
-          postsFetched: 0,
-          durationMs,
-          metadata: { linkedinProfileUrl: lead.linkedinUrl, postLimit: 3, noPosts: true, source: "agent", executionId, stepType: "create_campaign" },
-        });
-      }
-      return null; // fallback standard
-    }
-
-    await logApifySuccess({
-      tenantId: this.tenantId,
-      postsFetched: postsResult.posts.length,
-      durationMs,
-      metadata: { linkedinProfileUrl: lead.linkedinUrl, postLimit: 3, source: "agent", executionId, stepType: "create_campaign" },
-    });
 
     const variables: Record<string, string> = {
       ...aiVars,
@@ -952,7 +967,7 @@ export class CreateCampaignStep extends BaseStep {
       // nao tem esses campos): ficam vazios em vez de inventados.
       lead_industry: "",
       lead_location: "",
-      linkedin_posts: CreateCampaignStep.formatLinkedInPostsForPrompt(postsResult.posts),
+      linkedin_posts: CreateCampaignStep.formatLinkedInPostsForPrompt(posts),
     };
 
     try {
@@ -977,6 +992,65 @@ export class CreateCampaignStep extends BaseStep {
       // Prompt/AI falha no premium → fallback standard (AC3), nunca deixa o lead sem icebreaker
       return null;
     }
+  }
+
+  /**
+   * Story 22.2: busca dos posts no Apify para o icebreaker premium (caminho de sempre,
+   * extraido sem mudanca na FEL-57). Devolve os posts, ou `null` para cair no standard
+   * (falha do Apify ou nenhum post). Loga cada chamada em `api_usage_logs`.
+   */
+  private async fetchPremiumPosts(
+    linkedinUrl: string,
+    apifyService: ApifyService,
+    apifyKey: string,
+    onApifyCall: () => void,
+    executionId?: string
+  ): Promise<LinkedInPost[] | null> {
+    const apifyStart = Date.now();
+    let postsResult: Awaited<ReturnType<ApifyService["fetchLinkedInPosts"]>>;
+    try {
+      onApifyCall();
+      postsResult = await apifyService.fetchLinkedInPosts(apifyKey, linkedinUrl, ICEBREAKER_POSTS_LIMIT);
+    } catch (error) {
+      // fetchLinkedInPosts nao deveria lancar (retorna success:false), mas protegemos assim mesmo.
+      await logApifyFailure({
+        tenantId: this.tenantId,
+        errorMessage: error instanceof Error ? error.message : "Erro Apify",
+        durationMs: Date.now() - apifyStart,
+        metadata: { linkedinProfileUrl: linkedinUrl, postLimit: 3, source: "agent", executionId, stepType: "create_campaign" },
+      });
+      return null; // fallback standard
+    }
+
+    const durationMs = Date.now() - apifyStart;
+
+    if (!postsResult.success || postsResult.posts.length === 0) {
+      if (!postsResult.success) {
+        await logApifyFailure({
+          tenantId: this.tenantId,
+          errorMessage: postsResult.error || "Erro Apify",
+          durationMs,
+          metadata: { linkedinProfileUrl: linkedinUrl, postLimit: 3, source: "agent", executionId, stepType: "create_campaign" },
+        });
+      } else {
+        await logApifySuccess({
+          tenantId: this.tenantId,
+          postsFetched: 0,
+          durationMs,
+          metadata: { linkedinProfileUrl: linkedinUrl, postLimit: 3, noPosts: true, source: "agent", executionId, stepType: "create_campaign" },
+        });
+      }
+      return null; // fallback standard
+    }
+
+    await logApifySuccess({
+      tenantId: this.tenantId,
+      postsFetched: postsResult.posts.length,
+      durationMs,
+      metadata: { linkedinProfileUrl: linkedinUrl, postLimit: 3, source: "agent", executionId, stepType: "create_campaign" },
+    });
+
+    return postsResult.posts;
   }
 
   /**

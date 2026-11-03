@@ -258,6 +258,23 @@ describe("ApifyService", () => {
         expect(result.error).toBeUndefined();
       });
 
+      it("FEL-57: rawIndexes = posicao no dataset bruto; posts identicos aos de antes", async () => {
+        apifyMocks.actorCall.mockResolvedValue({ id: "run-1", status: "SUCCEEDED", defaultDatasetId: "d-1" });
+        const A = { postUrl: "https://linkedin.com/posts/a", text: "A", publishedAt: "2026-10-01", likesCount: 1, commentsCount: 0 };
+        const B = { postUrl: "https://linkedin.com/posts/b", text: "B", publishedAt: "2026-09-01", likesCount: 2, commentsCount: 0 };
+        const C = { postUrl: "https://linkedin.com/posts/c", text: "C", publishedAt: "2026-08-01", likesCount: 3, commentsCount: 0 };
+        // Dataset [A, vazio, null, B, C]: o vazio e o null sao descartados como sempre.
+        apifyMocks.listItems.mockResolvedValue({ items: [A, { postUrl: "", text: "" }, null, B, C] });
+
+        const result = await linkedInService.fetchLinkedInPosts(validApiKey, validLinkedInUrl, 10);
+
+        expect(result.posts.map((p) => p.text)).toEqual(["A", "B", "C"]);
+        expect(result.rawIndexes).toEqual([0, 3, 4]);
+        // Falha nao traz posicoes.
+        apifyMocks.actorCall.mockResolvedValue({ id: "run-2", status: "FAILED", defaultDatasetId: "d-2" });
+        expect((await linkedInService.fetchLinkedInPosts(validApiKey, validLinkedInUrl)).rawIndexes).toBeUndefined();
+      });
+
       it("uses correct actor parameters (AC #2)", async () => {
         apifyMocks.actorCall.mockResolvedValue({
           id: "run-123",

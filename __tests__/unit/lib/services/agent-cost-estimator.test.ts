@@ -9,8 +9,14 @@ import {
   DEFAULT_COSTS,
 } from "@/lib/services/agent-cost-estimator";
 import type { ParsedBriefing } from "@/types/agent";
-import { estimateAICallsForCampaign } from "@/lib/agent/agent-pricing";
+import { AGENT_DEFAULT_COSTS, TREG_DEFAULT_BRL_PER_USD, estimateAICallsForCampaign, resolveUnitPrices } from "@/lib/agent/agent-pricing";
 import { createChainBuilder } from "../../../helpers/mock-supabase";
+
+// FEL-57: leitura da chave do Treg (service-role) mockada.
+const mockReadServiceApiKey = vi.fn();
+vi.mock("@/lib/agent/service-keys", () => ({
+  readServiceApiKey: (...args: unknown[]) => mockReadServiceApiKey(...args),
+}));
 
 // ==============================================
 // HELPERS
@@ -234,6 +240,65 @@ describe("CostEstimatorService", () => {
         expect(custom.steps.research_accounts.estimated).toBeCloseTo(10 * 0.02 * 6);
         const skipped = CostEstimatorService.estimateCosts(new Map(), createBriefing({ skipSteps: ["research_accounts"] }));
         expect(skipped.steps.research_accounts.estimated).toBe(0);
+      });
+
+      // FEL-57: sem chave do Treg o step pula a pesquisa inteira (nem Treg, nem Apify).
+      it("sem chave do Treg: research nao entra na estimativa (nem com o toggle)", () => {
+        const briefing = createBriefing({ leadCount: 5, premiumIcebreakers: true });
+        const withoutKey = CostEstimatorService.estimateCosts(new Map(), briefing, { tregConfigured: false });
+        expect(withoutKey.steps.research_accounts.estimated).toBe(0);
+        expect(withoutKey.steps.research_accounts.description).toContain("chave do Treg");
+
+        const withKey = CostEstimatorService.estimateCosts(new Map(), briefing, { tregConfigured: true });
+        expect(withKey.steps.research_accounts.estimated).toBeCloseTo(5 * 0.02 * 5.5 + 5 * 0.15 + 5 * 10 * 0.02);
+        // O total cai exatamente o valor do research; o resto do plano nao muda.
+        expect(withKey.total - withoutKey.total).toBeCloseTo(withKey.steps.research_accounts.estimated);
+        expect(withoutKey.steps.create_campaign).toEqual(withKey.steps.create_campaign);
+      });
+
+      it("chave desconhecida (undefined): mantem o pior caso de antes", () => {
+        const briefing = createBriefing({ leadCount: 5 });
+        expect(CostEstimatorService.estimateCosts(new Map(), briefing, {})).toEqual(
+          CostEstimatorService.estimateCosts(new Map(), briefing)
+        );
+        expect(CostEstimatorService.estimateCosts(new Map(), briefing).steps.research_accounts.estimated).toBeCloseTo(5 * 0.02 * 5.5);
+      });
+
+      it("cambio: fonte unica com default 5,5, sobreposto pelo cost_models do tenant", () => {
+        expect(TREG_DEFAULT_BRL_PER_USD).toBe(5.5);
+        expect(AGENT_DEFAULT_COSTS.treg.unitPrice).toBe(TREG_DEFAULT_BRL_PER_USD);
+        expect(DEFAULT_COSTS.treg.unitPrice).toBe(TREG_DEFAULT_BRL_PER_USD);
+        expect(resolveUnitPrices(new Map()).treg).toBe(TREG_DEFAULT_BRL_PER_USD);
+        expect(resolveUnitPrices(new Map([["treg", 5.1]])).treg).toBe(5.1);
+      });
+    });
+
+    describe("isTregConfigured (FEL-57)", () => {
+      beforeEach(() => mockReadServiceApiKey.mockReset());
+
+      it("ok -> true; ausente ou nao decriptavel -> false (o step pularia)", async () => {
+        mockReadServiceApiKey.mockResolvedValueOnce({ status: "ok", apiKey: "k" });
+        await expect(CostEstimatorService.isTregConfigured("t1")).resolves.toBe(true);
+        expect(mockReadServiceApiKey).toHaveBeenCalledWith("t1", "treg");
+        mockReadServiceApiKey.mockResolvedValueOnce({ status: "missing" });
+        await expect(CostEstimatorService.isTregConfigured("t1")).resolves.toBe(false);
+        mockReadServiceApiKey.mockResolvedValueOnce({ status: "decrypt_error" });
+        await expect(CostEstimatorService.isTregConfigured("t1")).resolves.toBe(false);
+      });
+
+      it("erro ou demora: undefined (estimativa mantem o pior caso), nunca lanca", async () => {
+        mockReadServiceApiKey.mockRejectedValueOnce(new Error("boom"));
+        await expect(CostEstimatorService.isTregConfigured("t1")).resolves.toBeUndefined();
+
+        vi.useFakeTimers();
+        try {
+          mockReadServiceApiKey.mockReturnValueOnce(new Promise(() => {}));
+          const pending = CostEstimatorService.isTregConfigured("t1");
+          await vi.advanceTimersByTimeAsync(3_001);
+          await expect(pending).resolves.toBeUndefined();
+        } finally {
+          vi.useRealTimers();
+        }
       });
     });
 

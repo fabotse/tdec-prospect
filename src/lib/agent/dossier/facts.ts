@@ -56,6 +56,8 @@ export const THEIRSTACK_SOURCE_URL = "https://api.theirstack.com/v1/companies/se
 const NEWS_TITLE_MAX = 200;
 const POST_TEXT_MAX = 280;
 const SITE_MIN_USEFUL_CHARS = 200;
+/** FEL-57: meta description minima para virar o fato do site (caracteres). */
+const SITE_MIN_DESCRIPTION_CHARS = 50;
 
 // ==============================================
 // TEXT HELPERS
@@ -338,9 +340,165 @@ export function cleanMarkdown(value: string): string {
   );
 }
 
+// ----------------------------------------------
+// FEL-57: boilerplate de navegacao do site
+// ----------------------------------------------
+
+/** Links de acessibilidade ("pular para o conteudo") em pt/en/es, em qualquer lugar. */
+const SKIP_LINK_PATTERN =
+  /(?<![\p{L}\p{N}])(?:pular|ir|saltar|skip)\s+(?:para|al|to)\s+(?:o\s+|a\s+|el\s+|la\s+)?(?:conte[uú]do|contenido|content|menu|men[uú]|navega[cç][aã]o|navegaci[oó]n|navigation|rodap[eé]|footer|busca|search)(?:\s+principal|\s+main)?(?![\p{L}\p{N}])/giu;
+
+/** Blocos que nunca sao texto da pagina (removidos no documento INTEIRO, antes das linhas). */
+const NON_TEXT_BLOCKS = /<(script|style|noscript|template|svg)\b[^>]*>[\s\S]*?<\/\1\s*>|<!--[\s\S]*?-->/gi;
+
+/** Palavras de menu/cabecalho (normalizadas, sem acento): login, contato, CTA etc. */
+const NAV_STRONG_WORDS = new Set([
+  "login", "logon", "logout", "entrar", "sair", "signin", "signup", "sign", "cadastre", "cadastrese",
+  "cadastrar", "cadastro", "inscrevase", "menu", "home", "inicio", "buscar", "busca", "pesquisar",
+  "search", "contato", "contatos", "contact", "especialista", "especialistas", "conteudo", "pular",
+  "skip", "idioma", "idiomas", "language", "blog", "carreiras", "trabalhe", "suporte", "ajuda", "faq",
+  "demo", "demonstracao", "agende", "orcamento", "acessar", "acesse", "portal", "voltar", "topo",
+  "fechar", "abrir", "navegacao", "navigation", "toggle",
+]);
+
+/** Codigos/nomes de idioma de um seletor ("PT EN ES", "PT-BR", "English"). */
+const LANGUAGE_WORDS = new Set([
+  "pt", "en", "es", "br", "ptbr", "enus", "eses", "english", "espanol", "portugues", "ingles",
+]);
+
+/** Palavras de ligacao/itens de menu genericos: so contam junto de evidencia de menu. */
+const NAV_WEAK_WORDS = new Set([
+  "o", "a", "os", "as", "de", "do", "da", "dos", "das", "para", "com", "um", "uma", "ao", "e",
+  "no", "na", "nos", "nosso", "nossa", "nossos", "nossas", "seu", "sua", "fale", "conosco",
+  "quem", "somos", "sobre", "minha", "meu", "area", "to", "in", "up", "out", "log", "main",
+  "principal", "ir", "the", "us", "conta", "imprensa", "parceiros", "cases", "solucoes",
+  "produtos", "servicos", "eventos", "noticias", "cliente", "clientes",
+]);
+
+type NavKind = "lang" | "strong" | "weak" | null;
+
+function navToken(token: string): NavKind {
+  const normalized = normalizeText(token).replace(/ /g, "");
+  if (!normalized) return "weak"; // pontuacao/separador ("|", "/", "…")
+  if (LANGUAGE_WORDS.has(normalized)) return "lang";
+  if (NAV_STRONG_WORDS.has(normalized)) return "strong";
+  if (NAV_WEAK_WORDS.has(normalized)) return "weak";
+  return null;
+}
+
+function words(text: string): string[] {
+  return text.split(/\s+/).filter(Boolean);
+}
+
+/** Seletor de idioma: 2+ codigos de idioma seguidos. */
+function hasLanguageSelector(tokens: string[]): boolean {
+  for (let i = 1; i < tokens.length; i++) {
+    if (navToken(tokens[i - 1]) === "lang" && navToken(tokens[i]) === "lang") return true;
+  }
+  return false;
+}
+
+const MD_LINK = /!?\[[^\]]*\]\([^)]*\)/g;
+
+/** Linha so de links markdown (lista/barra de menu). */
+function isLinkOnlyLine(rawLine: string): boolean {
+  if (!/\[[^\]]*\]\([^)]*\)/.test(rawLine)) return false;
+  return rawLine.replace(MD_LINK, "").replace(/[\s*+\-|/·•>#]+/g, "") === "";
+}
+
+/** "Home | Sobre | Contato": 2+ itens CURTOS separados por | / · •. */
+function isSeparatedMenuLine(rawLine: string, cleaned: string): boolean {
+  const parts = rawLine
+    .replace(MD_LINK, (link) => link.replace(/^!?\[([^\]]*)\].*$/, "$1"))
+    .split(/\s[|/·•]\s|[|·•]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return parts.length >= 2 && parts.every((part) => words(part).length <= 3) && words(cleaned).length <= 12;
+}
+
 /**
- * Site: extract de `https://<dominio>`. Exige >= 200 caracteres uteis. Fato = titulo +
- * trecho inicial (ate `maxChars`). Data = hoje; confianca alta.
+ * Linha de navegacao, SO com evidencia de menu: link de pular conteudo (ja trocado),
+ * linha so de links curta, itens curtos separados por | / · •, seletor de idioma, ou uma
+ * palavra de menu sozinha ("Menu", "Login"). Frase comercial com essas palavras fica.
+ */
+function isNavigationLine(rawLine: string, cleaned: string): boolean {
+  const tokens = words(cleaned);
+  if (tokens.length === 0) return true;
+  if (tokens.length === 1 && navToken(tokens[0]) !== null && navToken(tokens[0]) !== "weak") return true;
+  if (tokens.every((token) => navToken(token) === "lang") && tokens.length >= 2) return true;
+  if (isLinkOnlyLine(rawLine) && tokens.length <= 6) return true;
+  return isSeparatedMenuLine(rawLine, cleaned);
+}
+
+/**
+ * Tira o menu colado no INICIO de UMA linha original (pagina sem quebra de linha), so com
+ * evidencia NA PROPRIA LINHA: ela comecava com "pular para o conteudo" ou a sequencia
+ * inicial de palavras de menu tem um seletor de idioma. Corta ate o ultimo item de
+ * menu/idioma ("Fale com um especialista Login PT EN ES Somos..." -> "Somos..."). A
+ * evidencia de uma linha nunca corta outra: uma linha de conteudo depois de um skip link
+ * ("Suporte ao cliente e especialistas para empresas...") fica intacta.
+ */
+function stripLeadingNavigation(text: string, startedWithSkipLink: boolean): string {
+  const tokens = text.split(" ");
+  let cut = 0;
+  let end = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    const kind = navToken(tokens[i]);
+    if (kind === null) break;
+    end = i + 1;
+    if (kind === "strong" || kind === "lang") cut = i + 1;
+  }
+  const evidence = startedWithSkipLink || hasLanguageSelector(tokens.slice(0, end));
+  if (!evidence || cut === 0) return text;
+  return tokens.slice(cut).join(" ").replace(/^[\s|/·•…,.:;–—-]+/u, "");
+}
+
+/**
+ * Texto util do site, sem o boilerplate de navegacao (script/style, links de "pular para
+ * o conteudo", linhas de menu, seletor de idioma, login, CTA).
+ */
+export function cleanSiteText(raw: string): string {
+  // Documento inteiro primeiro: blocos multilinha nao podem vazar para as linhas.
+  const document = raw.replace(NON_TEXT_BLOCKS, "\n");
+  const lines = document
+    .split(/\r?\n/)
+    .map((line) => {
+      // Skip link no COMECO desta linha (o texto dela, sem imagens) = evidencia so dela.
+      const head = cleanMarkdown(line.replace(/!\[[^\]]*\]\([^)]*\)/g, " "));
+      SKIP_LINK_PATTERN.lastIndex = 0;
+      const skip = SKIP_LINK_PATTERN.exec(head);
+      SKIP_LINK_PATTERN.lastIndex = 0;
+      const rawLine = line.replace(SKIP_LINK_PATTERN, " ");
+      return { rawLine, cleaned: cleanMarkdown(rawLine), startedWithSkipLink: skip !== null && skip.index === 0 };
+    })
+    .filter(({ rawLine, cleaned }) => cleaned && !isNavigationLine(rawLine, cleaned))
+    .map(({ cleaned, startedWithSkipLink }) => stripLeadingNavigation(cleaned, startedWithSkipLink))
+    .filter(Boolean);
+  return collapse(lines.join(" "));
+}
+
+/** Meta description / og:description da pagina, quando o extract traz. */
+function pageDescription(page: Record<string, unknown>): string {
+  const metadata = (page.metadata && typeof page.metadata === "object" ? page.metadata : {}) as Record<string, unknown>;
+  const candidates = [
+    page.description,
+    page.metaDescription,
+    page.ogDescription,
+    metadata.description,
+    metadata["og:description"],
+    metadata.ogDescription,
+  ];
+  for (const candidate of candidates) {
+    const text = collapse(cleanMarkdown(str(candidate)));
+    if (text.length >= SITE_MIN_DESCRIPTION_CHARS) return text;
+  }
+  return "";
+}
+
+/**
+ * Site: extract de `https://<dominio>`. Fato = titulo + trecho inicial (ate `maxChars`),
+ * SEM o menu da pagina (FEL-57). Com menos de 200 caracteres uteis depois da limpeza, usa
+ * a meta description (>= 50); sem ela, nao ha fato. Data = hoje; confianca alta.
  */
 export function siteFact(
   extractJson: unknown,
@@ -351,15 +509,178 @@ export function siteFact(
   const url = httpUrl(sourceUrl);
   if (!url) return null;
   const page = (extractJson as { output?: { pages?: unknown[] } } | null)?.output?.pages?.[0] as
-    | { markdown?: unknown; content?: unknown; text?: unknown; title?: unknown }
+    | Record<string, unknown>
     | undefined;
-  if (!page) return null;
+  if (!page || typeof page !== "object") return null;
   const raw = str(page.markdown) || str(page.content) || str(page.text);
-  const body = cleanMarkdown(raw);
-  if (body.length < SITE_MIN_USEFUL_CHARS) return null;
+  let body = cleanSiteText(raw);
+  if (body.length < SITE_MIN_USEFUL_CHARS) body = pageDescription(page);
+  if (!body) return null;
   const title = collapse(cleanMarkdown(str(page.title)));
   const fato = truncate(title && !body.startsWith(title) ? `${title} — ${body}` : body, maxChars);
   return { kind: "site", fato, fonte_url: url, data: isoDate(now), confianca: "alta" };
+}
+
+// ----------------------------------------------
+// FEL-57: noticia/vaga fora do Brasil
+// ----------------------------------------------
+
+/** Monta um teste de "frase inteira" sobre texto normalizado (palavras separadas por 1 espaco). */
+function phraseMatcher(phrases: string[]): RegExp {
+  return new RegExp(`(?:^| )(?:${phrases.join("|")})(?: |$)`);
+}
+
+/**
+ * Brasil, brasileiro(a) e localidades brasileiras: todos os estados, todas as capitais,
+ * cidades grandes e os portos (normalizados, sem acento). Palavras comuns que tambem sao
+ * lugar ("natal", "santos", "vitoria") contam: o erro so mantem a noticia. "Para" (o
+ * estado) fica de fora: e a preposicao mais comum em pt e es.
+ */
+const BRAZIL_MENTION = phraseMatcher([
+  "brasil", "brazil", "brasileir\\w*", "brasilen\\w*", "brazilian\\w*",
+  // estados
+  "acre", "alagoas", "amapa", "amazonas", "bahia", "ceara", "distrito federal", "espirito santo",
+  "goias", "maranhao", "mato grosso", "mato grosso do sul", "minas gerais", "paraiba",
+  "parana", "pernambuco", "piaui", "rio de janeiro", "rio grande do norte", "rio grande do sul",
+  "rondonia", "roraima", "santa catarina", "sao paulo", "sergipe", "tocantins",
+  // capitais
+  "rio branco", "maceio", "macapa", "manaus", "salvador", "fortaleza", "brasilia", "vitoria",
+  "goiania", "sao luis", "cuiaba", "campo grande", "belo horizonte", "belem", "joao pessoa",
+  "curitiba", "recife", "teresina", "natal", "porto alegre", "porto velho", "boa vista",
+  "florianopolis", "aracaju", "palmas",
+  // portos
+  "santos", "paranagua", "itajai", "suape", "pecem", "rio grande", "itaguai", "sepetiba",
+  "sao francisco do sul", "navegantes", "itapoa", "imbituba", "sao sebastiao", "vila do conde",
+  "itaqui", "mucuripe", "aratu", "ilheus", "tubarao", "praia mole", "barcarena", "antonina",
+  "porto de santos", "complexo do pecem",
+  // cidades grandes
+  "campinas", "guarulhos", "osasco", "santo andre", "sao bernardo do campo", "sao jose dos campos",
+  "sorocaba", "ribeirao preto", "jundiai", "piracicaba", "cubatao", "joinville", "blumenau",
+  "londrina", "maringa", "foz do iguacu", "uberlandia", "contagem", "juiz de fora", "betim",
+  "niteroi", "duque de caxias", "nova iguacu", "macae", "caxias do sul", "pelotas",
+  "feira de santana", "camacari", "campina grande", "caruaru", "petrolina", "anapolis",
+]);
+
+/**
+ * Evidencia POSITIVA de que o fato e de fora: outro pais ou cidade/porto estrangeiro
+ * citado (pt/es/en, normalizados). Lugares que colidem com o Brasil ("Lima", "Porto",
+ * "Santiago" sozinho, "Rosario") e palavras comuns ("usa", verbo) ficam de fora.
+ */
+const FOREIGN_MENTION = phraseMatcher([
+  // paises
+  "argentina", "mexico", "chile", "colombia", "peru", "uruguai", "uruguay", "paraguai", "paraguay",
+  "bolivia", "equador", "ecuador", "venezuela", "panama", "costa rica", "guatemala", "honduras",
+  "nicaragua", "cuba", "republica dominicana", "porto rico", "puerto rico", "el salvador",
+  "espanha", "espana", "spain", "portugal", "estados unidos", "eeuu", "ee uu", "eua",
+  "united states", "canada", "china", "india", "japao", "japon", "japan", "alemanha", "alemania",
+  "germany", "franca", "francia", "france", "italia", "italy", "reino unido", "united kingdom",
+  "angola", "mocambique",
+  // cidades e portos estrangeiros
+  "buenos aires", "bahia blanca", "cordoba", "mendoza", "montevideo", "montevideu",
+  "santiago de chile", "valparaiso", "san antonio", "antofagasta", "bogota", "medellin",
+  "cartagena", "barranquilla", "buenaventura", "callao", "quito", "guayaquil", "caracas",
+  "asuncion", "assuncao", "la paz", "ciudad de mexico", "cidade do mexico", "monterrey",
+  "guadalajara", "veracruz", "manzanillo", "lazaro cardenas", "madrid", "barcelona", "valencia",
+  "sevilla", "bilbao", "algeciras", "lisboa", "sines", "leixoes", "miami", "nova york",
+  "new york", "nueva york", "houston",
+]);
+
+/** ccTLDs de paises hispanicos e de Portugal (`.co` sozinho e generico, fica de fora). */
+const FOREIGN_CCTLDS = new Set([
+  "es", "ar", "mx", "cl", "pe", "uy", "py", "bo", "ec", "ve", "cr", "pa", "gt", "hn", "sv",
+  "ni", "do", "cu", "pr", "pt",
+]);
+
+/** Site publicado fora do Brasil (ccTLD hispanico/portugues; "algo.com.co" conta). */
+export function isForeignHost(url: string): boolean {
+  const host = hostOf(url);
+  if (!host) return false;
+  const labels = host.split(".");
+  const tld = labels[labels.length - 1];
+  if (tld === "br") return false;
+  if (FOREIGN_CCTLDS.has(tld)) return true;
+  return tld === "co" && labels.length >= 3 && ["com", "org", "net", "gov", "edu"].includes(labels[labels.length - 2]);
+}
+
+/** Palavras que so existem em espanhol (normalizadas), comuns em titulo/lead de noticia. */
+const SPANISH_WORDS = new Set([
+  "el", "los", "las", "del", "al", "y", "una", "con", "su", "sus", "muy", "tambien", "pero",
+  "nuevo", "nueva", "nuevos", "nuevas", "puerto", "puertos", "segun", "hasta", "hay", "fue",
+  "sin", "cuando", "donde", "millones", "es", "la", "lo", "le", "les", "ya", "han", "estan",
+]);
+
+/** Palavras que so existem em portugues (normalizadas). */
+const PORTUGUESE_WORDS = new Set([
+  "os", "do", "da", "dos", "das", "na", "nas", "em", "um", "uma", "com", "nao", "sao", "mais",
+  "pelo", "pela", "ao", "aos", "e", "tambem", "ate", "sem", "onde", "milhoes", "novo", "nova",
+  "novos", "novas", "seu", "sua", "anuncia",
+]);
+
+/**
+ * Texto em espanhol? Marca forte (ñ ¿ ¡ sem ã õ ç) ou mais palavras so-espanholas que
+ * so-portuguesas (minimo 2). Na duvida, NAO e espanhol.
+ */
+export function looksSpanish(text: string): boolean {
+  const lower = text.toLowerCase();
+  const ptMark = /[ãõç]/.test(lower);
+  if (/[ñ¿¡]/.test(lower) && !ptMark) return true;
+  let es = 0;
+  let pt = ptMark ? 2 : 0;
+  for (const word of normalizeText(lower).split(" ")) {
+    if (!word) continue;
+    if (SPANISH_WORDS.has(word)) es++;
+    else if (PORTUGUESE_WORDS.has(word)) pt++;
+  }
+  return es >= 2 && es > pt;
+}
+
+/** Texto normalizado sem o nome da empresa nem a marca do dominio. */
+function textWithoutCompany(text: string, companyName: string | null, domain: string): string {
+  let normalized = ` ${normalizeText(text)} `;
+  const company = normalizeCompanyKey(companyName);
+  if (company) normalized = normalized.split(` ${company} `).join(" ");
+  const brand = domainBrand(domain);
+  if (brand.length >= 3) normalized = normalized.split(` ${brand} `).join(" ");
+  return normalized;
+}
+
+/**
+ * O texto fala do Brasil? O nome da empresa e a marca do dominio sao tirados antes
+ * ("Santos Brasil" nao conta como mencao ao Brasil); lugares estrangeiros que contem
+ * nome brasileiro ("El Salvador", "Bahia Blanca") tambem.
+ */
+export function mentionsBrazil(text: string, companyName: string | null, domain: string): boolean {
+  const normalized = textWithoutCompany(text, companyName, domain)
+    .split(" el salvador ").join(" ")
+    .split(" bahia blanca ").join(" ");
+  return BRAZIL_MENTION.test(normalized.trim());
+}
+
+/** O texto cita outro pais ou cidade/porto estrangeiro (fora o nome da empresa)? */
+export function mentionsForeignPlace(text: string, companyName: string | null, domain: string): boolean {
+  return FOREIGN_MENTION.test(textWithoutCompany(text, companyName, domain).trim());
+}
+
+/**
+ * FEL-57: noticia/vaga de fora do Brasil. So descarta com EVIDENCIA POSITIVA dupla:
+ * 1. o FATO e de fora: o titulo/trecho cita outro pais ou lugar estrangeiro e NAO cita o
+ *    Brasil nem localidade brasileira; E
+ * 2. a PUBLICACAO e de fora: texto em espanhol ou site de ccTLD hispanico/portugues.
+ * Sozinho, nenhum sinal derruba: veiculo brasileiro em portugues falando de contrato na
+ * Argentina fica; veiculo estrangeiro falando de Santos/Vitoria fica; espanhol sem lugar
+ * nenhum fica. Na duvida a noticia FICA. `.br` nunca cai.
+ */
+export function isOutsideBrazil(
+  url: string,
+  result: ExaResult,
+  ctx: Pick<FactContext, "companyName" | "domain">
+): boolean {
+  const host = hostOf(url);
+  if (host && host.endsWith(".br")) return false;
+  const sample = `${str(result.title)} ${str(result.summary).slice(0, 400)} ${str(result.text).slice(0, 400)}`;
+  if (!mentionsForeignPlace(sample, ctx.companyName, ctx.domain)) return false;
+  if (mentionsBrazil(sample, ctx.companyName, ctx.domain)) return false;
+  return isForeignHost(url) || looksSpanish(sample);
 }
 
 function exaResults(json: unknown): ExaResult[] {
@@ -378,7 +699,7 @@ export function newsFacts(exaJson: unknown, ctx: FactContext, max: number): Doss
   for (const result of exaResults(exaJson)) {
     if (facts.length >= max) break;
     const url = httpUrl(result.url);
-    if (!url || seen.has(url) || isSocialUrl(url)) continue;
+    if (!url || seen.has(url) || isSocialUrl(url) || isOutsideBrazil(url, result, ctx)) continue;
     const data = dateWithinWindow(result.publishedDate, ctx.now, ctx.windowDays);
     if (!data) continue;
     const title = collapse(str(result.title));
@@ -414,7 +735,7 @@ export function jobFacts(exaJson: unknown, ctx: FactContext, max: number): Dossi
   for (const result of exaResults(exaJson)) {
     if (facts.length >= max) break;
     const url = httpUrl(result.url);
-    if (!url || seen.has(url) || isThirdPartyLinkedInUrl(url)) continue;
+    if (!url || seen.has(url) || isThirdPartyLinkedInUrl(url) || isOutsideBrazil(url, result, ctx)) continue;
     const data = dateWithinWindow(result.publishedDate, ctx.now, ctx.windowDays);
     if (!data) continue;
     const title = collapse(str(result.title));

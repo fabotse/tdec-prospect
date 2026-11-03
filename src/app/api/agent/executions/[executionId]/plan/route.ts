@@ -180,7 +180,9 @@ export async function GET(
   const costModels = await CostEstimatorService.ensureCostModels(supabase, profile.tenant_id);
 
   // Calcular custos
-  const costEstimate = CostEstimatorService.estimateCosts(costModels, briefing);
+  // FEL-57: sem chave do Treg a pesquisa das contas e pulada e nao entra na estimativa.
+  const tregConfigured = await CostEstimatorService.isTregConfigured(profile.tenant_id);
+  const costEstimate = CostEstimatorService.estimateCosts(costModels, briefing, { tregConfigured });
 
   // Gerar plano
   const steps = PlanGeneratorService.generatePlan(briefing, costEstimate);
