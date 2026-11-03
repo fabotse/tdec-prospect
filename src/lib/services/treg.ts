@@ -66,6 +66,12 @@ export interface TregCallResult {
   json: unknown;
   /** Custo cobrado em micro-dolares (`X-Treg-Cost-Micro`). */
   costMicro: number;
+  /**
+   * `true` quando nao houve resposta (timeout ou rede): o Treg pode ter cobrado e o custo
+   * real e DESCONHECIDO. `costMicro` vem 0 nesse caso e NAO e custo real; o chamador
+   * deve contabilizar de forma conservadora (o teto da chamada).
+   */
+  costUnknown?: boolean;
   durationMs: number;
   error?: string;
 }
@@ -169,6 +175,7 @@ export class TregService extends ExternalService {
         status: 0,
         json: null,
         costMicro: 0,
+        costUnknown: true,
         durationMs: Date.now() - start,
         error: isTimeout ? `timeout (${timeoutMs} ms)` : "erro de rede",
       };

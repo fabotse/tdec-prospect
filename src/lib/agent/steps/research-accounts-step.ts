@@ -14,8 +14,12 @@
  * timeout, teto de custo/tempo, erro de banco ou excecao inesperada terminam `completed`
  * com o dossie vazio/parcial e sinalizado em `output.flags`/`failedSources`. Isso vale
  * para o CICLO INTEIRO do step (`run` proprio): falha ao gravar o `running`, o checkpoint
- * ou o log do step nao vira `STEP_PERSISTENCE_ERROR` nem pausa o pipeline. A unica
- * excecao e o `STEP_ALREADY_RUNNING` (outro executor ja tem a posse; nada rodou).
+ * ou o log do step nao vira `STEP_PERSISTENCE_ERROR` nem pausa o pipeline, desde que
+ * ALGUMA transicao final (`completed` completo, minimo ou so o status) seja gravada. Duas
+ * excecoes: `STEP_ALREADY_RUNNING` (outro executor ja tem a posse; nada rodou) e
+ * `STEP_PERSISTENCE_ERROR` quando NENHUMA transicao final foi gravada (2a revisao Codex):
+ * devolver sucesso ai deixaria a linha `pending`/`running` e travaria o pipeline em
+ * silencio. E o mesmo contrato dos outros steps com o banco indisponivel.
  *
  * PRAZO DURO EFETIVO: toda espera (Treg, Apify, banco, log de uso, classificador,
  * mensagens) corre contra `DOSSIER_CONFIG.hardDeadlineMs`; o fechamento (resumo,
@@ -65,6 +69,7 @@ import {
 } from "@/lib/agent/dossier/repository";
 import type {
   DossierFailureReason,
+  PipelineError,
   DossierSkipReason,
   DossierSource,
   ResearchAccountsFlags,
@@ -218,6 +223,9 @@ interface RunState {
   techDate: string;
   tregUsd: number;
   tregCalls: number;
+  /** Chamadas sem resposta (custo desconhecido), contadas pelo teto reservado. */
+  tregEstimatedCalls: number;
+  tregEstimatedUsd: number;
   apifyCalls: number;
   openaiRelevanceCalls: number;
   /** Linhas efetivamente gravadas em `account_dossier_leads`. */
@@ -318,57 +326,96 @@ export class ResearchAccountsStep extends BaseStep {
       result = this.buildResult([...this.doneAccounts], flags, this.runState);
     }
 
-    await this.finalize(input, result);
+    const persisted = await this.finalize(input, result);
+    if (!persisted) {
+      // Nenhuma transicao final foi gravada: a linha pode ter ficado `pending` (o claim
+      // tambem falhou; o sweeper so trata `running`) ou `running`. Devolver sucesso aqui
+      // seria travar o pipeline EM SILENCIO. Mesmo contrato dos outros steps
+      // (`BaseStep.saveCheckpoint`): STEP_PERSISTENCE_ERROR, o orchestrator pausa a
+      // execucao com a bolha de erro e o "Tentar novamente" reexecuta o research.
+      throw this.persistenceFailure();
+    }
     return result;
   }
 
-  /** Resumo + checkpoint + log, dentro de `finalizeBudgetMs`. Nunca lanca. */
-  private async finalize(input: StepInput, result: StepOutput): Promise<void> {
+  private persistenceFailure(): PipelineError {
+    return {
+      code: "STEP_PERSISTENCE_ERROR",
+      message: "Nao foi possivel salvar o resultado da etapa",
+      stepNumber: this.stepNumber,
+      stepType: this.stepType,
+      isRetryable: true,
+    };
+  }
+
+  /**
+   * Checkpoint + resumo + log, dentro de `finalizeBudgetMs`. Nunca lanca.
+   *
+   * A transicao final e gravada em 3 niveis, cada um com o retry curto da base e SEM
+   * filtro de status (vale para a linha `pending` de um claim que falhou e para a
+   * `running`):
+   * 1. checkpoint `completed` completo;
+   * 2. checkpoint minimo (sem a lista de contas);
+   * 3. so `status: completed` + `completed_at` (sem output).
+   * Qualquer um deles deixa a linha `completed`, que o auto-trigger trata como elegivel
+   * nos dois modos e dispara o `create_campaign` sozinho. `completed` (e nao `failed`)
+   * tambem porque um claim atrasado (CAS em `pending`/`failed`/`awaiting_approval`) nao
+   * consegue sobrescreve-lo.
+   *
+   * @returns `true` se algum nivel gravou; `false` se nenhuma transicao foi persistida.
+   */
+  private async finalize(input: StepInput, result: StepOutput): Promise<boolean> {
     const db = this.supabase;
     const executionId = input.executionId;
     const budget = DOSSIER_CONFIG.finalizeBudgetMs;
     const until = this.clock() + budget;
     const left = (share: number) => Math.max(0, Math.min(budget * share, until - this.clock()));
 
+    const completedAt = new Date().toISOString();
+    const write = async (label: string, update: Record<string, unknown>, share: number) => {
+      const outcome = await settleWithin(
+        () => this.persistStepUpdate(db, executionId, label, update),
+        left(share)
+      );
+      return outcome.ok && outcome.value;
+    };
+
+    const data = result.data as unknown as ResearchAccountsOutput;
+    const persisted =
+      (await write(
+        "checkpoint",
+        { output: result.data, status: "completed", completed_at: completedAt, cost: result.cost ?? null },
+        0.3
+      )) ||
+      // Fallback minimo: sem a lista de contas (o que mais pesa).
+      (await write(
+        "checkpoint minimo",
+        {
+          output: { ...data, accounts: [], flags: { ...data.flags, persistFailed: true } },
+          status: "completed",
+          completed_at: completedAt,
+          cost: result.cost ?? null,
+        },
+        0.25
+      )) ||
+      // Ultimo recurso: so o status. E o que o auto-trigger precisa.
+      (await write("conclusao (so status)", { status: "completed", completed_at: completedAt }, 0.2));
+
+    if (!persisted) {
+      console.error(
+        `[ResearchAccountsStep] NAO consegui gravar a conclusao do step ${this.stepNumber} (execution=${executionId}) em nenhum dos 3 niveis; o step devolve STEP_PERSISTENCE_ERROR (mesmo contrato dos outros steps).`
+      );
+      return false;
+    }
+
+    // Resumo depois da transicao: sem conclusao gravada, nao se anuncia "concluida".
     if (!this.summarySent) {
       await this.sendMessage(
         executionId,
         ResearchAccountsStep.summaryText(result.data as unknown as ResearchAccountsOutput),
         "text",
-        left(0.2)
+        left(0.15)
       );
-    }
-
-    const completedAt = new Date().toISOString();
-    const full = await settleWithin(
-      () =>
-        this.persistStepUpdate(db, executionId, "checkpoint", {
-          output: result.data,
-          status: "completed",
-          completed_at: completedAt,
-          cost: result.cost ?? null,
-        }),
-      left(0.4)
-    );
-    if (!(full.ok && full.value)) {
-      // Fallback minimo: sem a lista de contas (o que mais pesa), so o status. E o que o
-      // auto-trigger precisa para disparar o `create_campaign`.
-      const data = result.data as unknown as ResearchAccountsOutput;
-      const minimal = await settleWithin(
-        () =>
-          this.persistStepUpdate(db, executionId, "checkpoint minimo", {
-            output: { ...data, accounts: [], flags: { ...data.flags, persistFailed: true } },
-            status: "completed",
-            completed_at: completedAt,
-            cost: result.cost ?? null,
-          }),
-        left(0.3)
-      );
-      if (!(minimal.ok && minimal.value)) {
-        console.error(
-          `[ResearchAccountsStep] NAO consegui gravar a conclusao do step ${this.stepNumber} (execution=${executionId}). Nada e lancado: se ele ficar running, o sweeper o libera e o auto-trigger segue para o create_campaign.`
-        );
-      }
     }
 
     const logged = await settleWithin(() => this.logStep(db, executionId, input, result), left(0.1));
@@ -378,6 +425,7 @@ export class ResearchAccountsStep extends BaseStep {
         logged.timedOut ? "tempo esgotado" : errorMessage(logged.error)
       );
     }
+    return true;
   }
 
   private remainingToDeadline(): number {
@@ -498,6 +546,8 @@ export class ResearchAccountsStep extends BaseStep {
         techDate: isoDate(nowDate),
         tregUsd: 0,
         tregCalls: 0,
+        tregEstimatedCalls: 0,
+        tregEstimatedUsd: 0,
         apifyCalls: 0,
         openaiRelevanceCalls: 0,
         leadsLinked: 0,
@@ -900,7 +950,12 @@ export class ResearchAccountsStep extends BaseStep {
 
   /**
    * Uma chamada ao Treg: reserva o teto da chamada, chama com os headers obrigatorios,
-   * acerta o custo real e loga 1 linha em `api_usage_logs`. Nunca lanca.
+   * acerta o custo e loga 1 linha em `api_usage_logs` (`treg`). Nunca lanca.
+   *
+   * TODA chamada iniciada entra em `tregCalls`/`tregUsd` e no log, inclusive a que nao
+   * respondeu (timeout do servico, timeout do prazo do step, rede, excecao). Sem resposta
+   * o custo real e desconhecido (o Treg pode ter cobrado): conta-se o TETO reservado da
+   * chamada, a reserva fica consumida (nao e liberada) e o log marca `costEstimated`.
    */
   private async callTreg(
     state: RunState,
@@ -920,7 +975,9 @@ export class ResearchAccountsStep extends BaseStep {
       return { ok: false, reason: "budget" };
     }
 
-    let costUsd = 0;
+    // Conservador ate prova em contrario: se algo escapar, o teto da chamada fica gasto.
+    let costUsd: number = reserve;
+    const startedAt = this.clock();
     try {
       const call = await settleWithin(
         () =>
@@ -933,20 +990,30 @@ export class ResearchAccountsStep extends BaseStep {
         // O timeout do proprio TregService e a 1a linha; esta e a garantia do prazo.
         Math.min(DOSSIER_CONFIG.callTimeoutMs, remaining) + 1_000
       );
+
+      const result = call.ok ? call.value : null;
+      let failureMessage: string | undefined;
       if (!call.ok) {
         if (call.timedOut) {
-          // Sem resposta: o custo real e desconhecido; o teto da chamada fica gasto.
-          costUsd = reserve;
           state.flags.timeBudgetExhausted = true;
-          console.error(`[ResearchAccountsStep] Chamada ${endpoint} sem resposta antes do prazo`);
-          return { ok: false, reason: "timeout" };
+          failureMessage = "sem resposta antes do prazo do step";
+        } else {
+          failureMessage = errorMessage(call.error);
         }
-        throw call.error;
+        console.error(`[ResearchAccountsStep] Chamada ${endpoint} sem resposta:`, failureMessage);
+      } else if (result && !result.ok) {
+        failureMessage = result.error;
       }
-      const result = call.value;
-      costUsd = Math.max(0, result.costMicro) / 1_000_000;
+
+      // Status 0 = sem resposta HTTP (timeout/rede): custo desconhecido, mesmo sem a marca.
+      const costEstimated = !result || result.costUnknown === true || result.status === 0;
+      costUsd = costEstimated ? reserve : Math.max(0, result.costMicro) / 1_000_000;
       state.tregCalls++;
       state.tregUsd += costUsd;
+      if (costEstimated) {
+        state.tregEstimatedCalls++;
+        state.tregEstimatedUsd += costUsd;
+      }
       if (cost) cost.usd += costUsd;
 
       await this.logUsage({
@@ -955,19 +1022,23 @@ export class ResearchAccountsStep extends BaseStep {
         stepType: "research_accounts",
         serviceName: "treg",
         requestType: endpoint,
-        status: result.ok ? "success" : "failed",
+        status: result?.ok ? "success" : "failed",
         calls: 1,
-        durationMs: result.durationMs,
-        errorMessage: result.ok ? undefined : result.error,
+        durationMs: result?.durationMs ?? Math.max(0, this.clock() - startedAt),
+        errorMessage: result?.ok ? undefined : failureMessage,
         metadata: {
           costUsd,
-          costMicro: result.costMicro,
-          httpStatus: result.status,
+          costMicro: costEstimated ? null : result.costMicro,
+          // Sem resposta: custo DESCONHECIDO, contabilizado pelo teto reservado.
+          costEstimated,
+          ...(costEstimated ? { costBasis: "reserved_cap", reservedUsd: reserve } : {}),
+          httpStatus: result?.status ?? 0,
           source,
         },
       });
 
-      if (result.ok) return { ok: true, json: result.json };
+      if (result?.ok) return { ok: true, json: result.json };
+      if (!result) return { ok: false, reason: call.ok || !call.timedOut ? "error" : "timeout" };
       const reason: DossierFailureReason =
         result.status === 0 ? (result.error?.startsWith("timeout") ? "timeout" : "error") : "http";
       return { ok: false, reason };
@@ -1169,6 +1240,9 @@ export class ResearchAccountsStep extends BaseStep {
       cost: {
         treg_usd: Number((state?.tregUsd ?? 0).toFixed(6)),
         treg_calls: state?.tregCalls ?? 0,
+        // Parte de `treg_usd` estimada pelo teto (chamadas sem resposta, custo desconhecido).
+        treg_usd_estimated: Number((state?.tregEstimatedUsd ?? 0).toFixed(6)),
+        treg_calls_estimated: state?.tregEstimatedCalls ?? 0,
         apify: state?.apifyCalls ?? 0,
         openai_relevance: state?.openaiRelevanceCalls ?? 0,
       },

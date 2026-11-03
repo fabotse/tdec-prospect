@@ -6,14 +6,19 @@
  *
  * Prova:
  * - falha de persistencia do proprio step (claim, checkpoint, log) nao lanca, nao grava
- *   `paused` e o `create_campaign` roda em seguida;
+ *   `paused` e o `create_campaign` roda em seguida, desde que ALGUMA conclusao grave;
+ * - (2a revisao Codex) nenhuma conclusao gravada nunca vira sucesso silencioso com a
+ *   linha `pending`/`running`: STEP_PERSISTENCE_ERROR, como nos outros steps;
+ * - a continuidade e provada pelo disparo REAL: `useAutoTrigger` renderizado sobre as
+ *   linhas do banco, com o `POST .../execute` indo para o `orchestrator.executeStep`;
  * - operacoes que NUNCA resolvem (banco, Treg, log, mensagens) nao seguram o step: ele
  *   devolve o controle antes de 256 s (rota: 300 s) e o `create_campaign` roda.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
+import { renderHook } from "@testing-library/react";
 import { createChainBuilder } from "../../../helpers/mock-supabase";
-import type { ParsedBriefing } from "@/types/agent";
+import type { AgentStep, ExecutionMode, ParsedBriefing } from "@/types/agent";
 
 // ==============================================
 // MOCKS (nada sai do processo)
@@ -64,6 +69,7 @@ vi.mock("@/lib/agent/steps/create-campaign-step", () => ({
 }));
 
 import { DeterministicOrchestrator } from "@/lib/agent/orchestrator";
+import { useAutoTrigger } from "@/hooks/use-auto-trigger";
 
 // ==============================================
 // FAKE SUPABASE
@@ -76,6 +82,11 @@ type Mode = "ok" | "error" | "hang";
 interface FakeOptions {
   /** Updates em `agent_steps` (claim, checkpoint, fallback). */
   stepWrites?: Mode;
+  /**
+   * Modo POR escrita em `agent_steps` (sobrepoe `stepWrites`): permite falhar so o claim,
+   * so os checkpoints com output etc.
+   */
+  stepWriteMode?: (payload: Record<string, unknown>) => Mode | undefined;
   /** Inserts em `agent_messages`. */
   messages?: Mode;
   /** `account_dossiers` e afins. */
@@ -130,7 +141,7 @@ function createFakeDb(options: FakeOptions = {}) {
       const matched = rows.filter((r) => filters.every((f) => f(r)));
       if (write) {
         stepWrites.push(write);
-        const mode = options.stepWrites ?? "ok";
+        const mode = options.stepWriteMode?.(write) ?? options.stepWrites ?? "ok";
         if (mode === "ok") {
           for (const r of matched) Object.assign(r, write);
           return Promise.resolve({ data: matched.map((r) => ({ step_number: r.step_number })), error: null }).then(resolve, reject);
@@ -179,6 +190,56 @@ function tregOk(endpoint: string) {
 const wasPaused = (db: ReturnType<typeof createFakeDb>) =>
   db.executionUpdates.some((u) => u.status === "paused");
 
+/** Linhas do fake -> `AgentStep` (o que o Realtime entrega ao hook). */
+function toAgentSteps(rows: ReturnType<typeof createFakeDb>["rows"]): AgentStep[] {
+  return rows.map((r) => ({
+    id: `step-${r.step_number}`,
+    execution_id: r.execution_id,
+    step_number: r.step_number,
+    step_type: r.step_type,
+    status: r.status,
+    input: null,
+    output: r.output,
+    cost: null,
+    error_message: null,
+    started_at: null,
+    completed_at: null,
+    created_at: "2026-11-03T12:00:00Z",
+  })) as unknown as AgentStep[];
+}
+
+/**
+ * Disparo automatico REAL: renderiza o `useAutoTrigger` com as linhas atuais do banco; o
+ * `POST .../steps/N/execute` que ele faz vai para o `orchestrator.executeStep` (o que a
+ * rota chama). Devolve os steps que o hook disparou, ja executados.
+ */
+async function autoTrigger(
+  db: ReturnType<typeof createFakeDb>,
+  orchestrator: DeterministicOrchestrator,
+  mode: ExecutionMode
+): Promise<number[]> {
+  const dispatched: number[] = [];
+  const runs: Promise<unknown>[] = [];
+  const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+    const match = /\/executions\/([^/]+)\/steps\/(\d+)\/execute$/.exec(String(url));
+    if (!match) throw new Error(`fetch inesperado: ${String(url)}`);
+    const stepNumber = Number(match[2]);
+    dispatched.push(stepNumber);
+    const run = orchestrator.executeStep(match[1], stepNumber);
+    runs.push(run.catch(() => undefined));
+    await run;
+    return new Response(JSON.stringify({ success: true }), { status: 200 });
+  });
+  try {
+    const hook = renderHook(() => useAutoTrigger({ executionId: "exec-1", steps: toAgentSteps(db.rows), mode }));
+    await Promise.all(runs);
+    hook.unmount();
+  } finally {
+    fetchSpy.mockRestore();
+  }
+  return dispatched;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockReadServiceApiKey.mockResolvedValue({ status: "ok", apiKey: "treg-key" });
@@ -196,23 +257,24 @@ afterEach(() => {
 // ==============================================
 
 describe("research_accounts no pipeline — fail-open do ciclo inteiro (revisao Codex #2)", () => {
-  it("todas as gravacoes do agent_steps falham: executeStep resolve, nada e pausado e o create_campaign roda", async () => {
+  it("todas as gravacoes do agent_steps falham: STEP_PERSISTENCE_ERROR, execucao pausada com aviso (nunca pending silencioso)", async () => {
     vi.useFakeTimers();
     const db = createFakeDb({ stepWrites: "error" });
     const orchestrator = new DeterministicOrchestrator(db.client, "api-key");
 
     const research = orchestrator.executeStep("exec-1", 3);
-    await vi.advanceTimersByTimeAsync(30_000); // retries curtos do checkpoint
-    const result = await research;
+    const settled = research.catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(30_000); // retries curtos dos 3 niveis
 
-    expect(result.success).toBe(true);
-    expect(wasPaused(db)).toBe(false);
-    // Tentou o checkpoint completo e o fallback minimo.
-    expect(db.stepWrites.filter((w) => w.status === "completed").length).toBeGreaterThanOrEqual(2);
-
-    await orchestrator.executeStep("exec-1", 4);
-    expect(mockCreateCampaignRun).toHaveBeenCalledTimes(1);
-    expect(mockCreateCampaignRun.mock.calls[0][0].previousStepOutput.leads).toEqual([LEAD]);
+    // 2a revisao Codex #1: antes devolvia sucesso com a linha `pending` para sempre.
+    expect(await settled).toMatchObject({ code: "STEP_PERSISTENCE_ERROR", isRetryable: true, reportedInChat: true });
+    expect(wasPaused(db)).toBe(true);
+    // Tentou os 3 niveis da conclusao (completo, minimo, so status).
+    const completions = db.stepWrites.filter((w) => w.status === "completed");
+    expect(completions.length).toBeGreaterThanOrEqual(3);
+    expect(completions.some((w) => !("output" in w))).toBe(true);
+    // Nao anunciou "concluida" sem conclusao gravada.
+    expect(mockCreateCampaignRun).not.toHaveBeenCalled();
   });
 
   it("claim running lanca excecao (rede): a pesquisa segue e termina completed, sem STEP_PERSISTENCE_ERROR", async () => {
@@ -256,9 +318,9 @@ describe("research_accounts no pipeline — fail-open do ciclo inteiro (revisao 
 });
 
 describe("research_accounts no pipeline — prazo duro efetivo (revisao Codex #3)", () => {
-  it("banco, Treg, log de uso e mensagens que NUNCA resolvem: o step termina antes de 256 s e o create_campaign roda", async () => {
+  it("Treg, log de uso, mensagens e dossies que NUNCA resolvem: o step termina antes de 256 s e o create_campaign dispara sozinho", async () => {
     vi.useFakeTimers();
-    const db = createFakeDb({ stepWrites: "hang", messages: "hang", dossiers: "hang" });
+    const db = createFakeDb({ messages: "hang", dossiers: "hang" });
     mockTregCall.mockReturnValue(NEVER);
     mockLogAgentUsage.mockReturnValue(NEVER);
     const orchestrator = new DeterministicOrchestrator(db.client, "api-key");
@@ -282,8 +344,29 @@ describe("research_accounts no pipeline — prazo duro efetivo (revisao Codex #3
     expect((result.data as { flags: Record<string, boolean> }).flags.timeBudgetExhausted).toBe(true);
     expect(wasPaused(db)).toBe(false);
 
-    await orchestrator.executeStep("exec-1", 4);
+    const dispatched = await autoTrigger(db, orchestrator, "autopilot");
+    expect(dispatched).toEqual([4]);
     expect(mockCreateCampaignRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("gravacoes do agent_steps que NUNCA resolvem: devolve o controle antes de 256 s com STEP_PERSISTENCE_ERROR", async () => {
+    vi.useFakeTimers();
+    // Mensagens respondem: a bolha de erro do orchestrator (pauseWithError) e dele, nao do step.
+    const db = createFakeDb({ stepWrites: "hang", dossiers: "hang" });
+    mockTregCall.mockReturnValue(NEVER);
+    mockLogAgentUsage.mockReturnValue(NEVER);
+
+    let settledAt: number | null = null;
+    const startedAt = Date.now();
+    const research = new DeterministicOrchestrator(db.client, "api-key").executeStep("exec-1", 3).catch((e: unknown) => {
+      settledAt = Date.now() - startedAt;
+      return e;
+    });
+
+    await vi.advanceTimersByTimeAsync(256_000);
+    expect(settledAt).not.toBeNull();
+    expect(settledAt!).toBeLessThanOrEqual(256_000);
+    expect(await research).toMatchObject({ code: "STEP_PERSISTENCE_ERROR" });
   });
 
   it("leitura da chave do Treg que nunca resolve: o step termina e segue", async () => {
@@ -299,5 +382,81 @@ describe("research_accounts no pipeline — prazo duro efetivo (revisao Codex #3
     expect(mockTregCall).not.toHaveBeenCalled();
     expect(db.rows[2].status).toBe("completed");
     expect(wasPaused(db)).toBe(false);
+  });
+});
+
+describe("research_accounts no pipeline — continuidade sem pending/running (2a revisao Codex #1)", () => {
+  it.each<ExecutionMode>(["guided", "autopilot"])(
+    "%s: claim e os dois checkpoints com output falham, o 'so status' grava: completed e o auto-trigger dispara o create_campaign",
+    async (mode) => {
+      vi.useFakeTimers();
+      const db = createFakeDb({
+        stepWriteMode: (w) => (w.status === "running" || "output" in w ? "error" : undefined),
+      });
+      const orchestrator = new DeterministicOrchestrator(db.client, "api-key");
+
+      const research = orchestrator.executeStep("exec-1", 3);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect((await research).success).toBe(true);
+      expect(wasPaused(db)).toBe(false);
+      // O claim falhou (linha ficaria `pending`), mas a conclusao "so status" gravou sem filtro de status.
+      expect(db.rows[2].status).toBe("completed");
+      expect(mockCreateCampaignRun).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+      const dispatched = await autoTrigger(db, orchestrator, mode);
+
+      expect(dispatched).toEqual([4]);
+      expect(mockCreateCampaignRun).toHaveBeenCalledTimes(1);
+      expect(mockCreateCampaignRun.mock.calls[0][0].previousStepOutput.leads).toEqual([LEAD]);
+    }
+  );
+
+  it.each<ExecutionMode>(["guided", "autopilot"])(
+    "%s: claim grava running e os checkpoints com output falham: nao fica running, o auto-trigger segue",
+    async (mode) => {
+      vi.useFakeTimers();
+      const db = createFakeDb({ stepWriteMode: (w) => ("output" in w ? "error" : undefined) });
+      const orchestrator = new DeterministicOrchestrator(db.client, "api-key");
+
+      const research = orchestrator.executeStep("exec-1", 3);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await research;
+      expect(db.rows[2].status).toBe("completed");
+
+      vi.useRealTimers();
+      expect(await autoTrigger(db, orchestrator, mode)).toEqual([4]);
+      expect(mockCreateCampaignRun).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it("caminho feliz: research completed e o auto-trigger (guiado) dispara o create_campaign", async () => {
+    const db = createFakeDb();
+    const orchestrator = new DeterministicOrchestrator(db.client, "api-key");
+    await orchestrator.executeStep("exec-1", 3);
+    expect(db.rows[2].status).toBe("completed");
+
+    expect(await autoTrigger(db, orchestrator, "guided")).toEqual([4]);
+    expect(mockCreateCampaignRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("banco do agent_steps totalmente fora: nenhum step avanca (limitacao igual a dos outros steps), mas nao e silencioso", async () => {
+    vi.useFakeTimers();
+    const db = createFakeDb({ stepWrites: "error" });
+    const orchestrator = new DeterministicOrchestrator(db.client, "api-key");
+
+    const research = orchestrator.executeStep("exec-1", 3).catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(await research).toMatchObject({ code: "STEP_PERSISTENCE_ERROR", reportedInChat: true });
+    // Pausa + bolha de erro: o usuario ve o problema e tem o "Tentar novamente".
+    expect(wasPaused(db)).toBe(true);
+
+    vi.useRealTimers();
+    // A linha ficou `pending` (nada gravou): o hook nao dispara o create_campaign, igual a
+    // um step existente que nao consegue gravar o checkpoint. O caminho e o "Tentar
+    // novamente" do aviso, que reexecuta o research.
+    expect(db.rows[2].status).toBe("pending");
+    expect(await autoTrigger(db, orchestrator, "guided")).toEqual([]);
+    expect(mockCreateCampaignRun).not.toHaveBeenCalled();
   });
 });

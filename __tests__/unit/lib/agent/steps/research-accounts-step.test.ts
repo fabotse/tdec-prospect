@@ -323,7 +323,14 @@ describe("ResearchAccountsStep — feliz", () => {
     // 2 buscas de site + 3 chamadas por conta = 8; custo = soma dos X-Treg-Cost-Micro.
     expect(treg.call).toHaveBeenCalledTimes(8);
     const expectedUsd = (2 * 150 + 2 * 300 + 4 * 7000) / 1_000_000;
-    expect(result.cost).toEqual({ treg_usd: expectedUsd, treg_calls: 8, apify: 0, openai_relevance: 0 });
+    expect(result.cost).toEqual({
+      treg_usd: expectedUsd,
+      treg_calls: 8,
+      treg_usd_estimated: 0,
+      treg_calls_estimated: 0,
+      apify: 0,
+      openai_relevance: 0,
+    });
     expect(output.costUsd).toBeCloseTo(expectedUsd, 6);
 
     // Dossie grava o custo da conta (busca de site + 3 fontes).
@@ -463,7 +470,14 @@ describe("ResearchAccountsStep — sem chave", () => {
     expect(db.insertsTo("account_dossiers")).toHaveLength(0);
     expect(messages(db).some((m) => m.startsWith("Pesquisa das contas pulada"))).toBe(true);
     expect(checkpoint(db)).toMatchObject({ status: "completed" });
-    expect(result.cost).toEqual({ treg_usd: 0, treg_calls: 0, apify: 0, openai_relevance: 0 });
+    expect(result.cost).toEqual({
+      treg_usd: 0,
+      treg_calls: 0,
+      treg_usd_estimated: 0,
+      treg_calls_estimated: 0,
+      apify: 0,
+      openai_relevance: 0,
+    });
   });
 });
 
@@ -910,6 +924,87 @@ describe("ResearchAccountsStep — correcoes do review", () => {
       // Banco X (depois): site, noticias e vagas no teto do Treg, intacto.
       expect(output.accounts[1]).toMatchObject({ domain: "bancox.com.br", status: "complete", failedSources: [] });
       expect(treg.call).toHaveBeenCalledTimes(6);
+    });
+  });
+});
+
+describe("ResearchAccountsStep — custo de chamada sem resposta (2a revisao Codex #2)", () => {
+  const BANCO_X = { targetAccounts: [{ name: "Banco X", domain: "bancox.com.br", confidence: "high" as const }] };
+  const tregLogs = () => mockLogAgentUsage.mock.calls.map((c) => c[0]).filter((p) => p.serviceName === "treg");
+
+  it("timeout do TregService (costUnknown): conta o teto da chamada, sem liberar a reserva, e loga como estimado", async () => {
+    const treg = createTreg((endpoint, body) =>
+      endpoint === "treg.web.extract"
+        ? { ok: false, status: 0, json: null, costMicro: 0, costUnknown: true, durationMs: 60_000, error: "timeout (60000 ms)" }
+        : defaultTreg(endpoint, body)
+    );
+    const result = await createStep(createDb(), treg).run(createInput(BANCO_X, THREE_LEADS.slice(0, 2)));
+
+    // site (timeout, teto 0,01) + noticias e vagas (0,007 cada)
+    expect(treg.call).toHaveBeenCalledTimes(3);
+    expect(result.cost!.treg_calls).toBe(3);
+    expect(result.cost!.treg_usd).toBeCloseTo(0.024, 9);
+    expect(result.cost!.treg_calls_estimated).toBe(1);
+    expect(result.cost!.treg_usd_estimated).toBeCloseTo(0.01, 9);
+    // O teto da execucao tambem conta o teto da chamada (reserva consumida, nao liberada).
+    expect(outputOf(result).costUsd).toBeCloseTo(0.024, 9);
+
+    const logs = tregLogs();
+    expect(logs).toHaveLength(3);
+    const timeoutLog = logs.find((l) => l.requestType === "treg.web.extract")!;
+    expect(timeoutLog).toMatchObject({
+      status: "failed",
+      calls: 1,
+      metadata: { costUsd: 0.01, costMicro: null, costEstimated: true, costBasis: "reserved_cap", reservedUsd: 0.01, httpStatus: 0 },
+    });
+    for (const log of logs.filter((l) => l !== timeoutLog)) {
+      expect(log.metadata).toMatchObject({ costEstimated: false, costMicro: 7000 });
+    }
+  });
+
+  it("timeout externo (settleWithin, chamada que nunca volta): entra em tregCalls/tregUsd e em api_usage_logs", async () => {
+    vi.useFakeTimers();
+    try {
+      const treg = createTreg((endpoint, body) =>
+        endpoint === "treg.web.extract" ? (new Promise<never>(() => {}) as never) : defaultTreg(endpoint, body)
+      );
+      let settled = false;
+      const running = createStep(createDb(), treg)
+        .run(createInput(BANCO_X, THREE_LEADS.slice(0, 2)))
+        .finally(() => {
+          settled = true;
+        });
+      for (let i = 0; i < 20 && !settled; i++) await vi.advanceTimersByTimeAsync(10_000);
+      const result = await running;
+
+      expect(result.cost!.treg_calls).toBe(3);
+      expect(result.cost!.treg_usd).toBeCloseTo(0.024, 9);
+      expect(result.cost!.treg_calls_estimated).toBe(1);
+      expect(outputOf(result).costUsd).toBeCloseTo(0.024, 9);
+      expect(outputOf(result).flags.timeBudgetExhausted).toBe(true);
+
+      const timeoutLog = tregLogs().find((l) => l.requestType === "treg.web.extract");
+      expect(timeoutLog).toMatchObject({
+        status: "failed",
+        errorMessage: "sem resposta antes do prazo do step",
+        metadata: { costUsd: 0.01, costEstimated: true, costBasis: "reserved_cap", httpStatus: 0 },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("excecao do servico tambem e registrada (custo desconhecido -> teto)", async () => {
+    const treg = createTreg((endpoint, body) => {
+      if (endpoint === "treg.web.extract") throw new Error("boom");
+      return defaultTreg(endpoint, body);
+    });
+    const result = await createStep(createDb(), treg).run(createInput(BANCO_X, THREE_LEADS.slice(0, 2)));
+    expect(result.cost!.treg_calls).toBe(3);
+    expect(tregLogs().find((l) => l.requestType === "treg.web.extract")).toMatchObject({
+      status: "failed",
+      errorMessage: "boom",
+      metadata: { costEstimated: true, costUsd: 0.01 },
     });
   });
 });

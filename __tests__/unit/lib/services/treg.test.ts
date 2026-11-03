@@ -97,14 +97,15 @@ describe("TregService", () => {
       timeoutError.name = "TimeoutError";
       fetchMock.mockRejectedValue(timeoutError);
       const result = await new TregService().call("tok", TREG_ENDPOINTS.webExtract, { url: "https://x.com" }, OPTIONS);
-      expect(result).toMatchObject({ ok: false, status: 0, costMicro: 0 });
+      // 2a revisao Codex: o 0 NAO e custo real — o chamador ve `costUnknown`.
+      expect(result).toMatchObject({ ok: false, status: 0, costMicro: 0, costUnknown: true });
       expect(result.error).toMatch(/^timeout/);
     });
 
     it("erro de rede vira ok=false, status 0", async () => {
       fetchMock.mockRejectedValue(new TypeError("fetch failed"));
       const result = await new TregService().call("tok", TREG_ENDPOINTS.webExtract, { url: "https://x.com" }, OPTIONS);
-      expect(result).toMatchObject({ ok: false, status: 0, error: "erro de rede" });
+      expect(result).toMatchObject({ ok: false, status: 0, error: "erro de rede", costUnknown: true });
     });
 
     it("corpo nao-JSON nao lanca", async () => {

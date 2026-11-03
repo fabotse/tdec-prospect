@@ -215,6 +215,36 @@ Pedido do Fabossi, sem mudar a intenção da story. Quatro problemas reais:
 - `use-auto-trigger.test.ts`: research `failed` dispara o `create_campaign` (guiado e autopilot), e outro step `failed` não dispara.
 - `00073-account-dossiers.test.ts`: as listas do rollback (cabeçalho e spec) batem com a de produção. Também roda migration + rollback no PGlite e confere que `zapi` é aceito, `treg` é recusado e as tabelas somem. Esses testes falham com o cabeçalho anterior.
 
+### 2026-11-03 — Segunda revisão do Codex (sobre 12355e6)
+
+Dois problemas reais restantes, corrigidos sem mudar a intenção da story. `export-step.ts`, `activate-step.ts`, `create-campaign-step.ts` e `instantly.ts` continuam idênticos à 463405c.
+
+1. **(Alta) Continuidade sem `pending`/`running` silencioso.** Antes, se o claim e os dois checkpoints falhassem, o `run()` devolvia sucesso sem nenhuma transição gravada. A linha podia ficar `pending`, que o sweeper não trata, ou `running`, que bloqueia o `use-auto-trigger` até o sweeper agir (10 min). Agora:
+   - A conclusão é gravada em 3 níveis, cada um com o retry curto da base e **sem filtro de status** (vale para a linha `pending` de um claim que falhou e para a `running`):
+     1. checkpoint `completed` completo;
+     2. checkpoint mínimo, sem a lista de contas;
+     3. **só `status: completed` + `completed_at`**, sem output.
+   - Qualquer nível deixa a linha `completed`, que o auto-trigger trata como elegível nos dois modos e que um claim atrasado (CAS em `pending`/`failed`/`awaiting_approval`) não consegue sobrescrever.
+   - Se **nenhum** nível gravar, o step lança `STEP_PERSISTENCE_ERROR` (retryable), o mesmo contrato do `BaseStep.saveCheckpoint`. O orchestrator pausa a execução e escreve a bolha de erro com o "Tentar novamente". Nunca mais devolve sucesso com a linha parada.
+   - O resumo no chat vai **depois** da transição: sem conclusão gravada, o step não anuncia "concluída".
+   - Orçamento do fechamento (15 s): 0,3 / 0,25 / 0,2 para os níveis, 0,15 para o resumo e 0,1 para o log. O pior caso continua ≈ 256 s.
+2. **(Média) Custo de chamada do Treg sem resposta.**
+   - `TregService.call` marca `costUnknown: true` quando não há resposta HTTP (timeout ou rede). O `costMicro: 0` desse caso não é custo real.
+   - No `callTreg`, **toda chamada iniciada** entra em `tregCalls`/`tregUsd` e gera 1 linha `treg` em `api_usage_logs`. Isso inclui o timeout externo do `settleWithin`, a exceção do serviço e o status 0.
+   - Sem resposta, o custo conta pelo **teto reservado da chamada** (`maxCostUsdPerCall`), e a reserva fica consumida (`settle(reserve, reserve)`). O metadata do log leva `costEstimated: true`, `costBasis: "reserved_cap"`, `reservedUsd` e `costMicro: null`.
+   - O `cost` do step ganhou `treg_usd_estimated` e `treg_calls_estimated` (a parte estimada, já incluída em `treg_usd`). Como o custo da execução (`computeStepActualCost`) usa `treg_usd`, a estimativa entra no custo da execução, e `output.costUsd` também a inclui.
+
+**Testes novos/alterados:**
+- `research-accounts-pipeline.test.ts`: orchestrator real e **`useAutoTrigger` real** renderizado sobre as linhas do banco fake. O `POST .../execute` do hook vai para o `orchestrator.executeStep`, e o teste nunca chama o próximo step à mão.
+  - Claim e os checkpoints com output falham, só o nível "só status" grava: o research fica `completed` e o hook dispara o `create_campaign` (guiado e autopilot).
+  - O claim grava `running` e os checkpoints com output falham: a linha não fica `running` e o hook segue (guiado e autopilot).
+  - Caminho feliz com o hook no modo guiado.
+  - `agent_steps` totalmente fora: `STEP_PERSISTENCE_ERROR` com `reportedInChat`, execução pausada, linha `pending` e o hook não avança (limitação igual à dos outros steps).
+  - Gravações do `agent_steps` que nunca resolvem: devolve o controle em ≤ 256 s com `STEP_PERSISTENCE_ERROR`.
+  - O teste antigo "todas as gravações falham → sucesso" foi invertido, porque era exatamente o defeito apontado.
+- `research-accounts-step.test.ts`: os três caminhos sem resposta (timeout do serviço com `costUnknown`, timeout externo com fake timers e exceção) contam o teto, ficam no custo da execução e logam `treg` com `costEstimated`.
+- `treg.test.ts`: timeout e rede devolvem `costUnknown: true`.
+
 ## Review Triage Log
 
 ### 2026-11-03 — Review pass
@@ -303,7 +333,24 @@ Pedido do Fabossi, sem mudar a intenção da story. Quatro problemas reais:
    - O orchestrator ignora linhas `research_accounts` ao resolver o step anterior. Há teste de deep-equal do input do `create_campaign` e teste do fluxo importado.
    - O export e a ativação estão **idênticos à main (463405c)**: `git diff 463405c -- src/lib/agent/steps/export-step.ts src/lib/agent/steps/activate-step.ts` vazio, e os testes deles também. Nenhum I/O novo antes do Instantly.
    - O step novo nunca lança erro; todos os casos de falha estão testados.
-   - **Atenção:** o step novo fica no caminho até o Instantly, e por isso há o pedido de OK ao Fabossi em operator_actions. Depois da revisão do Codex, nem a falha ao gravar o próprio step pausa: o research tem ciclo de vida fail-open, termina em ≤ ~256 s mesmo com banco ou serviços pendurados, e o `create_campaign` é disparado em seguida (inclusive se o sweeper marcar o research como `failed`).
+   - **Atenção:** o step novo fica no caminho até o Instantly, e por isso há o pedido de OK ao Fabossi em operator_actions. Depois da revisão do Codex, a falha ao gravar o próprio step só pausa se **nenhuma** conclusão gravar (2ª revisão; ver abaixo). Fora isso: o research tem ciclo de vida fail-open, termina em ≤ ~256 s mesmo com banco ou serviços pendurados, e o `create_campaign` é disparado em seguida (inclusive se o sweeper marcar o research como `failed`).
+
+**Segunda revisão do Codex (continuidade e custo do Treg)**
+
+Tocados só `research-accounts-step.ts`, `treg.ts` e testes. Nenhuma rota, prompt, tabela, migration, job ou integração nova. Export, ativação, `create_campaign` e Instantly estão com diff vazia contra a 463405c.
+
+Os 3 pontos da Regra nº 1 foram verificados **por análise da diff + testes mockados**, sem smoke real:
+1. **Campanhas rodando, webhook e reply-sweep:** nada foi tocado.
+2. **Busca de leads:** nada foi tocado.
+3. **Criação, export e ativação:** nenhum arquivo do caminho até o Instantly mudou. A única mudança de comportamento no caminho é a do research: quando **nenhuma** conclusão grava, ele agora pausa com aviso em vez de devolver sucesso com a linha parada. Antes, nesse cenário, o pipeline também não chegava ao `create_campaign` (ficava travado em silêncio), então não há regressão para o cliente.
+
+**Limitação documentada (igual à dos steps existentes):** com o `agent_steps` totalmente indisponível, nenhum step consegue avançar.
+- O research lança `STEP_PERSISTENCE_ERROR`, como faria o `BaseStep` de qualquer outro step. A execução é pausada com a bolha de erro, se o banco aceitar essa escrita, e o "Tentar novamente" reexecuta o research.
+- Se a resposta da rota se perder, o `executeStepChecked` mostra o aviso de falha de disparo.
+- Se o claim tiver gravado `running` e nada depois gravar, o sweeper (10 min) marca `failed`, e o auto-trigger segue para o `create_campaign` porque o research `failed` é elegível.
+- Ressalva: se a pausa também falhar e as mensagens pendurarem, o `pauseWithError` do orchestrator (código existente, não alterado) pode segurar a rota até o limite da plataforma, igual aos outros steps.
+
+**Custo conservador do Treg:** uma chamada sem resposta conta US$ 0,01 (o teto da chamada) mesmo que o Treg não tenha cobrado. Isso superestima um pouco o custo e pode fazer o teto da execução (US$ 0,50) ser atingido antes, quando há muitos timeouts. Foi uma escolha intencional, para nunca subcontar.
 
 **Rollback da 00073:**
 ```sql
