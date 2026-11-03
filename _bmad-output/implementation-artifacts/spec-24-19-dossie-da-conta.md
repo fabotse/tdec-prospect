@@ -15,7 +15,7 @@ deferred:
   - summary: >-
       Numeração "Etapa N/M" inconsistente entre steps (search_leads/create_campaign contam só os não pulados; export/activate usam stepNumber/total_steps).
     evidence: |-
-      Já existia antes da 24.19 (export/activate usavam stepNumber/5 enquanto create_campaign contava os steps ativos). No fluxo de entrada direta o chat pode mostrar "Etapa 3/5" e depois "Etapa 5/6".
+      Já existia antes da 24.19 (export/activate usavam stepNumber/5 enquanto create_campaign contava os steps ativos). Depois da revisão do Codex, export/activate voltaram a ser idênticos à main e mostram "Etapa 5/5" e "Etapa 6/5" com o research ligado. É só texto de progresso; corrigir exige tocar no caminho do Instantly e fica para uma story própria.
     location: >-
       src/lib/agent/steps/export-step.ts:130, src/lib/agent/steps/activate-step.ts:161, src/lib/agent/steps/create-campaign-step.ts:197
     severity: low
@@ -178,7 +178,7 @@ operator_actions:
   - custo real `treg_usd×treg + apify×apify + openai_relevance×openai`;
   - estimativa `min(leads×0,02, teto)×treg` + (premium ? `leads×apify + leads×10×openai` : 0).
 - `src/components/agent/AgentExecutionPlan.tsx` -- ícone do step.
-- `src/lib/agent/steps/export-step.ts`, `activate-step.ts` -- trocar só o texto `/5` pelo total real (`agent_executions.total_steps`, fallback 5, sem lançar). Nenhuma outra linha desses arquivos muda.
+- ~~`src/lib/agent/steps/export-step.ts`, `activate-step.ts` -- trocar só o texto `/5` pelo total real.~~ Revogado na revisão do Codex (ver Spec Change Log): esses dois arquivos ficam **idênticos à main (463405c)**; o texto continua "Etapa N/5".
 - Testes:
   - `__tests__/unit/lib/agent/steps/research-accounts-step.test.ts`: todos os casos da matriz, mais o idempotency key estável e o log `treg` por chamada;
   - `__tests__/unit/lib/agent/dossier/*.test.ts`: fatos, domínio, budget e repository;
@@ -188,11 +188,32 @@ operator_actions:
   - atualizar os testes que assumem 5 steps.
 
 **Acceptance Criteria:**
-- Given leads aprovados no gate (guiado ou autopilot), when o step 3 termina, then o `create_campaign` dispara sozinho e recebe os mesmos leads de hoje. O `export-step` e o `instantly.ts` continuam montando o mesmo payload: a diff desses dois arquivos se limita ao texto "Etapa N/M" e os testes existentes passam sem alteração de expectativa de payload.
+- Given leads aprovados no gate (guiado ou autopilot), when o step 3 termina, then o `create_campaign` dispara sozinho e recebe os mesmos leads de hoje. O `export-step`, o `activate-step` e o `instantly.ts` ficam idênticos à main (diff vazia) e os testes existentes passam sem alteração de expectativa de payload.
 - Given um dossiê gravado, when consultado por tenant e domínio, then cada fato tem `fonte_url`, `data` e `confianca`, e os leads da execução estão em `account_dossier_leads`.
 - Given Configurações → Integrações, when aberta, then aparece o card Treg, com salvar e testar pelos fluxos existentes.
 
 ## Spec Change Log
+
+### 2026-11-03 — Correções da revisão independente (Codex)
+
+Pedido do Fabossi, sem mudar a intenção da story. Quatro problemas reais:
+
+1. **Export e ativação idênticos à main.** O `readTotalSteps` fazia uma leitura extra de `agent_executions`, aguardada e sem timeout, ANTES das chamadas ao Instantly. Foi removido: `src/lib/agent/steps/export-step.ts` e `src/lib/agent/steps/activate-step.ts` voltaram byte a byte para a 463405c (`git diff 463405c -- <arquivos>` vazio), assim como os testes deles. `step-progress.ts` e o teste dele foram apagados. O texto continua "Etapa N/5" (deferred atualizado). A task "trocar o texto /5" ficou revogada.
+2. **Fail-open no ciclo inteiro do step.** O `ResearchAccountsStep` tem `run()` próprio; os outros steps seguem com o `BaseStep.run` intacto (no `BaseStep` só mudou a visibilidade de `updateStepStatus`, `persistStepUpdate` e `logStep` de `private` para `protected`, sem mudança de comportamento). Falha ou demora ao gravar `running`, o checkpoint `completed` ou o log do step não lança, não vira `STEP_PERSISTENCE_ERROR` e não pausa o pipeline. Se o checkpoint completo falhar, tenta um checkpoint mínimo (`completed`, sem a lista de contas, `flags.persistFailed`). Só o `STEP_ALREADY_RUNNING` continua subindo (outro executor tem a posse e nada rodou). No cliente, `use-auto-trigger` também segue para o `create_campaign` se o research terminar `failed` (por exemplo, o sweeper liberando uma linha que não conseguiu gravar a conclusão), nos dois modos. Os outros steps `failed` continuam sem disparar nada.
+3. **Prazo duro efetivo.** Toda espera do step corre contra o prazo (`settleWithin`, um `Promise.race` com timeout): leitura de chaves e KB, leitura do `search_companies`, `findReusableDossier`, `saveDossier`, `insertFacts`, `linkLeads`, `findPostLeadIdentifiers`, `logAgentUsage`, `treg.call` (além do timeout do próprio serviço), Apify, `classifyPostRelevance` (timeout = post fora, `posts: timeout`) e as mensagens do chat. Há ainda um backstop no `executeInternal` inteiro. O fechamento (resumo, checkpoint, fallback e log) tem orçamento próprio `finalizeBudgetMs = 15 s`. `hardDeadlineMs` foi de 270 s para 240 s: pior caso do step ≈ 256 s, abaixo dos 300 s da rota.
+4. **Rollback da 00073.** O rollback do CHECK de `api_usage_logs` estava sem `zapi`. Agora o cabeçalho da migration e as Completion Notes restauram exatamente `apollo, signalhire, snovio, instantly, openai, apify, zapi, theirstack` nas duas tabelas. O SQL aplicado não mudou (a diff da migration é só a linha de comentário do rollback). O stub PGlite de `api_usage_logs` foi corrigido para a lista de produção.
+
+**Testes novos:**
+- `__tests__/unit/lib/agent/research-accounts-pipeline.test.ts`: orchestrator real com o step real e fakes, sem rede.
+  - Todas as gravações de `agent_steps` falham: `executeStep` resolve, nada é pausado e o `create_campaign` roda.
+  - O claim lança: o step termina `completed`.
+  - `STEP_ALREADY_RUNNING` continua subindo.
+  - Banco, Treg, log e mensagens que nunca resolvem (fake timers): o step termina em ≤ 256 s e o `create_campaign` roda.
+  - A chave do Treg nunca resolve: o step termina e segue.
+  - 4 desses 5 testes falham com o código anterior.
+- `research-accounts-step.test.ts`: o classificador nunca resolve (fake timers), o step termina no prazo, sem o post, e grava `completed`.
+- `use-auto-trigger.test.ts`: research `failed` dispara o `create_campaign` (guiado e autopilot), e outro step `failed` não dispara.
+- `00073-account-dossiers.test.ts`: as listas do rollback (cabeçalho e spec) batem com a de produção. Também roda migration + rollback no PGlite e confere que `zapi` é aceito, `treg` é recusado e as tabelas somem. Esses testes falham com o cabeçalho anterior.
 
 ## Review Triage Log
 
@@ -269,7 +290,7 @@ operator_actions:
 - **Pipeline do agente:** 6 etapas em vez de 5, com a nova etapa 3 "Pesquisa das Contas" (`research_accounts`) entre o gate de leads e o `create_campaign`.
 - **Configurações → Integrações:** card novo da Treg.
 - **Estimativa de custo:** linha nova da pesquisa.
-- **Texto "Etapa N/M"** no export e na ativação.
+- ~~**Texto "Etapa N/M"** no export e na ativação.~~ Revertido na revisão do Codex: export e ativação estão **idênticos à main (463405c)**.
 - **Tabelas novas** (migration 00073, não aplicada): `account_dossiers`, `account_dossier_facts`, `account_dossier_leads`, mais `treg` nos CHECKs de `api_configs` e `api_usage_logs`.
 - **Integração externa nova:** Treg (`treg.to`), chamada só pelo step novo.
 - **Não foram tocados:** jobs pg_cron, Edge Functions, secrets, env e prompts.
@@ -280,9 +301,9 @@ operator_actions:
 3. **Criação, export e ativação:**
    - `create-campaign-step.ts` e `instantly.ts` têm diff vazia.
    - O orchestrator ignora linhas `research_accounts` ao resolver o step anterior. Há teste de deep-equal do input do `create_campaign` e teste do fluxo importado.
-   - O export e a ativação só mudaram no texto de progresso, e os testes de payload passam sem alteração.
+   - O export e a ativação estão **idênticos à main (463405c)**: `git diff 463405c -- src/lib/agent/steps/export-step.ts src/lib/agent/steps/activate-step.ts` vazio, e os testes deles também. Nenhum I/O novo antes do Instantly.
    - O step novo nunca lança erro; todos os casos de falha estão testados.
-   - **Atenção:** o step novo fica no caminho até o Instantly, e por isso há o pedido de OK ao Fabossi em operator_actions. Se o próprio BaseStep falhar ao gravar o resultado, a execução pausa antes do `create_campaign` até "Tentar novamente", igual a qualquer step de hoje.
+   - **Atenção:** o step novo fica no caminho até o Instantly, e por isso há o pedido de OK ao Fabossi em operator_actions. Depois da revisão do Codex, nem a falha ao gravar o próprio step pausa: o research tem ciclo de vida fail-open, termina em ≤ ~256 s mesmo com banco ou serviços pendurados, e o `create_campaign` é disparado em seguida (inclusive se o sweeper marcar o research como `failed`).
 
 **Rollback da 00073:**
 ```sql
@@ -295,14 +316,14 @@ ALTER TABLE public.api_configs ADD CONSTRAINT api_configs_service_name_check
   CHECK (service_name IN ('apollo','signalhire','snovio','instantly','openai','apify','zapi','theirstack'));
 ALTER TABLE public.api_usage_logs DROP CONSTRAINT IF EXISTS api_usage_logs_service_name_check;
 ALTER TABLE public.api_usage_logs ADD CONSTRAINT api_usage_logs_service_name_check
-  CHECK (service_name IN ('apify','apollo','signalhire','snovio','instantly','openai','theirstack'));
+  CHECK (service_name IN ('apollo','signalhire','snovio','instantly','openai','apify','zapi','theirstack'));
 ```
 
 ## Auto Run Result
 
 Status: awaiting-operator
 
-**Resumo:** step determinístico e fail-open `research_accounts` que monta o dossiê de cada conta aprovada. As fontes são a Treg (`treg.web.search`/`treg.web.extract` + Exa com data e Brasil), as tecnologias do TheirStack e os posts da própria pessoa via Apify (só com o toggle de LinkedIn). Cada fato é gravado como `{fato, fonte_url, data, confianca}`, com reuso por 30 dias. O step tem teto de US$ 0,50 por execução, prazo de 180 s para começar trabalho novo e prazo duro de 270 s. Cada chamada à Treg vira uma linha em `api_usage_logs` como `treg`. A chave é lida por tenant de `api_configs`. A migration 00073 foi escrita e **não aplicada**.
+**Resumo:** step determinístico e fail-open `research_accounts` que monta o dossiê de cada conta aprovada. As fontes são a Treg (`treg.web.search`/`treg.web.extract` + Exa com data e Brasil), as tecnologias do TheirStack e os posts da própria pessoa via Apify (só com o toggle de LinkedIn). Cada fato é gravado como `{fato, fonte_url, data, confianca}`, com reuso por 30 dias. O step tem teto de US$ 0,50 por execução, prazo de 180 s para começar trabalho novo e prazo duro de 240 s (+15 s de fechamento; revisão do Codex). Cada chamada à Treg vira uma linha em `api_usage_logs` como `treg`. A chave é lida por tenant de `api_configs`. A migration 00073 foi escrita e **não aplicada**.
 
 **Arquivos alterados (48):**
 - __tests__/helpers/queue-supabase.ts
@@ -321,7 +342,7 @@ Status: awaiting-operator
 - __tests__/unit/lib/agent/steps/activate-step.test.ts
 - __tests__/unit/lib/agent/steps/export-step.test.ts
 - __tests__/unit/lib/agent/steps/research-accounts-step.test.ts
-- __tests__/unit/lib/agent/steps/step-progress.test.ts
+- ~~__tests__/unit/lib/agent/steps/step-progress.test.ts~~ (removido na revisão do Codex)
 - __tests__/unit/lib/services/agent-cost-estimator.test.ts
 - __tests__/unit/lib/services/agent-plan-generator.test.ts
 - __tests__/unit/lib/services/treg.test.ts
@@ -343,7 +364,7 @@ Status: awaiting-operator
 - src/lib/agent/steps/activate-step.ts
 - src/lib/agent/steps/export-step.ts
 - src/lib/agent/steps/research-accounts-step.ts
-- src/lib/agent/steps/step-progress.ts
+- ~~src/lib/agent/steps/step-progress.ts~~ (removido na revisão do Codex)
 - src/lib/agent/steps/step-utils.ts
 - src/lib/services/agent-cost-estimator.ts
 - src/lib/services/agent-plan-generator.ts
@@ -364,6 +385,17 @@ Status: awaiting-operator
 - a lógica de reserva e acerto do budget sob concorrência real só foi testada com fakes.
 
 **Verificação:** `npm run lint` com 0 erros (134 warnings, todos anteriores); `npm run typecheck` limpo; `npm run test:run` com 465 arquivos e 9030 testes passando; `git diff main -- src/lib/services/instantly.ts src/lib/agent/steps/create-campaign-step.ts` vazio.
+
+**Verificação após as correções do Codex (2026-11-03):**
+- `npm run lint`: 0 erros (134 warnings, todos anteriores).
+- `npm run typecheck`: limpo.
+- `npm run test:run`: 465 arquivos, 9038 testes passando e 2 skipped.
+- `git diff 463405c -- src/lib/agent/steps/export-step.ts src/lib/agent/steps/activate-step.ts` (e os testes deles, `instantly.ts` e `create-campaign-step.ts`): vazio, ou seja, idênticos à main.
+- A migration não foi aplicada, e não houve rede real nem smoke.
+- Os 3 pontos da Regra nº 1 foram verificados por análise da diff e testes mockados:
+  - (1) campanhas, webhook e reply-sweep: nenhum arquivo tocado;
+  - (2) busca de leads: não tocada;
+  - (3) criação, export e ativação: export e ativação voltaram a ser idênticos à main, e o research não pausa nem trava mais o caminho até o `create_campaign`.
 
 **Riscos residuais:**
 - Com o premium, o Apify é cobrado duas vezes por lead (dossiê + icebreaker).

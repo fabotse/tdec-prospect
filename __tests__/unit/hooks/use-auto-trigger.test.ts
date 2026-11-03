@@ -113,6 +113,41 @@ describe("useAutoTrigger (Story 17.7 - AC #1)", () => {
     );
   });
 
+  // Story 24.19 (revisao Codex): research `failed` (ex.: sweeper) nao trava o pipeline.
+  it.each(["guided", "autopilot"] as const)(
+    "DOES trigger create_campaign in %s mode after research_accounts ends failed (Story 24.19, fail-open)",
+    (mode) => {
+      const steps = [
+        makeStep({ step_number: 1, status: "completed", step_type: "search_companies" }),
+        makeStep({ step_number: 2, status: "approved", step_type: "search_leads" }),
+        makeStep({ step_number: 3, status: "failed", step_type: "research_accounts" }),
+        makeStep({ step_number: 4, status: "pending", step_type: "create_campaign" }),
+        makeStep({ step_number: 5, status: "pending", step_type: "export" }),
+        makeStep({ step_number: 6, status: "pending", step_type: "activate" }),
+      ];
+
+      renderHook(() => useAutoTrigger({ executionId: "exec-001", steps, mode }));
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/agent/executions/exec-001/steps/4/execute",
+        { method: "POST" }
+      );
+    }
+  );
+
+  it("does NOT trigger after a failed step that is not research_accounts (unchanged)", () => {
+    const steps = [
+      makeStep({ step_number: 1, status: "completed", step_type: "search_companies" }),
+      makeStep({ step_number: 2, status: "failed", step_type: "search_leads" }),
+      makeStep({ step_number: 3, status: "pending", step_type: "research_accounts" }),
+    ];
+
+    renderHook(() => useAutoTrigger({ executionId: "exec-001", steps, mode: "autopilot" }));
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("does NOT trigger in guided mode while research_accounts is still pending after the lead gate (Story 24.19)", () => {
     const steps = [
       makeStep({ step_number: 1, status: "completed", step_type: "search_companies" }),

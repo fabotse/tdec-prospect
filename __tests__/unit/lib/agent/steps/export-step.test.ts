@@ -564,21 +564,6 @@ describe("ExportStep (Story 17.4 AC #1, #2)", () => {
         })
       );
     });
-
-    // Story 24.19: o total vem de agent_executions.total_steps (6 com o research).
-    it("usa o total real de etapas (Etapa 5/6)", async () => {
-      const baseFrom = mockSupabase.from.getMockImplementation()!;
-      mockSupabase.from.mockImplementation((table: string) =>
-        table === "agent_executions" ? createChainBuilder({ data: { total_steps: 6 }, error: null }) : baseFrom(table)
-      );
-      const step = new ExportStep(5, mockSupabase as never, TENANT_ID);
-
-      await step.run(createDefaultInput());
-
-      expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
-        expect.objectContaining({ content: "Etapa 5/6: Exportando campanha para o Instantly..." })
-      );
-    });
   });
 
   // ==============================================

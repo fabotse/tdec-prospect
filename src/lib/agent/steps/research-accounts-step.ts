@@ -12,7 +12,15 @@
  *
  * FAIL-OPEN, SEMPRE: o step nunca lanca para o pipeline. Sem chave, Treg fora do ar,
  * timeout, teto de custo/tempo, erro de banco ou excecao inesperada terminam `completed`
- * com o dossie vazio/parcial e sinalizado em `output.flags`/`failedSources`.
+ * com o dossie vazio/parcial e sinalizado em `output.flags`/`failedSources`. Isso vale
+ * para o CICLO INTEIRO do step (`run` proprio): falha ao gravar o `running`, o checkpoint
+ * ou o log do step nao vira `STEP_PERSISTENCE_ERROR` nem pausa o pipeline. A unica
+ * excecao e o `STEP_ALREADY_RUNNING` (outro executor ja tem a posse; nada rodou).
+ *
+ * PRAZO DURO EFETIVO: toda espera (Treg, Apify, banco, log de uso, classificador,
+ * mensagens) corre contra `DOSSIER_CONFIG.hardDeadlineMs`; o fechamento (resumo,
+ * checkpoint, log) tem orcamento proprio (`finalizeBudgetMs`). O step sempre devolve o
+ * controle bem antes dos 300 s da rota, e o `create_campaign` e disparado em seguida.
  *
  * NADA daqui chega ao `create_campaign`: o orchestrator ignora linhas `research_accounts`
  * ao resolver o step anterior, entao o `create_campaign` recebe o mesmo output do
@@ -104,21 +112,44 @@ async function runPool<T, R>(
   return results;
 }
 
-const DEADLINE = Symbol("deadline");
+export type Settled<T> =
+  | { ok: true; value: T }
+  | { ok: false; timedOut: true }
+  | { ok: false; timedOut: false; error: unknown };
 
-/** Resolve com `DEADLINE` se `promise` nao terminar em `ms`. */
-async function raceDeadline<T>(promise: Promise<T>, ms: number): Promise<T | typeof DEADLINE> {
+/**
+ * Espera `op()` por no maximo `ms`. NUNCA lanca (nem se `op` lancar sincronamente).
+ * Nao cancela a operacao em voo: so para de esperar por ela.
+ */
+export async function settleWithin<T>(op: () => Promise<T>, ms: number): Promise<Settled<T>> {
+  let promise: Promise<T>;
+  try {
+    promise = Promise.resolve(op());
+  } catch (error) {
+    return { ok: false, timedOut: false, error };
+  }
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([
-      promise,
-      new Promise<typeof DEADLINE>((resolve) => {
-        timer = setTimeout(() => resolve(DEADLINE), Math.max(0, ms));
+    return await Promise.race<Settled<T>>([
+      promise.then(
+        (value) => ({ ok: true, value }),
+        (error: unknown) => ({ ok: false, timedOut: false, error })
+      ),
+      new Promise<Settled<T>>((resolve) => {
+        timer = setTimeout(() => resolve({ ok: false, timedOut: true }), Math.max(0, ms));
       }),
     ]);
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+function isAlreadyRunning(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: unknown }).code === "STEP_ALREADY_RUNNING"
+  );
 }
 
 function hasExtractPages(json: unknown): boolean {
@@ -210,6 +241,17 @@ export class ResearchAccountsStep extends BaseStep {
   private readonly apify: ApifyService;
   private readonly clock: () => number;
 
+  // Estado da execucao corrente (zerado a cada `run`).
+  /** Instante (clock) do prazo duro da pesquisa. */
+  private deadlineAt = 0;
+  private runStartedAt: number | null = null;
+  private runFlags: ResearchAccountsFlags = {};
+  private runState: RunState | null = null;
+  /** Contas ja concluidas — o que sobra se o backstop do prazo disparar. */
+  private doneAccounts: ResearchedAccount[] = [];
+  /** O caminho de "pulada" ja mandou a propria mensagem; o `run` nao manda o resumo. */
+  private summarySent = false;
+
   constructor(
     stepNumber: number,
     supabase: SupabaseClient,
@@ -226,6 +268,141 @@ export class ResearchAccountsStep extends BaseStep {
   /** Informativo: nao ha o que aprovar. O pipeline segue direto para o `create_campaign`. */
   override requiresPostApproval(): boolean {
     return false;
+  }
+
+  /**
+   * Ciclo de vida PROPRIO (fail-open), no lugar do `BaseStep.run`. Os outros steps
+   * continuam com o ciclo da base, intacto.
+   *
+   * - claim `running` (CAS da base): so o `STEP_ALREADY_RUNNING` sobe; qualquer outra
+   *   falha/espera longa e logada e a pesquisa segue;
+   * - pesquisa limitada pelo prazo duro (cada espera + backstop do todo);
+   * - resumo, checkpoint `completed` (com fallback minimo) e log do step, cada um com
+   *   tempo limitado e sem nunca lancar. Nada aqui pausa o pipeline.
+   */
+  override async run(input: StepInput): Promise<StepOutput> {
+    const db = this.supabase;
+    const startedAt = this.clock();
+    this.deadlineAt = startedAt + DOSSIER_CONFIG.hardDeadlineMs;
+    this.runStartedAt = startedAt;
+    this.runFlags = {};
+    this.runState = null;
+    this.doneAccounts = [];
+    this.summarySent = false;
+
+    const claim = await settleWithin(
+      () => this.updateStepStatus(db, input.executionId, "running"),
+      Math.min(DOSSIER_CONFIG.finalizeBudgetMs, this.remainingToDeadline())
+    );
+    if (!claim.ok) {
+      if (!claim.timedOut && isAlreadyRunning(claim.error)) throw claim.error;
+      console.error(
+        `[ResearchAccountsStep] Nao consegui marcar o step ${this.stepNumber} como running (execution=${input.executionId}); a pesquisa segue (fail-open):`,
+        claim.timedOut ? "tempo esgotado" : errorMessage(claim.error)
+      );
+    }
+
+    // Backstop: mesmo que alguma espera escape do limite, o step para no prazo.
+    const work = await settleWithin(() => this.executeInternal(input), this.remainingToDeadline() + 1_000);
+    let result: StepOutput;
+    if (work.ok) {
+      result = work.value;
+    } else {
+      const flags = { ...this.runFlags };
+      if (work.timedOut) flags.timeBudgetExhausted = true;
+      else flags.unexpectedError = true;
+      console.error(
+        `[ResearchAccountsStep] Pesquisa interrompida (execution=${input.executionId}); o step termina completed:`,
+        work.timedOut ? "prazo duro esgotado" : errorMessage(work.error)
+      );
+      result = this.buildResult([...this.doneAccounts], flags, this.runState);
+    }
+
+    await this.finalize(input, result);
+    return result;
+  }
+
+  /** Resumo + checkpoint + log, dentro de `finalizeBudgetMs`. Nunca lanca. */
+  private async finalize(input: StepInput, result: StepOutput): Promise<void> {
+    const db = this.supabase;
+    const executionId = input.executionId;
+    const budget = DOSSIER_CONFIG.finalizeBudgetMs;
+    const until = this.clock() + budget;
+    const left = (share: number) => Math.max(0, Math.min(budget * share, until - this.clock()));
+
+    if (!this.summarySent) {
+      await this.sendMessage(
+        executionId,
+        ResearchAccountsStep.summaryText(result.data as unknown as ResearchAccountsOutput),
+        "text",
+        left(0.2)
+      );
+    }
+
+    const completedAt = new Date().toISOString();
+    const full = await settleWithin(
+      () =>
+        this.persistStepUpdate(db, executionId, "checkpoint", {
+          output: result.data,
+          status: "completed",
+          completed_at: completedAt,
+          cost: result.cost ?? null,
+        }),
+      left(0.4)
+    );
+    if (!(full.ok && full.value)) {
+      // Fallback minimo: sem a lista de contas (o que mais pesa), so o status. E o que o
+      // auto-trigger precisa para disparar o `create_campaign`.
+      const data = result.data as unknown as ResearchAccountsOutput;
+      const minimal = await settleWithin(
+        () =>
+          this.persistStepUpdate(db, executionId, "checkpoint minimo", {
+            output: { ...data, accounts: [], flags: { ...data.flags, persistFailed: true } },
+            status: "completed",
+            completed_at: completedAt,
+            cost: result.cost ?? null,
+          }),
+        left(0.3)
+      );
+      if (!(minimal.ok && minimal.value)) {
+        console.error(
+          `[ResearchAccountsStep] NAO consegui gravar a conclusao do step ${this.stepNumber} (execution=${executionId}). Nada e lancado: se ele ficar running, o sweeper o libera e o auto-trigger segue para o create_campaign.`
+        );
+      }
+    }
+
+    const logged = await settleWithin(() => this.logStep(db, executionId, input, result), left(0.1));
+    if (!logged.ok) {
+      console.error(
+        `[ResearchAccountsStep] Falha ao registrar a conclusao do step ${this.stepNumber} (execution=${executionId}):`,
+        logged.timedOut ? "tempo esgotado" : errorMessage(logged.error)
+      );
+    }
+  }
+
+  private remainingToDeadline(): number {
+    return this.deadlineAt - this.clock();
+  }
+
+  /**
+   * Espera `op` no maximo ate o prazo duro. Timeout ou excecao -> `fallback`. Nunca lanca.
+   * Timeout marca `timeBudgetExhausted`.
+   */
+  private async bounded<T>(label: string, op: () => Promise<T>, fallback: T): Promise<T> {
+    const outcome = await settleWithin(op, this.remainingToDeadline());
+    if (outcome.ok) return outcome.value;
+    if (outcome.timedOut) {
+      this.runFlags.timeBudgetExhausted = true;
+      console.error(`[ResearchAccountsStep] ${label}: sem resposta antes do prazo do step`);
+    } else {
+      console.error(`[ResearchAccountsStep] ${label}:`, errorMessage(outcome.error));
+    }
+    return fallback;
+  }
+
+  /** `logAgentUsage` limitado pelo prazo. Nunca lanca. */
+  private logUsage(params: Parameters<typeof logAgentUsage>[0]): Promise<void> {
+    return this.bounded("log de uso", () => logAgentUsage(params), undefined);
   }
 
   /** Mesma regra do `create_campaign` para achar os leads. */
@@ -264,8 +441,11 @@ export class ResearchAccountsStep extends BaseStep {
   }
 
   protected async executeInternal(input: StepInput): Promise<StepOutput> {
-    const startedAt = this.clock();
+    const startedAt = this.runStartedAt ?? this.clock();
+    if (this.runStartedAt === null) this.deadlineAt = startedAt + DOSSIER_CONFIG.hardDeadlineMs;
+    this.runStartedAt = null;
     const flags: ResearchAccountsFlags = {};
+    this.runFlags = flags;
     let accounts: ResearchedAccount[] = [];
     let state: RunState | null = null;
 
@@ -275,10 +455,18 @@ export class ResearchAccountsStep extends BaseStep {
 
       if (groups.length === 0) {
         await this.sendMessage(input.executionId, "Pesquisa das contas pulada: nenhum lead para pesquisar. A campanha segue normalmente.", "text");
+        this.summarySent = true;
         return this.buildResult([], flags, null);
       }
 
-      const lookup = await readServiceApiKey(this.tenantId, "treg");
+      const lookup = await this.bounded("leitura da chave do Treg", () => readServiceApiKey(this.tenantId, "treg"), null);
+      if (!lookup) {
+        flags.unexpectedError = true;
+        accounts = groups.map((group) => this.skippedAccount(group, null, "error"));
+        await this.sendMessage(input.executionId, "Pesquisa das contas pulada: nao consegui ler a chave do Treg a tempo. A campanha segue normalmente.", "text");
+        this.summarySent = true;
+        return this.buildResult(accounts, flags, null);
+      }
       if (lookup.status !== "ok") {
         flags.tregUnavailable = lookup.status;
         accounts = groups.map((group) => this.skippedAccount(group, null, "treg_unavailable"));
@@ -287,6 +475,7 @@ export class ResearchAccountsStep extends BaseStep {
             ? "a chave do Treg nao esta configurada em Configuracoes > Integracoes"
             : "nao foi possivel ler a chave do Treg (reconfigure em Configuracoes > Integracoes)";
         await this.sendMessage(input.executionId, `Pesquisa das contas pulada: ${reason}. A campanha segue normalmente.`, "text");
+        this.summarySent = true;
         return this.buildResult(accounts, flags, null);
       }
 
@@ -295,7 +484,9 @@ export class ResearchAccountsStep extends BaseStep {
       state = {
         executionId: input.executionId,
         tregKey: lookup.apiKey,
-        apifyKey: premium ? await getServiceApiKeyOrNull(this.tenantId, "apify") : null,
+        apifyKey: premium
+          ? await this.bounded("leitura da chave do Apify", () => getServiceApiKeyOrNull(this.tenantId, "apify"), null)
+          : null,
         openaiKey: null,
         kbContext: null,
         premium,
@@ -311,9 +502,10 @@ export class ResearchAccountsStep extends BaseStep {
         openaiRelevanceCalls: 0,
         leadsLinked: 0,
       };
+      this.runState = state;
       if (state.premium && state.apifyKey) {
-        state.openaiKey = await getServiceApiKeyOrNull(this.tenantId, "openai");
-        state.kbContext = await this.safeLoadKBContext();
+        state.openaiKey = await this.bounded("leitura da chave da OpenAI", () => getServiceApiKeyOrNull(this.tenantId, "openai"), null);
+        state.kbContext = await this.bounded("leitura da base de conhecimento", () => this.safeLoadKBContext(), null);
       }
 
       await this.sendMessage(
@@ -322,7 +514,11 @@ export class ResearchAccountsStep extends BaseStep {
         "progress"
       );
 
-      const { companies, completedAt } = await this.readSearchCompanies(input.executionId);
+      const { companies, completedAt } = await this.bounded(
+        "leitura do search_companies",
+        () => this.readSearchCompanies(input.executionId),
+        { companies: [] as CompanyRow[], completedAt: null as string | null }
+      );
       if (completedAt && !Number.isNaN(Date.parse(completedAt))) {
         state.techDate = isoDate(new Date(completedAt));
       }
@@ -345,9 +541,8 @@ export class ResearchAccountsStep extends BaseStep {
       flags.unexpectedError = true;
     }
 
-    const result = this.buildResult(accounts, flags, state);
-    await this.sendMessage(input.executionId, ResearchAccountsStep.summaryText(result.data as unknown as ResearchAccountsOutput), "text");
-    return result;
+    // O resumo vai no fechamento (`run`), com orcamento proprio.
+    return this.buildResult(accounts, flags, state);
   }
 
   // ==============================================
@@ -478,11 +673,6 @@ export class ResearchAccountsStep extends BaseStep {
     return this.clock() - state.startedAt > DOSSIER_CONFIG.timeBudgetMs;
   }
 
-  /** Tempo (ms) ate o prazo duro do step. */
-  private remainingMs(state: RunState): number {
-    return state.startedAt + DOSSIER_CONFIG.hardDeadlineMs - this.clock();
-  }
-
   private skippedAccount(
     group: AccountGroup,
     domain: string | null,
@@ -503,7 +693,9 @@ export class ResearchAccountsStep extends BaseStep {
 
   private async researchAccountSafe(state: RunState, account: ResolvedAccount): Promise<ResearchedAccount> {
     try {
-      return await this.researchAccount(state, account);
+      const researched = await this.researchAccount(state, account);
+      this.doneAccounts.push(researched);
+      return researched;
     } catch (error) {
       console.error(
         `[ResearchAccountsStep] Falha ao pesquisar "${account.domain ?? account.key}" (execution=${state.executionId}):`,
@@ -521,7 +713,11 @@ export class ResearchAccountsStep extends BaseStep {
     const domain = account.domain;
 
     // Reuso (gratis) vem antes dos tetos de tempo e custo, que so valem para a pesquisa paga.: dossie `complete` e nao expirado do mesmo tenant + dominio.
-    const reuse = await findReusableDossier(this.supabase, this.tenantId, domain, state.now);
+    const reuse = await this.bounded(
+      "leitura de dossies",
+      () => findReusableDossier(this.supabase, this.tenantId, domain, state.now),
+      { dossier: null, error: "sem resposta antes do prazo do step" }
+    );
     if (reuse.error) {
       // Sem leitura (ex.: migration nao aplicada) nao ha onde gravar: nao gasta com a conta.
       console.error(`[ResearchAccountsStep] Falha ao ler dossies (dominio=${domain}):`, reuse.error);
@@ -533,7 +729,11 @@ export class ResearchAccountsStep extends BaseStep {
       const posts = await this.collectPostsForReused(state, account, dossierId);
       let factsCount = reuse.dossier.factsCount;
       if (posts.facts.length > 0) {
-        const inserted = await insertFacts(this.supabase, this.tenantId, dossierId, posts.facts);
+        const inserted = await this.bounded(
+          "gravacao de posts no dossie",
+          () => insertFacts(this.supabase, this.tenantId, dossierId, posts.facts),
+          { error: "sem resposta antes do prazo do step" }
+        );
         if (inserted.error) state.flags.persistFailed = true;
         else factsCount += posts.facts.length;
       }
@@ -618,18 +818,23 @@ export class ResearchAccountsStep extends BaseStep {
     const failedSources = Object.keys(failureReasons) as DossierSource[];
     const status = dossierStatus(facts, failedSources);
 
-    const saved = await saveDossier(this.supabase, {
-      tenantId: this.tenantId,
-      executionId: state.executionId,
-      domain,
-      companyName: account.companyName,
-      status,
-      failedSources,
-      costUsd: cost.usd,
-      facts,
-      researchedAt: state.now,
-      reuseDays: DOSSIER_CONFIG.reuseDays,
-    });
+    const saved = await this.bounded(
+      "gravacao do dossie",
+      () =>
+        saveDossier(this.supabase, {
+          tenantId: this.tenantId,
+          executionId: state.executionId,
+          domain,
+          companyName: account.companyName,
+          status,
+          failedSources,
+          costUsd: cost.usd,
+          facts,
+          researchedAt: state.now,
+          reuseDays: DOSSIER_CONFIG.reuseDays,
+        }),
+      { dossierId: null, error: "sem resposta antes do prazo do step" }
+    );
     if (saved.error) {
       console.error(`[ResearchAccountsStep] Falha ao gravar o dossie (dominio=${domain}):`, saved.error);
       state.flags.persistFailed = true;
@@ -650,12 +855,17 @@ export class ResearchAccountsStep extends BaseStep {
   }
 
   private async link(state: RunState, dossierId: string, account: ResolvedAccount): Promise<void> {
-    const linked = await linkLeads(this.supabase, {
-      tenantId: this.tenantId,
-      executionId: state.executionId,
-      dossierId,
-      leads: account.leads.map((lead) => ({ apolloId: lead.apolloId ?? null, email: lead.email ?? null })),
-    });
+    const linked = await this.bounded(
+      "ligacao dos leads ao dossie",
+      () =>
+        linkLeads(this.supabase, {
+          tenantId: this.tenantId,
+          executionId: state.executionId,
+          dossierId,
+          leads: account.leads.map((lead) => ({ apolloId: lead.apolloId ?? null, email: lead.email ?? null })),
+        }),
+      { linked: 0, error: "sem resposta antes do prazo do step" }
+    );
     state.leadsLinked += linked.linked;
     if (linked.error) {
       console.error(`[ResearchAccountsStep] Falha ao ligar leads ao dossie ${dossierId}:`, linked.error);
@@ -699,7 +909,7 @@ export class ResearchAccountsStep extends BaseStep {
     source: DossierSource | "domain",
     cost: { usd: number } | null
   ): Promise<TregOutcome> {
-    const remaining = this.remainingMs(state);
+    const remaining = this.remainingToDeadline();
     if (remaining < DOSSIER_CONFIG.minCallMs) {
       state.flags.timeBudgetExhausted = true;
       return { ok: false, reason: "timeout" };
@@ -712,18 +922,34 @@ export class ResearchAccountsStep extends BaseStep {
 
     let costUsd = 0;
     try {
-      const result = await this.treg.call(state.tregKey, endpoint, body, {
-        maxCostUsd: reserve,
-        idempotencyKey: buildIdempotencyKey(state.executionId, endpoint, body),
-        meta: `feature=dossie-24-19,tenant=${this.tenantId},execution=${state.executionId}`,
-        timeoutMs: Math.min(DOSSIER_CONFIG.callTimeoutMs, remaining),
-      });
+      const call = await settleWithin(
+        () =>
+          this.treg.call(state.tregKey, endpoint, body, {
+            maxCostUsd: reserve,
+            idempotencyKey: buildIdempotencyKey(state.executionId, endpoint, body),
+            meta: `feature=dossie-24-19,tenant=${this.tenantId},execution=${state.executionId}`,
+            timeoutMs: Math.min(DOSSIER_CONFIG.callTimeoutMs, remaining),
+          }),
+        // O timeout do proprio TregService e a 1a linha; esta e a garantia do prazo.
+        Math.min(DOSSIER_CONFIG.callTimeoutMs, remaining) + 1_000
+      );
+      if (!call.ok) {
+        if (call.timedOut) {
+          // Sem resposta: o custo real e desconhecido; o teto da chamada fica gasto.
+          costUsd = reserve;
+          state.flags.timeBudgetExhausted = true;
+          console.error(`[ResearchAccountsStep] Chamada ${endpoint} sem resposta antes do prazo`);
+          return { ok: false, reason: "timeout" };
+        }
+        throw call.error;
+      }
+      const result = call.value;
       costUsd = Math.max(0, result.costMicro) / 1_000_000;
       state.tregCalls++;
       state.tregUsd += costUsd;
       if (cost) cost.usd += costUsd;
 
-      await logAgentUsage({
+      await this.logUsage({
         tenantId: this.tenantId,
         executionId: state.executionId,
         stepType: "research_accounts",
@@ -768,7 +994,7 @@ export class ResearchAccountsStep extends BaseStep {
       if (!linkedinUrl || !/^https?:\/\//i.test(linkedinUrl)) continue;
       // Cada perfil pode levar ~60 s no Apify: depois do teto de tempo nao inicia outro
       // (a rota tem 300 s; estourar deixaria o step `running` e travaria o pipeline).
-      const remaining = this.remainingMs(state);
+      const remaining = this.remainingToDeadline();
       if (this.timeExceeded(state) || remaining < DOSSIER_CONFIG.minCallMs) {
         state.flags.timeBudgetExhausted = true;
         failure = failure ?? "timeout";
@@ -785,14 +1011,15 @@ export class ResearchAccountsStep extends BaseStep {
       try {
         state.apifyCalls++;
         // Corrida contra o prazo duro: o step nao espera o Apify alem dele.
-        const result = await raceDeadline(
-          this.apify.fetchLinkedInPosts(apifyKey, linkedinUrl, DOSSIER_CONFIG.maxPostsPerLead),
+        const fetched = await settleWithin(
+          () => this.apify.fetchLinkedInPosts(apifyKey, linkedinUrl, DOSSIER_CONFIG.maxPostsPerLead),
           remaining
         );
-        if (result === DEADLINE) {
+        if (!fetched.ok && !fetched.timedOut) throw fetched.error;
+        if (!fetched.ok) {
           state.flags.timeBudgetExhausted = true;
           failure = failure ?? "timeout";
-          await logAgentUsage({
+          await this.logUsage({
             tenantId: this.tenantId,
             executionId: state.executionId,
             stepType: "research_accounts",
@@ -805,7 +1032,8 @@ export class ResearchAccountsStep extends BaseStep {
           });
           break;
         }
-        await logAgentUsage({
+        const result = fetched.value;
+        await this.logUsage({
           tenantId: this.tenantId,
           executionId: state.executionId,
           stepType: "research_accounts",
@@ -837,7 +1065,7 @@ export class ResearchAccountsStep extends BaseStep {
       const relevant: LinkedInPost[] = [];
       for (const post of recent) {
         // Sem tempo para classificar: o post nao entra (nunca grava sem o filtro).
-        if (this.timeExceeded(state) || this.remainingMs(state) < DOSSIER_CONFIG.minCallMs) {
+        if (this.timeExceeded(state) || this.remainingToDeadline() < DOSSIER_CONFIG.minCallMs) {
           state.flags.timeBudgetExhausted = true;
           failure = failure ?? "timeout";
           break;
@@ -845,17 +1073,26 @@ export class ResearchAccountsStep extends BaseStep {
         if (state.kbContext && state.openaiKey && post.text.trim().length >= 10) {
           state.openaiRelevanceCalls++;
         }
-        try {
-          const classification = await classifyPostRelevance(
-            post.text,
-            post.postUrl,
-            state.kbContext,
-            state.openaiKey,
-            this.supabase,
-            this.tenantId
-          );
-          if (classification.isRelevant) relevant.push(post);
-        } catch {
+        const classification = await settleWithin(
+          () =>
+            classifyPostRelevance(
+              post.text,
+              post.postUrl,
+              state.kbContext,
+              state.openaiKey,
+              this.supabase,
+              this.tenantId
+            ),
+          this.remainingToDeadline()
+        );
+        if (classification.ok) {
+          if (classification.value.isRelevant) relevant.push(post);
+        } else if (classification.timedOut) {
+          // Sem resposta antes do prazo: o post nao entra (nunca grava sem o filtro).
+          state.flags.timeBudgetExhausted = true;
+          failure = failure ?? "timeout";
+          break;
+        } else {
           // O classificador ja e fail-open; qualquer excecao residual mantem o post.
           relevant.push(post);
         }
@@ -878,7 +1115,11 @@ export class ResearchAccountsStep extends BaseStep {
     dossierId: string
   ): Promise<SourceResult> {
     if (!state.premium || !state.apifyKey) return { facts: [] };
-    const existing = await findPostLeadIdentifiers(this.supabase, this.tenantId, dossierId);
+    const existing = await this.bounded(
+      "leitura dos posts do dossie",
+      () => findPostLeadIdentifiers(this.supabase, this.tenantId, dossierId),
+      { apolloIds: new Set<string>(), emails: new Set<string>(), error: "sem resposta antes do prazo do step" }
+    );
     if (existing.error) {
       console.error(`[ResearchAccountsStep] Falha ao ler posts do dossie ${dossierId}; posts pulados:`, existing.error);
       return { facts: [] };
@@ -954,20 +1195,35 @@ export class ResearchAccountsStep extends BaseStep {
     return parts.join(" ");
   }
 
-  /** Mensagem no chat. Nunca lanca. */
-  private async sendMessage(executionId: string, content: string, messageType: "progress" | "text"): Promise<void> {
-    try {
-      const { error } = await this.supabase.from("agent_messages").insert({
-        execution_id: executionId,
-        role: messageType === "progress" ? "system" : "agent",
-        content,
-        metadata: { stepNumber: this.stepNumber, messageType },
-      });
-      if (error) {
-        console.error("[ResearchAccountsStep] Falha ao gravar mensagem:", error.message ?? error);
-      }
-    } catch (error) {
-      console.error("[ResearchAccountsStep] Falha ao gravar mensagem:", errorMessage(error));
+  /**
+   * Mensagem no chat. Nunca lanca. Espera no maximo `waitMs` (padrao: ate o prazo duro).
+   */
+  private async sendMessage(
+    executionId: string,
+    content: string,
+    messageType: "progress" | "text",
+    waitMs: number = this.remainingToDeadline()
+  ): Promise<void> {
+    const outcome = await settleWithin(
+      async () =>
+        this.supabase.from("agent_messages").insert({
+          execution_id: executionId,
+          role: messageType === "progress" ? "system" : "agent",
+          content,
+          metadata: { stepNumber: this.stepNumber, messageType },
+        }),
+      waitMs
+    );
+    if (!outcome.ok) {
+      console.error(
+        "[ResearchAccountsStep] Falha ao gravar mensagem:",
+        outcome.timedOut ? "sem resposta a tempo" : errorMessage(outcome.error)
+      );
+      return;
+    }
+    const error = (outcome.value as { error?: { message?: string } | null }).error;
+    if (error) {
+      console.error("[ResearchAccountsStep] Falha ao gravar mensagem:", error.message ?? error);
     }
   }
 }

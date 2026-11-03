@@ -49,7 +49,7 @@
 --     CHECK (service_name IN ('apollo','signalhire','snovio','instantly','openai','apify','zapi','theirstack'));
 --   ALTER TABLE public.api_usage_logs DROP CONSTRAINT IF EXISTS api_usage_logs_service_name_check;
 --   ALTER TABLE public.api_usage_logs ADD CONSTRAINT api_usage_logs_service_name_check
---     CHECK (service_name IN ('apify','apollo','signalhire','snovio','instantly','openai','theirstack'));
+--     CHECK (service_name IN ('apollo','signalhire','snovio','instantly','openai','apify','zapi','theirstack'));
 
 -- ============================================
 -- 1. account_dossiers (um por conta pesquisada)

@@ -26,10 +26,17 @@ export const DOSSIER_CONFIG = {
   /** Depois deste tempo o step nao inicia contas novas (ms). */
   timeBudgetMs: 180_000,
   /**
-   * Prazo DURO do step (ms desde o inicio): nada em voo passa dele. A rota tem
-   * `maxDuration = 300` s; estourar deixaria o step `running` antes do `create_campaign`.
+   * Prazo DURO da pesquisa (ms desde o inicio do step): nenhuma espera (Treg, Apify,
+   * banco, log, classificador, mensagens) passa dele. A rota tem `maxDuration = 300` s;
+   * estourar deixaria o step `running` antes do `create_campaign`.
    */
-  hardDeadlineMs: 270_000,
+  hardDeadlineMs: 240_000,
+  /**
+   * Orcamento (ms) do fechamento DEPOIS do prazo duro: resumo no chat, checkpoint
+   * `completed` (com fallback minimo) e log do step. Pior caso do step:
+   * 240 s + 1 s + 15 s = 256 s, bem antes dos 300 s da rota.
+   */
+  finalizeBudgetMs: 15_000,
   /** Menos que isto ate o prazo duro: a chamada nem comeca (ms). */
   minCallMs: 5_000,
   /** Timeout de cada chamada ao Treg (ms). */

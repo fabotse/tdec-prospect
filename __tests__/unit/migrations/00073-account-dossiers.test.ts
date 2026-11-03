@@ -52,7 +52,7 @@ CREATE TABLE public.api_usage_logs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid,
   service_name text NOT NULL,
-  CONSTRAINT api_usage_logs_service_name_check CHECK (service_name IN ('apify','apollo','signalhire','snovio','instantly','openai','theirstack'))
+  CONSTRAINT api_usage_logs_service_name_check CHECK (service_name IN ('apollo','signalhire','snovio','instantly','openai','apify','zapi','theirstack'))
 );
 
 CREATE FUNCTION public.get_current_tenant_id() RETURNS uuid AS $$
@@ -252,4 +252,76 @@ describe("Migration 00073: account_dossiers (PGlite)", () => {
       )
     ).rejects.toThrow();
   });
+});
+
+// ==============================================
+// Revisao Codex #4: o ROLLBACK restaura EXATAMENTE a lista de producao nas duas tabelas
+// ==============================================
+
+/** SQL do bloco ROLLBACK do cabecalho (linhas `--   ...`, sem os comentarios internos). */
+function rollbackSql(migration: string): string {
+  const lines = migration.split("\n");
+  const start = lines.findIndex((l) => l.startsWith("-- ROLLBACK"));
+  const out: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (!line.startsWith("--   ")) break;
+    const sql = line.slice("--   ".length);
+    if (sql.trim().startsWith("--")) continue;
+    out.push(sql);
+  }
+  return out.join("\n");
+}
+
+function checkLists(sql: string): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  const re = /ADD CONSTRAINT (\w+)\s+CHECK \(service_name IN \(([^)]*)\)\)/g;
+  for (const match of sql.matchAll(re)) {
+    out[match[1]] = match[2].split(",").map((s) => s.trim().replace(/'/g, ""));
+  }
+  return out;
+}
+
+describe("Migration 00073: rollback dos CHECKs (revisao Codex)", () => {
+  const PROD = [...PREVIOUS_SERVICES].sort();
+
+  it("o rollback do cabecalho restaura a lista de producao (com zapi) nas duas tabelas", () => {
+    const lists = checkLists(rollbackSql(loadMigration()));
+    expect([...lists.api_configs_service_name_check].sort()).toEqual(PROD);
+    expect([...lists.api_usage_logs_service_name_check].sort()).toEqual(PROD);
+  });
+
+  it("o rollback das Completion Notes da spec e o mesmo", () => {
+    const spec = readFileSync(
+      resolve(__dirname, "../../../_bmad-output/implementation-artifacts/spec-24-19-dossie-da-conta.md"),
+      "utf-8"
+    );
+    const block = spec.slice(spec.indexOf("**Rollback da 00073:**"));
+    const lists = checkLists(block.slice(0, block.indexOf("```", block.indexOf("```") + 3)));
+    expect([...lists.api_configs_service_name_check].sort()).toEqual(PROD);
+    expect([...lists.api_usage_logs_service_name_check].sort()).toEqual(PROD);
+  });
+
+  it("PGlite: migration + rollback volta ao estado de producao (zapi aceito, treg recusado)", async () => {
+    const migration = loadMigration();
+    const db = new PGlite();
+    try {
+      await db.exec(STUBS);
+      await db.exec(migration);
+      await db.exec(rollbackSql(migration));
+      for (const table of ["api_configs", "api_usage_logs"]) {
+        for (const service of PREVIOUS_SERVICES) {
+          await db.exec(`INSERT INTO public.${table} (tenant_id, service_name) VALUES ('${T1}', '${service}');`);
+        }
+        await expect(
+          db.exec(`INSERT INTO public.${table} (tenant_id, service_name) VALUES ('${T1}', 'treg');`)
+        ).rejects.toThrow();
+      }
+      const tables = await db.query<{ n: number }>(
+        "SELECT count(*)::int AS n FROM pg_tables WHERE tablename LIKE 'account_dossier%'"
+      );
+      expect(tables.rows[0].n).toBe(0);
+    } finally {
+      await db.close();
+    }
+  }, 60_000);
 });

@@ -33,6 +33,7 @@ const { mockConfig } = vi.hoisted(() => ({
     accountConcurrency: 3,
     timeBudgetMs: 180_000,
     hardDeadlineMs: 270_000,
+    finalizeBudgetMs: 15_000,
     minCallMs: 5_000,
     callTimeoutMs: 60_000,
     siteSummaryMaxChars: 500,
@@ -542,11 +543,14 @@ describe("ResearchAccountsStep — teto de custo", () => {
 describe("ResearchAccountsStep — teto de tempo", () => {
   it("passou de 180 s: nao inicia contas novas; restantes skipped; timeBudgetExhausted", async () => {
     mockConfig.accountConcurrency = 1;
-    const clock = vi.fn()
-      .mockReturnValueOnce(NOW_MS) // inicio do step
-      .mockReturnValueOnce(NOW_MS + 1_000) // 1a conta: dentro do tempo
-      .mockReturnValue(NOW_MS + 181_000); // dai em diante: estourou
-    const treg = createTreg();
+    // Relogio por VALOR (nao por numero de chamadas): dentro do tempo ate a 1a conta
+    // chamar o Treg; dai em diante, estourou.
+    let now = NOW_MS;
+    const clock = () => now;
+    const treg = createTreg((endpoint, body) => {
+      now = NOW_MS + 181_000;
+      return defaultTreg(endpoint, body);
+    });
     const result = await createStep(createDb(), treg, { clock }).run(
       createInput({ targetAccounts: [{ name: "Banco X", domain: "bancox.com.br", confidence: "high" }, { name: "Empresa Y", domain: "empresay.com", confidence: "high" }] })
     );
@@ -829,6 +833,34 @@ describe("ResearchAccountsStep — correcoes do review", () => {
       await createStep(db, createTreg(), { apify }).run(createInput({ premiumIcebreakers: true, ...Y }, [RUI]));
       const posts = (db.insertsTo("account_dossier_facts").flat() as Array<Record<string, string>>).filter((f) => f.kind === "post");
       expect(posts.map((p) => p.fonte_url)).toEqual([OWN.postUrl]);
+    });
+
+    // Revisao Codex #3: o classificador tambem corre contra o prazo duro.
+    it("classificador que NUNCA resolve: o step termina no prazo, sem o post, e grava completed", async () => {
+      vi.useFakeTimers();
+      try {
+        mockClassify.mockReturnValue(new Promise(() => {}));
+        const apify = { fetchLinkedInPosts: vi.fn().mockResolvedValue({ success: true, posts: [OWN], profileUrl: "x", fetchedAt: "x" }) };
+        const db = createDb();
+        let done = false;
+        const run = createStep(db, createTreg(), { apify })
+          .run(createInput({ premiumIcebreakers: true, ...Y }, [RUI]))
+          .finally(() => {
+            done = true;
+          });
+
+        await vi.advanceTimersByTimeAsync(mockConfig.hardDeadlineMs + 1_000);
+        expect(done).toBe(true);
+        const result = await run;
+
+        const posts = (db.insertsTo("account_dossier_facts").flat() as Array<Record<string, string>>).filter((f) => f.kind === "post");
+        expect(posts).toEqual([]);
+        expect(outputOf(result).flags.timeBudgetExhausted).toBe(true);
+        expect(outputOf(result).accounts[0]).toMatchObject({ failureReasons: { posts: "timeout" } });
+        expect(checkpoint(db)?.status).toBe("completed");
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("reuso: lead que ja tem post no dossie nao vai ao Apify de novo", async () => {

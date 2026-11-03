@@ -282,7 +282,7 @@ export abstract class BaseStep {
    * ([0, 300, 1000] ms). Checa o `{ error }` retornado e captura excecao lancada.
    * Nunca lanca: devolve `true` se gravou, `false` se todas as tentativas falharam.
    */
-  private async persistStepUpdate(
+  protected async persistStepUpdate(
     db: SupabaseClient,
     executionId: string,
     label: string,
@@ -379,7 +379,7 @@ export abstract class BaseStep {
    * Update step status and timestamps.
    * (2.6)
    */
-  private async updateStepStatus(
+  protected async updateStepStatus(
     db: SupabaseClient,
     executionId: string,
     status: StepStatus
@@ -452,7 +452,7 @@ export abstract class BaseStep {
    * (2.7)
    * Story 22.14 - AC #1: 0 resultados nao e "sucesso".
    */
-  private async logStep(
+  protected async logStep(
     db: SupabaseClient,
     executionId: string,
     input: StepInput,
