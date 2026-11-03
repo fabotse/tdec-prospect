@@ -35,3 +35,17 @@ O trabalho acontece em duas máquinas: o Mac do Fabossi e a máquina do orquestr
 - Migrations: agentes escrevem, mas **nunca** aplicam. Marcar a issue com `precisa-felipe` e parar; o Fabossi aplica (não existe Supabase de teste; o `.env.local` aponta para produção).
 - Se o `.env.local` mudar numa máquina, sinalizar no Linear para a outra ser atualizada.
 - O `sprint-status.yaml` continua sendo a fonte da verdade do BMad; o Linear espelha.
+
+### Fila do orquestrador (qual issue pegar)
+
+A ordem de trabalho fica no Linear, no projeto TDec-Prospect. A sequência completa e o motivo de cada posição estão no documento "Ordem de execução — fila do orquestrador" do projeto.
+
+1. Candidatas: issues no status **Pronto para dev** com o label da sua máquina (`maquina:eden` ou `maquina:mac`).
+2. Pegar a de **menor número no início do título** (`01 ·`, `02 ·` …) que não tenha nenhum bloqueio aberto ("blocked by" com issue que não esteja Done). Cada issue da fila é bloqueada pela anterior, então só uma fica liberada por vez. A prioridade (High/Medium/Low) só marca o bloco e serve de desempate.
+3. Ao começar, mover a issue para **Em andamento**. Ao terminar e com o PR aberto, mover para **Review humano / PR**. Não marcar Done antes do merge e, quando houver, do smoke em produção.
+4. Parar e chamar o Fabossi, mudando para **Precisa Felipe** com o label `precisa-felipe` e um comentário explicando o motivo, quando a issue:
+   - tiver migration (escrever, nunca aplicar);
+   - mexer em `pg_cron`, Edge Function publicada, secrets ou variáveis;
+   - puder afetar um dos 3 pontos da Regra nº 1, em especial qualquer coisa no caminho até o Instantly (export e ativação).
+5. Nunca pegar issue com `precisa-felipe`, issue fora de "Pronto para dev" ou issue da outra máquina. Fila vazia ou toda bloqueada: parar e avisar no Linear, sem inventar trabalho.
+6. Não renumerar nem reordenar a fila. Quem define a ordem é o Fabossi; para mudar, peça a ele.
