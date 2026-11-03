@@ -2,7 +2,7 @@
 title: '24.19 — Dossiê da conta'
 type: 'feature'
 created: '2026-11-03'
-status: 'awaiting-operator'
+status: done
 baseline_revision: '837ddfbf5507aba5ba7a87d36f8b5fb052bda88d'
 review_loop_iteration: 0
 followup_review_recommended: true
@@ -467,3 +467,15 @@ Observações para follow-up (não bloqueiam):
 - O chat mostrou "Etapa 3/5" na criação de campanha, que é a etapa 4 de 6 (DW-32, já registrado).
 
 **Os 3 pontos:** busca de leads e criação de campanha confirmadas por smoke real. Export e ativação não foram tocados (arquivos idênticos ao `main`; smoke parado antes do export). Campanhas rodando, webhook e `reply-sweep` não leem as tabelas novas.
+
+## Operator Confirmation
+
+Confirmed 2026-11-03: the external actions this story owed were carried out.
+
+- Revisar e aprovar o novo step research_accounts (etapa 3), que fica no caminho até o Instantly (Regra nº 1). O step é fail-open, mas é preciso confirmar o OK antes do merge e do deploy.
+- Rodar o PRE-CHECK do cabeçalho de supabase/migrations/00073_create_account_dossiers.sql no SQL Editor de produção e depois aplicar a migration 00073. O rollback está no cabeçalho do arquivo e nas Completion Notes.
+- Cadastrar a chave da Treg em Configurações → Integrações (card Treg) no tenant do cliente, de preferência um token de agente só da TDec com --cap, e clicar em Testar conexão.
+- Depois da migration e da chave, fazer o smoke real de uma execução guiada com 2–3 leads, sem ativar no Instantly: o step 3 deve gravar linhas em account_dossiers, account_dossier_facts e account_dossier_leads, e o create_campaign deve seguir normalmente.
+- No Linear, mover a issue da 24.19 (FEL-42) para Precisa Felipe com o label precisa-felipe e registrar branch, SHA e checks.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
