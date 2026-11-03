@@ -445,7 +445,8 @@ location: .github/workflows/ci.yml
 source_spec: `spec-23-2-dependencias-sem-vulnerabilidades-criticas.md`
 severity: medium
 reason: .github/workflows/ci.yml e .bmad-loop/policy.toml [verify] rodam só lint, typecheck e test:run. Nesta story o build foi rodado à mão (exit 0). Lacuna anterior à story (vem da 23.4); exige env de placeholder no CI.
-status: open
+status: resolved
+resolution: 2026-11-02, job `Build` no `.github/workflows/ci.yml` roda `npm run build` sem secrets, com placeholders públicos só para `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY`, e `NEXT_TELEMETRY_DISABLED=1`. Pela leitura do código, nenhuma página pré-renderizada consulta Supabase ou APIs em build time (clients criados só em handlers/effects, sem rotas com `dynamic`/`revalidate`/`generateStaticParams`). `npm run build` NÃO entrou no [verify] do `.bmad-loop/policy.toml`: o build não é livre de rede (`next/font/google` em `src/app/layout.tsx` baixa fontes do Google e o Next envia telemetria por padrão), carregaria o `.env.local` de produção, e a ausência de consultas em prerender é uma garantia só de análise, que uma página nova pode quebrar. Comentário do [verify] atualizado.
 
 ### DW-7: Planilha cuja tabela não começa em A1 (linhas/colunas vazias antes do cabeçalho) pode virar cabeçalho vazio no parser novo.
 origin: spec-deferred 5f793c0cfcbb
