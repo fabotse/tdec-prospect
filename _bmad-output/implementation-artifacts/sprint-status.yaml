@@ -34,7 +34,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-25
-last_updated: 2026-11-02  # 23.0 adiada (story escrita, volta a backlog); epic-23 volta a backlog
+last_updated: 2026-11-03  # 23.0 adiada (story escrita, volta a backlog); epic-23 volta a backlog
 project: tdec-prospect
 project_key: NOKEY
 tracking_system: file-system
@@ -601,7 +601,7 @@ development_status:
   24-16-fit-score-a-b-c-com-justificativa: done
   24-17-modo-lista-de-contas-abm: done
   24-18-contas-parecidas-com-os-melhores-clientes: done
-  24-19-dossie-da-conta: awaiting-operator
+  24-19-dossie-da-conta: done
   24-20-motivo-para-abordar-agora: backlog
   24-21-copy-1-para-1-por-lead: backlog
   24-22-dossie-visivel-na-revisao-e-na-oportunidade: backlog
