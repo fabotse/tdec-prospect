@@ -449,3 +449,21 @@ Status: awaiting-operator
 - A estimativa mostra o custo da pesquisa mesmo sem chave da Treg.
 - O `fonte_url` das tecnologias é o endpoint do TheirStack.
 - Nada pode ser validado contra a Treg real antes da migration, da chave e do smoke (operator_actions).
+
+## Smoke em produção (2026-11-03, Claude no Mac)
+
+Pré-requisitos: migration 00073 aplicada pelo Fabossi e conferida via `db-ro` (3 tabelas com RLS e 2 policies cada; CHECKs de `api_configs` e `api_usage_logs` com `treg`; nenhuma linha alterada). PR #22 mergeado (`a0507b8`), deploy na Vercel ok. Chave da Treg (conta do Fabossi) cadastrada em Integrações às 15:32 UTC.
+
+Execução `c270c618-e5f6-47b5-9213-c213408f9d5e`, "CISO de São Paulo, traga 2 leads", modo Guiado:
+- **Plano:** 6 etapas. "3 · Pesquisar Contas" estimada em R$ 0,22, total R$ 0,82 (antes era R$ 0,60).
+- **Etapas:** `search_leads` aprovada (13,5 s); `research_accounts` `completed` em 13,8 s com a mensagem "2 de 2 contas com dossiê, 8 fatos com fonte. A campanha segue normalmente."; `create_campaign` gerou a sequência e os 2 icebreakers e ficou em `awaiting_approval`. **Não aprovado:** nada foi exportado ao Instantly. `total_steps = 6`.
+- **Dossiês:** `nstech.com.br` (6 fatos) e `jdconsultores.com.br` (2 fatos), os dois `complete`, sem fonte falhando, com `expires_at` em 2026-12-03 e 1 lead ligado a cada um. Os tipos de fato foram `site` e `news`, com fonte http(s), data e confiança. Nenhuma vaga encontrada.
+- **Custo:** 8 chamadas `treg` em `api_usage_logs`, todas `success`, com o custo em `metadata.costUsd` (`treg.web.search` US$ 0,00015 e `exa.web.search` US$ 0,007). Dossiê: US$ 0,01415 por conta, US$ 0,028 no total, dentro da faixa do spike.
+
+Observações para follow-up (não bloqueiam):
+- `api_usage_logs.estimated_cost` fica nulo nas linhas `treg`, porque o custo só vai para `metadata.costUsd`. Relatórios que somam `estimated_cost` não contam a Treg.
+- O fato `site` às vezes guarda o menu da página ("Pular para o conteúdo Fale com um especialista Login PT EN ES…") em vez de um resumo.
+- Uma notícia veio em espanhol (dataportuaria.com), mesmo com o filtro Brasil.
+- O chat mostrou "Etapa 3/5" na criação de campanha, que é a etapa 4 de 6 (DW-32, já registrado).
+
+**Os 3 pontos:** busca de leads e criação de campanha confirmadas por smoke real. Export e ativação não foram tocados (arquivos idênticos ao `main`; smoke parado antes do export). Campanhas rodando, webhook e `reply-sweep` não leem as tabelas novas.
