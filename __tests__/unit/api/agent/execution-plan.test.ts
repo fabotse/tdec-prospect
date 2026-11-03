@@ -178,7 +178,7 @@ describe("GET /api/agent/executions/[executionId]/plan", () => {
     expect(response.status).toBe(200);
 
     const json = await response.json();
-    expect(json.data.totalActiveSteps).toBe(4); // 5 - 1 skipped
+    expect(json.data.totalActiveSteps).toBe(5); // 6 - 1 skipped (Story 24.19)
   });
 
   it("deve retornar 200 com plan, costEstimate e totalActiveSteps", async () => {
@@ -207,10 +207,10 @@ describe("GET /api/agent/executions/[executionId]/plan", () => {
 
     const json = await response.json();
     expect(json.data).toBeDefined();
-    expect(json.data.steps).toHaveLength(5);
+    expect(json.data.steps).toHaveLength(6); // Story 24.19
     expect(json.data.costEstimate).toBeDefined();
     expect(json.data.costEstimate.currency).toBe("BRL");
-    expect(json.data.totalActiveSteps).toBe(5);
+    expect(json.data.totalActiveSteps).toBe(6);
     // Story 24.10: premium vem do servidor (leads × apify)
     expect(json.data.costEstimate.premiumIcebreakers).toEqual({ perLead: 0.15, total: 25 * 0.15 });
     // Story 24.16: 1 chamada de IA (Fit Score) × 0,02
@@ -241,7 +241,7 @@ describe("GET /api/agent/executions/[executionId]/plan", () => {
     expect(response.status).toBe(200);
 
     const json = await response.json();
-    expect(json.data.totalActiveSteps).toBe(3);
+    expect(json.data.totalActiveSteps).toBe(4); // Story 24.19: 6 - 2 skipped
   });
 
   it("deve retornar 200 com briefing contendo importedLeads sem technology nem jobTitles (AC: 17.11#3)", async () => {

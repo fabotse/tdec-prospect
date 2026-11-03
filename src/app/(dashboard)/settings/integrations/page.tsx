@@ -82,6 +82,13 @@ const integrations: IntegrationMeta[] = [
     icon: "🔍",
     description: "Prospecção tecnográfica — descubra empresas por stack tecnológico",
   },
+  {
+    // Story 24.19: chave por tenant (api_configs), usada só pelo step "Pesquisa das Contas".
+    name: "treg",
+    displayName: "Treg",
+    icon: "🔎",
+    description: "Pesquisa web das contas para o dossiê do agente: site, notícias e vagas",
+  },
 ];
 
 /**

@@ -71,8 +71,14 @@ export function useAutoTrigger({ executionId, steps, mode }: UseAutoTriggerOptio
       ? ["completed", "approved", "skipped"]
       : ["skipped"];
 
+    // Story 24.19: o `research_accounts` nao tem gate (informativo). No modo guiado ele
+    // conclui `completed` e o pipeline segue sozinho para o `create_campaign`.
+    const isEligible = (s: AgentStep) =>
+      triggerAfterStatuses.includes(s.status) ||
+      (mode === "guided" && s.status === "completed" && s.step_type === "research_accounts");
+
     const eligibleSteps = steps
-      .filter((s) => triggerAfterStatuses.includes(s.status))
+      .filter(isEligible)
       .sort((a, b) => b.step_number - a.step_number);
 
     if (eligibleSteps.length === 0) return;

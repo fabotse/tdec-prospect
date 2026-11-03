@@ -15,6 +15,7 @@ import { BaseStep } from "./base-step";
 import { InstantlyService } from "@/lib/services/instantly";
 import { TrackingService } from "@/lib/services/tracking";
 import { getServiceApiKey } from "./step-utils";
+import { readTotalSteps } from "./step-progress";
 import { markCampaignExported } from "@/lib/agent/campaign-persistence";
 import { logAgentUsage } from "@/lib/agent/agent-usage";
 import type {
@@ -126,7 +127,7 @@ export class ExportStep extends BaseStep {
     await this.supabase.from("agent_messages").insert({
       execution_id: input.executionId,
       role: "system",
-      content: `Etapa ${this.stepNumber}/5: Exportando campanha para o Instantly...`,
+      content: `Etapa ${this.stepNumber}/${await readTotalSteps(this.supabase, input.executionId)}: Exportando campanha para o Instantly...`,
       metadata: {
         stepNumber: this.stepNumber,
         messageType: "progress",

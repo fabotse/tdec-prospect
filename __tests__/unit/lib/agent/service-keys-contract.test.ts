@@ -71,12 +71,20 @@ describe("Contrato: chaves de servico no runtime do agente (Story 22.9)", () => 
       // migrations legitimas so acrescentam um `service_name` a um CHECK constraint.
       const LOOSENING = /POLICY|ROW\s+LEVEL\s+SECURITY|\bGRANT\b/i;
 
+      // Story 24.19: a checagem e por COMANDO SQL (sem comentarios), nao pelo arquivo
+      // inteiro. A 00073 cria policies das tabelas NOVAS do dossie e, no mesmo arquivo,
+      // acrescenta 'treg' ao CHECK de api_configs — nenhum comando junta as duas coisas.
+      const statements = (sql: string) =>
+        sql
+          .split("\n")
+          .filter((line) => !line.trim().startsWith("--"))
+          .join("\n")
+          .split(";");
+
       const touchingApiConfigsRls = migrations.filter((file) => {
-        const sql = read(file);
-        return (
-          LOOSENING.test(sql) &&
-          /api_configs/i.test(sql) &&
-          !file.includes("00005_api_configs_rls")
+        if (file.includes("00005_api_configs_rls")) return false;
+        return statements(read(file)).some(
+          (statement) => LOOSENING.test(statement) && /api_configs/i.test(statement)
         );
       });
 

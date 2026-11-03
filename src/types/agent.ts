@@ -17,7 +17,15 @@ import type { LeadEmailStatus } from "@/lib/leads/email-status";
 //             qualquer nao-terminal -> cancelled (PATCH { status: "cancelled" })
 export type ExecutionStatus = 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
 export type ExecutionMode = 'guided' | 'autopilot';
-export type StepType = 'search_companies' | 'search_leads' | 'create_campaign' | 'export' | 'activate';
+// Story 24.19: `research_accounts` roda entre o gate de leads e o `create_campaign`. E
+// informativo e fail-open: nunca altera os leads, a campanha, o export ou a ativacao.
+export type StepType =
+  | 'search_companies'
+  | 'search_leads'
+  | 'research_accounts'
+  | 'create_campaign'
+  | 'export'
+  | 'activate';
 export type StepStatus = 'pending' | 'running' | 'awaiting_approval' | 'approved' | 'completed' | 'failed' | 'skipped';
 export type MessageRole = 'user' | 'agent' | 'system';
 // Story 22.17 (AC3): `step_complete` e o log de CONCLUSAO de um step. Antes ele era
@@ -387,6 +395,60 @@ export interface SearchLeadsOutput {
   similarTitlesFallback?: boolean; // Story 24.15: ampliou para cargos parecidos
 }
 
+// === Research Accounts Output (Story 24.19) ===
+
+/** Fonte de fatos do dossie que pode falhar (gravada em `failed_sources`). */
+export type DossierSource = 'site' | 'news' | 'jobs' | 'posts';
+
+/** Motivo da falha de uma fonte. */
+export type DossierFailureReason = 'http' | 'timeout' | 'budget' | 'error';
+
+/** Motivo de uma conta nao pesquisada. */
+export type DossierSkipReason =
+  | 'no_domain'
+  | 'budget'
+  | 'time_budget'
+  | 'treg_unavailable'
+  | 'error';
+
+export interface ResearchedAccount {
+  companyName: string | null;
+  domain: string | null;
+  /** `null` = nada gravado (pulada, ou falha de banco). */
+  dossierId: string | null;
+  status: 'complete' | 'partial' | 'empty' | 'skipped';
+  reused: boolean;
+  factsCount: number;
+  failedSources: DossierSource[];
+  /** Motivo de cada fonte que falhou (ex.: `{ news: 'timeout' }`). */
+  failureReasons?: Partial<Record<DossierSource, DossierFailureReason>>;
+  skippedReason?: DossierSkipReason;
+  leadCount: number;
+}
+
+export interface ResearchAccountsFlags {
+  tregUnavailable?: 'missing' | 'decrypt_error';
+  budgetExhausted?: boolean;
+  timeBudgetExhausted?: boolean;
+  persistFailed?: boolean;
+  unexpectedError?: boolean;
+}
+
+export interface ResearchAccountsOutput {
+  accounts: ResearchedAccount[];
+  summary: {
+    accounts: number;
+    researched: number;
+    reused: number;
+    skipped: number;
+    facts: number;
+    leadsLinked: number;
+  };
+  flags: ResearchAccountsFlags;
+  /** Gasto da execucao no Treg + Apify (US$), o que o teto controla. */
+  costUsd: number;
+}
+
 // === Create Campaign Output (Story 17.3 AC #4) ===
 
 export interface CampaignStructureItem {
@@ -494,6 +556,7 @@ export function isTerminalExecutionStatus(status: string): boolean {
 export const STEP_LABELS: Record<StepType, string> = {
   search_companies: 'Busca de Empresas',
   search_leads: 'Busca de Leads',
+  research_accounts: 'Pesquisa das Contas',
   create_campaign: 'Criacao de Campanha',
   export: 'Exportacao',
   activate: 'Ativacao',

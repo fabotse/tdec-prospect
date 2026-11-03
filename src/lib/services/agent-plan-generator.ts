@@ -116,6 +116,14 @@ export const PIPELINE_STEPS: StepMetadata[] = [
     costKey: "search_leads",
   },
   {
+    // Story 24.19: informativo e fail-open — nunca bloqueia nem altera a campanha.
+    stepType: "research_accounts",
+    title: "Pesquisar Contas",
+    descriptionFn: () =>
+      "Pesquisar site, noticias e vagas de cada conta para um dossie com fontes (informativo: nao altera nem bloqueia a campanha)",
+    costKey: "research_accounts",
+  },
+  {
     stepType: "create_campaign",
     title: "Criar Campanha",
     descriptionFn: (b) => {

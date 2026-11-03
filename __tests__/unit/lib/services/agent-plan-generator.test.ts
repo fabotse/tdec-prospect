@@ -53,23 +53,33 @@ function createCostEstimate(overrides?: Partial<CostEstimate>): CostEstimate {
 
 describe("PlanGeneratorService", () => {
   describe("generatePlan", () => {
-    it("gera 5 steps na ordem correta", () => {
+    // Story 24.19: research_accounts entre search_leads e create_campaign.
+    it("gera 6 steps na ordem correta", () => {
       const steps = PlanGeneratorService.generatePlan(
         createBriefing(),
         createCostEstimate()
       );
 
-      expect(steps).toHaveLength(5);
+      expect(steps).toHaveLength(6);
       expect(steps[0].stepNumber).toBe(1);
       expect(steps[0].stepType).toBe("search_companies");
       expect(steps[1].stepNumber).toBe(2);
       expect(steps[1].stepType).toBe("search_leads");
       expect(steps[2].stepNumber).toBe(3);
-      expect(steps[2].stepType).toBe("create_campaign");
+      expect(steps[2].stepType).toBe("research_accounts");
       expect(steps[3].stepNumber).toBe(4);
-      expect(steps[3].stepType).toBe("export");
+      expect(steps[3].stepType).toBe("create_campaign");
       expect(steps[4].stepNumber).toBe(5);
-      expect(steps[4].stepType).toBe("activate");
+      expect(steps[4].stepType).toBe("export");
+      expect(steps[5].stepNumber).toBe(6);
+      expect(steps[5].stepType).toBe("activate");
+    });
+
+    it("research_accounts: titulo 'Pesquisar Contas' e descricao informativa (nao bloqueia)", () => {
+      const steps = PlanGeneratorService.generatePlan(createBriefing(), createCostEstimate());
+      expect(steps[2].title).toBe("Pesquisar Contas");
+      expect(steps[2].description).toContain("nao altera nem bloqueia a campanha");
+      expect(steps[2].skipped).toBe(false);
     });
 
     it("interpola briefing na descricao dos steps", () => {
@@ -125,8 +135,9 @@ describe("PlanGeneratorService", () => {
       expect(steps[0].skipped).toBe(true);
       expect(steps[1].skipped).toBe(false);
       expect(steps[2].skipped).toBe(false);
-      expect(steps[3].skipped).toBe(true);
-      expect(steps[4].skipped).toBe(false);
+      expect(steps[3].skipped).toBe(false);
+      expect(steps[4].skipped).toBe(true);
+      expect(steps[5].skipped).toBe(false);
     });
 
     it("steps skipped tem custo 0 e descricao 'Pulado'", () => {
@@ -151,9 +162,11 @@ describe("PlanGeneratorService", () => {
 
       expect(steps[0].estimatedCost).toBeCloseTo(0.10);
       expect(steps[1].estimatedCost).toBeCloseTo(3.00);
-      expect(steps[2].estimatedCost).toBeCloseTo(4.20);
-      expect(steps[3].estimatedCost).toBeCloseTo(0.00);
+      // Story 24.19: research_accounts sem entrada no costEstimate do teste -> 0
+      expect(steps[2].estimatedCost).toBeCloseTo(0.00);
+      expect(steps[3].estimatedCost).toBeCloseTo(4.20);
       expect(steps[4].estimatedCost).toBeCloseTo(0.00);
+      expect(steps[5].estimatedCost).toBeCloseTo(0.00);
     });
 
     it("cada step tem titulo definido", () => {
@@ -167,8 +180,8 @@ describe("PlanGeneratorService", () => {
       }
     });
 
-    it("PIPELINE_STEPS contem 5 step types", () => {
-      expect(PIPELINE_STEPS).toHaveLength(5);
+    it("PIPELINE_STEPS contem 6 step types", () => {
+      expect(PIPELINE_STEPS).toHaveLength(6);
     });
 
     // Story 17.10: descricao adaptada para search_leads quando skip empresas
@@ -348,7 +361,7 @@ describe("PlanGeneratorService", () => {
         createCostEstimate()
       );
 
-      expect(steps[2].description).toBe(
+      expect(steps[3].description).toBe(
         "Criar campanha com emails personalizados para 2 leads importados"
       );
     });
@@ -363,7 +376,7 @@ describe("PlanGeneratorService", () => {
         createCostEstimate()
       );
 
-      expect(steps[2].description).toBe("Gerar emails personalizados com IA usando Knowledge Base");
+      expect(steps[3].description).toBe("Gerar emails personalizados com IA usando Knowledge Base");
     });
   });
 });

@@ -16,6 +16,7 @@
  * - apify:      R$ por perfil LinkedIn consultado
  * - openai:     R$ por chamada ao LLM
  * - instantly:  R$ por export
+ * - treg:       R$ por US$ 1 gasto no Treg (Story 24.19; o Treg cobra em US$)
  */
 
 import { MAX_REWRITES } from "@/lib/ai/copy-review-config";
@@ -80,6 +81,12 @@ export function resolveLeadsPerPage(briefing: Pick<ParsedBriefing, "leadCount">)
   );
 }
 
+/** Story 24.19: estimativa do dossie por lead (US$ no Treg; spike 24.11: 0,015-0,02 por conta). */
+export const DOSSIER_ESTIMATE_USD_PER_LEAD = 0.02;
+
+/** Story 24.19: posts classificados por lead no pior caso (limite do Apify no dossie). */
+export const DOSSIER_ESTIMATE_POSTS_PER_LEAD = 10;
+
 /** Creditos TheirStack cobrados por empresa devolvida. */
 export const THEIRSTACK_CREDITS_PER_COMPANY = 3;
 
@@ -87,7 +94,7 @@ export const THEIRSTACK_CREDITS_PER_COMPANY = 3;
 // PRECOS
 // ==============================================
 
-export type PricedService = "theirstack" | "apollo" | "apify" | "openai" | "instantly";
+export type PricedService = "theirstack" | "apollo" | "apify" | "openai" | "instantly" | "treg";
 
 export type UnitPrices = Record<PricedService, number>;
 
@@ -98,6 +105,8 @@ export const AGENT_DEFAULT_COSTS: Record<PricedService, { unitPrice: number; uni
   apify: { unitPrice: 0.15, unitDescription: "por perfil LinkedIn" },
   openai: { unitPrice: 0.02, unitDescription: "por chamada de IA" },
   instantly: { unitPrice: 0.0, unitDescription: "por export (free tier)" },
+  // Story 24.19: cambio usado para converter o gasto do Treg (US$) em BRL.
+  treg: { unitPrice: 5.5, unitDescription: "BRL por US$ 1 gasto no Treg" },
 };
 
 const PRICED_SERVICES = Object.keys(AGENT_DEFAULT_COSTS) as PricedService[];
@@ -184,6 +193,13 @@ export function computeStepActualCost(
     case "search_leads":
       // Story 24.16: 1 chamada de IA do Fit Score (a busca Apollo nao consome credito).
       return count(cost, "openai_fit_score") * prices.openai;
+    case "research_accounts":
+      // Story 24.19: Treg (US$ x cambio) + perfis Apify + chamadas de IA do classificador.
+      return (
+        count(cost, "treg_usd") * prices.treg +
+        count(cost, "apify") * prices.apify +
+        count(cost, "openai_relevance") * prices.openai
+      );
     case "create_campaign": {
       const generationCalls =
         cost.openai_calls !== undefined && cost.openai_calls !== null

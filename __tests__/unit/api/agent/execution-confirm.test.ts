@@ -282,10 +282,12 @@ describe("POST /api/agent/executions/[executionId]/confirm", () => {
     const response = await POST(createRequest(), createParams());
     expect(response.status).toBe(200);
 
-    // Story 17.10: ALL 5 steps inserted (orchestrator handles skipping at execution time)
+    // Story 17.10: ALL steps inserted (orchestrator handles skipping at execution time)
+    // Story 24.19: 6 steps — `research_accounts` entre `search_leads` e `create_campaign`.
     expect(insertChain.insert).toHaveBeenCalled();
     const insertedSteps = insertChain.insert.mock.calls[0][0];
-    expect(insertedSteps).toHaveLength(5);
+    expect(insertedSteps).toHaveLength(6);
+    expect(insertedSteps[2]).toMatchObject({ step_number: 3, step_type: "research_accounts" });
     // All inserted as "pending" — orchestrator's shouldSkip marks them as skipped
     expect(insertedSteps.every((s: { status: string }) => s.status === "pending")).toBe(true);
   });

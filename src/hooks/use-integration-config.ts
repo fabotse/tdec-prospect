@@ -92,6 +92,7 @@ const initialConfigs: IntegrationConfigs = {
   apify: { ...initialConfig },
   zapi: { ...initialConfig },
   theirstack: { ...initialConfig },
+  treg: { ...initialConfig },
 };
 
 /**

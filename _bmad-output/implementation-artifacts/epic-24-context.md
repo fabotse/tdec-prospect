@@ -4,11 +4,10 @@
 
 ## Goal
 
-Transformar o agente no caminho para poucos leads de altíssima qualidade. Hoje ele faz o mesmo que o fluxo manual (cargo + cidade → Apollo → campanha), só que com mais atrito e mais falhas: 5,4% das execuções concluídas e 1 de 20 campanhas geradas. O épico tem 3 marcos. **M1** faz o agente parar de travar e escrever copy honesta. **M2** coloca o agente para escolher contas com Fit Score justificado (inclusive a partir de clientes de referência) e verificar e-mails. **M3** faz o agente pesquisar cada conta (dossiê + "por que agora"), escrever 1-para-1 e preparar a reunião quando o lead responde. Ao fim de cada marco: deploy, smoke real e checkpoint com o Fabossi.
+Transformar o agente no caminho para poucos leads de altíssima qualidade. Hoje ele faz o mesmo que o fluxo manual com mais atrito (5,4% de conclusão). Para mudar isso, o agente passa a se comportar como um Analista de Contas: não trava, escreve copy honesta, escolhe contas com nota de fit justificada (inclusive a partir de clientes de referência), pesquisa cada conta e monta um dossiê com fontes, escreve 1-para-1 e prepara a reunião quando o lead responde. O épico é entregue em 3 marcos. Cada marco termina com deploy, smoke real e checkpoint com o Fabossi: Marco 1 (confiável e copy honesta), Marco 2 (analista de contas) e Marco 3 (dossiê e reunião).
 
 ## Stories
 
-**Marco 1 — Confiável & copy honesta**
 - Story 24.1: Etapa travada é destravada sozinha
 - Story 24.2: Execução protegida contra cobrança dupla
 - Story 24.3: Avanço confiável e "Tentar novamente"
@@ -19,18 +18,14 @@ Transformar o agente no caminho para poucos leads de altíssima qualidade. Hoje 
 - Story 24.8: Prompts honestos — problema primeiro, provas só da KB
 - Story 24.9: Revisor automático de copy
 - Story 24.10: Custo real e estimativa honesta
-
-**Marco 2 — Analista de Contas**
 - Story 24.11: Spike do Treg
-- Story 24.12: Status do e-mail visível na revisão (sem custo e sem trava; escopo reduzido em 2026-10-27)
+- Story 24.12: Status do e-mail visível na revisão (sem custo e sem trava)
 - Story 24.13: Quantos leads eu quero
 - Story 24.14: Briefing a partir do ICP
 - Story 24.15: Busca mais precisa
 - Story 24.16: Fit Score A/B/C com justificativa
 - Story 24.17: Modo lista de contas (ABM)
 - Story 24.18: Contas parecidas com os melhores clientes
-
-**Marco 3 — Dossiê & reunião**
 - Story 24.19: Dossiê da conta
 - Story 24.20: Motivo para abordar agora
 - Story 24.21: Copy 1-para-1 por lead
@@ -41,54 +36,40 @@ Transformar o agente no caminho para poucos leads de altíssima qualidade. Hoje 
 
 ## Requirements & Constraints
 
-**Restrição operacional dominante: o desenvolvimento roda contra PRODUÇÃO.** O banco de teste (23.0) foi adiado. O `.env.local` aponta para o Supabase de produção do cliente (`kdgogyqyaxncqoyklyxx`) e usa as contas reais do Instantly e do Apollo. Por isso:
-- Precisam continuar funcionando sem nenhuma trava nova: (1) as campanhas que já rodam no Instantly, junto com o recebimento de respostas e aberturas (webhook + `reply-sweep`); (2) a busca de novos leads; (3) a criação de campanhas e o export/ativação no Instantly.
-- Migrations só aditivas (tabela, coluna nullable, índice), sem `DROP`, `ALTER` destrutivo ou `UPDATE`/`DELETE` em dados existentes. Só aplicar com OK do Fabossi. O código não sobe antes da migration aplicada.
-- Sem pedido explícito, não criar, alterar nem reagendar jobs `pg_cron`, não publicar Edge Functions e não mudar secrets/variáveis.
-- Smokes: nunca ativar campanha de teste no Instantly, não mexer em campanhas reais e não enviar WhatsApp para leads. Nos smokes do agente, parar antes de gastos/ativação.
-- Ao fim de cada story, registrar nas Completion Notes o que pode mudar para o cliente (arquivos, rotas, prompts, tabelas, jobs, integrações) e confirmar os 3 pontos acima, dizendo se foi por smoke real ou por análise do diff. Se algum dos 3 puder ser afetado, parar e avisar o Fabossi antes de seguir.
-
-**Ordem de execução definida pelo Fabossi** (substitui a ordem numérica; o bmad-loop roda uma story por vez, ex.: `bmad-loop run --story 24-2`):
-1. Já concluídas no Epic 23: 23.4, 23.2 e 23.8.
-2. **24.2 → 24.3 → 24.4 → 24.5 → 24.6**: Marco 1, só código do agente.
-3. Só em janela de deploy combinada: **24.1** (sweeper via pg_cron) e **24.7** (tabela nova de Provas), junto com 23.1 e 23.3.
-4. As demais (24.8 em diante) não têm ordem definida além da sequência dos marcos. Só com decisão do Fabossi: 23.5–23.7 (supressão/dedupe, que travam envio).
-
-**Requisitos de produto:**
-- Confiabilidade: o step preso em `running` além do limite vira `failed` e a execução vai para `paused`. Toda gravação de checkpoint, aprovação e falha checa erro do banco. Export idempotente, com retry reaproveitando a campanha já criada no Instantly. A rota execute só aceita steps `pending`/`failed`/`rejected` (senão 409), e o PATCH de briefing só é aceito com a execução `pending`. O usuário pode refazer um step que falhou pela UI.
-- Conversa: nunca fica sem resposta e todo ramo tem saída. As confirmações (briefing, produto, leads) são feitas por botão; a keyword `includes()` fica só como fallback e nunca confirma nada sozinha. Todos os turnos entram na memória do LLM.
-- Copy: nada de dados fictícios ("Nome", "Empresa", setor "Tecnologia"). Follow-ups com estratégia e ângulo próprios por posição e numeração correta. Abrir pelo problema do lead, nunca pelo produto. Citar só provas autorizadas da KB, e sem provas não citar nenhuma. O revisor automático reescreve até 2× e, se ainda reprovar, marca para revisão humana. As correções de prompt valem também para o fluxo manual, e isso é intencional.
-- Qualificação: `leadCount` (N) respeitado no plano, no custo e na pré-seleção. Briefing proposto a partir do ICP. Busca por localização da **empresa**, sem setor público por padrão. Universo de 3–5× N, com Fit Score A/B/C e justificativa de 1 linha. Modo ABM por lista de contas. Contas parecidas a partir de 3–5 clientes de referência. Status do e-mail do Apollo visível na revisão como aviso, sem verificação paga e sem bloquear o export (24.12 reduzida em 2026-10-27). Nunca revelar e-mail pessoal.
-- Dossiê: fatos `{fato, fonte_url, data, confiança}`, e fato sem fonte não entra. Gatilho "por que agora"; sem gatilho confiável, o lead segue a copy padrão e fica sinalizado. Copy por lead enviada em variáveis personalizadas no Instantly. Briefing de reunião que não inventa fatos. Conversa pós-execução e memória entre execuções.
-
-**Não funcionais:** pipeline determinístico, em que o LLM decide só conversa e conteúdo, nunca ordem de steps, gasto ou envio. Toda ação com custo pedida no chat passa por card + clique. Toda chamada paga é logada em `api_usage_logs` com tenant e execução. Nenhum retry cobra duas vezes, e há teto de custo por execução. Chaves novas (Treg) ficam por tenant, criptografadas com AES-256-GCM, e o runtime do agente usa service-role. Chat responde em menos de 5s. Falha de LLM ou de fonte externa degrada para o comportamento anterior e nunca trava a execução. LGPD: sem e-mail pessoal, fatos guardam a fonte. A Definition of Done inclui smoke real (tela + banco).
+- **Regra nº 1 (produção):** as campanhas em andamento, a busca de leads e o caminho de criação, export e ativação no Instantly continuam funcionando sem nenhuma trava, filtro ou bloqueio novo. Tudo que depende de dados novos (dossiê, status de e-mail, score) é informativo ou fail-open até uma liberação explícita. Ex.: o status de e-mail é só um aviso, e `revealPersonalEmails` continua `true`.
+- **Pipeline determinístico:** o LLM decide só a conversa e o conteúdo. Nunca decide a ordem dos steps, o gasto de créditos ou o envio. Ações que custam dinheiro pedidas na conversa viram um card com custo estimado e só rodam após clique.
+- **Fluxo manual inalterado**, exceto pelas proteções compartilhadas e intencionais: prompts corrigidos, revisor e supressão/dedupe do Epic 23. Os testes existentes do editor manual precisam continuar verdes.
+- **Custo:** toda chamada paga (Apollo, TheirStack, Instantly, OpenAI, Apify, Treg) é registrada em `api_usage_logs` com tenant e execução. Nenhum retry cobra duas vezes. Cada execução respeita um teto de custo configurável aplicado no nosso código.
+- **Fail-safe:** falha ou timeout de LLM ou de fonte externa degrada para o comportamento anterior e nunca trava a execução. Ex.: o score cai para só regras, o dossiê sai parcial e sinalizado, o e-mail fica "não revisado".
+- **Honestidade da copy:** nada de dados fictícios ("Nome", "Empresa", setor "Tecnologia"). Provas, números e cases saem só da lista autorizada da KB. Fatos do dossiê só entram com fonte e nunca são inferidos. A preparação de reunião marca como sugestão tudo que não vier de dossiê, resposta ou KB.
+- **LGPD:** fatos guardam a fonte, o opt-out é respeitado e não há prospecção por e-mail pessoal (a mudança no caminho do Instantly fica pendente por causa da regra nº 1).
+- Respostas do chat em menos de 5 s.
+- **Definition of Done:** inclui smoke real (tela + banco) por marco, não só testes mockados. Nas stories com Treg, testes e verificação ficam sem rede real (tudo mockado) até o Fabossi aplicar a migration e cadastrar a chave.
 
 ## Technical Decisions
 
-- Sem orquestrador durável. A recuperação de step usa TTL via pg_cron (sweeper com compare-and-swap, só atualiza se ainda estiver `running`), `after()` do Next e idempotência por output parcial do step (o id da campanha Instantly fica no output). A rota execute declara `maxDuration` de 300s. `triggerNextStep` precisa checar a resposta.
-- Pontos de defeito já mapeados: `base-step.ts` (`saveCheckpoint`/`saveAwaitingApproval`/`saveFailure`), `export-step.ts`, rota `.../steps/[n]/execute`, rota `.../briefing`, `client-utils.ts`, `AgentActivationGate.tsx`, `AgentChat.tsx`, `use-briefing-flow.ts` (`sendAgentMessage` → `sendAndRecord`).
-- Copy: `buildAIVariables` (`knowledge-base-context.ts`) injeta defaults fictícios. Dado ausente vira variável do Instantly (`{{firstName}}`, `{{companyName}}`) ou é omitido. O literal `{{follow_up_strategy}}` vaza hoje. Os prompts ficam em `prompts/defaults.ts` via `promptManager`/`ai_prompts`, e os prompts customizados por tenant no banco precisam ser documentados e migrados.
-- O modelo de escrita/revisão é definido em fonte única no padrão `parser-config.ts`, já compatível com modelos novos.
-- Reuso obrigatório: `base-service` (para o `TregService`), `promptManager`, `relevance-classifier` (posts), busca por domínio (`q_organization_domains_list` em `search-leads-step.ts`), `lead-persistence` e `campaign-persistence`, `usage-logger`.
-- Treg: gateway com token único, BYOK, `Idempotency-Key` e teto por chamada. As capacidades-alvo são `people.email.verify`, `people.email.find`, `web.search` e `web.extract`. A integração só acontece após o go/no-go do spike (24.11). Se for no-go, usar o `email_status` da Apollo atrás da mesma interface.
-- Busca Apollo: `organization_locations` em vez de localização da pessoa; `include_similar_titles` deixa de ser fixo `true`; filtro de indústria por tags em vez de `q_keywords`; o ICP substitui o piso `QUALITY_MIN_COMPANY_SIZES` quando o porte não for informado.
-- Migrations novas previstas: Provas da KB (24.7), dossiê ligado a domínio e lead, reaproveitável por cerca de 30 dias (24.19). Ambas aditivas.
-- Branch do épico: `epic/24-...`, com PR para `main` ao fim.
+- **Modelo do agente:** pipeline sequencial de steps com checkpoint em `agent_executions`/`agent_steps`/`agent_messages`. Uma API route por step, orquestração no client, gates via status `awaiting_approval`, Supabase Realtime. Sem orquestrador durável: TTL de step via pg_cron + `after()` do Next + idempotência por output parcial.
+- **Reuso obrigatório:** `base-service` para novos serviços (Treg), `promptManager`/`ai_prompts` para prompts, `relevance-classifier` para posts, busca por domínio existente (`q_organization_domains_list`) para ABM, `lead-persistence`/`campaign-persistence`, `knowledge-base-context.ts` para montar o contexto da KB.
+- **Modelos de IA** (escrita e revisão) configurados numa fonte única no padrão `parser-config.ts`, compatível com modelos novos.
+- **Treg (spike 24.11, decisão de 2026-10-28):** GO só para `web.search`/`web.extract`, com Exa via Treg (filtro de data e Brasil) para notícias e vagas e cache próprio de 30 dias. NO-GO para verify/find de e-mail e telefone, que continuam com o Apollo e as fontes atuais.
+- **Chaves de serviços novos:** por tenant, criptografadas (AES-256-GCM) em `api_configs`, lidas pelo agente via `src/lib/agent/service-keys.ts` (service-role). O Treg aparece em Configurações → Integrações (`SERVICE_NAMES`/`SERVICE_LABELS`). Nunca usar variável de ambiente para a chave do Treg.
+- **Migrations:** só aditivas e versionadas (próximo número livre em `supabase/migrations/`). Agentes escrevem e nunca aplicam; o código não sobe antes da migration aplicada. Para incluir um serviço novo nos CHECKs de `service_name` (`api_configs`, `api_usage_logs`), seguir o modelo drop + add da constraint (ver `00065`), sem tocar em linhas. Documentar o rollback.
+- **Dossiê:** fatos `{fato, fonte_url, data, confiança}` ligados a tenant, domínio da empresa e lead, com RLS por tenant e reuso por cerca de 30 dias.
+- **Saída para o Instantly:** texto 1-para-1 em variáveis personalizadas por lead. Leads "sem gatilho" usam o template padrão. Dado ausente vira variável do Instantly (`{{firstName}}`, `{{companyName}}`) ou é omitido.
+- Branch por épico, com PR para `main` ao final.
 
 ## UX & Interaction Patterns
 
-- Botão "Tentar novamente" no card de step com falha, com a mensagem coerente com `isRetryable`.
-- Card de resumo do briefing com chips editáveis e botões Confirmar/Ajustar (também para produto e leads). Texto livre digitado com o card visível é tratado como ajuste.
-- Revisão de leads: badge A/B/C, justificativa de 1 linha, ordenação por score, input numérico de quantidade e pré-seleção dos N melhores. Badges "Suprimido"/"Já contatado" vêm do Epic 23.
-- Status do revisor por e-mail: aprovado / reescrito / precisa revisão humana / não revisado.
-- Painel de dossiê (fatos com fonte e data, gatilho, hipótese de dor) na revisão do agente e no card da oportunidade, com "sem pesquisa" + ação de gerar. Briefing de reunião salvo no card, que pode ser regenerado e copiado.
-- Ações com custo no chat pós-execução aparecem num card com o custo estimado e só rodam após clique.
+- Card de resumo do briefing com chips editáveis e botões Confirmar/Ajustar. Produto e leads próprios também confirmam por botão. Texto livre é sempre ajuste, nunca confirmação.
+- "Tentar novamente" no card de step com falha, com mensagem coerente com `isRetryable`.
+- Revisão de leads: badge A/B/C + justificativa de 1 linha, ordenação por score, pré-seleção dos N pedidos, input numérico de quantidade e aviso discreto de "e-mail não verificado".
+- Indicador por e-mail do revisor: aprovado / reescrito / precisa revisão humana / não revisado.
+- Painel de dossiê (fatos com fonte e data, gatilho "por que agora", hipótese de dor) na revisão do agente e no card da oportunidade. Sem dossiê, mostra "sem pesquisa" com ação de gerar.
 
 ## Cross-Story Dependencies
 
-- 24.2 precede 24.3, porque o retry depende da proteção contra execução dupla. 24.5 reaproveita os caminhos que a 24.4 corrige. 24.14 e 24.17/24.18 usam o card da 24.5.
-- 24.7 (Provas) alimenta 24.8, 24.9, 24.21 e 24.23. 24.9 é reusado na 24.21 (checagem contra o dossiê) e na 24.24.
-- 24.11 (spike, sem código de produção) define o provedor de 24.19 (a 24.12 não depende mais dele desde 2026-10-27), e o serviço Treg é pré-requisito do Epic 25.
-- 24.13 (N) alimenta 24.16. 24.16 é reusado em 24.18. 24.19 alimenta 24.20, 24.21, 24.22 e 24.23. 24.6 define os ângulos dos follow-ups usados na 24.21.
-- Do Epic 23: supressão e "já contatado" (23.5–23.7) são consumidos em 24.15, 24.17, 24.18 e 24.25. Como essas stories estão em espera, aplicar "conforme a regra já existente". O export (`instantly.ts`) é compartilhado com 23.6/23.7.
-- Do Epic 21: Central de Oportunidades e loop de respostas (24.22, 24.23, 24.25). O Epic 18 é absorvido de forma reduzida (FR11–16, FR25).
+- O Epic 23 (supressão, dedupe/"já contatado", CI) vem antes: as stories 24.15, 24.17, 24.18 e 24.25 usam essa base.
+- O Marco 1 dá a base dos demais: 24.2 é pré-requisito do retry da 24.3, 24.5 do card da 24.14, 24.7 das provas usadas em 24.8/24.9/24.21/24.23, 24.6 dos ângulos de follow-up da 24.21, e 24.9 do revisor reaplicado em 24.21/24.24.
+- O Marco 2 se encadeia assim: 24.13 (N) leva à 24.16 (universo de 3–5× N com score), que é reaproveitada pela 24.18. A 24.11 já decidiu o provedor da 24.19.
+- O Marco 3 segue a cadeia 24.19 (dossiê) → 24.20 (gatilho) → 24.21 (copy por lead) → 24.22 (visualização). A 24.23 usa o dossiê e a Central de oportunidades do Epic 21. A 24.25 usa os dados do loop de resposta do Epic 21.
+- O Epic 25 depende do serviço Treg e da base de clientes criados aqui e no Epic 23.

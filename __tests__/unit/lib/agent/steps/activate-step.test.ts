@@ -242,6 +242,23 @@ describe("ActivateStep (Story 17.4 AC #3, #4)", () => {
     });
   });
 
+  // Story 24.19: o total vem de agent_executions.total_steps (6 com o research).
+  describe("progress message (Story 24.19)", () => {
+    it("usa o total real de etapas (Etapa 6/6)", async () => {
+      const baseFrom = mockSupabase.from.getMockImplementation()!;
+      mockSupabase.from.mockImplementation((table: string) =>
+        table === "agent_executions" ? createChainBuilder({ data: { total_steps: 6 }, error: null }) : baseFrom(table)
+      );
+      const step = new ActivateStep(6, mockSupabase as never, TENANT_ID);
+
+      await step.run(createDefaultInput());
+
+      expect(mockSupabase.messagesChain.insert).toHaveBeenCalledWith(
+        expect.objectContaining({ content: "Etapa 6/6: Ativando campanha no Instantly..." })
+      );
+    });
+  });
+
   // 5.18 - Confirmation message sent
   describe("confirmation message", () => {
     it("sends confirmation message to agent_messages", async () => {

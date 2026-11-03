@@ -13,6 +13,7 @@ import { BaseStep } from "./base-step";
 import { InstantlyService } from "@/lib/services/instantly";
 import { ExternalServiceError } from "@/lib/services/base-service";
 import { getServiceApiKey } from "./step-utils";
+import { readTotalSteps } from "./step-progress";
 import { stampLatestApprovalGate } from "@/lib/agent/gate-metadata";
 import { markCampaignActive } from "@/lib/agent/campaign-persistence";
 import { logAgentUsage } from "@/lib/agent/agent-usage";
@@ -157,7 +158,7 @@ export class ActivateStep extends BaseStep {
     await this.supabase.from("agent_messages").insert({
       execution_id: input.executionId,
       role: "system",
-      content: `Etapa ${this.stepNumber}/5: Ativando campanha no Instantly...`,
+      content: `Etapa ${this.stepNumber}/${await readTotalSteps(this.supabase, input.executionId)}: Ativando campanha no Instantly...`,
       metadata: {
         stepNumber: this.stepNumber,
         messageType: "progress",

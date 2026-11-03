@@ -104,6 +104,23 @@ vi.mock("@/lib/agent/steps/activate-step", () => {
   };
 });
 
+// Story 24.19: step de pesquisa das contas (informativo, sem post-approval).
+const mockResearchAccountsRun = vi.fn();
+vi.mock("@/lib/agent/steps/research-accounts-step", () => {
+  return {
+    ResearchAccountsStep: class MockResearchAccountsStep {
+      run = mockResearchAccountsRun;
+      stepNumber: number;
+      stepType: string;
+      requiresPostApproval = () => false;
+      constructor(stepNumber: number) {
+        this.stepNumber = stepNumber;
+        this.stepType = "research_accounts";
+      }
+    },
+  };
+});
+
 const mockGeneratePlan = vi.fn();
 
 vi.mock("@/lib/services/agent-plan-generator", () => ({
@@ -2641,5 +2658,209 @@ describe("DeterministicOrchestrator (AC #5)", () => {
         code: "ORCHESTRATOR_STEP_NOT_READY",
       });
     });
+  });
+});
+
+// ==============================================
+// Story 24.19: research_accounts nunca e "o step anterior"
+// ==============================================
+
+type StepRow = {
+  execution_id: string;
+  step_number: number;
+  step_type: string;
+  status: string;
+  output: Record<string, unknown> | null;
+};
+
+/**
+ * agent_steps em memoria: aplica eq/neq/lt/in/order/limit/single de verdade, para que o
+ * filtro `.neq("step_type","research_accounts")` seja exercitado (um chain-builder generico
+ * devolveria a mesma linha com ou sem o filtro).
+ */
+function createInMemorySupabase(rows: StepRow[], execution: Record<string, unknown>) {
+  const messages: Array<Record<string, unknown>> = [];
+
+  function stepsChain() {
+    const filters: Array<(r: StepRow) => boolean> = [];
+    let order: { column: keyof StepRow; ascending: boolean } | null = null;
+    let limit: number | null = null;
+    let single = false;
+    let isWrite = false;
+    const chain: Record<string, unknown> = {};
+    const self = () => chain;
+    chain.select = self;
+    chain.update = () => { isWrite = true; return chain; };
+    chain.insert = () => { isWrite = true; return chain; };
+    chain.eq = (c: keyof StepRow, v: unknown) => { filters.push((r) => r[c] === v); return chain; };
+    chain.neq = (c: keyof StepRow, v: unknown) => { filters.push((r) => r[c] !== v); return chain; };
+    chain.lt = (c: keyof StepRow, v: number) => { filters.push((r) => (r[c] as number) < v); return chain; };
+    chain.in = (c: keyof StepRow, vs: unknown[]) => { filters.push((r) => vs.includes(r[c])); return chain; };
+    chain.order = (c: keyof StepRow, opts?: { ascending?: boolean }) => {
+      order = { column: c, ascending: opts?.ascending ?? true };
+      return chain;
+    };
+    chain.limit = (n: number) => { limit = n; return chain; };
+    chain.single = () => { single = true; return chain; };
+    chain.maybeSingle = () => { single = true; return chain; };
+    chain.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => {
+      if (isWrite) return Promise.resolve({ data: null, error: null }).then(resolve, reject);
+      let out = rows.filter((r) => filters.every((f) => f(r)));
+      if (order) {
+        const { column, ascending } = order;
+        out = [...out].sort((a, b) => ((a[column] as number) - (b[column] as number)) * (ascending ? 1 : -1));
+      }
+      if (limit !== null) out = out.slice(0, limit);
+      const data = single ? (out[0] ?? null) : out;
+      // Copia profunda: o orchestrator muta o output lido (approvedLeads -> leads).
+      return Promise.resolve({ data: data ? JSON.parse(JSON.stringify(data)) : data, error: null }).then(resolve, reject);
+    };
+    return chain;
+  }
+
+  const from = vi.fn((table: string) => {
+    if (table === "agent_steps") return stepsChain();
+    if (table === "agent_executions") return createChainBuilder({ data: execution, error: null });
+    if (table === "agent_messages") {
+      const chain = createChainBuilder({ data: null, error: null });
+      chain.insert = vi.fn((payload: Record<string, unknown>) => {
+        messages.push(payload);
+        return chain;
+      });
+      return chain;
+    }
+    return createChainBuilder();
+  });
+
+  return { from, messages };
+}
+
+function executionRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "exec-001",
+    tenant_id: "tenant-1",
+    user_id: "user-1",
+    status: "running",
+    mode: "guided",
+    briefing: mockBriefing,
+    current_step: 3,
+    total_steps: 6,
+    cost_estimate: null,
+    ...overrides,
+  };
+}
+
+const LEAD_A = { name: "Ana", title: "CISO", companyName: "Banco X", email: "ana@bancox.com.br", linkedinUrl: null, apolloId: "ap-1" };
+const LEAD_B = { name: "Rui", title: "CTO", companyName: "Empresa Y", email: "rui@empresay.com", linkedinUrl: null, apolloId: "ap-2" };
+
+const SEARCH_LEADS_OUTPUT = {
+  leads: [LEAD_A, LEAD_B],
+  approvedLeads: [LEAD_A],
+  totalFound: 2,
+  jobTitles: ["CISO"],
+  domainsSearched: [],
+};
+
+const RESEARCH_OUTPUT = {
+  accounts: [{ companyName: "Banco X", domain: "bancox.com.br", dossierId: "d-1", status: "complete", reused: false, factsCount: 3, failedSources: [], leadCount: 1 }],
+  summary: { accounts: 1, researched: 1, reused: 0, skipped: 0, facts: 3, leadsLinked: 1 },
+  flags: {},
+  costUsd: 0.015,
+};
+
+describe("DeterministicOrchestrator — research_accounts (Story 24.19)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCreateCampaignRun.mockResolvedValue({ success: true, data: { campaignName: "C" } });
+    mockResearchAccountsRun.mockResolvedValue({ success: true, data: RESEARCH_OUTPUT });
+    mockActivateRun.mockResolvedValue({ success: true, data: { activated: true } });
+  });
+
+  it("registra o research_accounts no registry e o step le o output do search_leads", async () => {
+    const db = createInMemorySupabase(
+      [
+        { execution_id: "exec-001", step_number: 1, step_type: "search_companies", status: "completed", output: { companies: [] } },
+        { execution_id: "exec-001", step_number: 2, step_type: "search_leads", status: "approved", output: SEARCH_LEADS_OUTPUT },
+        { execution_id: "exec-001", step_number: 3, step_type: "research_accounts", status: "pending", output: null },
+      ],
+      executionRow()
+    );
+    const orchestrator = new DeterministicOrchestrator(db as never, API_KEY);
+
+    await orchestrator.executeStep("exec-001", 3);
+
+    expect(mockResearchAccountsRun).toHaveBeenCalledTimes(1);
+    const input = mockResearchAccountsRun.mock.calls[0][0];
+    expect(input.previousStepOutput.leads).toEqual([LEAD_A]);
+  });
+
+  it("create_campaign recebe previousStepOutput deep-equal ao de uma execucao sem research", async () => {
+    const withResearch = createInMemorySupabase(
+      [
+        { execution_id: "exec-001", step_number: 1, step_type: "search_companies", status: "completed", output: { companies: [] } },
+        { execution_id: "exec-001", step_number: 2, step_type: "search_leads", status: "approved", output: SEARCH_LEADS_OUTPUT },
+        { execution_id: "exec-001", step_number: 3, step_type: "research_accounts", status: "completed", output: RESEARCH_OUTPUT },
+        { execution_id: "exec-001", step_number: 4, step_type: "create_campaign", status: "pending", output: null },
+      ],
+      executionRow({ current_step: 4 })
+    );
+    const withoutResearch = createInMemorySupabase(
+      [
+        { execution_id: "exec-001", step_number: 1, step_type: "search_companies", status: "completed", output: { companies: [] } },
+        { execution_id: "exec-001", step_number: 2, step_type: "search_leads", status: "approved", output: SEARCH_LEADS_OUTPUT },
+        { execution_id: "exec-001", step_number: 3, step_type: "create_campaign", status: "pending", output: null },
+      ],
+      executionRow({ current_step: 3, total_steps: 5 })
+    );
+
+    await new DeterministicOrchestrator(withResearch as never, API_KEY).executeStep("exec-001", 4);
+    await new DeterministicOrchestrator(withoutResearch as never, API_KEY).executeStep("exec-001", 3);
+
+    expect(mockCreateCampaignRun).toHaveBeenCalledTimes(2);
+    const [inputWith] = mockCreateCampaignRun.mock.calls[0];
+    const [inputWithout] = mockCreateCampaignRun.mock.calls[1];
+    expect(inputWith.previousStepOutput).toEqual(inputWithout.previousStepOutput);
+    expect(inputWith.previousStepOutput.leads).toEqual([LEAD_A]);
+    expect(inputWith.previousStepOutput).not.toHaveProperty("accounts");
+  });
+
+  it("fluxo importado (buscas puladas + research completed): create_campaign roda sem ORCHESTRATOR_STEP_NOT_READY", async () => {
+    const importedBriefing: ParsedBriefing = {
+      ...mockBriefing,
+      technology: null,
+      skipSteps: ["search_companies", "search_leads"],
+      importedLeads: [LEAD_A],
+    };
+    const db = createInMemorySupabase(
+      [
+        { execution_id: "exec-001", step_number: 1, step_type: "search_companies", status: "skipped", output: { skipped: true } },
+        { execution_id: "exec-001", step_number: 2, step_type: "search_leads", status: "skipped", output: { skipped: true } },
+        { execution_id: "exec-001", step_number: 3, step_type: "research_accounts", status: "completed", output: RESEARCH_OUTPUT },
+        { execution_id: "exec-001", step_number: 4, step_type: "create_campaign", status: "pending", output: null },
+      ],
+      executionRow({ briefing: importedBriefing, current_step: 4 })
+    );
+
+    await expect(new DeterministicOrchestrator(db as never, API_KEY).executeStep("exec-001", 4)).resolves.toMatchObject({ success: true });
+    expect(mockCreateCampaignRun.mock.calls[0][0].previousStepOutput).toBeUndefined();
+  });
+
+  it("resumo final inclui a linha da pesquisa das contas", async () => {
+    const db = createInMemorySupabase(
+      [
+        { execution_id: "exec-001", step_number: 1, step_type: "search_companies", status: "skipped", output: { skipped: true } },
+        { execution_id: "exec-001", step_number: 2, step_type: "search_leads", status: "approved", output: SEARCH_LEADS_OUTPUT },
+        { execution_id: "exec-001", step_number: 3, step_type: "research_accounts", status: "completed", output: RESEARCH_OUTPUT },
+        { execution_id: "exec-001", step_number: 4, step_type: "create_campaign", status: "approved", output: { campaignName: "C", structure: { totalEmails: 3 } } },
+        { execution_id: "exec-001", step_number: 5, step_type: "export", status: "approved", output: { leadsUploaded: 1, externalCampaignId: "ext-1" } },
+        { execution_id: "exec-001", step_number: 6, step_type: "activate", status: "pending", output: null },
+      ],
+      executionRow({ current_step: 6, mode: "autopilot" })
+    );
+
+    await new DeterministicOrchestrator(db as never, API_KEY).executeStep("exec-001", 6);
+
+    const summary = db.messages.find((m) => (m.metadata as { messageType?: string })?.messageType === "summary");
+    expect(summary?.content).toContain("• Pesquisa das contas: 1 dossie com 3 fatos com fonte");
   });
 });

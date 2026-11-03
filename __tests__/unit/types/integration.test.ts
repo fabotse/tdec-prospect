@@ -16,10 +16,11 @@ describe("integration types", () => {
       expect(SERVICE_NAMES).toContain("apify");
       expect(SERVICE_NAMES).toContain("zapi");
       expect(SERVICE_NAMES).toContain("theirstack");
+      expect(SERVICE_NAMES).toContain("treg"); // Story 24.19
     });
 
-    it("should have exactly 7 services", () => {
-      expect(SERVICE_NAMES).toHaveLength(7);
+    it("should have exactly 8 services", () => {
+      expect(SERVICE_NAMES).toHaveLength(8);
     });
   });
 

@@ -15,6 +15,7 @@ import { InstantlyService } from "./instantly";
 import { ApifyService } from "./apify";
 import { ZApiService } from "./zapi";
 import { TheirStackService } from "./theirstack";
+import { TregService } from "./treg";
 
 // ==============================================
 // RE-EXPORTS
@@ -34,6 +35,7 @@ export { InstantlyService } from "./instantly";
 export { ApifyService } from "./apify";
 export { ZApiService } from "./zapi";
 export { TheirStackService } from "./theirstack";
+export { TregService } from "./treg";
 
 // ==============================================
 // SERVICE INSTANCES
@@ -47,6 +49,7 @@ const services: Record<ServiceName, ExternalService> = {
   apify: new ApifyService(),
   zapi: new ZApiService(),
   theirstack: new TheirStackService(),
+  treg: new TregService(),
 };
 
 // ==============================================

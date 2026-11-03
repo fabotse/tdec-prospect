@@ -91,6 +91,43 @@ describe("useAutoTrigger (Story 17.7 - AC #1)", () => {
     );
   });
 
+  // Story 24.19: o research_accounts nao tem gate — no guiado ele avanca sozinho.
+  it("DOES trigger create_campaign in guided mode after research_accounts completes (Story 24.19)", () => {
+    const steps = [
+      makeStep({ step_number: 1, status: "skipped", step_type: "search_companies" }),
+      makeStep({ step_number: 2, status: "approved", step_type: "search_leads" }),
+      makeStep({ step_number: 3, status: "completed", step_type: "research_accounts" }),
+      makeStep({ step_number: 4, status: "pending", step_type: "create_campaign" }),
+      makeStep({ step_number: 5, status: "pending", step_type: "export" }),
+      makeStep({ step_number: 6, status: "pending", step_type: "activate" }),
+    ];
+
+    renderHook(() =>
+      useAutoTrigger({ executionId: "exec-001", steps, mode: "guided" })
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/agent/executions/exec-001/steps/4/execute",
+      { method: "POST" }
+    );
+  });
+
+  it("does NOT trigger in guided mode while research_accounts is still pending after the lead gate (Story 24.19)", () => {
+    const steps = [
+      makeStep({ step_number: 1, status: "completed", step_type: "search_companies" }),
+      makeStep({ step_number: 2, status: "approved", step_type: "search_leads" }),
+      makeStep({ step_number: 3, status: "pending", step_type: "research_accounts" }),
+      makeStep({ step_number: 4, status: "pending", step_type: "create_campaign" }),
+    ];
+
+    renderHook(() =>
+      useAutoTrigger({ executionId: "exec-001", steps, mode: "guided" })
+    );
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("does NOT trigger when last step completes (execution finished)", () => {
     const steps = [
       makeStep({ step_number: 1, status: "completed" }),
