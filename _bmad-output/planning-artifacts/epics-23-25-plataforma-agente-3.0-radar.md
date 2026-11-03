@@ -852,6 +852,18 @@ So that a abordagem seja baseada no que está acontecendo na empresa, não em su
 **When** gravado
 **Then** fica ligado à empresa (domínio) e ao lead, reaproveitável por outras execuções por um período configurável (ex.: 30 dias), com migration controlada (NFR7)
 
+**Decisões do Fabossi para a implementação (2026-11-03, Linear FEL-42 — obrigatórias):**
+
+- **Migration `00073`** (próximo número livre em `supabase/migrations/`; escrever, **nunca aplicar** — o Fabossi aplica). Só aditiva. Contém:
+  - a tabela do dossiê e dos fatos (`{fato, fonte_url, data, confiança}`), ligada ao tenant, ao domínio da empresa e ao lead, com validade para reuso de 30 dias e RLS por tenant;
+  - `treg` incluído nos CHECKs de `service_name` de **`api_configs`** e de **`api_usage_logs`**. Hoje os dois aceitam só `apollo, signalhire, snovio, instantly, openai, apify, zapi, theirstack` (conferido em produção). Seguir o modelo da `00065_add_theirstack_to_api_usage_logs_check.sql`: drop + add da constraint, sem tocar em nenhuma linha.
+  - Documentar o SQL de rollback nas Completion Notes.
+- **Step fail-open antes do `create_campaign`.** Sem chave Treg, Treg fora do ar, teto atingido ou qualquer erro de fonte → o step termina com o dossiê vazio ou parcial e sinalizado, e o `create_campaign`, o export e a ativação seguem **exatamente como hoje**. Nada do dossiê entra no payload do Instantly nesta story (isso é da 24.21). Nenhum filtro ou bloqueio de lead por causa do dossiê. Testes obrigatórios provando o fail-open (sem chave, erro, timeout, teto) e que o payload enviado ao Instantly ficou inalterado.
+- **Chave da Treg não vai na Vercel.** Adicionar `treg` em `SERVICE_NAMES`/`SERVICE_LABELS` (`src/types/integration.ts`) para aparecer em Configurações → Integrações. O agente lê a chave por `src/lib/agent/service-keys.ts` (`api_configs`, criptografada, por tenant). **Não usar `process.env.TREG_API_KEY`** (é só do spike).
+- **Custo:** registrar cada chamada em `api_usage_logs` como `treg` (NFR3). Teto por execução no nosso código, configurável, com padrão baixo (referência do spike: ~US$ 0,015–0,02 por conta).
+- Decisões do spike valem: `_bmad-output/implementation-artifacts/spike-24-11-treg-report.md` ("Decisão do Fabossi", 2026-10-28) — Exa via Treg com filtro de data e Brasil para notícias e vagas, e cache próprio de 30 dias.
+- **Testes e verificação sem rede real:** nenhum teste nem smoke chama Treg, TheirStack, Instantly ou Supabase reais (tudo mockado). Não rodar smoke em produção nesta story; o smoke fica para depois do Fabossi aplicar a migration e cadastrar a chave.
+
 ### Story 24.20: Motivo para abordar agora
 
 **Requisitos:** FR34
