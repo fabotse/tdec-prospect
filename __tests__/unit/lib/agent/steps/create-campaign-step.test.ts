@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { CreateCampaignStep } from "@/lib/agent/steps/create-campaign-step";
 import { createChainBuilder } from "../../../../helpers/mock-supabase";
 import { FakeDb, createFakeSupabase } from "../../../../helpers/fake-leads-db";
-import type { StepInput, SearchLeadResult } from "@/types/agent";
+import type { StepInput, SearchLeadResult, CreateCampaignOutput } from "@/types/agent";
 import { ExternalServiceError } from "@/lib/services/base-service";
 import { findUnsupportedCopyTokens } from "@/lib/agent/campaign-copy";
 
@@ -1879,6 +1879,204 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
   });
 
   // ==============================================
+  // FEL-77: linkedinUrl do enrichment do Apollo
+  // ==============================================
+
+  describe("linkedinUrl do enrichment do Apollo (FEL-77)", () => {
+    const APOLLO_URL = "https://www.linkedin.com/in/ana-apollo";
+
+    function setupStructureThenContent() {
+      let callCount = 0;
+      mockGenerateText.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ text: VALID_STRUCTURE_JSON, model: "gpt-4o", usage: {} });
+        }
+        return Promise.resolve({ text: `Icebreaker/email ${callCount}`, model: "gpt-4o", usage: {} });
+      });
+    }
+
+    // Lead mascarado da busca do Apollo (api_search nao traz linkedin_url nem e-mail).
+    function maskedLead(overrides: Partial<SearchLeadResult> = {}): SearchLeadResult {
+      return {
+        name: "A*** S***",
+        title: "CTO",
+        companyName: "Acme",
+        email: null,
+        linkedinUrl: null,
+        apolloId: "apollo-ana",
+        ...overrides,
+      };
+    }
+
+    async function runWith(leads: SearchLeadResult[], briefing: Partial<StepInput["briefing"]> = {}) {
+      const result = await step.run(
+        createInput(briefing, { leads, totalFound: leads.length, jobTitles: ["CTO"], domainsSearched: [] })
+      );
+      const data = result.data as unknown as CreateCampaignOutput;
+      return { result, data };
+    }
+
+    function enrichedWith(linkedinUrl: unknown) {
+      return {
+        person: {
+          email: "ana@acme.com",
+          email_status: "verified",
+          first_name: "Ana",
+          last_name: "Souza",
+          linkedin_url: linkedinUrl,
+        },
+      };
+    }
+
+    it("preenche linkedinUrl (com trim) quando o enrichment traz URL de perfil valida", async () => {
+      setupStructureThenContent();
+      mockEnrichPerson.mockResolvedValue(enrichedWith(`  ${APOLLO_URL}  `));
+
+      const { data } = await runWith([maskedLead()]);
+
+      expect(mockEnrichPerson).toHaveBeenCalledTimes(1);
+      expect(data.leadsWithIcebreakers[0].linkedinUrl).toBe(APOLLO_URL);
+      expect(data.leadsWithIcebreakers[0].email).toBe("ana@acme.com");
+      // A URL chega a persistencia em Meus Leads (coluna `leads.linkedin_url`, ja existente).
+      const persisted = mockPersistApprovedLeads.mock.calls[0][0] as { leads: SearchLeadResult[] };
+      expect(persisted.leads[0].linkedinUrl).toBe(APOLLO_URL);
+    });
+
+    it("nao sobrescreve linkedinUrl que o lead ja tinha", async () => {
+      setupStructureThenContent();
+      mockEnrichPerson.mockResolvedValue(enrichedWith(APOLLO_URL));
+
+      const { data } = await runWith([maskedLead({ linkedinUrl: "https://linkedin.com/in/original" })]);
+
+      expect(mockEnrichPerson).toHaveBeenCalledTimes(1);
+      expect(data.leadsWithIcebreakers[0].linkedinUrl).toBe("https://linkedin.com/in/original");
+    });
+
+    it.each([
+      ["nula", null],
+      ["ausente", undefined],
+      ["vazia", ""],
+      ["so espacos", "   "],
+      ["nao-string", 123],
+      ["outro host", "https://example.com/in/ana"],
+      ["host parecido", "https://linkedin.com.evil.io/in/ana"],
+      ["sem protocolo", "linkedin.com/in/ana"],
+      ["protocolo nao http", "ftp://linkedin.com/in/ana"],
+      ["raiz do LinkedIn", "https://www.linkedin.com/"],
+      ["URL malformada", "https://"],
+    ])("ignora URL %s do enrichment (lead segue sem linkedinUrl)", async (_label, value) => {
+      setupStructureThenContent();
+      mockEnrichPerson.mockResolvedValue(enrichedWith(value));
+
+      const { data } = await runWith([maskedLead()], { premiumIcebreakers: true });
+
+      expect(data.leadsWithIcebreakers[0].linkedinUrl).toBeNull();
+      expect(data.leadsWithIcebreakers[0].email).toBe("ana@acme.com");
+      expect(mockFetchLinkedInPosts).not.toHaveBeenCalled();
+    });
+
+    it("enrichment que lanca nao quebra o step e o lead segue sem linkedinUrl", async () => {
+      setupStructureThenContent();
+      mockEnrichPerson.mockRejectedValue(new Error("apollo 500"));
+
+      const { data } = await runWith([maskedLead()], { premiumIcebreakers: true });
+
+      expect(data.leadsWithIcebreakers).toHaveLength(1);
+      expect(data.leadsWithIcebreakers[0].linkedinUrl).toBeNull();
+      expect(data.leadsWithIcebreakers[0].icebreaker).toBeTruthy();
+      expect(data.icebreakerStats.standard).toBe(1);
+      expect(mockFetchLinkedInPosts).not.toHaveBeenCalled();
+    });
+
+    it("com a URL do enrichment e toggle ligado, tenta o premium com UMA chamada ao Apify", async () => {
+      setupStructureThenContent();
+      mockEnrichPerson.mockResolvedValue(enrichedWith(APOLLO_URL));
+      mockFetchLinkedInPosts.mockResolvedValue({
+        success: true,
+        posts: MOCK_POSTS,
+        profileUrl: APOLLO_URL,
+        fetchedAt: "2026-01-10T00:00:00Z",
+      });
+
+      const { result, data } = await runWith([maskedLead()], { premiumIcebreakers: true });
+
+      expect(mockFetchLinkedInPosts).toHaveBeenCalledTimes(1);
+      expect(mockFetchLinkedInPosts).toHaveBeenCalledWith(expect.any(String), APOLLO_URL, 3);
+      expect(data.icebreakerStats.premium).toBe(1);
+      expect(data.icebreakerStats.standard).toBe(0);
+      expect(result.cost?.apify).toBe(1);
+    });
+
+    it("com a URL do enrichment e falha do Apify, cai no standard (1 chamada, sem retry)", async () => {
+      setupStructureThenContent();
+      mockEnrichPerson.mockResolvedValue(enrichedWith(APOLLO_URL));
+      mockFetchLinkedInPosts.mockResolvedValue({
+        success: false,
+        posts: [],
+        error: "Erro Apify",
+        profileUrl: APOLLO_URL,
+        fetchedAt: "2026-01-10T00:00:00Z",
+      });
+
+      const { data } = await runWith([maskedLead()], { premiumIcebreakers: true });
+
+      expect(mockFetchLinkedInPosts).toHaveBeenCalledTimes(1);
+      expect(data.icebreakerStats.premium).toBe(0);
+      expect(data.icebreakerStats.standard).toBe(1);
+      expect(data.leadsWithIcebreakers[0].icebreaker).toBeTruthy();
+    });
+
+    it("com a URL do enrichment e Apify lancando, cai no standard", async () => {
+      setupStructureThenContent();
+      mockEnrichPerson.mockResolvedValue(enrichedWith(APOLLO_URL));
+      mockFetchLinkedInPosts.mockRejectedValue(new Error("network"));
+
+      const { data } = await runWith([maskedLead()], { premiumIcebreakers: true });
+
+      expect(mockFetchLinkedInPosts).toHaveBeenCalledTimes(1);
+      expect(data.icebreakerStats.premium).toBe(0);
+      expect(data.icebreakerStats.standard).toBe(1);
+    });
+
+    it("com a URL do enrichment e toggle desligado, NAO chama o Apify (standard como hoje)", async () => {
+      setupStructureThenContent();
+      mockEnrichPerson.mockResolvedValue(enrichedWith(APOLLO_URL));
+
+      const { result, data } = await runWith([maskedLead()]);
+
+      expect(data.leadsWithIcebreakers[0].linkedinUrl).toBe(APOLLO_URL);
+      expect(mockFetchLinkedInPosts).not.toHaveBeenCalled();
+      expect(data.icebreakerStats.standard).toBe(1);
+      expect(result.cost?.apify).toBeUndefined();
+    });
+
+    it("com a URL do enrichment, toggle ligado e sem chave do Apify, NAO chama o Apify", async () => {
+      setupStructureThenContent();
+      mockEnrichPerson.mockResolvedValue(enrichedWith(APOLLO_URL));
+      adminApiConfigsChain = createStatefulApiConfigs({
+        openai: { encrypted_key: "enc-openai" },
+        apollo: { encrypted_key: "enc-apollo" },
+        apify: null,
+      });
+
+      const { result, data } = await runWith([maskedLead()], { premiumIcebreakers: true });
+
+      expect(mockFetchLinkedInPosts).not.toHaveBeenCalled();
+      expect(data.icebreakerStats.standard).toBe(1);
+      expect(result.cost?.apify).toBeUndefined();
+    });
+
+    it("nao muda a condicao do enrichment: lead revelado nao chama o Apollo", async () => {
+      setupStructureThenContent();
+
+      await runWith([maskedLead({ name: "Ana Souza", email: "ana@acme.com" })]);
+
+      expect(mockEnrichPerson).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==============================================
   // FEL-57: posts do dossie reaproveitados no icebreaker premium
   // ==============================================
 
@@ -2072,6 +2270,112 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
       await new CreateCampaignStep(3, supabase as never, TENANT_ID).run(createInput());
       expect(steps.reads).toHaveLength(0);
       expect(mockFetchLinkedInPosts).not.toHaveBeenCalled();
+    });
+
+    // ----------------------------------------------
+    // FEL-77: uma chamada ao Apify por lead entre research e create
+    // ----------------------------------------------
+
+    /** Output do research com o registro de "ja tentado" (JSON ida e volta). */
+    function attemptedOutput(outcome: string, attemptedAt = new Date().toISOString(), url = JANE_URL) {
+      return JSON.parse(
+        JSON.stringify({ accounts: [], icebreakerPostsAttempted: { [url]: { attemptedAt, outcome } } })
+      ) as Record<string, unknown>;
+    }
+
+    function stats(result: Awaited<ReturnType<typeof runWith>>) {
+      return (result.data as unknown as CreateCampaignOutput).icebreakerStats;
+    }
+
+    it.each(["empty", "failed", "timeout", "unusable", "not_saved"])(
+      "FEL-77: research ja tentou (%s): NAO chama o Apify, Jane cai no padrao e nao ha custo de Apify",
+      async (outcome) => {
+        setupDeterministicAI();
+        const result = await runWith(agentStepsWithResearch(attemptedOutput(outcome)));
+        expect(mockFetchLinkedInPosts).not.toHaveBeenCalled();
+        expect(premiumVars()).toHaveLength(0);
+        expect(stats(result)).toMatchObject({ premium: 0, standard: 2, failed: 0, generated: 2 });
+        expect(result.cost?.apify).toBeUndefined();
+        expect(mockLogApifySuccess).not.toHaveBeenCalled();
+        expect(mockLogApifyFailure).not.toHaveBeenCalled();
+        const jane = (result.data as unknown as CreateCampaignOutput).leadsWithIcebreakers.find((l) => l.linkedinUrl === JANE_URL);
+        expect(jane?.icebreaker).toBeTruthy();
+      }
+    );
+
+    it("FEL-77: research com posts continua reaproveitando sem chamar o Apify", async () => {
+      setupDeterministicAI();
+      const result = await runWith(agentStepsWithResearch(researchOutput(RAW_POSTS)));
+      expect(mockFetchLinkedInPosts).not.toHaveBeenCalled();
+      expect(stats(result).premium).toBe(1);
+    });
+
+    it("FEL-77: posts e registro para o mesmo perfil: os posts valem (premium sem chamar o Apify)", async () => {
+      setupDeterministicAI();
+      const output = { ...researchOutput(RAW_POSTS), ...attemptedOutput("failed") };
+      const result = await runWith(agentStepsWithResearch(output));
+      expect(mockFetchLinkedInPosts).not.toHaveBeenCalled();
+      expect(stats(result).premium).toBe(1);
+    });
+
+    it.each([
+      ["output antigo, sem o registro", { accounts: [] }],
+      ["motivo desconhecido", { accounts: [], icebreakerPostsAttempted: { "https://linkedin.com/in/jane": { attemptedAt: new Date().toISOString(), outcome: "???" } } }],
+      ["data invalida", { accounts: [], icebreakerPostsAttempted: { "https://linkedin.com/in/jane": { attemptedAt: "ontem", outcome: "empty" } } }],
+      ["registro nao-objeto", { accounts: [], icebreakerPostsAttempted: ["https://linkedin.com/in/jane"] }],
+    ])("FEL-77: %s -> o create busca UMA vez, como hoje", async (_label, output) => {
+      setupDeterministicAI();
+      mockFetchLinkedInPosts.mockResolvedValue({ success: true, posts: RAW_POSTS.slice(0, 3), profileUrl: JANE_URL, fetchedAt: "x" });
+      const result = await runWith(agentStepsWithResearch(output as Record<string, unknown>));
+      expect(mockFetchLinkedInPosts).toHaveBeenCalledTimes(1);
+      expect(mockFetchLinkedInPosts).toHaveBeenCalledWith(expect.any(String), JANE_URL, 3);
+      expect(stats(result).premium).toBe(1);
+      expect(result.cost?.apify).toBe(1);
+    });
+
+    it("FEL-77: tentativa do research com mais de 6 h NAO expira: zero chamadas ao Apify e icebreaker padrao", async () => {
+      setupDeterministicAI();
+      mockFetchLinkedInPosts.mockResolvedValue({ success: true, posts: RAW_POSTS.slice(0, 3), profileUrl: JANE_URL, fetchedAt: "x" });
+      const old = new Date(Date.now() - 6 * 60 * 60 * 1000 - 60_000).toISOString();
+      const result = await runWith(agentStepsWithResearch(attemptedOutput("empty", old)));
+      expect(mockFetchLinkedInPosts).not.toHaveBeenCalled();
+      expect(premiumVars()).toHaveLength(0);
+      expect(stats(result)).toMatchObject({ premium: 0, standard: 2, failed: 0, generated: 2 });
+      expect(result.cost?.apify).toBeUndefined();
+    });
+
+    it("FEL-77: POSTS com mais de 6 h continuam expirando (busca uma vez, como hoje)", async () => {
+      setupDeterministicAI();
+      mockFetchLinkedInPosts.mockResolvedValue({ success: true, posts: RAW_POSTS.slice(0, 3), profileUrl: JANE_URL, fetchedAt: "x" });
+      const old = new Date(Date.now() - 6 * 60 * 60 * 1000 - 60_000).toISOString();
+      await runWith(agentStepsWithResearch(researchOutput(RAW_POSTS, old)));
+      expect(mockFetchLinkedInPosts).toHaveBeenCalledTimes(1);
+    });
+
+    it("FEL-77: leitura do research com erro -> busca uma vez, como hoje", async () => {
+      setupDeterministicAI();
+      mockFetchLinkedInPosts.mockResolvedValue({ success: true, posts: RAW_POSTS.slice(0, 3), profileUrl: JANE_URL, fetchedAt: "x" });
+      await runWith(agentStepsWithResearch(null, { message: "falha de leitura" }));
+      expect(mockFetchLinkedInPosts).toHaveBeenCalledTimes(1);
+    });
+
+    it("FEL-77: lead que so ganhou a URL no enrichment do create e buscado UMA vez (registro de outro perfil nao vale)", async () => {
+      setupDeterministicAI();
+      const ANA_URL = "https://www.linkedin.com/in/ana-apollo";
+      mockEnrichPerson.mockResolvedValue({
+        person: { email: "ana@acme.com", email_status: "verified", first_name: "Ana", last_name: "Souza", linkedin_url: ANA_URL },
+      });
+      mockFetchLinkedInPosts.mockResolvedValue({ success: true, posts: RAW_POSTS.slice(0, 3), profileUrl: ANA_URL, fetchedAt: "x" });
+      const supabase = createMockSupabase(undefined, agentStepsWithResearch(attemptedOutput("empty")));
+      supabase.db.seedLead({ id: "lead-1" });
+      supabase.db.seedLead({ id: "lead-2" });
+      const masked: SearchLeadResult = { name: "A*** S***", title: "CTO", companyName: "Acme", email: null, linkedinUrl: null, apolloId: "apollo-ana" };
+      const result = await new CreateCampaignStep(3, supabase as never, TENANT_ID).run(
+        createInput({ premiumIcebreakers: true }, { leads: [masked], totalFound: 1, jobTitles: ["CTO"], domainsSearched: [] })
+      );
+      expect(mockFetchLinkedInPosts).toHaveBeenCalledTimes(1);
+      expect(mockFetchLinkedInPosts).toHaveBeenCalledWith(expect.any(String), ANA_URL, 3);
+      expect(stats(result).premium).toBe(1);
     });
   });
 

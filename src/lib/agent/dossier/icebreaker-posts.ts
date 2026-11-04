@@ -24,8 +24,11 @@
  * - sem `rawIndexes` coerentes (servico antigo, mock, formato inesperado) NADA e
  *   guardado: o `create_campaign` busca como hoje;
  * - so entra perfil cuja busca terminou com `success: true` e com ao menos um post
- *   aproveitavel. Busca vazia, falha, timeout, sem chave, sem tempo ou perfil nao
- *   buscado nao gravam nada e o `create_campaign` busca como hoje.
+ *   aproveitavel. Sem chave, sem tempo ou perfil nao buscado nao gravam nada e o
+ *   `create_campaign` busca como hoje;
+ * - FEL-77 (uma chamada ao Apify por lead): busca vazia, falha, timeout ou sem posts
+ *   equivalentes ficam em `output.icebreakerPostsAttempted`; o `create_campaign` NAO
+ *   busca esse perfil de novo e usa o icebreaker padrao (ver `readIcebreakerPostsState`).
  *
  * Modulo PURO (sem I/O).
  */
@@ -154,4 +157,79 @@ export function readReusablePosts(output: unknown, nowMs: number): Map<string, L
     return new Map();
   }
   return result;
+}
+
+// ==============================================
+// FEL-77: "ja tentado" no research (uma chamada ao Apify por lead)
+// ==============================================
+
+/**
+ * Por que o research tentou o Apify para o perfil e NAO deixou posts reaproveitaveis:
+ * - `empty`: busca ok sem nenhum post;
+ * - `failed`: `success: false` ou excecao;
+ * - `timeout`: a chamada comecou e o prazo do step acabou antes da resposta;
+ * - `unusable`: busca ok, mas sem posts equivalentes aos da busca com limite 3;
+ * - `not_saved`: havia posts, mas o checkpoint so gravou o output minimo (sem eles).
+ */
+export type IcebreakerAttemptOutcome = "empty" | "failed" | "timeout" | "unusable" | "not_saved";
+
+const ATTEMPT_OUTCOMES: ReadonlySet<string> = new Set<IcebreakerAttemptOutcome>([
+  "empty",
+  "failed",
+  "timeout",
+  "unusable",
+  "not_saved",
+]);
+
+export interface IcebreakerPostsAttempt {
+  /** Instante (ISO) da tentativa. */
+  attemptedAt: string;
+  outcome: IcebreakerAttemptOutcome;
+}
+
+/** Chave = `linkedinUrl` do lead, exatamente como veio no lead. */
+export type IcebreakerAttemptsByUrl = Record<string, IcebreakerPostsAttempt>;
+
+/** O que o `create_campaign` le do research: posts para reusar e perfis ja tentados. */
+export interface IcebreakerPostsState {
+  /** `linkedinUrl` -> posts prontos para o prompt (nunca lista vazia). */
+  posts: Map<string, LinkedInPost[]>;
+  /** Perfis que o research ja tentou no Apify SEM posts reaproveitaveis: nao buscar de novo. */
+  attempted: Set<string>;
+}
+
+export function emptyIcebreakerPostsState(): IcebreakerPostsState {
+  return { posts: new Map(), attempted: new Set() };
+}
+
+/**
+ * Estado completo lido do output do `research_accounts`. Posts: `readReusablePosts`
+ * (inalterado, com a validade de 6 h dos POSTS). Tentativas: so entradas validas (motivo
+ * conhecido, data parseavel) em `output.icebreakerPostsAttempted`. A tentativa NAO expira:
+ * o registro e do research DESTA execucao (o create so le a linha dela), e o lead ja teve
+ * a sua chamada ao Apify; buscar de novo, mesmo horas depois (retry do step), seria a
+ * segunda. Output antigo sem a chave = nenhuma tentativa (o `create_campaign` busca como
+ * hoje). Nunca lanca.
+ */
+export function readIcebreakerPostsState(output: unknown, nowMs: number): IcebreakerPostsState {
+  const posts = readReusablePosts(output, nowMs);
+  const attempted = new Set<string>();
+  try {
+    const byUrl = (output as { icebreakerPostsAttempted?: unknown } | null | undefined)?.icebreakerPostsAttempted;
+    if (byUrl && typeof byUrl === "object" && !Array.isArray(byUrl)) {
+      for (const [url, entry] of Object.entries(byUrl as Record<string, unknown>)) {
+        if (!url || posts.has(url) || !entry || typeof entry !== "object") continue;
+        const { attemptedAt, outcome } = entry as Record<string, unknown>;
+        if (!isString(outcome) || !ATTEMPT_OUTCOMES.has(outcome)) continue;
+        if (!isString(attemptedAt)) continue;
+        const attemptedMs = Date.parse(attemptedAt);
+        if (Number.isNaN(attemptedMs)) continue;
+        // Sem checagem de idade de proposito (FEL-77, rodada 2 do Codex): ver doc acima.
+        attempted.add(url);
+      }
+    }
+  } catch {
+    return { posts, attempted: new Set() };
+  }
+  return { posts, attempted };
 }

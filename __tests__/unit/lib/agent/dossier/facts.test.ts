@@ -510,3 +510,105 @@ describe("dossierStatus", () => {
     expect(dossierStatus([fact], [])).toBe("complete");
   });
 });
+
+describe("siteFact — menu colado no inicio do texto (FEL-77)", () => {
+  const body =
+    "Contrate a gestão de contratos que acelera vendas, reduz riscos e organiza toda a operação jurídica da sua empresa, com assinatura eletrônica, alertas de vencimento e relatórios completos para o time. ";
+  const CONTRAKTOR_NAV = "Produtos Soluções Recursos Parceiros Preços Entrar Teste grátis";
+
+  it("caso real da Contraktor: menu sem quebra de linha sai do fato", () => {
+    const fact = siteFact(
+      { output: { pages: [{ title: "Contraktor", markdown: `${CONTRAKTOR_NAV} ${body.repeat(2)}` }] } },
+      "https://contraktor.com.br",
+      NOW,
+      500
+    );
+    expect(fact).not.toBeNull();
+    expect(fact!.fato.startsWith("Contraktor — Contrate a gestão de contratos")).toBe(true);
+    for (const junk of ["Produtos", "Soluções Recursos", "Parceiros", "Preços", "Entrar", "Teste grátis"]) {
+      expect(fact!.fato).not.toContain(junk);
+    }
+  });
+
+  it.each([
+    ["so com login", "Produtos Soluções Recursos Parceiros Preços Entrar"],
+    ["com Fale com vendas", "Produtos Soluções Planos Clientes Blog Fale com vendas Entrar"],
+    ["com Fale conosco e Sobre", "Sobre Produtos Clientes Contato Fale conosco"],
+    ["em ingles", "Products Solutions Resources Partners Pricing Login"],
+    ["em ingles com CTA", "Products Solutions Resources Partners Pricing Login Start free trial"],
+  ])("menu %s no inicio sai", (_label, nav) => {
+    expect(cleanSiteText(`${nav} ${body}`)).toBe(body.trim());
+  });
+
+  it("menu sem CTA: corta os itens seguidos de outro item; o ultimo fica (na duvida, nao corta)", () => {
+    // "Preços" antes de "Contrate" pode ser comeco comercial: sobra de menu > cortar conteudo.
+    expect(cleanSiteText(`Produtos Soluções Recursos Parceiros Preços ${body}`)).toBe(`Preços ${body}`.trim());
+  });
+
+  it("rodada 1 do Codex: palavra comercial seguida de nome proprio depois do menu NAO e cortada", () => {
+    const commercial = "Produtos Microsoft para sua empresa crescer com segurança e produtividade em todos os times. ";
+    expect(cleanSiteText(`Home Produtos Soluções Recursos ${commercial}${body}`)).toBe(`${commercial}${body}`.trim());
+  });
+
+  it.each([
+    "Soluções completas para gestão de contratos em uma única plataforma.",
+    "Produtos Microsoft para sua empresa crescer com segurança.",
+    "Teste grátis por 14 dias, sem cartão de crédito.",
+    "Planos a partir de R$ 99 por mês para equipes pequenas.",
+    "Clientes como Ambev e iFood confiam na Contraktor.",
+    "Recursos de assinatura eletrônica e alertas de vencimento.",
+  ])("frase comercial DEPOIS do menu da Contraktor fica inteira: %s", (phrase) => {
+    expect(cleanSiteText(`${CONTRAKTOR_NAV} ${phrase} ${body}`)).toBe(`${phrase} ${body}`.trim());
+  });
+
+  it.each([
+    "Produtos Microsoft para sua empresa crescer com segurança.",
+    "Soluções completas para gestão de contratos.",
+    "Planos a partir de R$ 99 por mês.",
+  ])("frase comercial depois de menu SEM CTA fica inteira: %s", (phrase) => {
+    const result = cleanSiteText(`Home Produtos Soluções Recursos Parceiros ${phrase} ${body}`);
+    expect(result.endsWith(`${phrase} ${body}`.trim())).toBe(true);
+  });
+
+  it("menu colado depois do skip link (limpeza do FEL-57) tambem sai", () => {
+    expect(cleanSiteText(`Pular para o conteúdo ${CONTRAKTOR_NAV} ${body}`)).toBe(body.trim());
+  });
+
+  it("frases comerciais que comecam com palavras de menu NAO sao cortadas", () => {
+    for (const phrase of [
+      "Soluções completas para gestão de contratos em uma única plataforma.",
+      "Produtos e serviços para a gestão de contratos.",
+      "Produtos Contraktor ajudam times jurídicos a crescer.",
+      "Recursos de assinatura eletrônica e alertas de vencimento.",
+      "Planos a partir de R$ 99 por mês para equipes pequenas.",
+      "Teste grátis por 14 dias, sem cartão de crédito.",
+      "Clientes como Ambev e iFood confiam na Contraktor.",
+      "Products and solutions for contract management teams.",
+    ]) {
+      expect(cleanSiteText(`${phrase} ${body}`).startsWith(phrase)).toBe(true);
+    }
+  });
+
+  it("menos de 4 itens de menu no inicio: nada e cortado", () => {
+    const text = `Produtos Soluções Preços ${body}`;
+    expect(cleanSiteText(text)).toBe(text.trim());
+  });
+
+  it("item de menu seguido de minuscula encerra a sequencia (comeco de frase fica)", () => {
+    expect(cleanSiteText(`Blog Contato Login Clientes Planos a partir de R$ 99 por mês. ${body}`)).toBe(
+      `Planos a partir de R$ 99 por mês. ${body}`.trim()
+    );
+  });
+
+  it("so menu: nada sobra e o fallback de hoje (description) continua valendo", () => {
+    expect(cleanSiteText(CONTRAKTOR_NAV)).toBe(CONTRAKTOR_NAV);
+    const description = "Plataforma de gestão de contratos com assinatura eletrônica para empresas no Brasil.";
+    const fact = siteFact(
+      { output: { pages: [{ title: "Contraktor", markdown: `${CONTRAKTOR_NAV} Bem-vindo`, description }] } },
+      "https://contraktor.com.br",
+      NOW,
+      500
+    );
+    expect(fact!.fato).toBe(`Contraktor — ${description}`);
+  });
+});

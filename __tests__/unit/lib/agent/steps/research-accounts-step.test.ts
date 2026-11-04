@@ -827,7 +827,64 @@ describe("ResearchAccountsStep — posts para o icebreaker premium (FEL-57)", ()
       .find((u) => u.status === "completed" && (u.output?.flags as { persistFailed?: boolean } | undefined)?.persistFailed);
     expect(minimal).toBeDefined();
     expect(minimal!.output).not.toHaveProperty("icebreakerPosts");
+    // FEL-77: o perfil cujos posts ficaram de fora vira "ja tentado" (o create nao busca de novo).
+    expect(minimal!.output!.icebreakerPostsAttempted).toEqual({
+      [RUI_URL]: { attemptedAt: "2026-11-03T11:59:00.000Z", outcome: "not_saved" },
+    });
   }, 15_000);
+
+  // FEL-77: uma chamada ao Apify por lead entre research e create.
+  type Attempts = Record<string, { attemptedAt: string; outcome: string }> | undefined;
+  const attemptsOf = (result: Awaited<ReturnType<ReturnType<typeof createStep>["run"]>>) =>
+    (outputOf(result) as { icebreakerPostsAttempted?: Attempts }).icebreakerPostsAttempted;
+
+  it("FEL-77: busca vazia, sem posicoes, falha e excecao ficam registradas como ja tentadas", async () => {
+    const cases: Array<[string, { fetchLinkedInPosts: ReturnType<typeof vi.fn> }]> = [
+      ["empty", { fetchLinkedInPosts: vi.fn().mockResolvedValue({ success: true, posts: [], rawIndexes: [], profileUrl: RUI_URL, fetchedAt: "x" }) }],
+      ["unusable", { fetchLinkedInPosts: vi.fn().mockResolvedValue({ success: true, posts: RAW, profileUrl: RUI_URL, fetchedAt: "x" }) }],
+      ["failed", { fetchLinkedInPosts: vi.fn().mockResolvedValue({ success: false, posts: [], error: "x", profileUrl: RUI_URL, fetchedAt: "x" }) }],
+      ["failed", { fetchLinkedInPosts: vi.fn().mockRejectedValue(new Error("boom")) }],
+    ];
+    for (const [outcome, apify] of cases) {
+      const db = createDb();
+      const result = await createStep(db, createTreg(), { apify }).run(createInput({ premiumIcebreakers: true, ...Y }, [rui()]));
+      expect(apify.fetchLinkedInPosts).toHaveBeenCalledTimes(1);
+      expect(attemptsOf(result)).toEqual({ [RUI_URL]: { attemptedAt: expect.any(String), outcome } });
+      expect(Number.isNaN(Date.parse(attemptsOf(result)![RUI_URL].attemptedAt))).toBe(false);
+      // Vai para o checkpoint que o create_campaign le.
+      expect((checkpoint(db)!.output as { icebreakerPostsAttempted?: unknown }).icebreakerPostsAttempted).toEqual(attemptsOf(result));
+      // Custo da chamada do research continua contado (nada muda na contabilizacao).
+      expect(result.cost?.apify).toBe(1);
+    }
+  });
+
+  it("FEL-77: timeout do Apify fica registrado como ja tentado", async () => {
+    vi.useFakeTimers();
+    try {
+      const hanging = { fetchLinkedInPosts: vi.fn().mockReturnValue(new Promise(() => {})) };
+      const run = createStep(createDb(), createTreg(), { apify: hanging }).run(createInput({ premiumIcebreakers: true, ...Y }, [rui()]));
+      await vi.advanceTimersByTimeAsync(mockConfig.hardDeadlineMs + mockConfig.finalizeBudgetMs + 2_000);
+      const result = await run;
+      expect(attemptsOf(result)).toEqual({ [RUI_URL]: { attemptedAt: expect.any(String), outcome: "timeout" } });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("FEL-77: busca com posts reaproveitaveis NAO vira tentativa; toggle desligado/sem chave nao registra nada", async () => {
+    const ok = { fetchLinkedInPosts: vi.fn().mockResolvedValue({ success: true, posts: RAW, rawIndexes: [0, 1, 2, 3], profileUrl: RUI_URL, fetchedAt: "2026-11-03T11:59:00.000Z" }) };
+    const withPosts = await createStep(createDb(), createTreg(), { apify: ok }).run(createInput({ premiumIcebreakers: true, ...Y }, [rui()]));
+    expect(outputOf(withPosts).icebreakerPosts).toBeDefined();
+    expect(attemptsOf(withPosts)).toBeUndefined();
+
+    const apify = { fetchLinkedInPosts: vi.fn() };
+    const off = await createStep(createDb(), createTreg(), { apify }).run(createInput({ premiumIcebreakers: false, ...Y }, [rui()]));
+    expect(attemptsOf(off)).toBeUndefined();
+    mockGetServiceApiKeyOrNull.mockResolvedValue(null);
+    const noKey = await createStep(createDb(), createTreg(), { apify }).run(createInput({ premiumIcebreakers: true, ...Y }, [rui()]));
+    expect(attemptsOf(noKey)).toBeUndefined();
+    expect(apify.fetchLinkedInPosts).not.toHaveBeenCalled();
+  });
 });
 
 describe("ResearchAccountsStep — excecao inesperada", () => {

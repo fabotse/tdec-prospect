@@ -27,6 +27,7 @@ import {
 } from "@/lib/agent/service-keys";
 import { normalizeSegmentName, persistApprovedLeads } from "@/lib/agent/lead-persistence";
 import { normalizeApolloEmailStatus } from "@/lib/leads/email-status";
+import { linkedInProfileUrl } from "@/lib/agent/linkedin-profile-url";
 import { persistAgentCampaign } from "@/lib/agent/campaign-persistence";
 import {
   TEMPLATE_LEAD_VARIABLES,
@@ -55,7 +56,12 @@ import type {
 import type { AIModel } from "@/types/ai-provider";
 import type { AIContextVariables } from "@/lib/services/knowledge-base-context";
 import { fetchKnowledgeBaseProofs } from "@/lib/services/knowledge-base-proofs";
-import { ICEBREAKER_POSTS_LIMIT, readReusablePosts } from "@/lib/agent/dossier/icebreaker-posts";
+import {
+  ICEBREAKER_POSTS_LIMIT,
+  emptyIcebreakerPostsState,
+  readIcebreakerPostsState,
+  type IcebreakerPostsState,
+} from "@/lib/agent/dossier/icebreaker-posts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ==============================================
@@ -159,6 +165,13 @@ export class CreateCampaignStep extends BaseStep {
             if (person.email) typedLead.email = person.email;
             const fullName = [person.first_name, person.last_name].filter(Boolean).join(" ");
             if (fullName && !fullName.includes("*")) typedLead.name = fullName;
+            // FEL-77: a busca do Apollo nao traz `linkedin_url`; o enrichment traz. Sem ela o
+            // icebreaker premium nunca rodava para lead do Apollo. So preenche lead SEM URL
+            // e so com URL de perfil do LinkedIn valida; senao o lead segue como antes.
+            if (!typedLead.linkedinUrl) {
+              const linkedinUrl = linkedInProfileUrl(person.linkedin_url);
+              if (linkedinUrl) typedLead.linkedinUrl = linkedinUrl;
+            }
             enrichCredits++;
           }
         } catch {
@@ -301,10 +314,11 @@ export class CreateCampaignStep extends BaseStep {
       const apifyKey = usePremium ? await this.getApifyApiKey() : null;
       // FEL-57: posts que o `research_accounts` DESTA execucao ja buscou (fail-open: vazio
       // = todo lead busca no Apify como hoje). So consultado no caminho premium.
+      // FEL-77: tambem os perfis que ele ja tentou sem posts (nao busca de novo).
       const dossierPosts =
         usePremium && apifyKey
           ? await this.loadDossierPosts(input.executionId)
-          : new Map<string, LinkedInPost[]>();
+          : emptyIcebreakerPostsState();
       const icebreakerExamples = await this.loadIcebreakerExamples();
       const formattedExamples = CreateCampaignStep.formatIcebreakerExamples(icebreakerExamples, "lead");
       ({ leadsWithIcebreakers, icebreakerStats, apifyCalls } = await this.generateIcebreakers(
@@ -752,8 +766,11 @@ export class CreateCampaignStep extends BaseStep {
    * (`output.icebreakerPosts`), por `linkedinUrl`. So a linha `completed` DESTA execucao
    * conta. NUNCA lanca: qualquer falha ou duvida devolve um mapa vazio e o icebreaker
    * premium busca no Apify exatamente como antes.
+   *
+   * FEL-77: devolve tambem os perfis que o research ja tentou no Apify sem deixar posts
+   * reaproveitaveis (o create nao chama de novo; icebreaker padrao).
    */
-  private async loadDossierPosts(executionId: string): Promise<Map<string, LinkedInPost[]>> {
+  private async loadDossierPosts(executionId: string): Promise<IcebreakerPostsState> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const read = (async () => {
@@ -764,17 +781,17 @@ export class CreateCampaignStep extends BaseStep {
           .eq("step_type", "research_accounts")
           .eq("status", "completed")
           .maybeSingle();
-        if (error || !data) return new Map<string, LinkedInPost[]>();
-        return readReusablePosts((data as { output?: unknown }).output, Date.now());
+        if (error || !data) return emptyIcebreakerPostsState();
+        return readIcebreakerPostsState((data as { output?: unknown }).output, Date.now());
       })();
       // Leitura pendurada nao segura o step: passado o prazo, segue pelo caminho de hoje.
       read.catch(() => undefined);
-      const timeout = new Promise<Map<string, LinkedInPost[]>>((resolve) => {
-        timer = setTimeout(() => resolve(new Map()), DOSSIER_POSTS_READ_TIMEOUT_MS);
+      const timeout = new Promise<IcebreakerPostsState>((resolve) => {
+        timer = setTimeout(() => resolve(emptyIcebreakerPostsState()), DOSSIER_POSTS_READ_TIMEOUT_MS);
       });
       return await Promise.race([read, timeout]);
     } catch {
-      return new Map();
+      return emptyIcebreakerPostsState();
     } finally {
       if (timer) clearTimeout(timer);
     }
@@ -870,7 +887,7 @@ export class CreateCampaignStep extends BaseStep {
     usePremium: boolean,
     apifyKey: string | null,
     executionId?: string,
-    dossierPosts: Map<string, LinkedInPost[]> = new Map()
+    dossierPosts: IcebreakerPostsState = emptyIcebreakerPostsState()
   ): Promise<{
     leadsWithIcebreakers: LeadWithIcebreaker[];
     icebreakerStats: { generated: number; premium: number; standard: number; failed: number; skipped: number };
@@ -889,10 +906,15 @@ export class CreateCampaignStep extends BaseStep {
       const results = await Promise.allSettled(
         batch.map(async (lead): Promise<{ text: string | null; kind: "premium" | "standard" }> => {
           // Caminho premium: toggle ligado + key + lead com LinkedIn. Fail-open para standard.
-          if (premiumEnabled && apifyService && apifyKey && lead.linkedinUrl) {
+          // FEL-77: perfil que o research ja tentou no Apify sem posts reaproveitaveis nao
+          // e buscado de novo (uma chamada por lead): vai direto para o standard.
+          const reusedPosts = lead.linkedinUrl ? dossierPosts.posts.get(lead.linkedinUrl) : undefined;
+          const alreadyAttempted =
+            !reusedPosts && !!lead.linkedinUrl && dossierPosts.attempted.has(lead.linkedinUrl);
+          if (premiumEnabled && apifyService && apifyKey && lead.linkedinUrl && !alreadyAttempted) {
             const premiumText = await this.generateSinglePremiumIcebreaker(
               lead, aiVars, provider, apifyService, apifyKey, () => { apifyCalls++; }, executionId,
-              dossierPosts.get(lead.linkedinUrl)
+              reusedPosts
             );
             if (premiumText) {
               return { text: premiumText, kind: "premium" };

@@ -4,6 +4,8 @@
 
 import { describe, it, expect } from "vitest";
 import {
+  readIcebreakerPostsState,
+  emptyIcebreakerPostsState,
   DOSSIER_POSTS_REUSE_MAX_AGE_MS,
   ICEBREAKER_POSTS_LIMIT,
   buildReusableEntry,
@@ -104,5 +106,84 @@ describe("readReusablePosts", () => {
     const bad = { ...post(2), likesCount: "10" };
     expect(readReusablePosts(output({ posts: [post(1), bad], fetchedAt: FETCHED_AT, fetchLimit: 10 }), NOW).size).toBe(0);
     expect(readReusablePosts(output({ posts: [post(1)], fetchedAt: 123, fetchLimit: 10 }), NOW).size).toBe(0);
+  });
+});
+
+describe("readIcebreakerPostsState (FEL-77)", () => {
+  const NOW = Date.parse("2026-11-04T12:00:00.000Z");
+  const A = "https://linkedin.com/in/a";
+  const B = "https://linkedin.com/in/b";
+  const POST = { postUrl: "https://linkedin.com/posts/1", text: "Post", publishedAt: "2026-11-01", likesCount: 1, commentsCount: 0 };
+  const recent = new Date(NOW - 60_000).toISOString();
+
+  it("estado vazio por padrao", () => {
+    const state = emptyIcebreakerPostsState();
+    expect(state.posts.size).toBe(0);
+    expect(state.attempted.size).toBe(0);
+  });
+
+  it("output antigo (sem registro) ou invalido: nenhuma tentativa", () => {
+    for (const output of [null, undefined, 42, "x", {}, { icebreakerPostsAttempted: null }, { icebreakerPostsAttempted: [A] }]) {
+      expect(readIcebreakerPostsState(output, NOW).attempted.size).toBe(0);
+    }
+  });
+
+  it("aceita os motivos conhecidos dentro de 6 h", () => {
+    for (const outcome of ["empty", "failed", "timeout", "unusable", "not_saved"]) {
+      const state = readIcebreakerPostsState({ icebreakerPostsAttempted: { [A]: { attemptedAt: recent, outcome } } }, NOW);
+      expect([...state.attempted]).toEqual([A]);
+    }
+  });
+
+  it("tentativa NAO expira: mais velha que 6 h (ou dias) e relogio adiantado continuam valendo", () => {
+    for (const attemptedAt of [
+      new Date(NOW - 6 * 3600_000 - 1).toISOString(),
+      new Date(NOW - 3 * 24 * 3600_000).toISOString(),
+      new Date(NOW + 10 * 60_000).toISOString(),
+    ]) {
+      const state = readIcebreakerPostsState({ icebreakerPostsAttempted: { [A]: { attemptedAt, outcome: "empty" } } }, NOW);
+      expect([...state.attempted]).toEqual([A]);
+    }
+  });
+
+  it("posts com mais de 6 h continuam expirando; a tentativa do mesmo perfil passa a valer", () => {
+    const old = new Date(NOW - 6 * 3600_000 - 1).toISOString();
+    const state = readIcebreakerPostsState(
+      {
+        icebreakerPosts: { [A]: { posts: [POST], fetchedAt: old, fetchLimit: 10 } },
+        icebreakerPostsAttempted: { [A]: { attemptedAt: old, outcome: "not_saved" } },
+      },
+      NOW
+    );
+    expect(state.posts.size).toBe(0);
+    expect([...state.attempted]).toEqual([A]);
+  });
+
+  it("descarta motivo desconhecido, data invalida ou entrada nao-objeto", () => {
+    const bad = [
+      { attemptedAt: recent, outcome: "outro" },
+      { attemptedAt: "ontem", outcome: "empty" },
+      { attemptedAt: 123, outcome: "empty" },
+      { outcome: "empty" },
+      { attemptedAt: recent },
+      "empty",
+      null,
+    ];
+    for (const entry of bad) {
+      expect(readIcebreakerPostsState({ icebreakerPostsAttempted: { [A]: entry } }, NOW).attempted.size).toBe(0);
+    }
+  });
+
+  it("perfil com posts reaproveitaveis nao conta como tentado; outros perfis sim", () => {
+    const output = {
+      icebreakerPosts: { [A]: { posts: [POST], fetchedAt: recent, fetchLimit: 10 } },
+      icebreakerPostsAttempted: {
+        [A]: { attemptedAt: recent, outcome: "failed" },
+        [B]: { attemptedAt: recent, outcome: "empty" },
+      },
+    };
+    const state = readIcebreakerPostsState(output, NOW);
+    expect(state.posts.get(A)).toEqual([POST]);
+    expect([...state.attempted]).toEqual([B]);
   });
 });
