@@ -19,7 +19,29 @@ import type { TregCallOptions, TregCallResult } from "@/lib/services/treg";
 // MOCKS
 // ==============================================
 
-const { mockConfig } = vi.hoisted(() => ({
+const { mockConfig, mockWhyNowConfig, WHY_NOW_DEFAULTS } = vi.hoisted(() => {
+  // Story 24.20: fonte unica da fase do gatilho (mutavel por teste; restaurada no beforeEach).
+  const WHY_NOW_DEFAULTS = {
+    enabled: true,
+    maxCallsPerExecution: 10,
+    maxCostUsdPerExecution: 0.05,
+    reservedUsdPerCall: 0.005,
+    maxLeadsPerCall: 10,
+    maxEligibleFactsPerCall: 15,
+    maxContextFacts: 5,
+    factMaxChars: 300,
+    painPointsMaxChars: 1500,
+    callTimeoutMs: 20_000,
+    phaseBudgetMs: 45_000,
+    minPhaseMs: 10_000,
+    minCallMs: 3_000,
+    concurrency: 3,
+    summaryMaxLeads: 10,
+    textMaxChars: 240,
+  };
+  return {
+  WHY_NOW_DEFAULTS,
+  mockWhyNowConfig: { ...WHY_NOW_DEFAULTS } as Record<string, number | boolean>,
   mockConfig: {
     reuseDays: 30,
     windowDays: 90,
@@ -38,8 +60,20 @@ const { mockConfig } = vi.hoisted(() => ({
     callTimeoutMs: 60_000,
     siteSummaryMaxChars: 500,
   },
+  };
+});
+vi.mock("@/lib/agent/dossier/config", () => ({ DOSSIER_CONFIG: mockConfig, WHY_NOW_CONFIG: mockWhyNowConfig }));
+
+// Story 24.20: nada de rede real (o client do gatilho e injetado; o SDK nunca e usado).
+vi.mock("openai", () => ({
+  default: class {
+    chat = { completions: { create: vi.fn(async () => { throw new Error("openai real nao pode ser chamado em teste"); }) } };
+  },
 }));
-vi.mock("@/lib/agent/dossier/config", () => ({ DOSSIER_CONFIG: mockConfig }));
+const mockReadTenantICP = vi.fn();
+vi.mock("@/lib/agent/contextual-suggestions", () => ({
+  readTenantICP: (...args: unknown[]) => mockReadTenantICP(...args),
+}));
 
 const mockReadServiceApiKey = vi.fn();
 const mockGetServiceApiKeyOrNull = vi.fn();
@@ -62,6 +96,14 @@ const mockLoadKBContext = vi.fn();
 vi.mock("@/lib/utils/monitoring-processor", () => ({
   loadKBContext: (...args: unknown[]) => mockLoadKBContext(...args),
 }));
+
+// Story 24.20: passthrough (o teste de excecao inesperada troca a implementacao).
+const { mockPlanAccountCall } = vi.hoisted(() => ({ mockPlanAccountCall: vi.fn() }));
+vi.mock("@/lib/agent/dossier/why-now", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/agent/dossier/why-now")>();
+  mockPlanAccountCall.mockImplementation(actual.planAccountCall);
+  return { ...actual, planAccountCall: (...args: Parameters<typeof actual.planAccountCall>) => mockPlanAccountCall(...args) };
+});
 
 // Import depois dos mocks.
 import { ResearchAccountsStep, buildIdempotencyKey } from "@/lib/agent/steps/research-accounts-step";
@@ -129,6 +171,9 @@ interface DbOptions {
   existingPosts?: Record<string, Array<{ lead_apollo_id: string | null; lead_email: string | null }>>;
   postsReadError?: boolean;
   linkInsertError?: boolean;
+  /** Story 24.20: fatos gravados por dossie (leitura `readDossierFacts`). */
+  storedFacts?: Record<string, Array<Record<string, unknown>>>;
+  storedFactsError?: boolean;
 }
 
 interface Inserted {
@@ -170,6 +215,11 @@ function createDb(options: DbOptions = {}) {
       case "account_dossier_facts": {
         if (insertCall) return { data: null, error: null };
         const dossierId = eqValue(chain, "dossier_id");
+        // Story 24.20: `readDossierFacts` (seleciona o texto do fato).
+        if (String(chain.select.mock.calls[0]?.[0] ?? "").includes("fato")) {
+          if (options.storedFactsError) return { data: null, error: { message: "rls" } };
+          return { data: options.storedFacts?.[dossierId as string] ?? [], error: null };
+        }
         if (eqValue(chain, "kind") === "post") {
           if (options.postsReadError) return { data: null, error: { message: "rls" } };
           return { data: options.existingPosts?.[dossierId as string] ?? [], error: null };
@@ -267,6 +317,8 @@ function messages(db: ReturnType<typeof createDb>): string[] {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  Object.assign(mockWhyNowConfig, WHY_NOW_DEFAULTS);
+  mockReadTenantICP.mockResolvedValue({ jobTitles: [], industries: [], companySizes: [], geographicFocus: [], painPoints: "" });
   mockConfig.maxCostUsdPerExecution = 0.5;
   mockConfig.accountConcurrency = 3;
   mockReadServiceApiKey.mockResolvedValue({ status: "ok", apiKey: "treg-key" });
@@ -330,6 +382,7 @@ describe("ResearchAccountsStep — feliz", () => {
       treg_calls_estimated: 0,
       apify: 0,
       openai_relevance: 0,
+      openai_why_now: 0,
     });
     expect(output.costUsd).toBeCloseTo(expectedUsd, 6);
 
@@ -479,6 +532,7 @@ describe("ResearchAccountsStep — sem chave", () => {
       treg_calls_estimated: 0,
       apify: 0,
       openai_relevance: 0,
+      openai_why_now: 0,
     });
   });
 });
@@ -1176,5 +1230,455 @@ describe("ResearchAccountsStep — custo de chamada sem resposta (2a revisao Cod
       errorMessage: "boom",
       metadata: { costEstimated: true, costUsd: 0.01 },
     });
+  });
+});
+
+// ==============================================
+// STORY 24.20 — MOTIVO PARA ABORDAR AGORA
+// ==============================================
+
+describe("ResearchAccountsStep — motivo para abordar agora (Story 24.20)", () => {
+  type CreateFn = (req: { messages: Array<{ role: string; content: string }> }, options?: { signal?: AbortSignal }) => Promise<unknown>;
+
+  /** Fatos citaveis (linhas FATOS) do prompt. */
+  function promptFacts(req: { messages: Array<{ content: string }> }): Array<{ ref: number; kind: string; fato: string; lead?: number }> {
+    const user = req.messages[1].content;
+    const block = user.split("FATOS (")[1].split("LEADS (")[0];
+    return block.split("\n").filter((l) => l.startsWith("{")).map((l) => JSON.parse(l));
+  }
+  function promptLeads(req: { messages: Array<{ content: string }> }): Array<{ j: number; cargo: string | null }> {
+    const block = req.messages[1].content.split("LEADS (")[1];
+    return block.split("\n").filter((l) => l.startsWith("{")).map((l) => JSON.parse(l));
+  }
+
+  /** LLM fake: para cada lead, cita a primeira noticia da lista. */
+  const citeNews: CreateFn = async (req) => {
+    const news = promptFacts(req).find((f) => f.kind === "news");
+    return {
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              leads: promptLeads(req).map(({ j }) => ({
+                j,
+                ref: news ? news.ref : null,
+                gatilho: "O Banco X anunciou um novo CISO.",
+                hipotese_dor: "Como o novo CISO vai priorizar a visibilidade de ameacas?",
+                confianca: "alta",
+              })),
+            }),
+          },
+        },
+      ],
+      usage: { prompt_tokens: 120, completion_tokens: 30 },
+    };
+  };
+
+  function llm(create: CreateFn = citeNews) {
+    const fn = vi.fn(create);
+    return { fn, factory: () => ({ chat: { completions: { create: fn } } }) as never };
+  }
+
+  function whyNowStep(
+    db: ReturnType<typeof createDb>,
+    treg = createTreg(),
+    extra: { create?: ReturnType<typeof llm>; clock?: () => number; apify?: unknown } = {}
+  ) {
+    return new ResearchAccountsStep(3, db.client, TENANT, {
+      treg: treg.service,
+      apify: (extra.apify ?? { fetchLinkedInPosts: vi.fn() }) as never,
+      clock: extra.clock ?? (() => NOW_MS),
+      whyNowClient: (extra.create ?? llm()).factory,
+      readIcp: (...args: unknown[]) => mockReadTenantICP(...args),
+    });
+  }
+
+  function withOpenaiKey() {
+    mockGetServiceApiKeyOrNull.mockImplementation(async (_tenant: string, service: string) => (service === "openai" ? "sk-tenant" : null));
+  }
+
+  /** Treg: so o Banco X tem noticia/vaga; a Empresa Y fica so com o site. */
+  const onlyBancoXNews: TregHandler = (endpoint, body) => {
+    if (endpoint === "exa.web.search" && !String(body.query).includes("Banco X")) return ok({ results: [] }, 7000);
+    return defaultTreg(endpoint, body);
+  };
+
+  const whyNowOf = (result: { data: Record<string, unknown> }) => outputOf(result).whyNow!;
+  const whyNowLogs = () => mockLogAgentUsage.mock.calls.map((c) => c[0]).filter((p) => p.requestType === "why_now_trigger");
+  const summaryMessage = (db: ReturnType<typeof createDb>) => messages(db).find((m) => m.startsWith("Pesquisa das contas concluida"));
+
+  /** Output sem `whyNow` (o que a 24.19 grava): tem de ser identico com e sem a fase. */
+  function withoutWhyNow(result: { data: Record<string, unknown>; cost?: Record<string, unknown> }) {
+    const { whyNow, ...rest } = outputOf(result);
+    void whyNow;
+    const { openai_why_now, ...cost } = (result.cost ?? {}) as Record<string, unknown>;
+    void openai_why_now;
+    return { output: rest, cost };
+  }
+
+  async function disabledBaseline(dbOptions: DbOptions = {}, handler: TregHandler = defaultTreg, input = createInput()) {
+    mockWhyNowConfig.enabled = false;
+    const result = await whyNowStep(createDb(dbOptions), createTreg(handler)).run(input);
+    mockWhyNowConfig.enabled = true;
+    return result;
+  }
+
+  beforeEach(() => {
+    mockPlanAccountCall.mockClear();
+  });
+
+  it("feliz: 1 chamada (so a conta com noticia), gatilho com fato copiado, log, custo e resumo no chat", async () => {
+    withOpenaiKey();
+    mockReadTenantICP.mockResolvedValue({ jobTitles: [], industries: [], companySizes: [], geographicFocus: [], painPoints: "Falta de visibilidade de ameacas" });
+    const create = llm();
+    const db = createDb();
+    const result = await whyNowStep(db, createTreg(onlyBancoXNews), { create }).run(createInput());
+    const whyNow = whyNowOf(result);
+
+    expect(create.fn).toHaveBeenCalledTimes(1);
+    const request = create.fn.mock.calls[0][0] as unknown as { model: string; messages: Array<{ content: string }> };
+    expect(request.model).toBe("gpt-5.4-mini");
+    expect(request.messages[1].content).toContain("Falta de visibilidade de ameacas");
+    // Privacidade: cargo e empresa, nunca nome nem e-mail.
+    for (const secret of [/\bJoao\b/, /\bAna\b/, /joao@bancox/, /ana@bancox/, /ap-1/, /ap-2/]) {
+      expect(request.messages[1].content).not.toMatch(secret);
+    }
+
+    expect(whyNow.leads.map((l) => [l.leadIndex, l.status, l.reason])).toEqual([
+      [0, "trigger", undefined],
+      [1, "trigger", undefined],
+      [2, "no_trigger", "no_eligible_facts"],
+    ]);
+    const joao = whyNow.leads[0];
+    expect(joao).toMatchObject({ apolloId: "ap-1", email: "joao@bancox.com.br", companyDomain: "bancox.com.br", dossierId: "dossier-bancox.com.br" });
+    expect(joao.trigger).toEqual({
+      gatilho: "O Banco X anunciou um novo CISO.",
+      hipoteseDor: "Como o novo CISO vai priorizar a visibilidade de ameacas?",
+      confianca: "alta",
+      fatoOrigem: expect.objectContaining({ kind: "news", fonte_url: "https://valor.com.br/Banco%20X", data: "2026-10-01" }),
+    });
+    // O fato de origem e copia exata do fato gravado.
+    const stored = (db.insertsTo("account_dossier_facts").flat() as Array<Record<string, string>>).find((f) => f.kind === "news")!;
+    expect(joao.trigger!.fatoOrigem).toMatchObject({ fato: stored.fato, fonte_url: stored.fonte_url, data: stored.data, confianca: stored.confianca });
+    expect(whyNow.summary).toEqual({ withTrigger: 2, withoutTrigger: 1, llmCalls: 1, llmFailedCalls: 0 });
+    expect(whyNow.kbPainsAvailable).toBe(true);
+    expect(whyNow.flags).toEqual({});
+    // Nao grava nome nem cargo no output.
+    expect(JSON.stringify(whyNow)).not.toMatch(/\bJoao\b/);
+    expect(JSON.stringify(whyNow)).not.toMatch(/"(name|title|cargo)"/);
+
+    expect(whyNowLogs()).toEqual([
+      expect.objectContaining({
+        tenantId: TENANT,
+        executionId: EXEC,
+        stepType: "research_accounts",
+        serviceName: "openai",
+        requestType: "why_now_trigger",
+        status: "success",
+        calls: 1,
+        metadata: expect.objectContaining({ model: "gpt-5.4-mini", promptTokens: 120, completionTokens: 30, leads: 2, triggers: 2 }),
+      }),
+    ]);
+    expect(result.cost).toMatchObject({ openai_why_now: 1 });
+    expect(mockReadServiceApiKey).toHaveBeenCalledWith(TENANT, "treg");
+    expect(mockGetServiceApiKeyOrNull).toHaveBeenCalledWith(TENANT, "openai");
+
+    const summary = summaryMessage(db)!;
+    expect(summary).toBe(
+      [
+        "Pesquisa das contas concluida: 2 de 2 contas com dossie, 4 fatos com fonte. A campanha segue normalmente.",
+        "",
+        "Motivo para abordar agora: 2 de 3 leads com gatilho.",
+        "- Joao (CISO, Banco X): O Banco X anunciou um novo CISO. (fonte: valor.com.br, 2026-10-01, confianca alta)",
+        "- Ana (CISO, Banco X S.A.): O Banco X anunciou um novo CISO. (fonte: valor.com.br, 2026-10-01, confianca alta)",
+        "- Rui (Empresa Y): sem gatilho, segue a copy padrao.",
+      ].join("\n")
+    );
+    expect(checkpoint(db)).toMatchObject({ status: "completed" });
+    expect((checkpoint(db)!.output as ResearchAccountsOutput).whyNow).toEqual(whyNow);
+  });
+
+  it("o resto do output (contas, resumo, flags, custo, posts) e identico com e sem a fase", async () => {
+    withOpenaiKey();
+    const baseline = await disabledBaseline();
+    const result = await whyNowStep(createDb()).run(createInput());
+    expect(whyNowOf(result).summary.withTrigger).toBe(3);
+    expect(withoutWhyNow(result)).toEqual(withoutWhyNow(baseline));
+  });
+
+  it("so baixa / nenhum fato elegivel: zero chamadas, zero logs, chave OpenAI nem lida", async () => {
+    withOpenaiKey();
+    const create = llm();
+    const noEvents: TregHandler = (endpoint, body) => (endpoint === "exa.web.search" ? ok({ results: [] }, 7000) : defaultTreg(endpoint, body));
+    const result = await whyNowStep(createDb(), createTreg(noEvents), { create }).run(createInput());
+
+    expect(create.fn).not.toHaveBeenCalled();
+    expect(whyNowLogs()).toHaveLength(0);
+    expect(mockGetServiceApiKeyOrNull).not.toHaveBeenCalledWith(TENANT, "openai");
+    expect(whyNowOf(result).leads.every((l) => l.reason === "no_eligible_facts")).toBe(true);
+    expect(result.cost).toMatchObject({ openai_why_now: 0 });
+  });
+
+  it("reuso: le os fatos do dossie reaproveitado e segue como o feliz", async () => {
+    withOpenaiKey();
+    const create = llm();
+    const db = createDb({
+      reusable: { "bancox.com.br": { id: "old-dossier", facts: 2 } },
+      storedFacts: {
+        "old-dossier": [
+          { kind: "news", fato: "Banco X anuncia novo CISO", fonte_url: "https://valor.com.br/old", data: "2026-10-10", confianca: "alta", lead_apollo_id: null, lead_email: null },
+          { kind: "site", fato: "Banco com atuacao nacional", fonte_url: "https://bancox.com.br", data: "2026-10-01", confianca: "alta", lead_apollo_id: null, lead_email: null },
+        ],
+      },
+    });
+    const result = await whyNowStep(db, createTreg(onlyBancoXNews), { create }).run(
+      createInput({ targetAccounts: [{ name: "Banco X", domain: "bancox.com.br", confidence: "high" }] })
+    );
+    const whyNow = whyNowOf(result);
+    expect(create.fn).toHaveBeenCalledTimes(1);
+    expect(whyNow.leads[0]).toMatchObject({ status: "trigger", dossierId: "old-dossier", trigger: { fatoOrigem: { fonte_url: "https://valor.com.br/old" } } });
+    expect(whyNow.leads[1].status).toBe("trigger");
+  });
+
+  it("reuso com leitura dos fatos falhando: facts_unavailable, sem chamada", async () => {
+    withOpenaiKey();
+    const create = llm();
+    const db = createDb({ reusable: { "bancox.com.br": { id: "old-dossier", facts: 2 } }, storedFactsError: true });
+    const result = await whyNowStep(db, createTreg(onlyBancoXNews), { create }).run(
+      createInput({ targetAccounts: [{ name: "Banco X", domain: "bancox.com.br", confidence: "high" }] })
+    );
+    expect(create.fn).not.toHaveBeenCalled();
+    expect(whyNowOf(result).leads.slice(0, 2).map((l) => l.reason)).toEqual(["facts_unavailable", "facts_unavailable"]);
+    // A 24.19 nao sente a leitura falha.
+    expect(outputOf(result).flags).toEqual({});
+  });
+
+  it("dossie nao gravado: fato nao gravado nao vira gatilho (facts_unavailable)", async () => {
+    withOpenaiKey();
+    const create = llm();
+    const result = await whyNowStep(createDb({ dossierInsertError: true }), createTreg(), { create }).run(createInput());
+    expect(create.fn).not.toHaveBeenCalled();
+    expect(whyNowOf(result).leads.every((l) => l.reason === "facts_unavailable")).toBe(true);
+  });
+
+  it("sem chave OpenAI: no_openai_key, flag, zero chamadas e o resumo mostra 'sem gatilho'", async () => {
+    const create = llm();
+    const db = createDb();
+    const result = await whyNowStep(db, createTreg(), { create }).run(createInput());
+    const whyNow = whyNowOf(result);
+    expect(create.fn).not.toHaveBeenCalled();
+    expect(whyNow.flags).toEqual({ noOpenaiKey: true });
+    expect(whyNow.leads.every((l) => l.reason === "no_openai_key")).toBe(true);
+    expect(whyNow.kbPainsAvailable).toBe(false);
+    expect(summaryMessage(db)).toContain("Motivo para abordar agora: 0 de 3 leads com gatilho.");
+    expect(summaryMessage(db)).toContain("- Joao (Banco X): sem gatilho, segue a copy padrao.");
+  });
+
+  it.each([
+    ["erro HTTP", (async () => { throw new Error("500 Internal Server Error"); }) as CreateFn, "llm_error"],
+    ["JSON invalido", (async () => ({ choices: [{ message: { content: "nao json" } }] })) as CreateFn, "invalid_response"],
+    [
+      "timeout",
+      ((_req, options) =>
+        new Promise((_resolve, reject) => options?.signal?.addEventListener("abort", () => reject(new Error("aborted"))))) as CreateFn,
+      "timeout",
+    ],
+  ])("%s: leads da conta sem gatilho, 1 log failed por chamada, step completed", async (_label, create, reason) => {
+    withOpenaiKey();
+    mockWhyNowConfig.callTimeoutMs = 20;
+    const db = createDb();
+    const result = await whyNowStep(db, createTreg(), { create: llm(create) }).run(createInput());
+    const whyNow = whyNowOf(result);
+    expect(result.success).toBe(true);
+    expect(whyNow.leads.every((l) => l.reason === reason)).toBe(true);
+    expect(whyNow.summary).toMatchObject({ llmCalls: 2, llmFailedCalls: 2 });
+    expect(whyNowLogs()).toHaveLength(2);
+    expect(whyNowLogs().every((l) => l.status === "failed" && l.errorMessage)).toBe(true);
+    expect(checkpoint(db)).toMatchObject({ status: "completed" });
+  });
+
+  it("teto de chamadas: contas excedentes call_limit e flag", async () => {
+    withOpenaiKey();
+    mockWhyNowConfig.maxCallsPerExecution = 1;
+    mockWhyNowConfig.concurrency = 1;
+    const create = llm();
+    const result = await whyNowStep(createDb(), createTreg(), { create }).run(createInput());
+    expect(create.fn).toHaveBeenCalledTimes(1);
+    expect(whyNowOf(result).flags.callLimitReached).toBe(true);
+    expect(whyNowOf(result).leads.filter((l) => l.reason === "call_limit")).toHaveLength(1);
+    expect(result.cost).toMatchObject({ openai_why_now: 1 });
+  });
+
+  it("teto de custo reservado: contas sem espaco ficam budget", async () => {
+    withOpenaiKey();
+    mockWhyNowConfig.maxCostUsdPerExecution = 0.005;
+    mockWhyNowConfig.concurrency = 1;
+    const create = llm();
+    const result = await whyNowStep(createDb(), createTreg(), { create }).run(createInput());
+    expect(create.fn).toHaveBeenCalledTimes(1);
+    expect(whyNowOf(result).flags.budgetExhausted).toBe(true);
+    expect(whyNowOf(result).leads.filter((l) => l.reason === "budget")).toHaveLength(1);
+  });
+
+  it("leads alem de maxLeadsPerCall: call_limit", async () => {
+    withOpenaiKey();
+    mockWhyNowConfig.maxLeadsPerCall = 1;
+    const result = await whyNowStep(createDb(), createTreg(onlyBancoXNews)).run(createInput());
+    expect(whyNowOf(result).leads.map((l) => l.reason)).toEqual([undefined, "call_limit", "no_eligible_facts"]);
+  });
+
+  it("teto de tempo ao iniciar (menos que minPhaseMs ate o prazo duro): time_budget, sem chamada", async () => {
+    withOpenaiKey();
+    mockWhyNowConfig.minPhaseMs = 300_000;
+    const create = llm();
+    const result = await whyNowStep(createDb(), createTreg(), { create }).run(createInput());
+    expect(create.fn).not.toHaveBeenCalled();
+    expect(whyNowOf(result).flags.timeBudgetExhausted).toBe(true);
+    expect(whyNowOf(result).leads.every((l) => l.reason === "time_budget")).toBe(true);
+    // O teto de tempo da fase nao vira flag da pesquisa.
+    expect(outputOf(result).flags).toEqual({});
+  });
+
+  it("orcamento da fase esgotado (relogio injetado): contas restantes time_budget", async () => {
+    withOpenaiKey();
+    mockWhyNowConfig.concurrency = 1;
+    mockWhyNowConfig.phaseBudgetMs = 10_000;
+    let now = NOW_MS;
+    const create = llm(async (req) => {
+      now += 9_000; // a 1a chamada consome quase todo o orcamento da fase
+      return citeNews(req);
+    });
+    const result = await whyNowStep(createDb(), createTreg(), { create, clock: () => now }).run(createInput());
+    expect(create.fn).toHaveBeenCalledTimes(1);
+    expect(whyNowOf(result).flags.timeBudgetExhausted).toBe(true);
+    expect(whyNowOf(result).leads.filter((l) => l.reason === "time_budget")).toHaveLength(1);
+  });
+
+  it("kill switch: todos disabled, zero chamadas, sem leitura de fatos e resumo da 24.19 sem o bloco", async () => {
+    withOpenaiKey();
+    mockWhyNowConfig.enabled = false;
+    const create = llm();
+    const db = createDb({ reusable: { "bancox.com.br": { id: "old-dossier", facts: 2 } } });
+    const result = await whyNowStep(db, createTreg(), { create }).run(
+      createInput({ targetAccounts: [{ name: "Banco X", domain: "bancox.com.br", confidence: "high" }] })
+    );
+    const whyNow = whyNowOf(result);
+    expect(create.fn).not.toHaveBeenCalled();
+    expect(whyNow.flags).toEqual({ disabled: true });
+    expect(whyNow.leads.every((l) => l.reason === "disabled")).toBe(true);
+    expect(summaryMessage(db)).not.toContain("Motivo para abordar agora");
+    const factReads = db.from.mock.results
+      .map((r) => r.value as ChainBuilder)
+      .filter((chain) => String(chain.select.mock.calls[0]?.[0] ?? "").includes("fato"));
+    expect(factReads).toHaveLength(0);
+  });
+
+  it("pesquisa pulada (sem chave Treg): leads not_researched e a mensagem antecipada inalterada", async () => {
+    withOpenaiKey();
+    mockReadServiceApiKey.mockResolvedValue({ status: "missing" });
+    const create = llm();
+    const db = createDb();
+    const result = await whyNowStep(db, createTreg(), { create }).run(createInput());
+    expect(create.fn).not.toHaveBeenCalled();
+    expect(whyNowOf(result).leads.every((l) => l.reason === "not_researched")).toBe(true);
+    expect(messages(db).filter((m) => m.startsWith("Pesquisa"))).toEqual([
+      "Pesquisa das contas pulada: a chave do Treg nao esta configurada em Configuracoes > Integracoes. A campanha segue normalmente.",
+    ]);
+  });
+
+  it("sem leads: sem whyNow e a mensagem antecipada inalterada", async () => {
+    const db = createDb();
+    const result = await whyNowStep(db).run(createInput({}, []));
+    expect(outputOf(result).whyNow).toBeUndefined();
+    expect(messages(db).filter((m) => m.startsWith("Pesquisa"))).toEqual(["Pesquisa das contas pulada: nenhum lead para pesquisar. A campanha segue normalmente."]);
+  });
+
+  it("conta pulada (sem dominio): leads not_researched", async () => {
+    withOpenaiKey();
+    const noDomain: TregHandler = (endpoint, body) =>
+      endpoint === "treg.web.search" ? ok({ output: { results: [] } }, 150) : defaultTreg(endpoint, body);
+    const leads = [lead({ name: "Zed", companyName: "Sem Site Ltda", email: null, apolloId: "ap-9" })];
+    const result = await whyNowStep(createDb(), createTreg(noDomain)).run(createInput({}, leads));
+    expect(whyNowOf(result).leads).toEqual([
+      { leadIndex: 0, apolloId: "ap-9", email: null, companyDomain: null, dossierId: null, status: "no_trigger", reason: "not_researched" },
+    ]);
+  });
+
+  it("excecao inesperada na fase: flag, pendentes llm_error e o resto do output identico", async () => {
+    withOpenaiKey();
+    const baseline = await disabledBaseline();
+    mockPlanAccountCall.mockImplementationOnce(() => {
+      throw new Error("boom");
+    });
+    const db = createDb();
+    const result = await whyNowStep(db).run(createInput());
+    const whyNow = whyNowOf(result);
+    expect(result.success).toBe(true);
+    expect(whyNow.flags.unexpectedError).toBe(true);
+    expect(whyNow.leads.every((l) => l.reason === "llm_error")).toBe(true);
+    expect(withoutWhyNow(result)).toEqual(withoutWhyNow(baseline));
+    expect(checkpoint(db)).toMatchObject({ status: "completed" });
+  });
+
+  it("checkpoint minimo tambem remove o whyNow", async () => {
+    withOpenaiKey();
+    const db = createDb();
+    const original = db.from.getMockImplementation()!;
+    db.from.mockImplementation((table: string) => {
+      const chain = original(table);
+      if (table !== "agent_steps") return chain;
+      const then = chain.then;
+      chain.then = (resolve, reject) => {
+        const update = chain.update.mock.calls[0]?.[0] as { output?: { flags?: { persistFailed?: boolean } } } | undefined;
+        if (update?.output && !update.output.flags?.persistFailed) {
+          return Promise.resolve({ data: null, error: { message: "payload grande" } }).then(resolve, reject);
+        }
+        return then.call(chain, resolve, reject);
+      };
+      return chain;
+    });
+    const result = await whyNowStep(db).run(createInput());
+    expect(outputOf(result).whyNow).toBeDefined();
+    const minimal = db.updates
+      .map((u) => u.payload as { status?: string; output?: Record<string, unknown> })
+      .find((u) => u.status === "completed" && (u.output?.flags as { persistFailed?: boolean } | undefined)?.persistFailed);
+    expect(minimal).toBeDefined();
+    expect(minimal!.output).not.toHaveProperty("whyNow");
+  }, 15_000);
+
+  it("resumo: leads com gatilho primeiro e '... e mais N leads' alem de summaryMaxLeads", () => {
+    const leads = [lead({ name: "A", companyName: "Acme" }), lead({ name: "B", title: "CTO", companyName: "Beta" }), lead({ name: "C", companyName: "Gama" })];
+    const output = {
+      accounts: [],
+      summary: { accounts: 0, researched: 0, reused: 0, skipped: 0, facts: 0, leadsLinked: 0 },
+      flags: {},
+      costUsd: 0,
+      whyNow: {
+        leads: [
+          { leadIndex: 0, apolloId: null, email: null, companyDomain: null, dossierId: null, status: "no_trigger", reason: "no_eligible_facts" },
+          {
+            leadIndex: 1, apolloId: null, email: null, companyDomain: "beta.com", dossierId: "d", status: "trigger",
+            trigger: { gatilho: "Beta abriu vaga de CISO.", hipoteseDor: "Quem cuida da seguranca hoje?", confianca: "media", fatoOrigem: { ref: 0, kind: "job", fato: "Vaga CISO", fonte_url: "https://www.gupy.io/beta", data: "2026-10-15", confianca: "media" } },
+          },
+          { leadIndex: 2, apolloId: null, email: null, companyDomain: null, dossierId: null, status: "no_trigger", reason: "llm_declined" },
+        ],
+        summary: { withTrigger: 1, withoutTrigger: 2, llmCalls: 1, llmFailedCalls: 0 },
+        kbPainsAvailable: false,
+        flags: {},
+      },
+    } as ResearchAccountsOutput;
+    mockWhyNowConfig.summaryMaxLeads = 2;
+    expect(ResearchAccountsStep.summaryText(output, leads).split("\n\n")[1]).toBe(
+      [
+        "Motivo para abordar agora: 1 de 3 leads com gatilho.",
+        "- B (CTO, Beta): Beta abriu vaga de CISO. (fonte: gupy.io, 2026-10-15, confianca media)",
+        "- A (Acme): sem gatilho, segue a copy padrao.",
+        "... e mais 1 lead.",
+      ].join("\n")
+    );
+    // Sem whyNow (output antigo): texto da 24.19 intacto.
+    const { whyNow, ...old } = output;
+    void whyNow;
+    expect(ResearchAccountsStep.summaryText(old as ResearchAccountsOutput, leads)).not.toContain("\n");
   });
 });

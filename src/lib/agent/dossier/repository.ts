@@ -190,6 +190,50 @@ export async function findPostLeadIdentifiers(
   }
 }
 
+/**
+ * Story 24.20: fatos de um dossie (somente leitura), para o gatilho de um dossie
+ * reaproveitado. Linhas fora do formato sao descartadas. Nunca lanca.
+ */
+export async function readDossierFacts(
+  supabase: SupabaseClient,
+  tenantId: string,
+  dossierId: string
+): Promise<{ facts: DossierFact[]; error?: string }> {
+  try {
+    const { data, error } = await supabase
+      .from("account_dossier_facts")
+      .select("kind, fato, fonte_url, data, confianca, lead_apollo_id, lead_email")
+      .eq("dossier_id", dossierId)
+      .eq("tenant_id", tenantId);
+    if (error) return { facts: [], error: errorText(error) };
+    const facts: DossierFact[] = [];
+    for (const row of (Array.isArray(data) ? data : []) as Record<string, unknown>[]) {
+      if (
+        typeof row.kind !== "string" ||
+        typeof row.fato !== "string" ||
+        typeof row.fonte_url !== "string" ||
+        typeof row.data !== "string" ||
+        typeof row.confianca !== "string"
+      ) {
+        continue;
+      }
+      facts.push({
+        kind: row.kind as DossierFact["kind"],
+        fato: row.fato,
+        fonte_url: row.fonte_url,
+        // `date` do Postgres ja vem YYYY-MM-DD; corta um eventual horario.
+        data: row.data.slice(0, 10),
+        confianca: row.confianca as DossierFact["confianca"],
+        lead_apollo_id: typeof row.lead_apollo_id === "string" ? row.lead_apollo_id : null,
+        lead_email: typeof row.lead_email === "string" ? row.lead_email : null,
+      });
+    }
+    return { facts };
+  } catch (error) {
+    return { facts: [], error: errorText(error) };
+  }
+}
+
 // ==============================================
 // LEADS
 // ==============================================

@@ -2,7 +2,8 @@
 title: '24.20 — Motivo para abordar agora'
 type: 'feature'
 created: '2026-11-04'
-status: ready-for-dev
+status: review
+baseline_commit: 'b627e71'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -13,11 +14,15 @@ warnings: ['oversized']
 deferred: []
 linear: 'FEL-43'
 requisitos: 'FR34 (parte "gatilho"; o uso na copy é FR35/24.21; o painel é FR36/24.22)'
+operator_actions:
+  - "Revisar e dar o OK (Regra nº 1, ponto 3) antes do merge e do deploy: a fase nova roda dentro do research_accounts, que fica no caminho até o Instantly. Ela é fail-open, não toca create_campaign/export/activate/Instantly/orchestrator, mas acrescenta uma chamada de IA por conta com fato elegível (≈ 5–15 s no caso feliz, dentro do prazo duro de hoje; pior caso do step inalterado em ≈ 256 s)."
+  - "Depois do OK e do deploy, fazer o smoke real de uma execução guiada com 2–3 leads, sem ativar no Instantly: a mensagem-resumo do research deve mostrar o bloco 'Motivo para abordar agora', agent_steps.output.whyNow deve existir na linha research_accounts, deve haver 1 linha why_now_trigger por chamada em api_usage_logs e o create_campaign deve seguir normalmente."
+  - "No Linear, mover a FEL-43 para Precisa Felipe com o label precisa-felipe e registrar branch, SHA e checks (não feito pelo agente nesta sessão por instrução explícita: sem Linear e sem push)."
 ---
 
 # Story 24.20: Motivo para abordar agora
 
-Status: ready-for-dev
+Status: review
 
 > **BLOQUEIO:** nenhum. A story **não precisa de migration**: o gatilho de cada lead fica no `output` jsonb da linha `research_accounts` em `agent_steps`, que já existe. Os fatos são lidos das tabelas da 00073, que já está aplicada em produção.
 
@@ -185,21 +190,21 @@ export interface WhyNowOutput {
 
 ## Tasks / Subtasks
 
-- [ ] **T1 — Config** (AC 3)
-  - [ ] `src/lib/agent/dossier/config.ts`: adicionar `WHY_NOW_CONFIG`: `enabled: true`, `maxCallsPerExecution: 10`, `maxCostUsdPerExecution: 0.05`, `reservedUsdPerCall: 0.005`, `maxLeadsPerCall: 10`, `maxEligibleFactsPerCall: 15`, `maxContextFacts: 5`, `factMaxChars: 300`, `painPointsMaxChars: 1500`, `callTimeoutMs: 20_000`, `phaseBudgetMs: 45_000`, `minPhaseMs: 10_000`, `minCallMs: 3_000`, `concurrency: 3`, `summaryMaxLeads: 10`, `textMaxChars: 240`. Comentar que `timeBudgetMs` (180 s) + `phaseBudgetMs` (45 s) < `hardDeadlineMs` (240 s).
-  - [ ] `src/lib/ai/why-now-config.ts` (NOVO): `WHY_NOW_MODEL = "gpt-5.4-mini"` e `buildWhyNowRequest(messages)`, cópia do molde de `fit-score-config.ts` (json_object; `temperature` só fora da família gpt-5).
-- [ ] **T2 — Seletor puro + chamada** (AC 1, 2, 3): `src/lib/agent/dossier/why-now.ts` (NOVO):
-  - [ ] `eligibleFactsForAccount(facts, leads)`: devolve a lista indexada (`ref`) dos fatos elegíveis (D4), com o dono do post (`leadIdx`) quando `kind = 'post'`, cortada em `maxEligibleFactsPerCall` (mais recentes primeiro). Devolve também os fatos de contexto (`site`/`technology`, até `maxContextFacts`). Casar o lead do post por `apolloId` ou e-mail minúsculo.
-  - [ ] `buildWhyNowMessages({companyName, domain, contextFacts, eligibleFacts, leads:[{j, cargo}], icp})`: prompt de sistema constante (pt-BR, sem acentos, no estilo do `FIT_SCORE_SYSTEM_PROMPT`). Regras do prompt: escolher **um** fato da lista citando o `ref`; nunca inventar fatos, números ou nomes; gatilho de 1 frase observando o fato; hipótese de dor como **pergunta** ligada ao cargo e às dores do ICP; `ref: null` quando nenhum fato serve; JSON `{"leads":[{"j":0,"ref":3|null,"gatilho":"...","hipotese_dor":"...?","confianca":"baixa|media|alta"}]}`. Textos dos fatos cortados em `factMaxChars`. Sem nome e sem e-mail de lead.
-  - [ ] `parseWhyNowResponse(content, ctx)`: `zod` `safeParse` do envelope e de cada entrada. Aplicar as regras do intent-contract: `j` no intervalo e sem repetição; `ref` inteiro existente na lista elegível e, se for post, do mesmo lead; textos normalizados (espaços), não vazios e ≤ `textMaxChars`; hipótese terminando em `?`; guarda de números (todo `\d+` do gatilho e da hipótese aparece no `fato`); confiança final = mínimo com a do fato; `baixa` → `low_confidence`. Devolve, por lead, `trigger` ou `reason`. Lead sem entrada válida → `invalid_response`.
-  - [ ] `selectWhyNowForAccount({apiKey, ...})`: 1 chamada com `AbortController` + `setTimeout(timeoutMs)`; devolve `{results, attempted, succeeded, usage:{model, promptTokens, completionTokens, durationMs, errorMessage?}}`. Erro → `llm_error`; abort → `timeout`; JSON ou schema inválido → `invalid_response`. **Nunca lança.** O client OpenAI é injetável (factory padrão `new OpenAI({apiKey})`) para os testes.
-- [ ] **T3 — Repositório** (AC 1): `src/lib/agent/dossier/repository.ts`: adicionar `readDossierFacts` (somente leitura, nunca lança, devolve o erro). Não alterar as funções existentes.
-- [ ] **T4 — Integração no step** (AC 1–5): `src/lib/agent/steps/research-accounts-step.ts`:
-  - [ ] `RunState` ganha `accountFacts: Map<string, {domain, companyName, dossierId, facts: DossierFact[] | null, leads: SearchLeadResult[]}>`, preenchido em `researchAccount`:
+- [x] **T1 — Config** (AC 3)
+  - [x] `src/lib/agent/dossier/config.ts`: adicionar `WHY_NOW_CONFIG`: `enabled: true`, `maxCallsPerExecution: 10`, `maxCostUsdPerExecution: 0.05`, `reservedUsdPerCall: 0.005`, `maxLeadsPerCall: 10`, `maxEligibleFactsPerCall: 15`, `maxContextFacts: 5`, `factMaxChars: 300`, `painPointsMaxChars: 1500`, `callTimeoutMs: 20_000`, `phaseBudgetMs: 45_000`, `minPhaseMs: 10_000`, `minCallMs: 3_000`, `concurrency: 3`, `summaryMaxLeads: 10`, `textMaxChars: 240`. Comentar que `timeBudgetMs` (180 s) + `phaseBudgetMs` (45 s) < `hardDeadlineMs` (240 s).
+  - [x] `src/lib/ai/why-now-config.ts` (NOVO): `WHY_NOW_MODEL = "gpt-5.4-mini"` e `buildWhyNowRequest(messages)`, cópia do molde de `fit-score-config.ts` (json_object; `temperature` só fora da família gpt-5).
+- [x] **T2 — Seletor puro + chamada** (AC 1, 2, 3): `src/lib/agent/dossier/why-now.ts` (NOVO):
+  - [x] `eligibleFactsForAccount(facts, leads)`: devolve a lista indexada (`ref`) dos fatos elegíveis (D4), com o dono do post (`leadIdx`) quando `kind = 'post'`, cortada em `maxEligibleFactsPerCall` (mais recentes primeiro). Devolve também os fatos de contexto (`site`/`technology`, até `maxContextFacts`). Casar o lead do post por `apolloId` ou e-mail minúsculo.
+  - [x] `buildWhyNowMessages({companyName, domain, contextFacts, eligibleFacts, leads:[{j, cargo}], icp})`: prompt de sistema constante (pt-BR, sem acentos, no estilo do `FIT_SCORE_SYSTEM_PROMPT`). Regras do prompt: escolher **um** fato da lista citando o `ref`; nunca inventar fatos, números ou nomes; gatilho de 1 frase observando o fato; hipótese de dor como **pergunta** ligada ao cargo e às dores do ICP; `ref: null` quando nenhum fato serve; JSON `{"leads":[{"j":0,"ref":3|null,"gatilho":"...","hipotese_dor":"...?","confianca":"baixa|media|alta"}]}`. Textos dos fatos cortados em `factMaxChars`. Sem nome e sem e-mail de lead.
+  - [x] `parseWhyNowResponse(content, ctx)`: `zod` `safeParse` do envelope e de cada entrada. Aplicar as regras do intent-contract: `j` no intervalo e sem repetição; `ref` inteiro existente na lista elegível e, se for post, do mesmo lead; textos normalizados (espaços), não vazios e ≤ `textMaxChars`; hipótese terminando em `?`; guarda de números (todo `\d+` do gatilho e da hipótese aparece no `fato`); confiança final = mínimo com a do fato; `baixa` → `low_confidence`. Devolve, por lead, `trigger` ou `reason`. Lead sem entrada válida → `invalid_response`.
+  - [x] `selectWhyNowForAccount({apiKey, ...})`: 1 chamada com `AbortController` + `setTimeout(timeoutMs)`; devolve `{results, attempted, succeeded, usage:{model, promptTokens, completionTokens, durationMs, errorMessage?}}`. Erro → `llm_error`; abort → `timeout`; JSON ou schema inválido → `invalid_response`. **Nunca lança.** O client OpenAI é injetável (factory padrão `new OpenAI({apiKey})`) para os testes.
+- [x] **T3 — Repositório** (AC 1): `src/lib/agent/dossier/repository.ts`: adicionar `readDossierFacts` (somente leitura, nunca lança, devolve o erro). Não alterar as funções existentes.
+- [x] **T4 — Integração no step** (AC 1–5): `src/lib/agent/steps/research-accounts-step.ts`:
+  - [x] `RunState` ganha `accountFacts: Map<string, {domain, companyName, dossierId, facts: DossierFact[] | null, leads: SearchLeadResult[]}>`, preenchido em `researchAccount`:
     - caminho novo: só quando `saved.dossierId && !saved.error` (fato não gravado não vira gatilho);
     - caminho de reuso: `readDossierFacts` via `bounded`, mais os posts inseridos com sucesso; falha → `facts: null` (`facts_unavailable`).
-  - [ ] Guardar os leads da execução (`readLeads`) num campo da instância, para o `buildResult` montar `whyNow` também nas saídas antecipadas e no backstop (`not_researched`).
-  - [ ] Depois do `runPool` de contas no `executeInternal`: `await this.evaluateWhyNow(state)` dentro de try/catch próprio (exceção → `flags.unexpectedError` e leads pendentes `llm_error`). Passos da fase:
+  - [x] Guardar os leads da execução (`readLeads`) num campo da instância, para o `buildResult` montar `whyNow` também nas saídas antecipadas e no backstop (`not_researched`).
+  - [x] Depois do `runPool` de contas no `executeInternal`: `await this.evaluateWhyNow(state)` dentro de try/catch próprio (exceção → `flags.unexpectedError` e leads pendentes `llm_error`). Passos da fase:
     - kill switch;
     - contas com ao menos 1 fato elegível;
     - checar `remainingToDeadline() ≥ minPhaseMs`;
@@ -207,9 +212,9 @@ export interface WhyNowOutput {
     - `runPool(concurrency)` por conta, respeitando `maxCallsPerExecution`, `CostBudget(maxCostUsdPerExecution)` com `reservedUsdPerCall` e o prazo da fase (`min(start + phaseBudgetMs, deadlineAt - finalize margin)`);
     - timeout de cada chamada = `min(callTimeoutMs, prazo restante)`; não iniciar com menos de `minCallMs`;
     - cada chamada tentada → `this.logUsage({serviceName:"openai", requestType:"why_now_trigger", stepType:"research_accounts", status, calls:1, durationMs, errorMessage, metadata:{model, promptTokens, completionTokens, leads, eligibleFacts, triggers}})`.
-  - [ ] `buildResult`: incluir `output.whyNow` (sempre que houver leads) e `cost.openai_why_now` (chamadas tentadas). **Não alterar** os outros campos.
-  - [ ] `finalize`: no checkpoint mínimo, remover também `whyNow` (o nível 3 já não grava output).
-  - [ ] `summaryText`: quando `output.whyNow` existir e não estiver `disabled`, acrescentar o bloco abaixo. As saídas antecipadas que mandam a mensagem própria não mudam.
+  - [x] `buildResult`: incluir `output.whyNow` (sempre que houver leads) e `cost.openai_why_now` (chamadas tentadas). **Não alterar** os outros campos.
+  - [x] `finalize`: no checkpoint mínimo, remover também `whyNow` (o nível 3 já não grava output).
+  - [x] `summaryText`: quando `output.whyNow` existir e não estiver `disabled`, acrescentar o bloco abaixo. As saídas antecipadas que mandam a mensagem própria não mudam.
     ```
     Motivo para abordar agora: X de Y leads com gatilho.
     - <nome> (<cargo>, <empresa>): <gatilho> (fonte: <host da fonte_url>, <data>, confianca <media|alta>)
@@ -217,34 +222,35 @@ export interface WhyNowOutput {
     ... e mais N leads.
     ```
     São até `summaryMaxLeads` linhas, com os leads com gatilho primeiro. Nome e cargo vêm do lead em memória e não vão ao output.
-- [ ] **T5 — Tipos** (AC 1): `src/types/agent.ts`: adicionar os tipos de "Tipos (contrato do output)" e `whyNow?: WhyNowOutput` em `ResearchAccountsOutput`.
-- [ ] **T6 — Custo** (NFR3/NFR4): `src/lib/agent/agent-pricing.ts` (case `research_accounts`): `+ count(cost, "openai_why_now") * prices.openai`. `src/lib/services/agent-cost-estimator.ts`: somar `min(leads, WHY_NOW_CONFIG.maxCallsPerExecution) × prices.openai` à estimativa do research (zero quando o research é pulado, sem chave Treg ou com `enabled=false`), com o trecho "+ até N chamadas de IA (motivo para abordar agora)" na descrição.
-- [ ] **T7 — Testes (sem rede real)** (todas as linhas da matriz):
-  - [ ] `__tests__/unit/lib/agent/dossier/why-now.test.ts` (NOVO): elegibilidade (D4; post de outro lead; `baixa` fora), prompt sem nome/e-mail, parser (cada linha de validação da matriz), confiança mínima, guarda de números, timeout (fake timers), erro, JSON inválido. `vi.mock("openai")` como em `fit-scorer.test.ts`.
-  - [ ] `__tests__/unit/lib/agent/dossier/repository.test.ts`: `readDossierFacts` ok, erro e exceção.
-  - [ ] `__tests__/unit/lib/agent/steps/research-accounts-step.test.ts`:
+- [x] **T5 — Tipos** (AC 1): `src/types/agent.ts`: adicionar os tipos de "Tipos (contrato do output)" e `whyNow?: WhyNowOutput` em `ResearchAccountsOutput`.
+- [x] **T6 — Custo** (NFR3/NFR4): `src/lib/agent/agent-pricing.ts` (case `research_accounts`): `+ count(cost, "openai_why_now") * prices.openai`. `src/lib/services/agent-cost-estimator.ts`: somar `min(leads, WHY_NOW_CONFIG.maxCallsPerExecution) × prices.openai` à estimativa do research (zero quando o research é pulado, sem chave Treg ou com `enabled=false`), com o trecho "+ até N chamadas de IA (motivo para abordar agora)" na descrição.
+- [x] **T7 — Testes (sem rede real)** (todas as linhas da matriz):
+  - [x] `__tests__/unit/lib/agent/dossier/why-now.test.ts` (NOVO): elegibilidade (D4; post de outro lead; `baixa` fora), prompt sem nome/e-mail, parser (cada linha de validação da matriz), confiança mínima, guarda de números, timeout (fake timers), erro, JSON inválido. `vi.mock("openai")` como em `fit-scorer.test.ts`.
+  - [x] `__tests__/unit/lib/agent/dossier/repository.test.ts`: `readDossierFacts` ok, erro e exceção.
+  - [x] `__tests__/unit/lib/agent/steps/research-accounts-step.test.ts`:
     - Feliz, Só baixa (zero chamadas e zero logs), Reuso, Sem chave OpenAI, Erro/timeout, Teto de chamadas/custo, Teto de tempo (relógio injetado), Kill switch, Pesquisa pulada (mensagens antecipadas idênticas), Exceção inesperada e Checkpoint mínimo sem `whyNow`;
     - log `why_now_trigger` por chamada;
     - `cost.openai_why_now`;
     - texto do resumo.
     - Atualizar as expectativas de texto e output existentes **somente** onde o bloco novo aparece.
-  - [ ] `__tests__/unit/lib/agent/research-accounts-pipeline.test.ts`: com `whyNow` no output, o `previousStepOutput` do `create_campaign` é deep-equal ao de uma execução com a fase desligada. Com a LLM pendurada (fake timers), o step termina dentro do pior caso de hoje (≤ 256 s) e o `create_campaign` dispara.
-  - [ ] `__tests__/unit/lib/agent/dossier-posts-reuse-pipeline.test.ts`: segue verde sem mudar expectativa (`icebreakerPosts` lido igual com `whyNow` presente).
-  - [ ] `agent-pricing.test.ts` e `agent-cost-estimator.test.ts`: parcela nova.
-- [ ] **T8 — Verificação e Regra nº 1** (obrigatório antes de dar por concluída):
-  - [ ] `npm run lint` (0 erros), `npm run typecheck`, `npm run test:run`, todos verdes.
-  - [ ] `git diff main -- src/lib/agent/steps/export-step.ts src/lib/agent/steps/activate-step.ts src/lib/agent/steps/create-campaign-step.ts src/lib/services/instantly.ts src/lib/agent/orchestrator.ts supabase/` → **vazio**, e os testes desses arquivos sem mudança de expectativa.
-  - [ ] Preencher as **Completion Notes da Regra nº 1** (checklist abaixo).
-  - [ ] Como a fase roda dentro do `research_accounts`, que está **no caminho até o Instantly** (Regra nº 1, ponto 3), registrar em `operator_actions` o pedido de OK do Fabossi antes do merge e do deploy. No Linear, mover a FEL-43 para **Precisa Felipe** com o label `precisa-felipe` e comentar branch, SHA e checks. Não marcar Done.
+  - [x] `__tests__/unit/lib/agent/research-accounts-pipeline.test.ts`: com `whyNow` no output, o `previousStepOutput` do `create_campaign` é deep-equal ao de uma execução com a fase desligada. Com a LLM pendurada (fake timers), o step termina dentro do pior caso de hoje (≤ 256 s) e o `create_campaign` dispara.
+  - [x] `__tests__/unit/lib/agent/dossier-posts-reuse-pipeline.test.ts`: segue verde sem mudar expectativa (`icebreakerPosts` lido igual com `whyNow` presente).
+  - [x] `agent-pricing.test.ts` e `agent-cost-estimator.test.ts`: parcela nova.
+- [x] **T8 — Verificação e Regra nº 1** (obrigatório antes de dar por concluída):
+  - [x] `npm run lint` (0 erros), `npm run typecheck`, `npm run test:run`, todos verdes.
+  - [x] `git diff main -- src/lib/agent/steps/export-step.ts src/lib/agent/steps/activate-step.ts src/lib/agent/steps/create-campaign-step.ts src/lib/services/instantly.ts src/lib/agent/orchestrator.ts supabase/` → **vazio**, e os testes desses arquivos sem mudança de expectativa.
+  - [x] Preencher as **Completion Notes da Regra nº 1** (checklist abaixo).
+  - [x] Como a fase roda dentro do `research_accounts`, que está **no caminho até o Instantly** (Regra nº 1, ponto 3), registrar em `operator_actions` o pedido de OK do Fabossi antes do merge e do deploy.
+  - [ ] No Linear, mover a FEL-43 para **Precisa Felipe** com o label `precisa-felipe` e comentar branch, SHA e checks. Não marcar Done. **(Não feito pelo agente: a sessão proibiu mexer no Linear e dar push. Fica para o Fabossi/orquestrador; está em `operator_actions`.)**
 
 ### Checklist das Completion Notes (Regra nº 1 do AGENTS.md/CLAUDE.md)
 
-- [ ] **O que pode ter mudado para o cliente:** listar arquivos, rotas (esperado: nenhuma), prompts (esperado: prompt novo só do gatilho, constante em código; nenhum prompt do `create_campaign` alterado), tabelas (esperado: nenhuma nova; só leitura de `account_dossier_facts`), jobs (nenhum), integrações (OpenAI do tenant, com chamada nova no `research_accounts`) e a mensagem-resumo do research com o bloco novo.
-- [ ] **Ponto 1 — campanhas rodando, webhook e `reply-sweep`:** confirmar por análise da diff que nada desses caminhos foi tocado.
-- [ ] **Ponto 2 — busca de leads:** confirmar que `search_companies`/`search_leads` não foram tocados.
-- [ ] **Ponto 3 — criação, export e ativação:** diff vazia nos arquivos de T8, deep-equal do `previousStepOutput` do `create_campaign`, nenhum lead filtrado e o pior caso de tempo do research inalterado.
-- [ ] **Dizer qual verificação foi feita:** análise da diff + testes mockados. Nesta story não há smoke real (proibido); o smoke fica para depois do OK do Fabossi.
-- [ ] **Risco no ponto 3:** a fase acrescenta latência (estimada em ~5–15 s no caso feliz) antes do `create_campaign`, mas dentro do prazo duro existente. Registrar isso e **parar para o OK do Fabossi** (operator_actions) antes do merge.
+- [x] **O que pode ter mudado para o cliente:** listar arquivos, rotas (esperado: nenhuma), prompts (esperado: prompt novo só do gatilho, constante em código; nenhum prompt do `create_campaign` alterado), tabelas (esperado: nenhuma nova; só leitura de `account_dossier_facts`), jobs (nenhum), integrações (OpenAI do tenant, com chamada nova no `research_accounts`) e a mensagem-resumo do research com o bloco novo.
+- [x] **Ponto 1 — campanhas rodando, webhook e `reply-sweep`:** confirmar por análise da diff que nada desses caminhos foi tocado.
+- [x] **Ponto 2 — busca de leads:** confirmar que `search_companies`/`search_leads` não foram tocados.
+- [x] **Ponto 3 — criação, export e ativação:** diff vazia nos arquivos de T8, deep-equal do `previousStepOutput` do `create_campaign`, nenhum lead filtrado e o pior caso de tempo do research inalterado.
+- [x] **Dizer qual verificação foi feita:** análise da diff + testes mockados. Nesta story não há smoke real (proibido); o smoke fica para depois do OK do Fabossi.
+- [x] **Risco no ponto 3:** a fase acrescenta latência (estimada em ~5–15 s no caso feliz) antes do `create_campaign`, mas dentro do prazo duro existente. Registrar isso e **parar para o OK do Fabossi** (operator_actions) antes do merge.
 
 ## Dev Notes
 
@@ -307,10 +313,78 @@ export interface WhyNowOutput {
 
 ### Agent Model Used
 
+Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, workflow bmad-dev-story em modo não interativo (2026-11-04, máquina Eden).
+
 ### Debug Log References
+
+- `npm run lint`: 0 erros, 134 warnings (o mesmo número da base `b627e71`; nenhum warning novo nos arquivos tocados).
+- `npm run typecheck`: limpo.
+- `npm run test:run`: 469 arquivos, 9252 testes passando, 2 pulados (já pulados antes), 0 falhas.
+- `git diff --stat 544d052..HEAD -- src/lib/agent/steps/export-step.ts src/lib/agent/steps/activate-step.ts src/lib/agent/steps/create-campaign-step.ts 'src/lib/services/instantly*.ts' src/lib/agent/orchestrator.ts supabase/`: vazio.
+- Nenhuma rede real em teste: OpenAI (SDK `openai` mockado e client injetado), Treg, Apify, Supabase (fakes), chaves, ICP e log de uso mockados. Nada foi rodado contra o `.env.local`.
 
 ### Completion Notes List
 
 - Story criada pelo workflow create-story em modo não interativo (2026-11-04): análise de contexto completa e guia de implementação para o dev. As decisões estão em "Decisões tomadas sem humano".
+- **Implementação (2026-11-04):** fase "motivo para abordar agora" como etapa final, fail-open, do `executeInternal` do `research_accounts` (D1), depois do `runPool` das contas. Resultado em `output.whyNow` (D2), contrato de tipos exatamente como na seção "Tipos". Sem migration, sem tabela/coluna nova, nada em `supabase/`.
+  - `src/lib/agent/dossier/why-now.ts` (novo): `eligibleFactsForAccount` (D4; post só do próprio lead por `apolloId`/e-mail minúsculo; mais recentes primeiro; corte em `maxEligibleFactsPerCall`; fatos repetidos entram uma vez), `planAccountCall` (leads com fato elegível até `maxLeadsPerCall`, `noEligible`, `overLimit`, posts reindexados no espaço do `j`), `buildWhyNowMessages` (prompt constante, D8; cargo e empresa, nunca nome/e-mail), `parseWhyNowResponse` (todas as regras do intent-contract) e `selectWhyNowForAccount` (1 chamada, `AbortController`, nunca lança, client injetável).
+  - `src/lib/ai/why-now-config.ts` (novo): `gpt-5.4-mini`, `json_object`, sem `temperature` na família gpt-5, sem `max_completion_tokens` (D10).
+  - `WHY_NOW_CONFIG` em `dossier/config.ts` com os valores do T1 e o kill switch (D9).
+  - `readDossierFacts` em `dossier/repository.ts` (só leitura, nunca lança). Funções existentes inalteradas.
+  - Step: `RunState.accountFacts` (caminho novo só com `saved.dossierId && !saved.error`; reuso via `readDossierFacts` + posts gravados agora, falha → `facts_unavailable`), leads da execução em campo de instância, `evaluateWhyNowSafe` (try/catch próprio → `flags.unexpectedError`, pendentes `llm_error`), `buildWhyNow` (também nas saídas antecipadas e no backstop: `not_researched`; interrompido no meio da fase: `time_budget`), `cost.openai_why_now`, fallback mínimo sem `whyNow` e o bloco no `summaryText`.
+  - Custo: `agent-pricing.ts` (+ `openai_why_now × openai`) e `agent-cost-estimator.ts` (+ `min(leads, 10) × openai`, zero com o research pulado, sem chave Treg ou `enabled=false`; trecho "+ até N chamadas de IA (motivo para abordar agora)" na descrição). Texto do plano inalterado (D11).
+- **Decisões de implementação (conservadoras, dentro do spec):**
+  - As esperas da fase usam `quietBounded`, que limita pelo prazo duro (e pelo prazo da fase) como o `bounded`, mas **não** marca `timeBudgetExhausted` nas flags da 24.19. Assim a fase nunca muda `flags` do output da pesquisa (Boundaries). Os tempos da fase vão só para `whyNow.flags`.
+  - A chave OpenAI só é lida quando há ao menos uma conta com fato elegível; o ICP, só depois da chave. Sem conta elegível: zero leituras extras e zero chamadas.
+  - Prazo da fase = `min(início + phaseBudgetMs, deadlineAt)`. Timeout de cada chamada = `min(callTimeoutMs, prazo restante da fase)`; a chamada não começa com menos de `minCallMs`; a espera é também limitada por `settleWithin(timeout + 1 s, restante até o prazo duro)`, então uma LLM que ignora o abort não segura o step (teste de pipeline com fake timers: termina em ≈ 21 s e o `create_campaign` dispara).
+  - Custo reservado: `CostBudget` próprio da fase com `reservedUsdPerCall`; o acerto usa o reservado (o custo real em US$ não é conhecido no step). O custo em BRL entra pelo `cost.openai_why_now` × preço de IA, como as outras chamadas de IA.
+  - Leads além de `maxLeadsPerCall` também marcam `whyNow.flags.callLimitReached`.
+  - `cost.openai_why_now` sempre presente (0 sem chamada).
+  - Guarda de números: cada sequência de dígitos do gatilho e da hipótese tem de existir como sequência inteira no texto completo do fato de origem (da memória).
+  - Texto/limite: gatilho ou hipótese acima de `textMaxChars` são descartados (`invalid_response`), não truncados (truncar tiraria o "?").
+  - `j` repetido: vale a primeira entrada. `j` fora do intervalo: ignorado.
+  - Seams de teste no `ResearchAccountsDeps`: `whyNowClient` (factory do client OpenAI) e `readIcp` (padrão `readTenantICP`). Sem efeito em produção.
+  - Leitura extra no reuso: 1 `SELECT` em `account_dossier_facts` por conta reaproveitada (só com `enabled=true`), depois de ligar os leads, com prazo limitado e sem tocar nas flags.
+- **Testes:** novos `__tests__/unit/lib/agent/dossier/why-now.test.ts` (31 testes) e blocos novos em `research-accounts-step.test.ts` (22 testes, todas as linhas da matriz), `repository.test.ts` (3), `research-accounts-pipeline.test.ts` (2: deep-equal do `previousStepOutput` com e sem a fase; LLM pendurada com fake timers), `agent-pricing.test.ts` (1) e `agent-cost-estimator.test.ts` (1). `dossier-posts-reuse-pipeline.test.ts` passou sem nenhuma mudança.
+  - Mudanças em testes existentes, **somente** onde a parcela nova aparece: `cost` exato com `openai_why_now: 0` (3 asserções no step), valores da estimativa do research com `+ min(leads, 10) × openai` (`agent-cost-estimator.test.ts` e 1 asserção em `__tests__/unit/api/agent/execution-plan.test.ts`). Infra de teste: o mock de `@/lib/agent/dossier/config` ganhou `WHY_NOW_CONFIG`; `openai` e `contextual-suggestions` mockados; o fake do banco ganhou `storedFacts`; o teste de pipeline ganhou `dossierIds` e mocks nomeados das chaves/LLM.
+  - Não coberto por teste: o kill switch no estimador (lê a constante real; o ramo é uma linha).
+
+#### Regra nº 1 — checklist
+
+- **O que pode ter mudado para o cliente:**
+  - Arquivos de produção: `src/lib/agent/steps/research-accounts-step.ts`, `src/lib/agent/dossier/{why-now.ts (novo), config.ts, repository.ts}`, `src/lib/ai/why-now-config.ts` (novo), `src/types/agent.ts`, `src/lib/agent/agent-pricing.ts`, `src/lib/services/agent-cost-estimator.ts`.
+  - Rotas: nenhuma alterada. A rota do plano (`/api/agent/executions/[id]/plan`) mostra a estimativa do research com até 10 chamadas de IA a mais (≈ R$ 0,20 com o preço padrão) e o trecho novo na descrição.
+  - Prompts: um prompt novo, só do gatilho, constante em código (`WHY_NOW_SYSTEM_PROMPT`). Nenhum prompt do `create_campaign`, nenhum `ai_prompts`/`promptManager` alterado.
+  - Tabelas: nenhuma nova, nenhuma coluna nova, nenhuma escrita nova. Só leitura de `account_dossier_facts` (reuso). Escritas: o jsonb `agent_steps.output` da linha `research_accounts` ganha `whyNow` e o `cost` ganha `openai_why_now`; `api_usage_logs` ganha 1 linha `why_now_trigger` por chamada (via `logAgentUsage`, como as outras).
+  - Jobs: nenhum (`pg_cron`, Edge Functions, secrets, env intocados).
+  - Integrações: OpenAI do tenant (`getServiceApiKeyOrNull(tenantId, "openai")`), com 1 chamada nova por conta com fato elegível, até 10 por execução.
+  - Chat: a mensagem-resumo do research ganha o bloco "Motivo para abordar agora" (até 10 linhas). As mensagens antecipadas ("pesquisa pulada...") não mudam.
+- **Ponto 1 — campanhas rodando, webhook e `reply-sweep`:** OK por **análise da diff**. Nenhum arquivo de webhook, `reply-sweep`, Instantly, Edge Function ou `pg_cron` foi tocado; a mudança só roda dentro do `research_accounts` de execuções novas do agente.
+- **Ponto 2 — busca de leads:** OK por **análise da diff**. `search_companies`/`search_leads` (e Apollo/TheirStack) não foram tocados; o único arquivo compartilhado alterado é o estimador de custo (texto/valor da etapa research).
+- **Ponto 3 — criação, export e ativação:** OK por **análise da diff + testes mockados**. Diff vazia em `export-step.ts`, `activate-step.ts`, `create-campaign-step.ts`, `src/lib/services/instantly*.ts`, `orchestrator.ts` e `supabase/`; os testes desses arquivos passam sem mudança de expectativa. Teste de pipeline (orchestrator e `useAutoTrigger` reais) prova `previousStepOutput` do `create_campaign` deep-equal com e sem a fase; nenhum lead filtrado, reordenado ou bloqueado; `icebreakerPosts`/`icebreakerPostsAttempted` inalterados (`dossier-posts-reuse-pipeline` sem mudança). Pior caso de tempo do step inalterado (todas as esperas da fase correm contra o prazo duro de 240 s; os testes de "tudo pendurado" seguem ≤ 256 s).
+- **Qual verificação foi feita:** análise da diff + testes mockados. **Não houve smoke real** (proibido nesta story e nesta sessão); o smoke fica para depois do OK do Fabossi (em `operator_actions`).
+- **Risco no ponto 3 (parar para o OK do Fabossi):** a fase acrescenta latência antes do `create_campaign` (≈ 5–15 s no caso feliz; no máximo `phaseBudgetMs` = 45 s, sempre dentro do prazo duro existente) e uma chamada de IA por conta com fato elegível no tenant. O pedido de OK está em `operator_actions`; **não fazer merge nem deploy sem o OK do Fabossi.**
 
 ### File List
+
+- `src/lib/agent/dossier/why-now.ts` (novo)
+- `src/lib/ai/why-now-config.ts` (novo)
+- `src/lib/agent/dossier/config.ts`
+- `src/lib/agent/dossier/repository.ts`
+- `src/lib/agent/steps/research-accounts-step.ts`
+- `src/types/agent.ts`
+- `src/lib/agent/agent-pricing.ts`
+- `src/lib/services/agent-cost-estimator.ts`
+- `__tests__/unit/lib/agent/dossier/why-now.test.ts` (novo)
+- `__tests__/unit/lib/agent/dossier/repository.test.ts`
+- `__tests__/unit/lib/agent/steps/research-accounts-step.test.ts`
+- `__tests__/unit/lib/agent/research-accounts-pipeline.test.ts`
+- `__tests__/unit/lib/agent/agent-pricing.test.ts`
+- `__tests__/unit/lib/services/agent-cost-estimator.test.ts`
+- `__tests__/unit/api/agent/execution-plan.test.ts`
+- `_bmad-output/implementation-artifacts/spec-24-20-motivo-para-abordar-agora.md`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (só a linha 24-20)
+
+### Change Log
+
+- 2026-11-04: implementação da 24.20 (fase "motivo para abordar agora" no `research_accounts`, tipos, custo e testes). Status → review.

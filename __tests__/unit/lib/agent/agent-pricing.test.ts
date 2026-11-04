@@ -214,6 +214,18 @@ describe("agent-pricing", () => {
       expect(computeStepActualCost("research_accounts", {}, DEFAULT_PRICES)).toBe(0);
     });
 
+    // Story 24.20: + chamadas de IA do motivo para abordar agora.
+    it("openai_why_now × chamada de IA entra no custo real do research", () => {
+      expect(
+        computeStepActualCost(
+          "research_accounts",
+          { treg_usd: 0.04, apify: 2, openai_relevance: 5, openai_why_now: 3 },
+          DEFAULT_PRICES
+        )
+      ).toBeCloseTo(0.04 * 5.5 + 2 * 0.15 + 5 * 0.02 + 3 * 0.02);
+      expect(computeStepActualCost("research_accounts", { openai_why_now: 0 }, DEFAULT_PRICES)).toBe(0);
+    });
+
     it("entra no total da execucao", () => {
       const actual = computeActualCost(
         [{ step_type: "research_accounts", status: "completed", cost: { treg_usd: 0.1 } }],

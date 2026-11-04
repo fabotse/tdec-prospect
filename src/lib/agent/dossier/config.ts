@@ -46,3 +46,50 @@ export const DOSSIER_CONFIG = {
 } as const;
 
 export type DossierConfig = typeof DOSSIER_CONFIG;
+
+/**
+ * Motivo para abordar agora — configuracao (fonte unica)
+ * Story: 24.20 - Motivo para abordar agora
+ *
+ * Fase final (fail-open) do `research_accounts`: 1 chamada de LLM barato por conta com
+ * fato elegivel. Todos os tetos sao nossos e baixos. Orcamento de tempo:
+ * `timeBudgetMs` (180 s) + `phaseBudgetMs` (45 s) < `hardDeadlineMs` (240 s); alem disso
+ * toda espera da fase corre contra o prazo duro, entao o pior caso do step (~256 s) nao
+ * muda. Kill switch em codigo (`enabled`), nunca em env.
+ */
+export const WHY_NOW_CONFIG = {
+  /** Kill switch: `false` = nenhum lead avaliado, zero chamadas. */
+  enabled: true,
+  /** Teto de chamadas de LLM por execucao. */
+  maxCallsPerExecution: 10,
+  /** Teto de custo reservado por execucao (US$). */
+  maxCostUsdPerExecution: 0.05,
+  /** Custo reservado por chamada (US$). */
+  reservedUsdPerCall: 0.005,
+  /** Leads de uma conta numa chamada (os excedentes ficam `call_limit`). */
+  maxLeadsPerCall: 10,
+  /** Fatos citaveis por chamada (os mais recentes). */
+  maxEligibleFactsPerCall: 15,
+  /** Fatos de contexto (site/tecnologia, nao citaveis) por chamada. */
+  maxContextFacts: 5,
+  /** Corte do texto de cada fato no prompt (caracteres). */
+  factMaxChars: 300,
+  /** Corte das dores do ICP no prompt (caracteres). */
+  painPointsMaxChars: 1500,
+  /** Timeout de cada chamada (ms). */
+  callTimeoutMs: 20_000,
+  /** Orcamento de tempo da fase inteira (ms). */
+  phaseBudgetMs: 45_000,
+  /** Menos que isto ate o prazo duro ao iniciar: a fase nao roda (ms). */
+  minPhaseMs: 10_000,
+  /** Menos que isto ate o prazo da fase: a chamada nem comeca (ms). */
+  minCallMs: 3_000,
+  /** Contas avaliadas em paralelo. */
+  concurrency: 3,
+  /** Linhas por lead no resumo do chat. */
+  summaryMaxLeads: 10,
+  /** Teto do gatilho e da hipotese de dor (caracteres). */
+  textMaxChars: 240,
+} as const;
+
+export type WhyNowConfig = typeof WHY_NOW_CONFIG;

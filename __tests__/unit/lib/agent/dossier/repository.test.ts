@@ -9,6 +9,7 @@ import {
   findReusableDossier,
   insertFacts,
   linkLeads,
+  readDossierFacts,
   saveDossier,
 } from "@/lib/agent/dossier/repository";
 import type { DossierFact } from "@/lib/agent/dossier/facts";
@@ -230,5 +231,47 @@ describe("findPostLeadIdentifiers", () => {
   it("erro de leitura volta como error", async () => {
     const fake = createQueueSupabase({ account_dossier_facts: [{ error: { message: "rls" } }] });
     expect((await findPostLeadIdentifiers(fake.client, TENANT, "d-1")).error).toBe("rls");
+  });
+});
+
+// Story 24.20: fatos de um dossie reaproveitado, para o gatilho.
+describe("readDossierFacts", () => {
+  it("le os fatos do dossie (tenant + dossie) no formato DossierFact, descartando linhas invalidas", async () => {
+    const fake = createQueueSupabase({
+      account_dossier_facts: [
+        {
+          data: [
+            { kind: "news", fato: "Banco X anuncia novo CISO", fonte_url: "https://valor.com.br/a", data: "2026-10-01", confianca: "alta", lead_apollo_id: null, lead_email: null },
+            { kind: "post", fato: "Meu post", fonte_url: "https://linkedin.com/p/1", data: "2026-10-02T00:00:00Z", confianca: "alta", lead_apollo_id: "ap-1", lead_email: "Ana@X.com" },
+            { kind: "news", fato: null, fonte_url: "https://x.com", data: "2026-10-01", confianca: "alta" },
+          ],
+        },
+      ],
+    });
+    const result = await readDossierFacts(fake.client, TENANT, "d-1");
+
+    expect(result.error).toBeUndefined();
+    expect(result.facts).toEqual([
+      { ...FACT, fonte_url: "https://valor.com.br/a", lead_apollo_id: null, lead_email: null },
+      { kind: "post", fato: "Meu post", fonte_url: "https://linkedin.com/p/1", data: "2026-10-02", confianca: "alta", lead_apollo_id: "ap-1", lead_email: "Ana@X.com" },
+    ]);
+    const chain = fake.callsTo("account_dossier_facts")[0].chain;
+    expect(chain.select).toHaveBeenCalledWith("kind, fato, fonte_url, data, confianca, lead_apollo_id, lead_email");
+    expect(chain.eq).toHaveBeenCalledWith("dossier_id", "d-1");
+    expect(chain.eq).toHaveBeenCalledWith("tenant_id", TENANT);
+    // Somente leitura.
+    expect(chain.insert).not.toHaveBeenCalled();
+    expect(chain.update).not.toHaveBeenCalled();
+    expect(chain.delete).not.toHaveBeenCalled();
+  });
+
+  it("erro de leitura volta como error, sem lancar", async () => {
+    const fake = createQueueSupabase({ account_dossier_facts: [{ error: { message: "rls" } }] });
+    expect(await readDossierFacts(fake.client, TENANT, "d-1")).toEqual({ facts: [], error: "rls" });
+  });
+
+  it("excecao do client volta como error, sem lancar", async () => {
+    const client = { from: () => { throw new Error("fetch failed"); } } as never;
+    expect(await readDossierFacts(client, TENANT, "d-1")).toEqual({ facts: [], error: "fetch failed" });
   });
 });
