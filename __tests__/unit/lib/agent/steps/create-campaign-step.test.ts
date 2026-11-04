@@ -1879,6 +1879,203 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
   });
 
   // ==============================================
+  // FEL-57: posts do dossie reaproveitados no icebreaker premium
+  // ==============================================
+
+  describe("posts do dossie reaproveitados (FEL-57)", () => {
+    const JANE_URL = "https://linkedin.com/in/jane";
+    // O que o Apify devolve para a Jane. O dossie pede 10; o create_campaign, 3.
+    const RAW_POSTS = [
+      { postUrl: "https://linkedin.com/posts/1", text: "Escalando nossa plataforma de dados", publishedAt: "2026-10-30T00:00:00Z", likesCount: 120, commentsCount: 15, authorName: "Jane Smith" },
+      { postUrl: "https://linkedin.com/posts/2", text: "Zero trust no time de seguranca", publishedAt: "2026-10-20T00:00:00Z", likesCount: 30, commentsCount: 2 },
+      { postUrl: "https://linkedin.com/posts/3", text: "Contratando SREs", publishedAt: "2026-10-10T00:00:00Z", likesCount: 8, commentsCount: 1 },
+      { postUrl: "https://linkedin.com/posts/4", text: "Post 4", publishedAt: "2026-10-01T00:00:00Z", likesCount: 1, commentsCount: 0 },
+      { postUrl: "https://linkedin.com/posts/5", text: "Post 5", publishedAt: "2026-09-01T00:00:00Z", likesCount: 1, commentsCount: 0 },
+    ];
+
+    /** Output do `research_accounts` como o banco devolve (JSON ida e volta). */
+    function researchOutput(posts: unknown[], fetchedAt = new Date().toISOString(), url = JANE_URL) {
+      return JSON.parse(
+        JSON.stringify({
+          accounts: [],
+          icebreakerPosts: { [url]: { posts: posts.slice(0, 3), fetchedAt, fetchLimit: 10 } },
+        })
+      ) as Record<string, unknown>;
+    }
+
+    /**
+     * `agent_steps` que responde a leitura do research DESTA execucao (`execution_id` +
+     * `step_type` + `status: completed`) e se comporta como antes no resto.
+     */
+    function agentStepsWithResearch(output: Record<string, unknown> | null, error: unknown = null) {
+      const reads: Array<Array<[string, unknown]>> = [];
+      const make = () => {
+        const chain = createChainBuilder({ data: { id: "step-1" }, error: null });
+        chain.then = (resolve, reject) => {
+          const eqs = chain.eq.mock.calls as Array<[string, unknown]>;
+          const isResearch = eqs.some(([c, v]) => c === "step_type" && v === "research_accounts");
+          if (isResearch) reads.push(eqs);
+          const filtersOk =
+            eqs.some(([c, v]) => c === "execution_id" && v === "exec-001") &&
+            eqs.some(([c, v]) => c === "status" && v === "completed");
+          const value = isResearch
+            ? error
+              ? { data: null, error }
+              : { data: output && filtersOk ? { output } : null, error: null }
+            : { data: { id: "step-1" }, error: null };
+          return Promise.resolve(value).then(resolve, reject);
+        };
+        return chain;
+      };
+      return { make, reads };
+    }
+
+    /** IA deterministica: o texto sai do prompt (independe da ordem das chamadas). */
+    function setupDeterministicAI() {
+      mockRenderPrompt.mockImplementation(async (name: string, vars: Record<string, string>) => ({
+        content: name === "campaign_structure_generation" ? "STRUCTURE" : `${name}::${vars.lead_name ?? ""}::${vars.linkedin_posts ?? ""}`,
+        modelPreference: "gpt-4o",
+        metadata: { temperature: 0.7, maxTokens: 500 },
+        source: "default",
+      }));
+      mockGenerateText.mockImplementation(async (prompt: string) => ({
+        text: prompt === "STRUCTURE" ? VALID_STRUCTURE_JSON : `Texto gerado de ${prompt.length} chars: ${prompt.slice(0, 40)}`,
+        model: "gpt-4o",
+        usage: {},
+      }));
+    }
+
+    async function runWith(agentSteps: { make: () => unknown }) {
+      const supabase = createMockSupabase(undefined, agentSteps);
+      supabase.db.seedLead({ id: "lead-1" });
+      supabase.db.seedLead({ id: "lead-2" });
+      const runStep = new CreateCampaignStep(3, supabase as never, TENANT_ID);
+      return runStep.run(createInput({ premiumIcebreakers: true }));
+    }
+
+    function premiumVars(): Array<Record<string, string>> {
+      return mockRenderPrompt.mock.calls
+        .filter((call: unknown[]) => call[0] === "icebreaker_premium_generation")
+        .map((call: unknown[]) => call[1] as Record<string, string>);
+    }
+
+    it("(a) com posts do dossie: NAO chama o Apify e o icebreaker/payload e igual ao do caminho com busca", async () => {
+      setupDeterministicAI();
+      // 1) Caminho de hoje: sem research, busca no Apify (limite 3 -> os 3 primeiros).
+      mockFetchLinkedInPosts.mockResolvedValue({ success: true, posts: RAW_POSTS.slice(0, 3), profileUrl: JANE_URL, fetchedAt: "x" });
+      const fetched = await runWith(agentStepsWithResearch(null));
+      expect(mockFetchLinkedInPosts).toHaveBeenCalledTimes(1);
+      expect(mockFetchLinkedInPosts).toHaveBeenCalledWith(expect.any(String), JANE_URL, 3);
+      const fetchedVars = premiumVars();
+      const fetchedData = fetched.data as Record<string, unknown>;
+
+      // 2) Com os posts BRUTOS do dossie (busca com limite 10, mesma ordem).
+      vi.clearAllMocks();
+      setupDefaultMocks();
+      setupDeterministicAI();
+      const steps = agentStepsWithResearch(researchOutput(RAW_POSTS));
+      const reused = await runWith(steps);
+      expect(mockFetchLinkedInPosts).not.toHaveBeenCalled();
+      // Leu o research DESTA execucao, so a linha concluida.
+      expect(steps.reads).toHaveLength(1);
+      expect(steps.reads[0]).toEqual(
+        expect.arrayContaining([["execution_id", "exec-001"], ["step_type", "research_accounts"], ["status", "completed"]])
+      );
+
+      // Mesmo texto no prompt premium (mesmos posts, mesma ordem, mesmo limite).
+      const reusedVars = premiumVars();
+      expect(reusedVars).toEqual(fetchedVars);
+      expect(reusedVars[0].linkedin_posts).toBe(
+        CreateCampaignStep.formatLinkedInPostsForPrompt(RAW_POSTS.slice(0, 3) as never)
+      );
+
+      // Mesmo resultado do step (o que o export manda ao Instantly sai daqui).
+      const reusedData = reused.data as Record<string, unknown>;
+      expect(reusedData.leadsWithIcebreakers).toEqual(fetchedData.leadsWithIcebreakers);
+      expect(reusedData.icebreakerStats).toEqual(fetchedData.icebreakerStats);
+      expect(reusedData.emailBlocks).toEqual(fetchedData.emailBlocks);
+      expect(reusedData.structure).toEqual(fetchedData.structure);
+      expect((reusedData.icebreakerStats as { premium: number }).premium).toBe(1);
+    });
+
+    it("(d) com posts do dossie: sem custo nem log de Apify no create_campaign", async () => {
+      setupDeterministicAI();
+      const result = await runWith(agentStepsWithResearch(researchOutput(RAW_POSTS)));
+      expect(mockFetchLinkedInPosts).not.toHaveBeenCalled();
+      expect(result.cost?.apify).toBeUndefined();
+      expect(mockLogApifySuccess).not.toHaveBeenCalled();
+      expect(mockLogApifyFailure).not.toHaveBeenCalled();
+    });
+
+    it("leitura do research que NUNCA responde: passados 3 s segue pelo caminho de hoje (busca no Apify)", async () => {
+      vi.useFakeTimers();
+      try {
+        setupDeterministicAI();
+        mockFetchLinkedInPosts.mockResolvedValue({ success: true, posts: RAW_POSTS.slice(0, 3), profileUrl: JANE_URL, fetchedAt: "x" });
+        const hanging = {
+          make: () => {
+            const chain = createChainBuilder({ data: { id: "step-1" }, error: null });
+            chain.then = (resolve, reject) => {
+              const isResearch = (chain.eq.mock.calls as Array<[string, unknown]>).some(
+                ([c, v]) => c === "step_type" && v === "research_accounts"
+              );
+              if (isResearch) return new Promise(() => {}) as never;
+              return Promise.resolve({ data: { id: "step-1" }, error: null }).then(resolve, reject);
+            };
+            return chain;
+          },
+        };
+        let settled = false;
+        const run = runWith(hanging).finally(() => {
+          settled = true;
+        });
+        await vi.advanceTimersByTimeAsync(2_900);
+        expect(mockFetchLinkedInPosts).not.toHaveBeenCalled(); // ainda esperando a leitura
+        for (let i = 0; i < 20 && !settled; i++) await vi.advanceTimersByTimeAsync(1_000);
+        const result = await run;
+        expect(mockFetchLinkedInPosts).toHaveBeenCalledTimes(1);
+        expect(mockFetchLinkedInPosts).toHaveBeenCalledWith(expect.any(String), JANE_URL, 3);
+        expect(result.cost?.apify).toBe(1);
+        expect(((result.data as Record<string, unknown>).icebreakerStats as { premium: number }).premium).toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it.each([
+      ["sem linha do research (dossie desligado/pulado)", () => agentStepsWithResearch(null)],
+      ["dossie buscou e veio vazio (entrada sem posts)", () => agentStepsWithResearch(researchOutput([]))],
+      ["erro ao ler o research", () => agentStepsWithResearch(researchOutput(RAW_POSTS), { message: "db down" })],
+      ["research sem `icebreakerPosts` (falhou, sem chave, checkpoint minimo)", () => agentStepsWithResearch({ accounts: [] })],
+      ["posts de OUTRO perfil", () => agentStepsWithResearch(researchOutput(RAW_POSTS, undefined, "https://linkedin.com/in/outra"))],
+      ["posts velhos (retry horas depois)", () => agentStepsWithResearch(researchOutput(RAW_POSTS, new Date(Date.now() - 7 * 3600_000).toISOString()))],
+      ["entrada malformada", () => agentStepsWithResearch({ icebreakerPosts: { [JANE_URL]: { posts: [{ text: 1 }], fetchedAt: new Date().toISOString(), fetchLimit: 10 } } })],
+    ])("(b) fallback — %s: busca no Apify como hoje", async (_label, build) => {
+      setupDeterministicAI();
+      mockFetchLinkedInPosts.mockResolvedValue({ success: true, posts: RAW_POSTS.slice(0, 3), profileUrl: JANE_URL, fetchedAt: "x" });
+      const result = await runWith(build());
+      expect(mockFetchLinkedInPosts).toHaveBeenCalledTimes(1);
+      expect(mockFetchLinkedInPosts).toHaveBeenCalledWith(expect.any(String), JANE_URL, 3);
+      expect(result.cost?.apify).toBe(1);
+      expect(mockLogApifySuccess).toHaveBeenCalledTimes(1);
+      expect(premiumVars()[0].linkedin_posts).toBe(
+        CreateCampaignStep.formatLinkedInPostsForPrompt(RAW_POSTS.slice(0, 3) as never)
+      );
+    });
+
+    it("toggle desligado: nem le o research", async () => {
+      setupDeterministicAI();
+      const steps = agentStepsWithResearch(researchOutput(RAW_POSTS));
+      const supabase = createMockSupabase(undefined, steps);
+      supabase.db.seedLead({ id: "lead-1" });
+      supabase.db.seedLead({ id: "lead-2" });
+      await new CreateCampaignStep(3, supabase as never, TENANT_ID).run(createInput());
+      expect(steps.reads).toHaveLength(0);
+      expect(mockFetchLinkedInPosts).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==============================================
   // Story 22.15: persistencia em "Meus Leads"
   // ==============================================
 

@@ -42,9 +42,12 @@ vi.mock("@/lib/services/apollo", () => ({
 }));
 
 const mockGetInjectableServiceApiKey = vi.fn();
+// FEL-57: chave do Treg (decide se a pesquisa das contas entra na estimativa).
+const mockReadServiceApiKey = vi.fn();
 
 vi.mock("@/lib/agent/service-keys", () => ({
   getInjectableServiceApiKey: (...args: unknown[]) => mockGetInjectableServiceApiKey(...args),
+  readServiceApiKey: (...args: unknown[]) => mockReadServiceApiKey(...args),
 }));
 
 // Story 24.10: log de uso do agente (suite propria em agent-usage.test.ts).
@@ -94,6 +97,38 @@ function createParams() {
 describe("GET /api/agent/executions/[executionId]/plan", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockReadServiceApiKey.mockResolvedValue({ status: "ok", apiKey: "treg-key" });
+  });
+
+  describe("chave do Treg na estimativa (FEL-57)", () => {
+    function mockExecutionAndCostModels() {
+      let callCount = 0;
+      mockFrom.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return createChainBuilder({ data: { id: EXEC_ID, briefing: mockBriefing, status: "pending" }, error: null });
+        }
+        return createChainBuilder({ data: [], error: null });
+      });
+    }
+
+    it("sem chave do Treg: pesquisa das contas custa 0 no plano", async () => {
+      mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+      mockReadServiceApiKey.mockResolvedValue({ status: "missing" });
+      mockExecutionAndCostModels();
+
+      const json = await (await GET(createRequest(), createParams())).json();
+      expect(mockReadServiceApiKey).toHaveBeenCalledWith(mockProfile.tenant_id, "treg");
+      expect(json.data.costEstimate.steps.research_accounts.estimated).toBe(0);
+    });
+
+    it("com chave do Treg: pesquisa das contas entra como antes", async () => {
+      mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+      mockExecutionAndCostModels();
+
+      const json = await (await GET(createRequest(), createParams())).json();
+      expect(json.data.costEstimate.steps.research_accounts.estimated).toBeCloseTo(25 * 0.02 * 5.5);
+    });
   });
 
   it("deve retornar 401 quando nao autenticado", async () => {

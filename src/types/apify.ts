@@ -54,4 +54,10 @@ export interface FetchLinkedInPostsResult {
   error?: string;
   profileUrl: string;
   fetchedAt: string;
+  /**
+   * FEL-57: posicao (0-based) de cada item de `posts` no dataset BRUTO do actor, antes do
+   * descarte de itens vazios. So no sucesso. Usado para reaproveitar os posts do dossie
+   * apenas quando equivalem a uma busca com limite menor.
+   */
+  rawIndexes?: number[];
 }

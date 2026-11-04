@@ -87,6 +87,13 @@ export const DOSSIER_ESTIMATE_USD_PER_LEAD = 0.02;
 /** Story 24.19: posts classificados por lead no pior caso (limite do Apify no dossie). */
 export const DOSSIER_ESTIMATE_POSTS_PER_LEAD = 10;
 
+/**
+ * Cambio padrao (R$ por US$ 1) para o gasto do Treg. Fonte UNICA do 5,5: e o default
+ * semeado em `cost_models` (servico `treg`) e o fallback de `resolveUnitPrices`. Para
+ * mudar por tenant, basta editar a linha `treg` de `cost_models` (sem env nem secret).
+ */
+export const TREG_DEFAULT_BRL_PER_USD = 5.5;
+
 /** Creditos TheirStack cobrados por empresa devolvida. */
 export const THEIRSTACK_CREDITS_PER_COMPANY = 3;
 
@@ -106,7 +113,7 @@ export const AGENT_DEFAULT_COSTS: Record<PricedService, { unitPrice: number; uni
   openai: { unitPrice: 0.02, unitDescription: "por chamada de IA" },
   instantly: { unitPrice: 0.0, unitDescription: "por export (free tier)" },
   // Story 24.19: cambio usado para converter o gasto do Treg (US$) em BRL.
-  treg: { unitPrice: 5.5, unitDescription: "BRL por US$ 1 gasto no Treg" },
+  treg: { unitPrice: TREG_DEFAULT_BRL_PER_USD, unitDescription: "BRL por US$ 1 gasto no Treg" },
 };
 
 const PRICED_SERVICES = Object.keys(AGENT_DEFAULT_COSTS) as PricedService[];

@@ -7,6 +7,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readServiceApiKey } from "@/lib/agent/service-keys";
 import type { CostEstimate, CostModel, ParsedBriefing } from "@/types/agent";
 import { DOSSIER_CONFIG } from "@/lib/agent/dossier/config";
 import {
@@ -31,6 +32,18 @@ import {
  */
 export const DEFAULT_COSTS: Record<string, { unitPrice: number; unitDescription: string }> =
   AGENT_DEFAULT_COSTS;
+
+/** FEL-57: espera maxima pela leitura da chave do Treg ao montar o plano (ms). */
+const TREG_KEY_CHECK_TIMEOUT_MS = 3000;
+
+export interface EstimateCostsOptions {
+  /**
+   * FEL-57: o tenant tem chave do Treg utilizavel? `false` = o `research_accounts` vai
+   * pular a pesquisa (sem Treg nao ha dossie nem posts), entao a etapa custa 0.
+   * `undefined` = desconhecido: mantem o teto de antes (pior caso).
+   */
+  tregConfigured?: boolean;
+}
 
 // ==============================================
 // SERVICE
@@ -90,6 +103,29 @@ export class CostEstimatorService {
   }
 
   /**
+   * FEL-57: o tenant tem chave do Treg que o `research_accounts` consegue usar?
+   * Mesma regra do step (`readServiceApiKey` com status `ok`). NUNCA lanca nem segura o
+   * plano: erro ou demora -> `undefined` (a estimativa mantem o pior caso).
+   */
+  static async isTregConfigured(tenantId: string): Promise<boolean | undefined> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const lookup = await Promise.race([
+        readServiceApiKey(tenantId, "treg"),
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), TREG_KEY_CHECK_TIMEOUT_MS);
+        }),
+      ]);
+      if (!lookup) return undefined;
+      return lookup.status === "ok";
+    } catch {
+      return undefined;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /**
    * Calculate cost per step and total based on cost models and briefing.
    * AC: #2
    *
@@ -103,7 +139,8 @@ export class CostEstimatorService {
    */
   static estimateCosts(
     costModels: Map<string, number>,
-    briefing: ParsedBriefing
+    briefing: ParsedBriefing,
+    options: EstimateCostsOptions = {}
   ): CostEstimate {
     const prices = resolveUnitPrices(costModels);
     const skipSet = new Set(briefing.skipSteps ?? []);
@@ -131,6 +168,8 @@ export class CostEstimatorService {
     // Story 24.19: pesquisa das contas = Treg ate o teto da execucao (US$ x cambio) e, com
     // o toggle de LinkedIn, perfis Apify + classificacao dos posts (ate 10 por lead).
     const researchSkipped = skipSet.has("research_accounts");
+    // FEL-57: sem chave do Treg o step pula a pesquisa inteira (nem Treg, nem Apify).
+    const researchWithoutKey = options.tregConfigured === false;
     const researchUsd = Math.min(
       leads * DOSSIER_ESTIMATE_USD_PER_LEAD,
       DOSSIER_CONFIG.maxCostUsdPerExecution
@@ -138,8 +177,9 @@ export class CostEstimatorService {
     const researchPremium = usePremiumIcebreakers
       ? leads * prices.apify + leads * DOSSIER_ESTIMATE_POSTS_PER_LEAD * prices.openai
       : 0;
-    const researchDescription =
-      `até US$ ${researchUsd.toFixed(2)} de pesquisa web (Treg) × ${formatBRL(prices.treg)}` +
+    const researchDescription = researchWithoutKey
+      ? "Sem custo: a chave do Treg não está configurada e a pesquisa das contas será pulada"
+      : `até US$ ${researchUsd.toFixed(2)} de pesquisa web (Treg) × ${formatBRL(prices.treg)}` +
       (usePremiumIcebreakers
         ? ` + ${leads} perfis LinkedIn × ${formatBRL(prices.apify)} + até ${leads * DOSSIER_ESTIMATE_POSTS_PER_LEAD} classificações de posts × ${formatBRL(prices.openai)}`
         : "");
@@ -155,7 +195,7 @@ export class CostEstimatorService {
         description: "1 chamada de IA (Fit Score); busca Apollo não consome créditos",
       },
       research_accounts: {
-        estimated: researchSkipped ? 0 : researchUsd * prices.treg + researchPremium,
+        estimated: researchSkipped || researchWithoutKey ? 0 : researchUsd * prices.treg + researchPremium,
         description: researchDescription,
       },
       create_campaign: {

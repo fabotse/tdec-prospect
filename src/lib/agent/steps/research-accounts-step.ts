@@ -26,10 +26,15 @@
  * checkpoint, log) tem orcamento proprio (`finalizeBudgetMs`). O step sempre devolve o
  * controle bem antes dos 300 s da rota, e o `create_campaign` e disparado em seguida.
  *
- * NADA daqui chega ao `create_campaign`: o orchestrator ignora linhas `research_accounts`
- * ao resolver o step anterior, entao o `create_campaign` recebe o mesmo output do
- * `search_leads` de antes. O dossie nao entra no Instantly, nos prompts nem na selecao
- * de leads (isso e da 24.21).
+ * NADA do dossie chega ao `create_campaign`: o orchestrator ignora linhas
+ * `research_accounts` ao resolver o step anterior, entao o `create_campaign` recebe o
+ * mesmo output do `search_leads` de antes. O dossie nao entra no Instantly, nos prompts
+ * nem na selecao de leads (isso e da 24.21).
+ *
+ * Unica excecao (FEL-57): os posts BRUTOS do Apify buscados aqui com o toggle de LinkedIn
+ * vao em `output.icebreakerPosts`, e o icebreaker premium do `create_campaign` os usa em
+ * vez de buscar o mesmo perfil de novo (ver `dossier/icebreaker-posts.ts`). Sem eles, o
+ * `create_campaign` busca como sempre.
  */
 
 import { createHash } from "node:crypto";
@@ -67,6 +72,7 @@ import {
   linkLeads,
   saveDossier,
 } from "@/lib/agent/dossier/repository";
+import { buildReusableEntry, type ReusablePostsByUrl } from "@/lib/agent/dossier/icebreaker-posts";
 import type {
   DossierFailureReason,
   PipelineError,
@@ -230,6 +236,8 @@ interface RunState {
   openaiRelevanceCalls: number;
   /** Linhas efetivamente gravadas em `account_dossier_leads`. */
   leadsLinked: number;
+  /** FEL-57: posts brutos por `linkedinUrl` para o icebreaker premium do `create_campaign`. */
+  icebreakerPosts: ReusablePostsByUrl;
 }
 
 export interface ResearchAccountsDeps {
@@ -381,6 +389,10 @@ export class ResearchAccountsStep extends BaseStep {
     };
 
     const data = result.data as unknown as ResearchAccountsOutput;
+    // Fallback minimo sem a lista de contas e sem os posts (o que mais pesa). Sem os
+    // posts, o `create_campaign` busca no Apify como sempre.
+    const { icebreakerPosts: _droppedPosts, ...minimalData } = data;
+    void _droppedPosts;
     const persisted =
       (await write(
         "checkpoint",
@@ -391,7 +403,7 @@ export class ResearchAccountsStep extends BaseStep {
       (await write(
         "checkpoint minimo",
         {
-          output: { ...data, accounts: [], flags: { ...data.flags, persistFailed: true } },
+          output: { ...minimalData, accounts: [], flags: { ...data.flags, persistFailed: true } },
           status: "completed",
           completed_at: completedAt,
           cost: result.cost ?? null,
@@ -551,6 +563,7 @@ export class ResearchAccountsStep extends BaseStep {
         apifyCalls: 0,
         openaiRelevanceCalls: 0,
         leadsLinked: 0,
+        icebreakerPosts: {},
       };
       this.runState = state;
       if (state.premium && state.apifyKey) {
@@ -1026,6 +1039,8 @@ export class ResearchAccountsStep extends BaseStep {
         calls: 1,
         durationMs: result?.durationMs ?? Math.max(0, this.clock() - startedAt),
         errorMessage: result?.ok ? undefined : failureMessage,
+        // FEL-57: US$ na coluna, como o Apify (`calculateApifyCost`); antes so no metadata.
+        estimatedCost: costUsd,
         metadata: {
           costUsd,
           costMicro: costEstimated ? null : result.costMicro,
@@ -1121,6 +1136,8 @@ export class ResearchAccountsStep extends BaseStep {
           continue;
         }
         posts = result.posts ?? [];
+        // FEL-57: posts BRUTOS (antes dos filtros abaixo) para o icebreaker premium.
+        this.rememberIcebreakerPosts(state, linkedinUrl, posts, result.rawIndexes, result.fetchedAt);
       } catch (error) {
         console.error("[ResearchAccountsStep] Falha no Apify:", errorMessage(error));
         failure = failure ?? "error";
@@ -1174,6 +1191,32 @@ export class ResearchAccountsStep extends BaseStep {
     }
 
     return failure ? { facts, failure } : { facts };
+  }
+
+  /**
+   * FEL-57: guarda, de uma busca BEM-SUCEDIDA, os posts que a busca de hoje do
+   * `create_campaign` (limite 3) produziria, para ele nao buscar o mesmo perfil de novo.
+   * Sem equivalencia garantida ou sem post, nada e guardado. O primeiro resultado do
+   * perfil vale. Nunca lanca: sem a entrada, o `create_campaign` so busca como hoje.
+   */
+  private rememberIcebreakerPosts(
+    state: RunState,
+    linkedinUrl: string,
+    posts: LinkedInPost[],
+    rawIndexes: number[] | undefined,
+    fetchedAt: unknown
+  ): void {
+    try {
+      if (Object.prototype.hasOwnProperty.call(state.icebreakerPosts, linkedinUrl)) return;
+      const at =
+        typeof fetchedAt === "string" && !Number.isNaN(Date.parse(fetchedAt))
+          ? fetchedAt
+          : new Date().toISOString();
+      const entry = buildReusableEntry(posts, rawIndexes, at, DOSSIER_CONFIG.maxPostsPerLead);
+      if (entry) state.icebreakerPosts[linkedinUrl] = entry;
+    } catch (error) {
+      console.error("[ResearchAccountsStep] Falha ao guardar posts para o icebreaker:", errorMessage(error));
+    }
   }
 
   /**
@@ -1234,6 +1277,9 @@ export class ResearchAccountsStep extends BaseStep {
       flags,
       costUsd: Number(((state?.budget.spentUsd ?? 0) + (state?.apifyBudget.spentUsd ?? 0)).toFixed(6)),
     };
+    if (state && Object.keys(state.icebreakerPosts).length > 0) {
+      output.icebreakerPosts = { ...state.icebreakerPosts };
+    }
     return {
       success: true,
       data: output as unknown as Record<string, unknown>,
