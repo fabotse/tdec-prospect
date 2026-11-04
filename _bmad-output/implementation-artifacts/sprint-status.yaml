@@ -34,7 +34,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-25
-last_updated: 2026-11-03  # 23.0 adiada (story escrita, volta a backlog); epic-23 volta a backlog
+last_updated: 2026-11-04  # epic-23 e epic-24 in-progress; ordem de execucao agora vive na fila do Linear
 project: tdec-prospect
 project_key: NOKEY
 tracking_system: file-system
@@ -556,18 +556,17 @@ development_status:
   #
   # EPIC 23: Plataforma — Higiene & Protecao de Envio
   #
-  # >>> ORDEM DE EXECUCAO (Fabossi, 2026-10-15) — substitui a ordem do arquivo <<<
-  # 23.0 ADIADA (dev local segue no banco de producao). Regra pos-etapa em CLAUDE.md/AGENTS.md:
-  # campanhas rodando, busca de leads e criacao/envio ao Instantly nao podem quebrar nem ganhar trava.
-  #   1. 23.4 CI + base verde          (risco zero)
-  #   2. 23.2 dependencias             (sem migration)
-  #   3. 23.8 falso positivo ESG       (sem migration)
-  #   4. 24.2 -> 24.6 agente Marco 1   (so codigo do agente)
-  #   DEPOIS, em janela de deploy combinada: 23.1, 23.3, 24.1, 24.7 (mexem em prod: webhook/cron/tabela)
-  #   SO COM DECISAO DO FABOSSI: 23.5-23.7 (travam envio), 23.0 (banco de teste)
-  # bmad-loop roda na ordem do ARQUIVO -> rodar uma por vez: bmad-loop run --story 23-4 (depois 23-2, 23-8, 24-2...)
+  # >>> ORDEM DE EXECUCAO: desde 2026-11-03 vive na fila do Linear (projeto TDec-Prospect) <<<
+  # Status "Pronto para dev" + label da maquina, numero no titulo (00, 01, 02...) e cada issue bloqueada pela
+  # anterior. Regras em AGENTS.md/CLAUDE.md ("Fila do orquestrador"); sequencia e motivos no documento
+  # "Ordem de execucao — fila do orquestrador" do projeto no Linear. Este arquivo continua sendo a fonte
+  # da verdade do STATUS das stories; o Linear espelha.
+  # Fora da fila (so com decisao do Fabossi): 23.0 (banco de teste), 23.6-23.7 (travam envio),
+  #   24.21 (muda o export), 25.2-25.3 (pg_cron com custo recorrente).
+  # Ordem historica de 2026-10-15 (Marco 1, ja concluido): 23.4 -> 23.2 -> 23.8 -> 24.2..24.6, depois 23.1,
+  #   23.3, 24.1, 24.7 em janela de deploy.
   #
-  epic-23: backlog
+  epic-23: in-progress
   23-0-banco-de-teste-espelhando-producao: backlog  # ADIADA 2026-10-15 (Fabossi): risco operacional; story escrita fica como referencia. Regra de verificacao pos-etapa em CLAUDE.md/AGENTS.md
   23-1-webhook-e-crons-autenticados: done
   23-2-dependencias-sem-vulnerabilidades-criticas: done
@@ -582,7 +581,7 @@ development_status:
   # EPIC 24: Agente TDec 3.0 — Analista de Contas
   # 3 marcos: M1 24.1-24.10 (confiavel + copy honesta) | M2 24.11-24.18 (Analista de Contas; abre c/ spike Treg) | M3 24.19-24.25 (dossie + reuniao). Deploy + smoke + checkpoint ao fim de cada marco.
   #
-  epic-24: backlog
+  epic-24: in-progress
   24-1-etapa-travada-e-destravada-sozinha: done
   24-2-execucao-protegida-contra-cobranca-dupla: done
   24-3-avanco-confiavel-e-tentar-novamente: done
