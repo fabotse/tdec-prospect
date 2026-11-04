@@ -78,3 +78,20 @@ jobs:
       - run: npm ci
       - name: Build
         run: npm run build
+
+  edge-functions:
+    name: Edge Functions (Deno)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          # Fixado na linha 2.1 do Deno usada pelo Supabase Edge Runtime. Manter igual à versão local.
+          deno-version: v2.1.4
+      # --no-config: não procura deno.json/deno.jsonc (as functions são deployadas sem config do Deno).
+      # --no-lock: não grava deno.lock no repositório.
+      - name: Lint
+        run: deno lint --no-config supabase/functions
+      - name: Typecheck
+        run: deno check --no-config --no-lock supabase/functions/*/index.ts

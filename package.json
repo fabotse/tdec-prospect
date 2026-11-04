@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "lint:edge": "deno lint --no-config supabase/functions",
+    "typecheck:edge": "deno check --no-config --no-lock supabase/functions/*/index.ts",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
