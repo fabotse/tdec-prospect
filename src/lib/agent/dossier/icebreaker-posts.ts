@@ -204,9 +204,12 @@ export function emptyIcebreakerPostsState(): IcebreakerPostsState {
 
 /**
  * Estado completo lido do output do `research_accounts`. Posts: `readReusablePosts`
- * (inalterado). Tentativas: so entradas validas (motivo conhecido, data parseavel, ate 6 h)
- * em `output.icebreakerPostsAttempted`; output antigo sem a chave = nenhuma tentativa
- * (o `create_campaign` busca como hoje). Nunca lanca.
+ * (inalterado, com a validade de 6 h dos POSTS). Tentativas: so entradas validas (motivo
+ * conhecido, data parseavel) em `output.icebreakerPostsAttempted`. A tentativa NAO expira:
+ * o registro e do research DESTA execucao (o create so le a linha dela), e o lead ja teve
+ * a sua chamada ao Apify; buscar de novo, mesmo horas depois (retry do step), seria a
+ * segunda. Output antigo sem a chave = nenhuma tentativa (o `create_campaign` busca como
+ * hoje). Nunca lanca.
  */
 export function readIcebreakerPostsState(output: unknown, nowMs: number): IcebreakerPostsState {
   const posts = readReusablePosts(output, nowMs);
@@ -221,8 +224,7 @@ export function readIcebreakerPostsState(output: unknown, nowMs: number): Icebre
         if (!isString(attemptedAt)) continue;
         const attemptedMs = Date.parse(attemptedAt);
         if (Number.isNaN(attemptedMs)) continue;
-        const age = nowMs - attemptedMs;
-        if (age > DOSSIER_POSTS_REUSE_MAX_AGE_MS || age < -CLOCK_SKEW_MS) continue;
+        // Sem checagem de idade de proposito (FEL-77, rodada 2 do Codex): ver doc acima.
         attempted.add(url);
       }
     }

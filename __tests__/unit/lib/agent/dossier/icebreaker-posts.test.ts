@@ -135,13 +135,38 @@ describe("readIcebreakerPostsState (FEL-77)", () => {
     }
   });
 
-  it("descarta motivo desconhecido, data invalida, mais velha que 6 h ou no futuro alem da tolerancia", () => {
+  it("tentativa NAO expira: mais velha que 6 h (ou dias) e relogio adiantado continuam valendo", () => {
+    for (const attemptedAt of [
+      new Date(NOW - 6 * 3600_000 - 1).toISOString(),
+      new Date(NOW - 3 * 24 * 3600_000).toISOString(),
+      new Date(NOW + 10 * 60_000).toISOString(),
+    ]) {
+      const state = readIcebreakerPostsState({ icebreakerPostsAttempted: { [A]: { attemptedAt, outcome: "empty" } } }, NOW);
+      expect([...state.attempted]).toEqual([A]);
+    }
+  });
+
+  it("posts com mais de 6 h continuam expirando; a tentativa do mesmo perfil passa a valer", () => {
+    const old = new Date(NOW - 6 * 3600_000 - 1).toISOString();
+    const state = readIcebreakerPostsState(
+      {
+        icebreakerPosts: { [A]: { posts: [POST], fetchedAt: old, fetchLimit: 10 } },
+        icebreakerPostsAttempted: { [A]: { attemptedAt: old, outcome: "not_saved" } },
+      },
+      NOW
+    );
+    expect(state.posts.size).toBe(0);
+    expect([...state.attempted]).toEqual([A]);
+  });
+
+  it("descarta motivo desconhecido, data invalida ou entrada nao-objeto", () => {
     const bad = [
       { attemptedAt: recent, outcome: "outro" },
       { attemptedAt: "ontem", outcome: "empty" },
       { attemptedAt: 123, outcome: "empty" },
-      { attemptedAt: new Date(NOW - 6 * 3600_000 - 1).toISOString(), outcome: "empty" },
-      { attemptedAt: new Date(NOW + 10 * 60_000).toISOString(), outcome: "empty" },
+      { outcome: "empty" },
+      { attemptedAt: recent },
+      "empty",
       null,
     ];
     for (const entry of bad) {

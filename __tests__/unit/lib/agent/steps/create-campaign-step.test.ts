@@ -2320,20 +2320,36 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
 
     it.each([
       ["output antigo, sem o registro", { accounts: [] }],
-      ["registro mais velho que 6 h", null],
       ["motivo desconhecido", { accounts: [], icebreakerPostsAttempted: { "https://linkedin.com/in/jane": { attemptedAt: new Date().toISOString(), outcome: "???" } } }],
       ["data invalida", { accounts: [], icebreakerPostsAttempted: { "https://linkedin.com/in/jane": { attemptedAt: "ontem", outcome: "empty" } } }],
       ["registro nao-objeto", { accounts: [], icebreakerPostsAttempted: ["https://linkedin.com/in/jane"] }],
     ])("FEL-77: %s -> o create busca UMA vez, como hoje", async (_label, output) => {
       setupDeterministicAI();
       mockFetchLinkedInPosts.mockResolvedValue({ success: true, posts: RAW_POSTS.slice(0, 3), profileUrl: JANE_URL, fetchedAt: "x" });
-      const research =
-        output ?? attemptedOutput("empty", new Date(Date.now() - 6 * 60 * 60 * 1000 - 60_000).toISOString());
-      const result = await runWith(agentStepsWithResearch(research as Record<string, unknown>));
+      const result = await runWith(agentStepsWithResearch(output as Record<string, unknown>));
       expect(mockFetchLinkedInPosts).toHaveBeenCalledTimes(1);
       expect(mockFetchLinkedInPosts).toHaveBeenCalledWith(expect.any(String), JANE_URL, 3);
       expect(stats(result).premium).toBe(1);
       expect(result.cost?.apify).toBe(1);
+    });
+
+    it("FEL-77: tentativa do research com mais de 6 h NAO expira: zero chamadas ao Apify e icebreaker padrao", async () => {
+      setupDeterministicAI();
+      mockFetchLinkedInPosts.mockResolvedValue({ success: true, posts: RAW_POSTS.slice(0, 3), profileUrl: JANE_URL, fetchedAt: "x" });
+      const old = new Date(Date.now() - 6 * 60 * 60 * 1000 - 60_000).toISOString();
+      const result = await runWith(agentStepsWithResearch(attemptedOutput("empty", old)));
+      expect(mockFetchLinkedInPosts).not.toHaveBeenCalled();
+      expect(premiumVars()).toHaveLength(0);
+      expect(stats(result)).toMatchObject({ premium: 0, standard: 2, failed: 0, generated: 2 });
+      expect(result.cost?.apify).toBeUndefined();
+    });
+
+    it("FEL-77: POSTS com mais de 6 h continuam expirando (busca uma vez, como hoje)", async () => {
+      setupDeterministicAI();
+      mockFetchLinkedInPosts.mockResolvedValue({ success: true, posts: RAW_POSTS.slice(0, 3), profileUrl: JANE_URL, fetchedAt: "x" });
+      const old = new Date(Date.now() - 6 * 60 * 60 * 1000 - 60_000).toISOString();
+      await runWith(agentStepsWithResearch(researchOutput(RAW_POSTS, old)));
+      expect(mockFetchLinkedInPosts).toHaveBeenCalledTimes(1);
     });
 
     it("FEL-77: leitura do research com erro -> busca uma vez, como hoje", async () => {
