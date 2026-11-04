@@ -491,15 +491,32 @@ function startsUppercase(token: string): boolean {
   return first !== first.toLowerCase() && first === first.toUpperCase();
 }
 
-/** Tamanho (em tokens) do item de menu que comeca em `tokens[i]`, ou 0. */
-function menuItemLength(tokens: string[], i: number): number {
-  if (!isBareWord(tokens[i]) || !startsUppercase(tokens[i])) return 0;
+/**
+ * Itens que FECHAM um menu (login/cadastro/CTA): podem ser cortados mesmo seguidos de
+ * texto que nao e menu ("... Entrar Teste grátis Contrate a gestão..."). Os demais itens
+ * (Produtos, Soluções, Planos...) so saem quando o PROXIMO token tambem e item de menu.
+ */
+const MENU_CLOSING_WORDS = new Set(["entrar", "login", "signin", "cadastro", "cadastrar"]);
+
+interface MenuItem {
+  length: number;
+  /** Item de login/CTA (palavra de `MENU_CLOSING_WORDS` ou qualquer expressao). */
+  closing: boolean;
+}
+
+/** Item de menu que comeca em `tokens[i]`, ou `null`. */
+function menuItemAt(tokens: string[], i: number): MenuItem | null {
+  if (i >= tokens.length || !isBareWord(tokens[i]) || !startsUppercase(tokens[i])) return null;
   for (const phrase of MENU_ITEM_PHRASES) {
     if (i + phrase.length > tokens.length) continue;
     const slice = tokens.slice(i, i + phrase.length);
-    if (slice.every((token, k) => isBareWord(token) && normalizeText(token) === phrase[k])) return phrase.length;
+    if (slice.every((token, k) => isBareWord(token) && normalizeText(token) === phrase[k])) {
+      return { length: phrase.length, closing: true };
+    }
   }
-  return MENU_ITEM_WORDS.has(normalizeText(tokens[i])) ? 1 : 0;
+  const word = normalizeText(tokens[i]);
+  if (!MENU_ITEM_WORDS.has(word)) return null;
+  return { length: 1, closing: MENU_CLOSING_WORDS.has(word) };
 }
 
 /** Minimo de itens seguidos no inicio para ser menu (evidencia forte). */
@@ -508,20 +525,25 @@ const MIN_LEADING_MENU_ITEMS = 4;
 /**
  * Corta o menu colado no INICIO do texto ("Produtos Soluções Recursos Parceiros Preços
  * Entrar Teste grátis Contrate a gestão..." -> "Contrate a gestão..."). Conservador: so
- * corta com 4+ itens de menu seguidos, cada um em Title Case, sem pontuacao. Um item
- * seguido de palavra minuscula e o comeco de uma frase ("Soluções completas para...") e
- * encerra a sequencia sem ser cortado. Sem sobra de texto, nada e cortado.
+ * corta com 4+ itens de menu seguidos, cada um em Title Case, sem pontuacao. Na duvida
+ * o item FICA (sobra de menu e melhor que cortar conteudo):
+ * - item seguido de palavra minuscula e comeco de frase ("Soluções completas para...");
+ * - item comum seguido de algo que nao e item de menu pode ser comeco comercial
+ *   ("Produtos Microsoft para..."): so login/cadastro/CTA fecham o menu nesse ponto.
+ * Sem sobra de texto, nada e cortado.
  */
 function stripLeadingMenuRun(text: string): string {
   const tokens = text.split(" ");
   let i = 0;
   let items = 0;
   while (i < tokens.length) {
-    const length = menuItemLength(tokens, i);
-    if (length === 0) break;
-    const next = tokens[i + length];
+    const item = menuItemAt(tokens, i);
+    if (!item) break;
+    const nextIndex = i + item.length;
+    const next = tokens[nextIndex];
     if (next !== undefined && !startsUppercase(next)) break; // comeco de frase, nao menu
-    i += length;
+    if (next !== undefined && !item.closing && !menuItemAt(tokens, nextIndex)) break; // pode ser conteudo
+    i = nextIndex;
     items++;
   }
   if (items < MIN_LEADING_MENU_ITEMS || i >= tokens.length) return text;

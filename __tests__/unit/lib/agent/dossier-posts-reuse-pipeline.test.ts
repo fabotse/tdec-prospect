@@ -295,7 +295,9 @@ describe("FEL-57 — research_accounts + create_campaign (toggle de LinkedIn)", 
     );
   });
 
-  it("dossie falhou para um lead: so esse lead busca de novo no create_campaign", async () => {
+  // FEL-77: antes, a falha no research fazia o create buscar o perfil de novo (2 chamadas).
+  // Agora a tentativa fica registrada e o lead cai no icebreaker padrao (1 chamada por lead).
+  it("dossie falhou para um lead: o create_campaign NAO busca de novo (icebreaker padrao)", async () => {
     mockFetchLinkedInPosts.mockImplementation(async (_key: string, url: string, limit: number) =>
       url.endsWith("/ana") && limit === 10
         ? { success: false, posts: [], error: "Actor falhou", profileUrl: url, fetchedAt: new Date().toISOString() }
@@ -308,12 +310,30 @@ describe("FEL-57 — research_accounts + create_campaign (toggle de LinkedIn)", 
     const calls = mockFetchLinkedInPosts.mock.calls.map((c) => `${c[1]}|${c[2]}`).sort();
     expect(calls).toEqual([
       "https://www.linkedin.com/in/ana|10",
-      "https://www.linkedin.com/in/ana|3",
       "https://www.linkedin.com/in/rui|10",
     ]);
-    expect(campaign.cost?.apify).toBe(1);
-    expect(mockLogApifySuccess).toHaveBeenCalledTimes(1);
+    expect(campaign.cost?.apify).toBeUndefined();
+    expect(mockLogApifySuccess).not.toHaveBeenCalled();
+    const stats = (campaign.data as { icebreakerStats: { premium: number; standard: number } }).icebreakerStats;
+    expect(stats.standard).toBeGreaterThanOrEqual(1);
   });
+  it("FEL-77: research sem posts para um lead: o create_campaign NAO busca de novo (icebreaker padrao)", async () => {
+    mockFetchLinkedInPosts.mockImplementation(async (_key: string, url: string, limit: number) =>
+      url.endsWith("/ana")
+        ? { success: true, posts: [], rawIndexes: [], profileUrl: url, fetchedAt: new Date().toISOString() }
+        : { success: true, ...serviceResult(url, limit), profileUrl: url, fetchedAt: new Date().toISOString() }
+    );
+    const db = createDb();
+    await new ResearchAccountsStep(3, db.client, "tenant-1", { treg: treg() }).run(input());
+    const campaign = await new CreateCampaignStep(4, db.client, "tenant-1").run(input());
+
+    const calls = mockFetchLinkedInPosts.mock.calls.map((c) => `${c[1]}|${c[2]}`).sort();
+    expect(calls).toEqual(["https://www.linkedin.com/in/ana|10", "https://www.linkedin.com/in/rui|10"]);
+    expect(campaign.cost?.apify).toBeUndefined();
+    expect(mockLogApifySuccess).not.toHaveBeenCalled();
+    expect(mockLogApifyFailure).not.toHaveBeenCalled();
+  });
+
   it("item vazio entre os 3 primeiros do dataset: o prompt e o da busca com limite 3 ([A, B], nao [A, B, C])", async () => {
     WITH_EMPTY_ITEM.add("https://www.linkedin.com/in/rui");
     const db = createDb();

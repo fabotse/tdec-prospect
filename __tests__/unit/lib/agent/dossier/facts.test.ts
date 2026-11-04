@@ -531,7 +531,6 @@ describe("siteFact — menu colado no inicio do texto (FEL-77)", () => {
   });
 
   it.each([
-    ["sem CTA", "Produtos Soluções Recursos Parceiros Preços"],
     ["so com login", "Produtos Soluções Recursos Parceiros Preços Entrar"],
     ["com Fale com vendas", "Produtos Soluções Planos Clientes Blog Fale com vendas Entrar"],
     ["com Fale conosco e Sobre", "Sobre Produtos Clientes Contato Fale conosco"],
@@ -539,6 +538,36 @@ describe("siteFact — menu colado no inicio do texto (FEL-77)", () => {
     ["em ingles com CTA", "Products Solutions Resources Partners Pricing Login Start free trial"],
   ])("menu %s no inicio sai", (_label, nav) => {
     expect(cleanSiteText(`${nav} ${body}`)).toBe(body.trim());
+  });
+
+  it("menu sem CTA: corta os itens seguidos de outro item; o ultimo fica (na duvida, nao corta)", () => {
+    // "Preços" antes de "Contrate" pode ser comeco comercial: sobra de menu > cortar conteudo.
+    expect(cleanSiteText(`Produtos Soluções Recursos Parceiros Preços ${body}`)).toBe(`Preços ${body}`.trim());
+  });
+
+  it("rodada 1 do Codex: palavra comercial seguida de nome proprio depois do menu NAO e cortada", () => {
+    const commercial = "Produtos Microsoft para sua empresa crescer com segurança e produtividade em todos os times. ";
+    expect(cleanSiteText(`Home Produtos Soluções Recursos ${commercial}${body}`)).toBe(`${commercial}${body}`.trim());
+  });
+
+  it.each([
+    "Soluções completas para gestão de contratos em uma única plataforma.",
+    "Produtos Microsoft para sua empresa crescer com segurança.",
+    "Teste grátis por 14 dias, sem cartão de crédito.",
+    "Planos a partir de R$ 99 por mês para equipes pequenas.",
+    "Clientes como Ambev e iFood confiam na Contraktor.",
+    "Recursos de assinatura eletrônica e alertas de vencimento.",
+  ])("frase comercial DEPOIS do menu da Contraktor fica inteira: %s", (phrase) => {
+    expect(cleanSiteText(`${CONTRAKTOR_NAV} ${phrase} ${body}`)).toBe(`${phrase} ${body}`.trim());
+  });
+
+  it.each([
+    "Produtos Microsoft para sua empresa crescer com segurança.",
+    "Soluções completas para gestão de contratos.",
+    "Planos a partir de R$ 99 por mês.",
+  ])("frase comercial depois de menu SEM CTA fica inteira: %s", (phrase) => {
+    const result = cleanSiteText(`Home Produtos Soluções Recursos Parceiros ${phrase} ${body}`);
+    expect(result.endsWith(`${phrase} ${body}`.trim())).toBe(true);
   });
 
   it("menu colado depois do skip link (limpeza do FEL-57) tambem sai", () => {

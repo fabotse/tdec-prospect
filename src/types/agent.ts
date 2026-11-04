@@ -7,7 +7,7 @@
 
 import type { CopyReviewStatus } from "./copy-review";
 import type { LeadEmailStatus } from "@/lib/leads/email-status";
-import type { ReusablePostsByUrl } from "@/lib/agent/dossier/icebreaker-posts";
+import type { IcebreakerAttemptsByUrl, ReusablePostsByUrl } from "@/lib/agent/dossier/icebreaker-posts";
 
 // === Enums / Unions ===
 
@@ -454,6 +454,12 @@ export interface ResearchAccountsOutput {
    * os usa no lugar de buscar de novo. Ausente = nada a reaproveitar (busca como hoje).
    */
   icebreakerPosts?: ReusablePostsByUrl;
+  /**
+   * FEL-77: perfis que o research JA tentou no Apify sem deixar posts reaproveitaveis
+   * (vazio, falha, timeout...). O `create_campaign` nao busca de novo: icebreaker padrao.
+   * Ausente (output antigo) = nenhuma tentativa registrada (busca como hoje).
+   */
+  icebreakerPostsAttempted?: IcebreakerAttemptsByUrl;
 }
 
 // === Create Campaign Output (Story 17.3 AC #4) ===

@@ -72,7 +72,12 @@ import {
   linkLeads,
   saveDossier,
 } from "@/lib/agent/dossier/repository";
-import { buildReusableEntry, type ReusablePostsByUrl } from "@/lib/agent/dossier/icebreaker-posts";
+import {
+  buildReusableEntry,
+  type IcebreakerAttemptOutcome,
+  type IcebreakerAttemptsByUrl,
+  type ReusablePostsByUrl,
+} from "@/lib/agent/dossier/icebreaker-posts";
 import type {
   DossierFailureReason,
   PipelineError,
@@ -238,6 +243,8 @@ interface RunState {
   leadsLinked: number;
   /** FEL-57: posts brutos por `linkedinUrl` para o icebreaker premium do `create_campaign`. */
   icebreakerPosts: ReusablePostsByUrl;
+  /** FEL-77: perfis tentados no Apify sem posts reaproveitaveis (o create nao busca de novo). */
+  icebreakerAttempts: IcebreakerAttemptsByUrl;
 }
 
 export interface ResearchAccountsDeps {
@@ -389,10 +396,19 @@ export class ResearchAccountsStep extends BaseStep {
     };
 
     const data = result.data as unknown as ResearchAccountsOutput;
-    // Fallback minimo sem a lista de contas e sem os posts (o que mais pesa). Sem os
-    // posts, o `create_campaign` busca no Apify como sempre.
-    const { icebreakerPosts: _droppedPosts, ...minimalData } = data;
-    void _droppedPosts;
+    // Fallback minimo sem a lista de contas e sem os posts (o que mais pesa). FEL-77: os
+    // perfis cujos posts ficaram de fora viram "ja tentados" (registro pequeno), para o
+    // `create_campaign` nao chamar o Apify uma segunda vez (cai no icebreaker padrao).
+    const { icebreakerPosts: droppedPosts, ...minimalData } = data;
+    if (droppedPosts && Object.keys(droppedPosts).length > 0) {
+      const attempted: IcebreakerAttemptsByUrl = { ...(minimalData.icebreakerPostsAttempted ?? {}) };
+      for (const [url, entry] of Object.entries(droppedPosts)) {
+        if (!Object.prototype.hasOwnProperty.call(attempted, url)) {
+          attempted[url] = { attemptedAt: entry.fetchedAt, outcome: "not_saved" };
+        }
+      }
+      minimalData.icebreakerPostsAttempted = attempted;
+    }
     const persisted =
       (await write(
         "checkpoint",
@@ -564,6 +580,7 @@ export class ResearchAccountsStep extends BaseStep {
         openaiRelevanceCalls: 0,
         leadsLinked: 0,
         icebreakerPosts: {},
+        icebreakerAttempts: {},
       };
       this.runState = state;
       if (state.premium && state.apifyKey) {
@@ -1105,6 +1122,7 @@ export class ResearchAccountsStep extends BaseStep {
         if (!fetched.ok) {
           state.flags.timeBudgetExhausted = true;
           failure = failure ?? "timeout";
+          this.rememberIcebreakerAttempt(state, linkedinUrl, "timeout");
           await this.logUsage({
             tenantId: this.tenantId,
             executionId: state.executionId,
@@ -1133,14 +1151,18 @@ export class ResearchAccountsStep extends BaseStep {
         });
         if (!result.success) {
           failure = failure ?? "error";
+          this.rememberIcebreakerAttempt(state, linkedinUrl, "failed");
           continue;
         }
         posts = result.posts ?? [];
         // FEL-57: posts BRUTOS (antes dos filtros abaixo) para o icebreaker premium.
         this.rememberIcebreakerPosts(state, linkedinUrl, posts, result.rawIndexes, result.fetchedAt);
+        // FEL-77: busca feita sem posts reaproveitaveis -> registrada como tentada.
+        this.rememberIcebreakerAttempt(state, linkedinUrl, posts.length === 0 ? "empty" : "unusable");
       } catch (error) {
         console.error("[ResearchAccountsStep] Falha no Apify:", errorMessage(error));
         failure = failure ?? "error";
+        this.rememberIcebreakerAttempt(state, linkedinUrl, "failed");
         continue;
       } finally {
         state.apifyBudget.settle(reserve, reserve);
@@ -1220,6 +1242,22 @@ export class ResearchAccountsStep extends BaseStep {
   }
 
   /**
+   * FEL-77: registra que o research JA chamou o Apify para o perfil e nao deixou posts
+   * reaproveitaveis, para o `create_campaign` nao chamar de novo (cai no padrao). Perfil
+   * com posts guardados nao e registrado (os posts valem). A primeira tentativa vale.
+   * Nunca lanca: sem o registro, o `create_campaign` so busca como hoje.
+   */
+  private rememberIcebreakerAttempt(state: RunState, linkedinUrl: string, outcome: IcebreakerAttemptOutcome): void {
+    try {
+      const has = (record: object) => Object.prototype.hasOwnProperty.call(record, linkedinUrl);
+      if (has(state.icebreakerPosts) || has(state.icebreakerAttempts)) return;
+      state.icebreakerAttempts[linkedinUrl] = { attemptedAt: new Date().toISOString(), outcome };
+    } catch (error) {
+      console.error("[ResearchAccountsStep] Falha ao registrar tentativa do icebreaker:", errorMessage(error));
+    }
+  }
+
+  /**
    * Reuso: so busca posts de leads que ainda NAO tem post no dossie (sem duplicar nem
    * cobrar de novo). Sem conseguir ler o que ja existe, nao busca posts.
    */
@@ -1279,6 +1317,9 @@ export class ResearchAccountsStep extends BaseStep {
     };
     if (state && Object.keys(state.icebreakerPosts).length > 0) {
       output.icebreakerPosts = { ...state.icebreakerPosts };
+    }
+    if (state && Object.keys(state.icebreakerAttempts).length > 0) {
+      output.icebreakerPostsAttempted = { ...state.icebreakerAttempts };
     }
     return {
       success: true,
