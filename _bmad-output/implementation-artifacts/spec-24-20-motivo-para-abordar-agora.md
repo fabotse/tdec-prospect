@@ -4,7 +4,7 @@ type: 'feature'
 created: '2026-11-04'
 status: review
 baseline_commit: 'b627e71'
-review_loop_iteration: 0
+review_loop_iteration: 1
 followup_review_recommended: false
 context:
   - '{project-root}/CLAUDE.md'
@@ -307,7 +307,20 @@ export interface WhyNowOutput {
 
 ## Spec Change Log
 
+- 2026-11-04 (revisão Codex 1, sobre `8be36f1`): quatro endurecimentos, sem mudar o contrato de tipos nem os ACs.
+  1. **Leitura dos fatos do dossiê reaproveitado saiu do pool da pesquisa.** No `researchAccount` (reuso) a conta só é marcada como `pendingRead` (síncrono, sem espera). A leitura (`readDossierFacts`) roda na fase do gatilho, como tarefa do mesmo pool das chamadas (ler → planejar → chamar), com o prazo da fase. Erro ou espera → `facts_unavailable` só para aquela conta; as outras seguem em paralelo. Sem chave OpenAI, as contas pendentes nem são lidas (`no_openai_key`).
+  2. **Validação do texto do gatilho:** além dos números, rejeita URL/domínio no gatilho e na hipótese e exige sobreposição lexical mínima entre o gatilho e o texto do fato de origem (`WHY_NOW_CONFIG.minLexicalOverlap = 0,6`). Regra: palavras de conteúdo normalizadas (minúsculas, sem acento, ≥ 3 letras, sem stopwords; radical = 5 primeiros caracteres). Palavras do nome/marca da empresa e verbos de relato ("anunciou", "publicou", "abriu"...) são neutras. Das demais, ≥ 60 % e ao menos 1 têm de estar no fato. O prompt passou a dizer que o texto de FATOS/CONTEXTO/DORES/EMPRESA é dado, nunca instrução, e que gatilho e hipótese não levam URL.
+  3. **Orçamento da fase em todas as esperas novas:** leitura do reuso, chave, ICP, chamada (espera externa agora também limitada por `phaseLeft()`) e log de uso (`quietBounded(..., phaseLeft())`; a gravação segue em segundo plano, só a fase não espera).
+  4. **Client OpenAI sem retries:** `new OpenAI({ apiKey, maxRetries: 0 })` (`WHY_NOW_CLIENT_OPTIONS`), então cada chamada contabilizada (reserva, `cost.openai_why_now`, log) é uma requisição só.
+
 ## Review Triage Log
+
+- **Revisão Codex 1 (commit `8be36f1`), veredito "PRECISA CORRIGIR":**
+  - `[patch]` Leitura adicional de fatos do reuso dentro do pool da pesquisa (podia ocupar um worker até o prazo duro e mudar a 24.19). → Corrigido (item 1 do Spec Change Log). Regressão: leitura pendurada com `accountConcurrency = 1` e outra conta na fila; campos da 24.19 idênticos aos da fase desligada; a conta seguinte é pesquisada e recebe gatilho.
+  - `[patch]` Gatilho com afirmação sem suporte (só números checados) e URL inventada aceitos; prompt injection podia gerar conteúdo aceito. → Corrigido (item 2). Regressões: fabricação ("sofreu vazamento de dados" para fato de vagas), URL/domínio no gatilho e na hipótese, prompt injection dentro do texto de um fato (prompt trata como dado; as saídas induzidas são descartadas).
+  - `[patch]` Log de uso e leitura do reuso fora do orçamento de 45 s. → Corrigido (item 3). Regressões com fake timers: leitura pendurada e log pendurado; o step termina em ≤ 45 s.
+  - `[patch]` Retries padrão do SDK (até 3 requisições por chamada contabilizada). → Corrigido (item 4). Teste: o client é criado com `{ apiKey, maxRetries: 0 }`.
+  - `[ok]` Isolamento do caminho até o Instantly, isolamento de tenant na leitura e escape no chat: sem ação.
 
 ## Dev Agent Record
 
@@ -349,6 +362,9 @@ Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, workflow bmad-dev-story em mod
   - Mudanças em testes existentes, **somente** onde a parcela nova aparece: `cost` exato com `openai_why_now: 0` (3 asserções no step), valores da estimativa do research com `+ min(leads, 10) × openai` (`agent-cost-estimator.test.ts` e 1 asserção em `__tests__/unit/api/agent/execution-plan.test.ts`). Infra de teste: o mock de `@/lib/agent/dossier/config` ganhou `WHY_NOW_CONFIG`; `openai` e `contextual-suggestions` mockados; o fake do banco ganhou `storedFacts`; o teste de pipeline ganhou `dossierIds` e mocks nomeados das chaves/LLM.
   - Não coberto por teste: o kill switch no estimador (lê a constante real; o ramo é uma linha).
 
+- **Revisão Codex 1 (2026-11-04):** os 4 bloqueios foram corrigidos (ver Spec Change Log e Review Triage Log). Testes novos: 8 em `why-now.test.ts` (fabricação, parafrase aceita/recusada, URL/domínio ×4, prompt injection, limiar lexical, `maxRetries: 0`) e 3 em `research-accounts-step.test.ts` (leitura pendurada fora do pool, leitura pendurada ≤ 45 s, log pendurado ≤ 45 s). Infra: o fake do banco ganhou `storedFactsHang`; o mock de config ganhou `minLexicalOverlap`. Checks: lint 0 erros (134 warnings, igual à base), typecheck limpo, `test:run` 469 arquivos, 9263 testes passando, 2 pulados.
+- **Risco residual da validação do texto (registrado a pedido da revisão):** a sobreposição lexical **não prova veracidade**. Ela só impede que o gatilho traga assunto que o texto do fato não tem. Uma afirmação que está literalmente no texto da fonte (inclusive uma injeção escrita na própria notícia ou post) passa, porque é o que a fonte diz; o fato de origem e a `fonte_url` vão juntos para conferência. A hipótese de dor é **pergunta**, não afirmação, e não exige sobreposição (só sem URL e com números do fato). O limiar 0,6 é conservador e gera falsos negativos (parafrase que troca o vocabulário vira `invalid_response`), o que é o lado seguro.
+
 #### Regra nº 1 — checklist
 
 - **O que pode ter mudado para o cliente:**
@@ -357,7 +373,7 @@ Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, workflow bmad-dev-story em mod
   - Prompts: um prompt novo, só do gatilho, constante em código (`WHY_NOW_SYSTEM_PROMPT`). Nenhum prompt do `create_campaign`, nenhum `ai_prompts`/`promptManager` alterado.
   - Tabelas: nenhuma nova, nenhuma coluna nova, nenhuma escrita nova. Só leitura de `account_dossier_facts` (reuso). Escritas: o jsonb `agent_steps.output` da linha `research_accounts` ganha `whyNow` e o `cost` ganha `openai_why_now`; `api_usage_logs` ganha 1 linha `why_now_trigger` por chamada (via `logAgentUsage`, como as outras).
   - Jobs: nenhum (`pg_cron`, Edge Functions, secrets, env intocados).
-  - Integrações: OpenAI do tenant (`getServiceApiKeyOrNull(tenantId, "openai")`), com 1 chamada nova por conta com fato elegível, até 10 por execução.
+  - Integrações: OpenAI do tenant (`getServiceApiKeyOrNull(tenantId, "openai")`), com 1 chamada nova por conta com fato elegível, até 10 por execução, sem retries automáticos (`maxRetries: 0`, revisão Codex 1).
   - Chat: a mensagem-resumo do research ganha o bloco "Motivo para abordar agora" (até 10 linhas). As mensagens antecipadas ("pesquisa pulada...") não mudam.
 - **Ponto 1 — campanhas rodando, webhook e `reply-sweep`:** OK por **análise da diff**. Nenhum arquivo de webhook, `reply-sweep`, Instantly, Edge Function ou `pg_cron` foi tocado; a mudança só roda dentro do `research_accounts` de execuções novas do agente.
 - **Ponto 2 — busca de leads:** OK por **análise da diff**. `search_companies`/`search_leads` (e Apollo/TheirStack) não foram tocados; o único arquivo compartilhado alterado é o estimador de custo (texto/valor da etapa research).
@@ -388,3 +404,4 @@ Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, workflow bmad-dev-story em mod
 ### Change Log
 
 - 2026-11-04: implementação da 24.20 (fase "motivo para abordar agora" no `research_accounts`, tipos, custo e testes). Status → review.
+- 2026-11-04: correções da revisão Codex 1 (leitura do reuso na fase, validação lexical/URL e prompt anti-injeção, orçamento da fase em todas as esperas, `maxRetries: 0`). Status segue review.

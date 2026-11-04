@@ -9,7 +9,7 @@
  * Supabase fake.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createHash } from "node:crypto";
 import { createChainBuilder, type ChainBuilder } from "../../../../helpers/mock-supabase";
 import type { SearchLeadResult, StepInput, ResearchAccountsOutput } from "@/types/agent";
@@ -38,6 +38,7 @@ const { mockConfig, mockWhyNowConfig, WHY_NOW_DEFAULTS } = vi.hoisted(() => {
     concurrency: 3,
     summaryMaxLeads: 10,
     textMaxChars: 240,
+    minLexicalOverlap: 0.6,
   };
   return {
   WHY_NOW_DEFAULTS,
@@ -174,6 +175,8 @@ interface DbOptions {
   /** Story 24.20: fatos gravados por dossie (leitura `readDossierFacts`). */
   storedFacts?: Record<string, Array<Record<string, unknown>>>;
   storedFactsError?: boolean;
+  /** Revisao Codex 1: a leitura dos fatos do dossie nunca responde. */
+  storedFactsHang?: boolean;
 }
 
 interface Inserted {
@@ -185,6 +188,8 @@ interface Inserted {
 function createDb(options: DbOptions = {}) {
   const inserts: Inserted[] = [];
   const updates: Inserted[] = [];
+  /** Instantes (Date.now) em que a leitura pendurada dos fatos foi iniciada. */
+  const factsReads: number[] = [];
 
   function eqValue(chain: ChainBuilder, column: string): unknown {
     const call = chain.eq.mock.calls.find((c: unknown[]) => c[0] === column);
@@ -237,10 +242,17 @@ function createDb(options: DbOptions = {}) {
 
   const from = vi.fn((table: string) => {
     const chain = createChainBuilder();
-    chain.then = (resolve, reject) =>
-      Promise.resolve()
+    chain.then = (resolve, reject) => {
+      const isFactsRead =
+        table === "account_dossier_facts" && String(chain.select.mock.calls[0]?.[0] ?? "").includes("fato");
+      if (isFactsRead && options.storedFactsHang) {
+        factsReads.push(Date.now());
+        return new Promise<never>(() => {});
+      }
+      return Promise.resolve()
         .then(() => respond(table, chain))
         .then(resolve, reject);
+    };
     return chain;
   });
 
@@ -249,6 +261,7 @@ function createDb(options: DbOptions = {}) {
     from,
     inserts,
     updates,
+    factsReads,
     insertsTo: (table: string) => inserts.filter((i) => i.table === table).map((i) => i.payload),
   };
 }
@@ -1680,5 +1693,122 @@ describe("ResearchAccountsStep — motivo para abordar agora (Story 24.20)", () 
     const { whyNow, ...old } = output;
     void whyNow;
     expect(ResearchAccountsStep.summaryText(old as ResearchAccountsOutput, leads)).not.toContain("\n");
+  });
+});
+
+// ==============================================
+// REVISAO CODEX 1 — esperas da fase fora do pool e dentro dos 45 s
+// ==============================================
+
+describe("ResearchAccountsStep — motivo para abordar agora: esperas penduradas (revisao Codex 1)", () => {
+  const citeAll = vi.fn(async (req: { messages: Array<{ content: string }> }) => {
+    const user = req.messages[1].content;
+    const facts = user.split("FATOS (")[1].split("LEADS (")[0].split("\n").filter((l) => l.startsWith("{")).map((l) => JSON.parse(l));
+    const leads = user.split("LEADS (")[1].split("\n").filter((l) => l.startsWith("{")).map((l) => JSON.parse(l));
+    const news = facts.find((f: { kind: string }) => f.kind === "news");
+    return {
+      choices: [{ message: { content: JSON.stringify({ leads: leads.map(({ j }: { j: number }) => ({ j, ref: news?.ref ?? null, gatilho: "Anunciou novo CISO.", hipotese_dor: "Como o novo CISO vai priorizar?", confianca: "alta" })) }) } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    };
+  });
+
+  function stepWithRealClock(db: ReturnType<typeof createDb>, treg = createTreg()) {
+    return new ResearchAccountsStep(3, db.client, TENANT, {
+      treg: treg.service,
+      apify: { fetchLinkedInPosts: vi.fn() } as never,
+      clock: () => Date.now(),
+      whyNowClient: () => ({ chat: { completions: { create: citeAll } } }) as never,
+      readIcp: async () => ({ jobTitles: [], industries: [], companySizes: [], geographicFocus: [], painPoints: "" }),
+    });
+  }
+
+  /** Campos da 24.19 (tudo menos o `whyNow`). */
+  const researchFields = (result: { data: Record<string, unknown> }) => {
+    const { whyNow, ...rest } = outputOf(result);
+    void whyNow;
+    return rest;
+  };
+
+  const REUSE_Y_FIRST = {
+    targetAccounts: [
+      { name: "Banco X", domain: "bancox.com.br", confidence: "high" as const },
+      { name: "Empresa Y", domain: "empresay.com", confidence: "high" as const },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW_MS);
+    citeAll.mockClear();
+    mockGetServiceApiKeyOrNull.mockImplementation(async (_t: string, service: string) => (service === "openai" ? "sk-tenant" : null));
+    // 1 conta por vez: com a leitura no pool, a 2a conta ficaria parada atras dela.
+    mockConfig.accountConcurrency = 1;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function runToEnd(step: ResearchAccountsStep, input: StepInput) {
+    let settledAt: number | null = null;
+    const startedAt = Date.now();
+    const promise = step.run(input).then((r) => {
+      settledAt = Date.now() - startedAt;
+      return r;
+    });
+    await vi.advanceTimersByTimeAsync(WHY_NOW_DEFAULTS.phaseBudgetMs + 1_000);
+    return { settledAt: settledAt as number | null, result: await promise };
+  }
+
+  it("leitura do dossie reaproveitado pendurada: nao ocupa o pool; a 24.19 sai identica e a conta seguinte e pesquisada", async () => {
+    const reusable = { "bancox.com.br": { id: "old-dossier", facts: 2 } };
+
+    mockWhyNowConfig.enabled = false;
+    const baseline = await runToEnd(stepWithRealClock(createDb({ reusable })), createInput(REUSE_Y_FIRST));
+    mockWhyNowConfig.enabled = true;
+
+    const db = createDb({ reusable, storedFactsHang: true });
+    const treg = createTreg();
+    const { settledAt, result } = await runToEnd(stepWithRealClock(db, treg), createInput(REUSE_Y_FIRST));
+
+    expect(settledAt).not.toBeNull();
+    expect(researchFields(result)).toEqual(researchFields(baseline.result));
+    expect(outputOf(result).accounts.map((a) => [a.domain, a.status, a.reused])).toEqual([
+      ["bancox.com.br", "complete", true],
+      ["empresay.com", "complete", false],
+    ]);
+    // A leitura so comecou depois da pesquisa (na fase), e a Empresa Y foi pesquisada antes.
+    expect(db.factsReads).toHaveLength(1);
+    expect(treg.calls.some((c) => JSON.stringify(c.body).includes("Empresa Y"))).toBe(true);
+    const whyNow = outputOf(result).whyNow!;
+    expect(whyNow.leads.map((l) => l.reason ?? l.status)).toEqual(["facts_unavailable", "facts_unavailable", "trigger"]);
+  });
+
+  it("leitura pendurada: a fase respeita os 45 s (step termina e grava completed)", async () => {
+    const db = createDb({ reusable: { "bancox.com.br": { id: "old-dossier", facts: 2 } }, storedFactsHang: true });
+    const { settledAt, result } = await runToEnd(stepWithRealClock(db), createInput(REUSE_Y_FIRST));
+    expect(settledAt).not.toBeNull();
+    expect(settledAt!).toBeLessThanOrEqual(WHY_NOW_DEFAULTS.phaseBudgetMs);
+    expect(result.success).toBe(true);
+    expect(checkpoint(db)).toMatchObject({ status: "completed" });
+  });
+
+  it("log de uso do gatilho pendurado: a fase respeita os 45 s e os logs foram disparados", async () => {
+    mockLogAgentUsage.mockImplementation((params: { requestType: string }) =>
+      params.requestType === "why_now_trigger" ? new Promise(() => {}) : Promise.resolve(undefined)
+    );
+    try {
+      const db = createDb();
+      const { settledAt, result } = await runToEnd(stepWithRealClock(db), createInput());
+      expect(settledAt).not.toBeNull();
+      expect(settledAt!).toBeLessThanOrEqual(WHY_NOW_DEFAULTS.phaseBudgetMs);
+      expect(citeAll).toHaveBeenCalledTimes(2);
+      const logs = mockLogAgentUsage.mock.calls.map((c) => c[0]).filter((p) => p.requestType === "why_now_trigger");
+      expect(logs).toHaveLength(2);
+      expect(outputOf(result).whyNow!.summary.withTrigger).toBe(3);
+      expect(outputOf(result).flags).toEqual({});
+    } finally {
+      mockLogAgentUsage.mockReset();
+      mockLogAgentUsage.mockResolvedValue(undefined);
+    }
   });
 });

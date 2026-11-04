@@ -90,6 +90,13 @@ export const WHY_NOW_CONFIG = {
   summaryMaxLeads: 10,
   /** Teto do gatilho e da hipotese de dor (caracteres). */
   textMaxChars: 240,
+  /**
+   * Revisao Codex 1: fracao minima das palavras de conteudo do gatilho (sem acento,
+   * stopwords, nome da empresa e verbos de relato) que tem de aparecer no fato de origem.
+   * 0,6 = conservador: aceita parafrase curta ("anunciou novo CISO"), rejeita assunto novo
+   * ("sofreu vazamento de dados" para um fato de vagas).
+   */
+  minLexicalOverlap: 0.6,
 } as const;
 
 export type WhyNowConfig = typeof WHY_NOW_CONFIG;

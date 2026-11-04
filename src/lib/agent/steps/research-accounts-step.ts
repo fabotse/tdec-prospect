@@ -274,6 +274,17 @@ interface AccountFactsEntry {
   dossierId: string | null;
   facts: DossierFact[] | null;
   leads: SearchLeadResult[];
+  /**
+   * Revisao Codex 1: dossie reaproveitado cujos fatos ainda vao ser lidos NA FASE (com o
+   * prazo da fase), nunca no pool da pesquisa. `savedPosts` = posts gravados agora.
+   */
+  pendingRead?: { savedPosts: DossierFact[] };
+}
+
+/** Story 24.20: conta a avaliar na fase; `plan: null` = fatos ainda a ler (reuso). */
+interface WhyNowTask {
+  entry: AccountFactsEntry;
+  plan: AccountCallPlan | null;
 }
 
 /** Story 24.20: estado da fase "motivo para abordar agora" de UMA execucao. */
@@ -908,7 +919,8 @@ export class ResearchAccountsStep extends BaseStep {
         }
       }
       await this.link(state, dossierId, account);
-      await this.rememberReusedFacts(state, account, domain, dossierId, postsSaved ? posts.facts : []);
+      // Story 24.20: so marca a conta; a leitura dos fatos e da fase (fora deste pool).
+      this.rememberReusedFacts(state, account, domain, dossierId, postsSaved ? posts.facts : []);
       return {
         companyName: account.companyName ?? reuse.dossier.companyName,
         domain,
@@ -1425,24 +1437,47 @@ export class ResearchAccountsStep extends BaseStep {
     state.accountFacts.push({ domain, companyName: account.companyName, dossierId, facts, leads: account.leads });
   }
 
-  /** Reuso: le os fatos do dossie (limitado pelo prazo) e soma os posts gravados agora. */
-  private async rememberReusedFacts(
+  /**
+   * Reuso: so registra a conta como "fatos a ler". A leitura (`readDossierFacts`) roda na
+   * fase do gatilho, com o prazo da fase, para nunca ocupar um worker da pesquisa nem
+   * mudar nada do output da 24.19 (revisao Codex 1). Sincrono, nao espera nada.
+   */
+  private rememberReusedFacts(
     state: RunState,
     account: ResolvedAccount,
     domain: string,
     dossierId: string,
     savedPosts: DossierFact[]
-  ): Promise<void> {
+  ): void {
     if (!WHY_NOW_CONFIG.enabled) return;
+    state.accountFacts.push({
+      domain,
+      companyName: account.companyName,
+      dossierId,
+      facts: null,
+      leads: account.leads,
+      pendingRead: { savedPosts },
+    });
+  }
+
+  /** Le os fatos de um dossie reaproveitado dentro do prazo da fase. Nunca lanca. */
+  private async readReusedFacts(entry: AccountFactsEntry, waitMs: number): Promise<void> {
+    const dossierId = entry.dossierId;
+    const savedPosts = entry.pendingRead?.savedPosts ?? [];
+    entry.pendingRead = undefined;
+    if (!dossierId) return;
     const stored = await this.quietBounded(
       "leitura dos fatos do dossie (motivo para abordar agora)",
       () => readDossierFacts(this.supabase, this.tenantId, dossierId),
-      { facts: [] as DossierFact[], error: "sem resposta antes do prazo do step" }
+      { facts: [] as DossierFact[], error: "sem resposta antes do prazo da fase" },
+      waitMs
     );
     if (stored.error) {
       console.error(`[ResearchAccountsStep] Fatos do dossie ${dossierId} indisponiveis para o gatilho:`, stored.error);
+      entry.facts = null;
+      return;
     }
-    this.rememberAccountFacts(state, account, domain, dossierId, stored.error ? null : [...stored.facts, ...savedPosts]);
+    entry.facts = [...stored.facts, ...savedPosts];
   }
 
   private setLeadWhyNow(
@@ -1501,40 +1536,79 @@ export class ResearchAccountsStep extends BaseStep {
     run.started = true;
     if (!WHY_NOW_CONFIG.enabled) return;
 
-    const jobs: Array<{ entry: AccountFactsEntry; plan: AccountCallPlan }> = [];
-    for (const entry of state.accountFacts) {
-      if (entry.facts === null) {
-        this.setLeadsWhyNow(entry, entry.leads.map((_, i) => i), "facts_unavailable");
-        continue;
-      }
-      const plan = planAccountCall(
-        entry.facts,
-        entry.leads.map((lead) => ({ apolloId: lead.apolloId ?? null, email: lead.email ?? null }))
-      );
-      this.setLeadsWhyNow(entry, plan.noEligible, "no_eligible_facts");
-      if (plan.overLimit.length > 0) {
-        run.flags.callLimitReached = true;
-        this.setLeadsWhyNow(entry, plan.overLimit, "call_limit");
-      }
-      if (plan.callLeads.length > 0) jobs.push({ entry, plan });
-    }
+    const entries = state.accountFacts;
     // Leads de contas nao pesquisadas (puladas, sem dominio...): `not_researched`.
-    const inJobs = new Set(jobs.flatMap((job) => job.plan.callLeads.map((i) => job.entry.leads[i])));
-    this.runLeads.forEach((lead, index) => {
-      if (!run.results.has(index) && !inJobs.has(lead)) this.setLeadWhyNow(lead, null, { reason: "not_researched" });
+    const inEntries = new Set(entries.flatMap((entry) => entry.leads));
+    this.runLeads.forEach((lead) => {
+      if (!inEntries.has(lead)) this.setLeadWhyNow(lead, null, { reason: "not_researched" });
     });
-    if (jobs.length === 0) return;
+    const allLeads = (entry: AccountFactsEntry) => entry.leads.map((_, i) => i);
+    for (const entry of entries) {
+      if (entry.facts === null && !entry.pendingRead) this.setLeadsWhyNow(entry, allLeads(entry), "facts_unavailable");
+    }
 
-    const markAll = (reason: WhyNowNoTriggerReason) => {
-      for (const job of jobs) this.setLeadsWhyNow(job.entry, job.plan.callLeads, reason);
+    // Contas com fatos ja em memoria viram tarefa com plano; reaproveitadas, tarefa com
+    // leitura pendente (lida DENTRO da fase, em paralelo com as outras chamadas).
+    const tasks: WhyNowTask[] = [];
+    for (const entry of entries) {
+      if (entry.pendingRead) continue;
+      if (entry.facts === null) continue;
+      const plan = this.planWhyNowEntry(entry);
+      if (plan) tasks.push({ entry, plan });
+    }
+    for (const entry of entries) if (entry.pendingRead) tasks.push({ entry, plan: null });
+    if (tasks.length === 0) return;
+
+    const markTasks = (reason: WhyNowNoTriggerReason) => {
+      for (const task of tasks) {
+        if (task.plan) this.setLeadsWhyNow(task.entry, task.plan.callLeads, reason);
+        else {
+          task.entry.pendingRead = undefined;
+          this.setLeadsWhyNow(task.entry, allLeads(task.entry), reason);
+        }
+      }
     };
     if (this.remainingToDeadline() < WHY_NOW_CONFIG.minPhaseMs) {
       run.flags.timeBudgetExhausted = true;
-      markAll("time_budget");
+      markTasks("time_budget");
       return;
     }
+    return this.runWhyNowCalls(state, tasks, this.phaseClock(), markTasks);
+  }
+
+  /** Plano de UMA conta com fatos: marca sem fato / alem do limite; `null` = sem chamada. */
+  private planWhyNowEntry(entry: AccountFactsEntry): AccountCallPlan | null {
+    const plan = planAccountCall(
+      entry.facts ?? [],
+      entry.leads.map((lead) => ({ apolloId: lead.apolloId ?? null, email: lead.email ?? null }))
+    );
+    this.setLeadsWhyNow(entry, plan.noEligible, "no_eligible_facts");
+    if (plan.overLimit.length > 0) {
+      this.whyNowRun.flags.callLimitReached = true;
+      this.setLeadsWhyNow(entry, plan.overLimit, "call_limit");
+    }
+    return plan.callLeads.length > 0 ? plan : null;
+  }
+
+  /** Prazo da fase: `min(agora + phaseBudgetMs, prazo duro)`. */
+  private phaseClock(): { left: () => number } {
     const phaseDeadline = Math.min(this.clock() + WHY_NOW_CONFIG.phaseBudgetMs, this.deadlineAt);
-    const phaseLeft = () => phaseDeadline - this.clock();
+    return { left: () => Math.max(0, phaseDeadline - this.clock()) };
+  }
+
+  /**
+   * Chave, ICP, leituras pendentes e chamadas, todos dentro do prazo da fase. Nunca lanca.
+   * Sem chave OpenAI, contas com leitura pendente nem sao lidas: todos os leads delas
+   * ficam `no_openai_key` (nao ha como haver gatilho).
+   */
+  private async runWhyNowCalls(
+    state: RunState,
+    tasks: WhyNowTask[],
+    phase: { left: () => number },
+    markTasks: (reason: WhyNowNoTriggerReason) => void
+  ): Promise<void> {
+    const run = this.whyNowRun;
+    const phaseLeft = phase.left;
 
     const apiKey = await this.quietBounded(
       "leitura da chave da OpenAI (motivo para abordar agora)",
@@ -1544,7 +1618,7 @@ export class ResearchAccountsStep extends BaseStep {
     );
     if (!apiKey) {
       run.flags.noOpenaiKey = true;
-      markAll("no_openai_key");
+      markTasks("no_openai_key");
       return;
     }
     const icp = await this.quietBounded(
@@ -1559,7 +1633,20 @@ export class ResearchAccountsStep extends BaseStep {
     const budget = new CostBudget(WHY_NOW_CONFIG.maxCostUsdPerExecution);
     let callsStarted = 0;
 
-    await runPool(jobs, WHY_NOW_CONFIG.concurrency, async ({ entry, plan }) => {
+    await runPool(tasks, WHY_NOW_CONFIG.concurrency, async (task) => {
+      const entry = task.entry;
+      let plan = task.plan;
+      if (!plan) {
+        // Revisao Codex 1: leitura do dossie reaproveitado com o prazo da fase; erro ou
+        // espera -> sem gatilho para esta conta (as outras seguem).
+        await this.readReusedFacts(entry, phaseLeft());
+        if (entry.facts === null) {
+          this.setLeadsWhyNow(entry, entry.leads.map((_, i) => i), "facts_unavailable");
+          return;
+        }
+        plan = this.planWhyNowEntry(entry);
+        if (!plan) return;
+      }
       const callLeads = plan.callLeads;
       if (callsStarted >= WHY_NOW_CONFIG.maxCallsPerExecution) {
         run.flags.callLimitReached = true;
@@ -1601,8 +1688,9 @@ export class ResearchAccountsStep extends BaseStep {
               createClient: this.whyNowClient,
               clock: this.clock,
             }),
-          // O AbortController da chamada e a 1a linha; esta e a garantia do prazo duro.
-          Math.max(0, Math.min(timeoutMs + 1_000, this.remainingToDeadline()))
+          // O AbortController da chamada e a 1a linha; esta e a garantia do prazo da fase
+          // (e do prazo duro).
+          Math.max(0, Math.min(timeoutMs + 1_000, phaseLeft(), this.remainingToDeadline()))
         );
         if (call.ok) {
           outcome = call.value;
@@ -1653,7 +1741,10 @@ export class ResearchAccountsStep extends BaseStep {
               triggers: outcome.results.filter((r) => r.trigger).length,
             },
           }),
-        undefined
+        undefined,
+        // Revisao Codex 1: o log tambem respeita o prazo da fase (a gravacao segue em
+        // segundo plano; so a fase nao espera por ela).
+        phaseLeft()
       );
     });
   }
