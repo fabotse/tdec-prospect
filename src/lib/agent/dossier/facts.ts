@@ -453,9 +453,85 @@ function stripLeadingNavigation(text: string, startedWithSkipLink: boolean): str
   return tokens.slice(cut).join(" ").replace(/^[\s|/·•…,.:;–—-]+/u, "");
 }
 
+// ----------------------------------------------
+// FEL-77: menu colado no INICIO do texto (pagina sem quebra de linha)
+// ----------------------------------------------
+
+/** Itens de menu de uma palavra (normalizados, sem acento), pt/en. */
+const MENU_ITEM_WORDS = new Set([
+  "produtos", "produto", "solucoes", "recursos", "parceiros", "precos", "planos", "clientes",
+  "cases", "blog", "sobre", "contato", "entrar", "login", "empresa", "institucional", "servicos",
+  "conteudos", "materiais", "integracoes", "carreiras", "suporte", "ajuda", "eventos", "noticias",
+  "imprensa", "home", "inicio", "menu", "demo", "cadastro", "cadastrar", "plataforma",
+  "products", "product", "solutions", "resources", "partners", "pricing", "plans", "customers",
+  "company", "about", "contact", "signin", "careers", "support", "features", "integrations",
+  "enterprise", "platform", "docs", "developers", "news", "events",
+]);
+
+/** Itens de menu/CTA de varias palavras (normalizados, sem acento). */
+const MENU_ITEM_PHRASES: string[][] = [
+  "teste gratis", "teste gratuito", "teste gratis agora", "comece gratis", "fale conosco",
+  "fale com vendas", "fale com um especialista", "fale com especialista", "fale com especialistas",
+  "fale com a gente", "fale com nosso time", "fale com o time", "fale com um consultor",
+  "quem somos", "sobre nos", "area do cliente", "agende uma demo", "agendar demo",
+  "solicite uma demo", "solicitar demo", "free trial", "start free trial", "get started",
+  "sign in", "sign up", "log in", "book a demo", "request a demo", "contact us", "contact sales",
+  "about us", "talk to sales",
+]
+  .map((phrase) => phrase.split(" "))
+  .sort((a, b) => b.length - a.length);
+
+/** Token "nu" de menu: so letras (sem pontuacao, numero ou simbolo). */
+function isBareWord(token: string): boolean {
+  return /^\p{L}+$/u.test(token);
+}
+
+function startsUppercase(token: string): boolean {
+  const first = token.charAt(0);
+  return first !== first.toLowerCase() && first === first.toUpperCase();
+}
+
+/** Tamanho (em tokens) do item de menu que comeca em `tokens[i]`, ou 0. */
+function menuItemLength(tokens: string[], i: number): number {
+  if (!isBareWord(tokens[i]) || !startsUppercase(tokens[i])) return 0;
+  for (const phrase of MENU_ITEM_PHRASES) {
+    if (i + phrase.length > tokens.length) continue;
+    const slice = tokens.slice(i, i + phrase.length);
+    if (slice.every((token, k) => isBareWord(token) && normalizeText(token) === phrase[k])) return phrase.length;
+  }
+  return MENU_ITEM_WORDS.has(normalizeText(tokens[i])) ? 1 : 0;
+}
+
+/** Minimo de itens seguidos no inicio para ser menu (evidencia forte). */
+const MIN_LEADING_MENU_ITEMS = 4;
+
+/**
+ * Corta o menu colado no INICIO do texto ("Produtos Soluções Recursos Parceiros Preços
+ * Entrar Teste grátis Contrate a gestão..." -> "Contrate a gestão..."). Conservador: so
+ * corta com 4+ itens de menu seguidos, cada um em Title Case, sem pontuacao. Um item
+ * seguido de palavra minuscula e o comeco de uma frase ("Soluções completas para...") e
+ * encerra a sequencia sem ser cortado. Sem sobra de texto, nada e cortado.
+ */
+function stripLeadingMenuRun(text: string): string {
+  const tokens = text.split(" ");
+  let i = 0;
+  let items = 0;
+  while (i < tokens.length) {
+    const length = menuItemLength(tokens, i);
+    if (length === 0) break;
+    const next = tokens[i + length];
+    if (next !== undefined && !startsUppercase(next)) break; // comeco de frase, nao menu
+    i += length;
+    items++;
+  }
+  if (items < MIN_LEADING_MENU_ITEMS || i >= tokens.length) return text;
+  return tokens.slice(i).join(" ");
+}
+
 /**
  * Texto util do site, sem o boilerplate de navegacao (script/style, links de "pular para
- * o conteudo", linhas de menu, seletor de idioma, login, CTA).
+ * o conteudo", linhas de menu, seletor de idioma, login, CTA). FEL-77: tambem sem o menu
+ * colado no inicio do texto (ver `stripLeadingMenuRun`).
  */
 export function cleanSiteText(raw: string): string {
   // Documento inteiro primeiro: blocos multilinha nao podem vazar para as linhas.
@@ -474,7 +550,7 @@ export function cleanSiteText(raw: string): string {
     .filter(({ rawLine, cleaned }) => cleaned && !isNavigationLine(rawLine, cleaned))
     .map(({ cleaned, startedWithSkipLink }) => stripLeadingNavigation(cleaned, startedWithSkipLink))
     .filter(Boolean);
-  return collapse(lines.join(" "));
+  return stripLeadingMenuRun(collapse(lines.join(" ")));
 }
 
 /** Meta description / og:description da pagina, quando o extract traz. */

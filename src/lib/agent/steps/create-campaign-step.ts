@@ -27,6 +27,7 @@ import {
 } from "@/lib/agent/service-keys";
 import { normalizeSegmentName, persistApprovedLeads } from "@/lib/agent/lead-persistence";
 import { normalizeApolloEmailStatus } from "@/lib/leads/email-status";
+import { linkedInProfileUrl } from "@/lib/agent/linkedin-profile-url";
 import { persistAgentCampaign } from "@/lib/agent/campaign-persistence";
 import {
   TEMPLATE_LEAD_VARIABLES,
@@ -159,6 +160,13 @@ export class CreateCampaignStep extends BaseStep {
             if (person.email) typedLead.email = person.email;
             const fullName = [person.first_name, person.last_name].filter(Boolean).join(" ");
             if (fullName && !fullName.includes("*")) typedLead.name = fullName;
+            // FEL-77: a busca do Apollo nao traz `linkedin_url`; o enrichment traz. Sem ela o
+            // icebreaker premium nunca rodava para lead do Apollo. So preenche lead SEM URL
+            // e so com URL de perfil do LinkedIn valida; senao o lead segue como antes.
+            if (!typedLead.linkedinUrl) {
+              const linkedinUrl = linkedInProfileUrl(person.linkedin_url);
+              if (linkedinUrl) typedLead.linkedinUrl = linkedinUrl;
+            }
             enrichCredits++;
           }
         } catch {

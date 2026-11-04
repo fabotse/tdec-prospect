@@ -510,3 +510,76 @@ describe("dossierStatus", () => {
     expect(dossierStatus([fact], [])).toBe("complete");
   });
 });
+
+describe("siteFact — menu colado no inicio do texto (FEL-77)", () => {
+  const body =
+    "Contrate a gestão de contratos que acelera vendas, reduz riscos e organiza toda a operação jurídica da sua empresa, com assinatura eletrônica, alertas de vencimento e relatórios completos para o time. ";
+  const CONTRAKTOR_NAV = "Produtos Soluções Recursos Parceiros Preços Entrar Teste grátis";
+
+  it("caso real da Contraktor: menu sem quebra de linha sai do fato", () => {
+    const fact = siteFact(
+      { output: { pages: [{ title: "Contraktor", markdown: `${CONTRAKTOR_NAV} ${body.repeat(2)}` }] } },
+      "https://contraktor.com.br",
+      NOW,
+      500
+    );
+    expect(fact).not.toBeNull();
+    expect(fact!.fato.startsWith("Contraktor — Contrate a gestão de contratos")).toBe(true);
+    for (const junk of ["Produtos", "Soluções Recursos", "Parceiros", "Preços", "Entrar", "Teste grátis"]) {
+      expect(fact!.fato).not.toContain(junk);
+    }
+  });
+
+  it.each([
+    ["sem CTA", "Produtos Soluções Recursos Parceiros Preços"],
+    ["so com login", "Produtos Soluções Recursos Parceiros Preços Entrar"],
+    ["com Fale com vendas", "Produtos Soluções Planos Clientes Blog Fale com vendas Entrar"],
+    ["com Fale conosco e Sobre", "Sobre Produtos Clientes Contato Fale conosco"],
+    ["em ingles", "Products Solutions Resources Partners Pricing Login"],
+    ["em ingles com CTA", "Products Solutions Resources Partners Pricing Login Start free trial"],
+  ])("menu %s no inicio sai", (_label, nav) => {
+    expect(cleanSiteText(`${nav} ${body}`)).toBe(body.trim());
+  });
+
+  it("menu colado depois do skip link (limpeza do FEL-57) tambem sai", () => {
+    expect(cleanSiteText(`Pular para o conteúdo ${CONTRAKTOR_NAV} ${body}`)).toBe(body.trim());
+  });
+
+  it("frases comerciais que comecam com palavras de menu NAO sao cortadas", () => {
+    for (const phrase of [
+      "Soluções completas para gestão de contratos em uma única plataforma.",
+      "Produtos e serviços para a gestão de contratos.",
+      "Produtos Contraktor ajudam times jurídicos a crescer.",
+      "Recursos de assinatura eletrônica e alertas de vencimento.",
+      "Planos a partir de R$ 99 por mês para equipes pequenas.",
+      "Teste grátis por 14 dias, sem cartão de crédito.",
+      "Clientes como Ambev e iFood confiam na Contraktor.",
+      "Products and solutions for contract management teams.",
+    ]) {
+      expect(cleanSiteText(`${phrase} ${body}`).startsWith(phrase)).toBe(true);
+    }
+  });
+
+  it("menos de 4 itens de menu no inicio: nada e cortado", () => {
+    const text = `Produtos Soluções Preços ${body}`;
+    expect(cleanSiteText(text)).toBe(text.trim());
+  });
+
+  it("item de menu seguido de minuscula encerra a sequencia (comeco de frase fica)", () => {
+    expect(cleanSiteText(`Blog Contato Login Clientes Planos a partir de R$ 99 por mês. ${body}`)).toBe(
+      `Planos a partir de R$ 99 por mês. ${body}`.trim()
+    );
+  });
+
+  it("so menu: nada sobra e o fallback de hoje (description) continua valendo", () => {
+    expect(cleanSiteText(CONTRAKTOR_NAV)).toBe(CONTRAKTOR_NAV);
+    const description = "Plataforma de gestão de contratos com assinatura eletrônica para empresas no Brasil.";
+    const fact = siteFact(
+      { output: { pages: [{ title: "Contraktor", markdown: `${CONTRAKTOR_NAV} Bem-vindo`, description }] } },
+      "https://contraktor.com.br",
+      NOW,
+      500
+    );
+    expect(fact!.fato).toBe(`Contraktor — ${description}`);
+  });
+});
