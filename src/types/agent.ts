@@ -496,9 +496,16 @@ export interface WhyNowSourceFact {
 }
 
 export interface WhyNowTrigger {
-  /** <= 240 caracteres. */
+  /**
+   * Texto DETERMINISTICO montado do proprio fato de origem: "<Noticia|Vaga|Post>: <fato>",
+   * <= 240 caracteres. Nunca e escrito pela LLM (revisao Codex 2).
+   */
   gatilho: string;
-  /** Pergunta (termina com "?"), <= 240 caracteres. */
+  /**
+   * Hipotese de dor gerada pela LLM a partir do cargo (persona) e das dores da KB:
+   * PERGUNTA (termina com "?"), sem URL/dominio, sem numero ausente do fato, <= 240
+   * caracteres. Nao e afirmacao sobre a conta.
+   */
   hipoteseDor: string;
   confianca: 'media' | 'alta';
   fatoOrigem: WhyNowSourceFact;

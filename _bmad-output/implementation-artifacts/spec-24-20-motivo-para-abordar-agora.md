@@ -4,7 +4,7 @@ type: 'feature'
 created: '2026-11-04'
 status: review
 baseline_commit: 'b627e71'
-review_loop_iteration: 1
+review_loop_iteration: 2
 followup_review_recommended: false
 context:
   - '{project-root}/CLAUDE.md'
@@ -172,8 +172,10 @@ export interface LeadWhyNow {
   status: 'trigger' | 'no_trigger';
   reason?: WhyNowNoTriggerReason;    // só em no_trigger
   trigger?: {
-    gatilho: string;                 // ≤ 240 caracteres
-    hipoteseDor: string;             // pergunta, termina com "?", ≤ 240 caracteres
+    gatilho: string;                 // ≤ 240 caracteres. Revisão Codex 2: texto DETERMINÍSTICO do fato
+                                     // de origem, "<Noticia|Vaga|Post>: <fato>"; nunca escrito pela LLM
+    hipoteseDor: string;             // pergunta gerada pela LLM (persona + dores da KB), termina com "?",
+                                     // sem URL/domínio, sem número ausente do fato, ≤ 240 caracteres
     confianca: 'media' | 'alta';
     fatoOrigem: WhyNowSourceFact;
   };
@@ -313,6 +315,12 @@ export interface WhyNowOutput {
   3. **Orçamento da fase em todas as esperas novas:** leitura do reuso, chave, ICP, chamada (espera externa agora também limitada por `phaseLeft()`) e log de uso (`quietBounded(..., phaseLeft())`; a gravação segue em segundo plano, só a fase não espera).
   4. **Client OpenAI sem retries:** `new OpenAI({ apiKey, maxRetries: 0 })` (`WHY_NOW_CLIENT_OPTIONS`), então cada chamada contabilizada (reserva, `cost.openai_why_now`, log) é uma requisição só.
 
+- 2026-11-04 (revisão Codex 2, sobre `82aeca7`): mudança de desenho para eliminar a classe "gatilho com afirmação sem suporte".
+  1. **A LLM não escreve mais o gatilho.** Ela só escolhe o fato (`ref`), escreve a hipótese de dor (pergunta) e dá a confiança. O `gatilho` gravado/exibido é determinístico, montado do próprio fato do dossiê: `"<Noticia|Vaga|Post>: <fato>"`, cortado em 240 caracteres (`buildTriggerText`). Qualquer `gatilho` vindo da LLM é ignorado. O prompt deixou de pedir a frase e diz "Voce NAO escreve o gatilho". O contrato de tipos não mudou de forma (o campo `gatilho` continua; só o conteúdo passa a ser derivado do fato); `fatoOrigem` segue com `fato`, `fonte_url` e `data`.
+  2. **A checagem lexical da rodada 1 foi removida** (ficou sem objeto) junto com `WHY_NOW_CONFIG.minLexicalOverlap`. Continuam: `ref` existente e elegível, post só do próprio lead, confiança mínima, `baixa` descartada.
+  3. **Fatos com sinais de instrução embutida ficam inelegíveis** (`hasInjectionSignals`, lista conservadora pt/en sobre o texto normalizado, sem acento e case-insensitive: "ignore", "desconsidere", "instruc*", "diga que", "responda", "system", "assistant", "you are", "voce e um", "as an ai", "prompt*", "regras anteriores", "escreva no"...). Eles não viram gatilho e não vão à LLM, nem como contexto. O fato continua gravado no dossiê (24.19 inalterada). Falso positivo só tira o fato do gatilho, o lado seguro.
+  4. **Hipótese de dor:** continua pergunta, sem URL/domínio, sem número ausente do fato, ≤ 240 caracteres.
+
 ## Review Triage Log
 
 - **Revisão Codex 1 (commit `8be36f1`), veredito "PRECISA CORRIGIR":**
@@ -321,6 +329,10 @@ export interface WhyNowOutput {
   - `[patch]` Log de uso e leitura do reuso fora do orçamento de 45 s. → Corrigido (item 3). Regressões com fake timers: leitura pendurada e log pendurado; o step termina em ≤ 45 s.
   - `[patch]` Retries padrão do SDK (até 3 requisições por chamada contabilizada). → Corrigido (item 4). Teste: o client é criado com `{ apiKey, maxRetries: 0 }`.
   - `[ok]` Isolamento do caminho até o Instantly, isolamento de tenant na leitura e escape no chat: sem ação.
+- **Revisão Codex 2 (commit `82aeca7`), veredito "PRECISA CORRIGIR" (bloqueios 1, 3 e 4 resolvidos; o 2 seguia aberto):**
+  - `[patch]` Sobreposição lexical aceita afirmação inventada ("Banco X demitiu novo CISO." sobre "Banco X anuncia 300 vagas e novo CISO"). → Corrigido por desenho: o gatilho é o texto do fato; a LLM não escreve afirmação. Regressão: as frases "Banco X demitiu novo CISO.", "Empresa sofreu ataque hacker." e uma com URL nunca aparecem no resultado; o gatilho é sempre `Noticia: <fato>`.
+  - `[patch]` Instrução embutida na fonte promovida a evidência ("Empresa sofreu ataque hacker." sobre o fato malicioso). → Corrigido: fato com sinal de injeção fica inelegível e não vai à LLM. Regressões: o fato malicioso do teste vira inelegível (sem chamada, sem gatilho); com um fato legítimo junto, só o legítimo vai ao prompt; no step, notícia maliciosa do Treg → zero chamadas, `no_eligible_facts`, fato ainda gravado no dossiê.
+  - `[ok]` Ressalva do Codex sobre custo: US$ 0,05 é teto de reserva contábil (sem limite de tokens de saída, decisão D10), não garantia de cobrança máxima. Registrado; sem mudança.
 
 ## Dev Agent Record
 
@@ -365,6 +377,10 @@ Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, workflow bmad-dev-story em mod
 - **Revisão Codex 1 (2026-11-04):** os 4 bloqueios foram corrigidos (ver Spec Change Log e Review Triage Log). Testes novos: 8 em `why-now.test.ts` (fabricação, parafrase aceita/recusada, URL/domínio ×4, prompt injection, limiar lexical, `maxRetries: 0`) e 3 em `research-accounts-step.test.ts` (leitura pendurada fora do pool, leitura pendurada ≤ 45 s, log pendurado ≤ 45 s). Infra: o fake do banco ganhou `storedFactsHang`; o mock de config ganhou `minLexicalOverlap`. Checks: lint 0 erros (134 warnings, igual à base), typecheck limpo, `test:run` 469 arquivos, 9263 testes passando, 2 pulados.
 - **Risco residual da validação do texto (registrado a pedido da revisão):** a sobreposição lexical **não prova veracidade**. Ela só impede que o gatilho traga assunto que o texto do fato não tem. Uma afirmação que está literalmente no texto da fonte (inclusive uma injeção escrita na própria notícia ou post) passa, porque é o que a fonte diz; o fato de origem e a `fonte_url` vão juntos para conferência. A hipótese de dor é **pergunta**, não afirmação, e não exige sobreposição (só sem URL e com números do fato). O limiar 0,6 é conservador e gera falsos negativos (parafrase que troca o vocabulário vira `invalid_response`), o que é o lado seguro.
 
+- **Revisão Codex 2 (2026-11-04):** gatilho determinístico, LLM restrita a `ref` + hipótese + confiança, fatos com instrução embutida inelegíveis, checagem lexical removida (ver Spec Change Log). A nota de "risco residual da validação do texto" da rodada 1 fica **superada** para o gatilho: ele não pode mais conter nada além do texto do fato. Testes: `why-now.test.ts` 52 (gatilho determinístico ×3 frases fabricadas, prefixos e corte, prompt sem a frase, fato malicioso inelegível sem chamada, fato legítimo + malicioso, 10 casos de `hasInjectionSignals`, hipótese com número/URL/domínio/vazia/ausente/longa); `research-accounts-step.test.ts` 83 (feliz com o gatilho do fato; notícia maliciosa do Treg sem chamada). Checks: lint 0 erros (134 warnings, igual à base), typecheck limpo, `test:run` 469 arquivos, 9277 testes passando, 2 pulados.
+- **Hipótese de dor (registro pedido pela revisão Codex 2):** é **hipótese** em forma de **pergunta**, gerada pela LLM a partir do cargo do lead (persona) e das dores do ICP da KB, ligada ao fato escolhido. **Não é afirmação sobre a conta.** As guardas são: termina com "?", sem URL/domínio, sem número ausente do fato, ≤ 240 caracteres. Nesta story ela **não vai para nenhum e-mail**: só fica em `output.whyNow` (o resumo do chat mostra o gatilho, não a hipótese). O uso na copy é da 24.21, que passa pelo revisor da 24.9, que checa afirmações contra o dossiê.
+- **Risco residual do gatilho:** o texto é o da fonte, então diz exatamente o que a notícia/vaga/post diz (pode estar errado se a fonte estiver), sempre com `fonte_url` e data. Um fato malicioso que escape da lista de sinais aparece como "Noticia: <texto da fonte>", nunca como afirmação nossa; a lista é conservadora e pode tirar fatos legítimos do gatilho.
+
 #### Regra nº 1 — checklist
 
 - **O que pode ter mudado para o cliente:**
@@ -405,3 +421,4 @@ Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, workflow bmad-dev-story em mod
 
 - 2026-11-04: implementação da 24.20 (fase "motivo para abordar agora" no `research_accounts`, tipos, custo e testes). Status → review.
 - 2026-11-04: correções da revisão Codex 1 (leitura do reuso na fase, validação lexical/URL e prompt anti-injeção, orçamento da fase em todas as esperas, `maxRetries: 0`). Status segue review.
+- 2026-11-04: correções da revisão Codex 2 (gatilho determinístico a partir do fato, LLM só escolhe `ref`/hipótese/confiança, fatos com instrução embutida inelegíveis, checagem lexical removida). Status segue review.
