@@ -2,7 +2,7 @@
 title: '24.22 — Dossiê visível na revisão e na oportunidade'
 type: 'feature'
 created: '2026-11-05'
-status: review
+status: done
 baseline_commit: 'badafaf'
 context:
   - '{project-root}/CLAUDE.md'
@@ -18,7 +18,7 @@ operator_actions:
 
 # Story 24.22: Dossiê visível na revisão e na oportunidade
 
-Status: review
+Status: done
 
 > **BLOQUEIO:** nenhum. **Não precisa de migration.** O painel só lê dados que já existem em produção:
 > - `account_dossiers`, `account_dossier_facts` e `account_dossier_leads` (migration 00073, aplicada, com RLS de SELECT por tenant);
@@ -424,6 +424,14 @@ O DTO **não** leva `lead_apollo_id`/`lead_email` dos fatos nem nome ou e-mail d
 - **Ponto 3 — criação, export e ativação:** OK por análise da diff + testes. Diff vazio nos arquivos proibidos de T11 (`src/lib/agent/steps/`, `orchestrator.ts`, `dossier/{repository,why-now,config,facts,budget,icebreaker-posts}.ts`, `instantly*`, `src/app/api/opportunities/`, `use-opportunities.ts`, `use-agent-execution.ts`, `supabase/`, `src/types/agent.ts`, `AgentMessageBubble.tsx`, `AgentActivationGate.tsx`, `LeadDetailPanel.tsx`). Payload do approve da revisão (`{ approvedData: { leads } }`, inclusive e-mail em caixa mista intacto) e da prévia (`{ approvedData: { emailBlocks } }`) idêntico, comparado byte a byte nos testes. Nenhum lead filtrado ou bloqueado e nenhum atraso no fluxo.
 - **Algum dos 3 pontos pode ser afetado?** Não. A mudança é só de leitura e exibição; nada a escalar ao Fabossi.
 
+- **Smoke real (2026-11-05), somente leitura, com toda requisição de escrita bloqueada no navegador (nenhuma foi tentada):**
+  - Local, no branch do PR (`d6f8738`), com o banco de produção:
+    - Revisão de leads e prévia da campanha da execução `11626b29-1c55-46cb-995d-c578deca482f`, parada no `create_campaign`: o painel mostra a empresa, o domínio, a data da pesquisa e os fatos com fonte, data e confiança. A execução é anterior à 24.20, então aparece "Sem gatilho: gatilho não avaliado".
+    - Oportunidades: "Sem pesquisa" e o botão "Gerar pesquisa (em breve)" desabilitado. Hoje nenhuma oportunidade em produção tem dossiê (0 pela consulta só de leitura).
+    - A rota de lookup para a execução `4441313f-703a-4725-a953-087817c90c88` devolve a nstech como `found`, com 6 fatos e o gatilho com fonte; a RTM volta como `none`.
+  - Em produção, depois do merge (`ac5a1fa`): a rota devolveu o mesmo gatilho e o painel abriu em /opportunities.
+  - Não visto na tela: o gatilho desenhado no painel. A única execução com gatilho está cancelada e a tela do agente não abre mais; essa parte está coberta pelos testes de componente.
+
 ### File List
 
 Novos:
@@ -480,3 +488,4 @@ Alterados:
 - 2026-11-05: implementação da 24.22 (dossiê visível na revisão e na oportunidade); status → review.
 - 2026-11-05: review-fix Codex rodada 1 (D3.0 identidade coerente, DTO validado + error boundary, timeout de 10 s).
 - 2026-11-05: review-fix Codex rodada 2 (conflito de identificador rejeita post e entrada do whyNow antes do casamento).
+- 2026-11-05: PR #30 mergeado (`ac5a1fa`), deploy em produção e smoke somente leitura OK. Status → done.
