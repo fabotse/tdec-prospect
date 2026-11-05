@@ -2,7 +2,7 @@
 title: '24.20 — Motivo para abordar agora'
 type: 'feature'
 created: '2026-11-04'
-status: review
+status: done
 baseline_commit: 'b627e71'
 review_loop_iteration: 2
 followup_review_recommended: false
@@ -22,7 +22,7 @@ operator_actions:
 
 # Story 24.20: Motivo para abordar agora
 
-Status: review
+Status: done
 
 > **BLOQUEIO:** nenhum. A story **não precisa de migration**: o gatilho de cada lead fica no `output` jsonb da linha `research_accounts` em `agent_steps`, que já existe. Os fatos são lidos das tabelas da 00073, que já está aplicada em produção.
 
@@ -397,6 +397,14 @@ Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, workflow bmad-dev-story em mod
 - **Qual verificação foi feita:** análise da diff + testes mockados. **Não houve smoke real** (proibido nesta story e nesta sessão); o smoke fica para depois do OK do Fabossi (em `operator_actions`).
 - **Risco no ponto 3 (parar para o OK do Fabossi):** a fase acrescenta latência antes do `create_campaign` (≈ 5–15 s no caso feliz; no máximo `phaseBudgetMs` = 45 s, sempre dentro do prazo duro existente) e uma chamada de IA por conta com fato elegível no tenant. O pedido de OK está em `operator_actions`; **não fazer merge nem deploy sem o OK do Fabossi.**
 
+- **Smoke real em produção (2026-11-05, depois do merge `b878995`):** execução `4441313f-703a-4725-a953-087817c90c88`, busca "CISO de São Paulo" com 2 leads.
+  - O resumo do research mostrou o bloco "Motivo para abordar agora", com 1 de 2 leads com gatilho.
+  - nstech (dossiê reaproveitado): o gatilho é o próprio fato, uma notícia de 2026-10-27, com `fonte_url` e confiança média (a do fato era alta e ficou o menor valor). A hipótese de dor saiu como pergunta.
+  - RTM: conta sem domínio, pulada pela pesquisa (`no_domain`); o lead ficou `not_researched`.
+  - 1 linha `why_now_trigger` em `api_usage_logs`, com sucesso e 1,5 s.
+  - O `create_campaign` seguiu normal e o output dele não contém `whyNow`.
+  - O step "Criação de Campanha" foi aprovado por engano, e o export criou um rascunho no Instantly (`c79a9844-1e27-4632-a09e-21929b28f5e9`), nunca ativado; a execução foi cancelada. O Fabossi apaga esse rascunho no Instantly.
+
 ### File List
 
 - `src/lib/agent/dossier/why-now.ts` (novo)
@@ -422,3 +430,4 @@ Claude Opus 5.5 (`claude-opus-5-5`), Claude Code, workflow bmad-dev-story em mod
 - 2026-11-04: implementação da 24.20 (fase "motivo para abordar agora" no `research_accounts`, tipos, custo e testes). Status → review.
 - 2026-11-04: correções da revisão Codex 1 (leitura do reuso na fase, validação lexical/URL e prompt anti-injeção, orçamento da fase em todas as esperas, `maxRetries: 0`). Status segue review.
 - 2026-11-04: correções da revisão Codex 2 (gatilho determinístico a partir do fato, LLM só escolhe `ref`/hipótese/confiança, fatos com instrução embutida inelegíveis, checagem lexical removida). Status segue review.
+- 2026-11-05: PR #28 mergeado (`b878995`), deploy em produção e smoke real OK. Status → done.
