@@ -396,6 +396,9 @@ O DTO **não** leva `lead_apollo_id`/`lead_email` dos fatos nem nome ou e-mail d
 
 - create-story: análise de contexto concluída e guia completo para o dev criado. A story não implementa código nesta etapa.
 - review-fix (Codex rodada 1): 3 bloqueios corrigidos. (1) D3.0: identidade única e coerente — com `leadId` só valem o `apollo_id`/e-mail do lead (divergência → "Sem pesquisa"); sem `leadId`, um único identificador (`apolloId`, depois e-mail); ligações e entradas do `whyNow` com identificador de outro lead são descartadas, inclusive no caminho da execução. (2) DTO validado com zod no hook (`parseAccountDossierView`); resposta fora do formato vira erro local com "Tentar de novo"; painel envolto em `DossierPanelErrorBoundary` dentro do Sheet. (3) Prazo limite de 10 s (`ACCOUNT_DOSSIER_TIMEOUT_MS`) combinado com o `signal` do React Query (`AbortController` + `Promise.race`); timeout não é repetido automaticamente, vira erro com "Tentar de novo", e a nova tentativa funciona. Durante a nova tentativa o painel mostra "carregando".
+- review-fix (Codex rodada 2): 1 bloqueio corrigido. Regra única `belongsToOtherLead` (agora em `dossier-view.ts`, exportada e reutilizada por `dossier-lookup.ts`): qualquer identificador (`lead_id`, `apolloId`/`lead_apollo_id`, e-mail minúsculo) presente nos dois lados e diferente rejeita o item **antes** de qualquer casamento. Aplicada a: (a) posts no `isOwnPost` (D7) — post com o e-mail de A e `lead_apollo_id` de B não aparece mais no painel de A; (b) entradas do `whyNow` dentro do `findLeadWhyNow` (inclusive `leadId` cru, se vier), descartando a conflitante e seguindo para a próxima coerente; (c) ligações em `findLatestLink` (já aplicava, agora com o helper compartilhado). `LeadIdent` ganhou `leadId` opcional; `buildFound` já recebia a identidade resolvida com `leadId`. `DossierFact` não tem `lead_id` hoje: lido defensivamente, sem mexer em `facts.ts`/`repository.ts`.
+- review-fix (Codex rodada 2) — checks: `npm run lint` 0 erros (134 warnings, todos pré-existentes; 0 nos arquivos tocados); `npm run typecheck` limpo; `npm run test:run` 474 arquivos, 9359 testes passando, 2 skipped, 0 falhas. Os 4 testes novos falham sem a correção (conferido com `git stash` do `src/lib/agent/dossier/`).
+- review-fix (Codex rodada 2) — Regra nº 1: só `dossier-view.ts`/`dossier-lookup.ts` (funções puras de casamento) e testes. Sem query nova, sem escrita, sem rede. Os 3 pontos seguem OK **por análise da diff**; diff vazio nos proibidos de T11. Efeito visível possível: no painel, post ou gatilho com identificador divergente do lead deixa de aparecer (lado seguro, só exibição). O teste antigo "casa por apolloId" passava e-mail de outro lead (`x@y.com`); com a regra nova isso é conflito, então o teste passou a usar o e-mail coerente e o caso conflitante virou teste próprio.
 - review-fix — checks: `npm run lint` 0 erros (134 warnings, todos pré-existentes; 0 nos arquivos tocados); `npm run typecheck` limpo; `npm run test:run` 474 arquivos, 9355 testes passando, 2 skipped, 0 falhas.
 - review-fix — Regra nº 1: continua só leitura e exibição. Mudanças só em `dossier-lookup.ts` (uma coluna a mais no `select` de `leads` e de `account_dossier_leads`, ambas existentes na 00010/00073; só `.eq`), no hook e no Sheet do dossiê. Os 3 pontos seguem OK **por análise da diff** (nenhum arquivo do caminho até o Instantly, de busca de leads, webhook ou `reply-sweep` tocado; diff vazio nos proibidos de T11). Efeito visível possível: na revisão/prévia, lead com `apolloId` agora casa só por `apolloId` (antes também por e-mail) — pode mostrar "Sem pesquisa" onde antes casava só pelo e-mail; lado seguro, só no painel.
 - dev-story: T1–T11 implementadas. Sem migration, nada em `supabase/`. Botão "Dossiê" + Sheet lateral na revisão de leads, na prévia da campanha e no card de oportunidade; uma rota GET de leitura.
@@ -440,6 +443,8 @@ Novos:
 
 Alterados no review-fix (rodada 1): `src/lib/agent/dossier/dossier-lookup.ts`, `src/hooks/use-account-dossier.ts`, `src/components/dossier/AccountDossierSheet.tsx`, `__tests__/unit/lib/agent/dossier/dossier-lookup.test.ts`, esta story.
 
+Alterados no review-fix (rodada 2): `src/lib/agent/dossier/dossier-view.ts`, `src/lib/agent/dossier/dossier-lookup.ts`, `__tests__/unit/lib/agent/dossier/dossier-view.test.ts`, `__tests__/unit/lib/agent/dossier/dossier-lookup.test.ts`, esta story.
+
 Alterados:
 - `src/components/agent/AgentLeadReview.tsx`
 - `src/components/agent/AgentCampaignPreview.tsx`
@@ -460,13 +465,18 @@ Alterados:
   2. **DTO sem validação estrutural** (`use-account-dossier.ts` ~40): **aceito e corrigido** (zod + error boundary local). Testes: HTTP 200 com `{status:"found"}` incompleto → erro local e nova tentativa carrega; exceção de render contida com a tela hospedeira de pé.
   3. **Sem prazo limite** (`use-account-dossier.ts` ~36): **aceito e corrigido** (10 s). Teste com fetch que nunca resolve (fake timers): erro, sinal abortado, sem retry automático, e "Tentar de novo" carrega.
   - Itens OK do relatório (somente leitura, escopo, exibição segura, Regra nº 1) sem ação.
+- 2026-11-05 — Codex rodada 2 (commit `9b6bbfc`), veredito PRECISA CORRIGIR:
+  1. **Post com e-mail igual e `lead_apollo_id` divergente aceito** (`dossier-view.ts` ~151, `isOwnPost`): **aceito e corrigido** — conflito em qualquer identificador presente nos dois lados rejeita o post antes do casamento. Mesma regra levada ao `findLeadWhyNow` (era permissivo: devolvia a primeira entrada casada por e-mail mesmo com `apolloId` divergente; o `findOwnWhyNow` só barrava depois e não tentava a próxima). Testes: lookup com `leadId` de A, identidade canônica de A (`ap-A` + e-mail X) e post com e-mail X e `lead_apollo_id` `ap-B` → não aparece, enquanto o post de A (por apollo e só por e-mail) aparece; unitários de `buildDossierView` (apollo divergente, e-mail divergente, `lead_id` divergente) e de `findLeadWhyNow` (apollo divergente, e-mail divergente, `leadId` cru divergente, conflitante pulada e coerente seguinte casa).
+  - Itens OK do relatório (tenant, somente leitura, escopo, Regra nº 1, robustez da rodada 1) sem ação.
 
 ### Spec Change Log
 
 - 2026-11-05 — D3 ganhou o passo **D3.0** (identidade única e coerente); D3.1/D3.2 passam a casar só pela identidade D3.0 e descartam ligação/entrada com identificador de outro lead; D4 (oportunidade) agora lê `apollo_id` **e** `email` do lead e exige que o `email` da request bata. Motivo: revisão Codex rodada 1, item 1 (nunca mostrar pesquisa de outra empresa por combinação de parâmetros). Mudança de comportamento registrada nas Completion Notes.
 - 2026-11-05 — AC4 (estados de erro) reforçado no cliente: validação estrutural do DTO, error boundary local e prazo limite de 10 s. Motivo: revisão Codex rodada 1, itens 2 e 3.
+- 2026-11-05 — D7 (posts) e D3.1 (whyNow): antes de casar por qualquer identificador, item com `lead_id`/`apolloId`/e-mail presente nos dois lados e diferente do lead aberto é rejeitado. Motivo: revisão Codex rodada 2, item 1.
 
 ### Change Log
 
 - 2026-11-05: implementação da 24.22 (dossiê visível na revisão e na oportunidade); status → review.
 - 2026-11-05: review-fix Codex rodada 1 (D3.0 identidade coerente, DTO validado + error boundary, timeout de 10 s).
+- 2026-11-05: review-fix Codex rodada 2 (conflito de identificador rejeita post e entrada do whyNow antes do casamento).

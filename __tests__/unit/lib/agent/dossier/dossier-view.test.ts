@@ -69,7 +69,23 @@ describe("findLeadWhyNow", () => {
   };
 
   it("casa por apolloId", () => {
-    expect(findLeadWhyNow(whyNow, { apolloId: "ap-1", email: "x@y.com" })?.apolloId).toBe("ap-1");
+    expect(findLeadWhyNow(whyNow, { apolloId: "ap-1", email: "ANA@acme.com" })?.apolloId).toBe("ap-1");
+    expect(findLeadWhyNow(whyNow, { apolloId: "ap-1" })?.apolloId).toBe("ap-1");
+  });
+
+  it("entrada com identificador divergente nunca casa (nem pelo outro identificador)", () => {
+    // Mesmo apolloId, e-mail de outro lead.
+    expect(findLeadWhyNow(whyNow, { apolloId: "ap-1", email: "x@y.com" })).toBeNull();
+    // Mesmo e-mail, apolloId de outro lead.
+    expect(findLeadWhyNow({ leads: [{ ...triggerEntry, apolloId: "ap-B" }] }, { apolloId: "ap-1", email: "ana@acme.com" })).toBeNull();
+    // leadId cru divergente.
+    expect(findLeadWhyNow({ leads: [{ ...triggerEntry, leadId: "lead-B" }] }, { leadId: "lead-A", apolloId: "ap-1" })).toBeNull();
+    // Entrada conflitante descartada; a coerente seguinte ainda casa.
+    const entry = findLeadWhyNow(
+      { leads: [{ ...triggerEntry, apolloId: "ap-B" }, { ...triggerEntry, dossierId: "dossier-ok" }] },
+      { apolloId: "ap-1", email: "ana@acme.com" }
+    );
+    expect(entry?.dossierId).toBe("dossier-ok");
   });
 
   it("casa por e-mail com caixa mista", () => {
@@ -160,6 +176,37 @@ describe("buildDossierView", () => {
     // O DTO nao leva identificadores de outros leads.
     expect(JSON.stringify(view)).not.toContain("outro@acme.com");
     expect(JSON.stringify(view)).not.toContain("lead_apollo_id");
+  });
+
+  it("D7: post com o e-mail do lead mas lead_apollo_id de outro lead é rejeitado; o caso feliz continua", () => {
+    const view = buildDossierView({
+      dossierRow,
+      facts: [
+        fact({ kind: "post", fato: "post do B", lead_apollo_id: "ap-B", lead_email: "contato@empresa.com" }),
+        fact({ kind: "post", fato: "post da A", lead_apollo_id: "ap-A", lead_email: "contato@empresa.com" }),
+        fact({ kind: "post", fato: "post da A (só e-mail)", lead_email: "Contato@Empresa.com" }),
+        fact({ kind: "post", fato: "post com e-mail de outro", lead_apollo_id: "ap-A", lead_email: "outro@empresa.com" }),
+      ],
+      ident: { leadId: "lead-A", apolloId: "ap-A", email: "contato@empresa.com" },
+      whyNowEntry: null,
+      now: NOW,
+    });
+    if (view.status !== "found") throw new Error("esperado found");
+    const textos = view.facts.map((f) => f.fato);
+    expect(textos).toEqual(["post da A", "post da A (só e-mail)"]);
+  });
+
+  it("D7: post com lead_id divergente é rejeitado mesmo com apolloId igual", () => {
+    const post = { ...fact({ kind: "post", fato: "post", lead_apollo_id: "ap-A" }), lead_id: "lead-B" } as DossierFact;
+    const view = buildDossierView({
+      dossierRow,
+      facts: [post],
+      ident: { leadId: "lead-A", apolloId: "ap-A" },
+      whyNowEntry: null,
+      now: NOW,
+    });
+    if (view.status !== "found") throw new Error("esperado found");
+    expect(view.facts).toHaveLength(0);
   });
 
   it("D8: ordem por tipo (Notícia, Vaga, Post, Site, Tecnologia) e data desc", () => {

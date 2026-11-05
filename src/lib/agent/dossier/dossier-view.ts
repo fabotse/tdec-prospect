@@ -32,6 +32,7 @@ const CONFIDENCES = new Set(["baixa", "media", "alta"]);
 const DOSSIER_STATUSES = new Set(["complete", "partial", "empty"]);
 
 export interface LeadIdent {
+  leadId?: string | null;
   apolloId?: string | null;
   email?: string | null;
 }
@@ -57,6 +58,29 @@ function str(value: unknown): string | null {
 function lower(value: string | null | undefined): string | null {
   const trimmed = value?.trim().toLowerCase();
   return trimmed ? trimmed : null;
+}
+
+function text(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+/** Dois valores so conflitam quando os dois existem e diferem. */
+function conflicts(a: string | null, b: string | null): boolean {
+  return Boolean(a && b && a !== b);
+}
+
+/**
+ * Fato/ligacao/entrada do whyNow carrega identificador de OUTRO lead? Qualquer identificador
+ * presente nos dois lados e diferente (lead_id, apolloId ou e-mail minusculo) = sim. Checado
+ * ANTES de aceitar casamento por qualquer outro identificador.
+ */
+export function belongsToOtherLead(other: LeadIdent, ident: LeadIdent): boolean {
+  return (
+    conflicts(text(other.leadId), text(ident.leadId)) ||
+    conflicts(text(other.apolloId), text(ident.apolloId)) ||
+    conflicts(lower(other.email), lower(ident.email))
+  );
 }
 
 function parseSourceFact(value: unknown): WhyNowSourceFact | null {
@@ -104,12 +128,25 @@ function parseLeadEntry(value: unknown): LeadWhyNow | null {
 
 /**
  * Le `output.whyNow` (24.20) de forma defensiva e casa o lead por `apolloId`, depois por
- * e-mail minusculo. Output antigo (sem `whyNow`) ou fora do formato = null.
+ * e-mail minusculo. Entradas com identificador divergente sao descartadas antes. Output
+ * antigo (sem `whyNow`) ou fora do formato = null.
  */
 export function findLeadWhyNow(whyNow: unknown, ident: LeadIdent): LeadWhyNow | null {
   if (!isRecord(whyNow) || !Array.isArray(whyNow.leads)) return null;
-  const entries = whyNow.leads.map(parseLeadEntry).filter((e): e is LeadWhyNow => e !== null);
-  const apolloId = ident.apolloId?.trim() || null;
+  // Entrada com identificador divergente do lead aberto nunca casa (nem pelo outro id).
+  // Le tambem um `leadId` cru, se a entrada trouxer (o tipo da 24.20 nao tem o campo).
+  const entries = whyNow.leads
+    .filter(
+      (raw) =>
+        isRecord(raw) &&
+        !belongsToOtherLead(
+          { leadId: str(raw.leadId), apolloId: str(raw.apolloId), email: str(raw.email) },
+          ident
+        )
+    )
+    .map(parseLeadEntry)
+    .filter((e): e is LeadWhyNow => e !== null);
+  const apolloId = text(ident.apolloId);
   if (apolloId) {
     const byApollo = entries.find((e) => e.apolloId === apolloId);
     if (byApollo) return byApollo;
@@ -147,13 +184,23 @@ export function toWhyNowView(entry: LeadWhyNow | null): DossierViewWhyNow | null
   };
 }
 
-/** D7: post so aparece quando e do lead aberto. */
+/**
+ * D7: post so aparece quando e do lead aberto. Primeiro rejeita qualquer identificador
+ * divergente (ex.: mesmo e-mail, `lead_apollo_id` de outro lead); so depois casa por
+ * `apolloId` ou e-mail.
+ */
 function isOwnPost(fact: DossierFact, ident: LeadIdent): boolean {
-  const apolloId = ident.apolloId?.trim() || null;
-  if (apolloId && fact.lead_apollo_id && fact.lead_apollo_id === apolloId) return true;
+  // `lead_id` nao existe em `DossierFact` hoje; lido defensivamente caso venha no objeto.
+  const factIdent: LeadIdent = {
+    leadId: str((fact as { lead_id?: unknown }).lead_id),
+    apolloId: str(fact.lead_apollo_id),
+    email: str(fact.lead_email),
+  };
+  if (belongsToOtherLead(factIdent, ident)) return false;
+  const apolloId = text(ident.apolloId);
+  if (apolloId && text(factIdent.apolloId) === apolloId) return true;
   const email = lower(ident.email);
-  const factEmail = lower(fact.lead_email ?? null);
-  return Boolean(email && factEmail && factEmail === email);
+  return Boolean(email && lower(factIdent.email) === email);
 }
 
 function sanitizeDossier(row: DossierRow, now: Date): AccountDossierViewDossier {

@@ -425,6 +425,28 @@ describe("lookupAccountDossier — identificadores conflitantes (D3.0)", () => {
     expect(fake.callsTo("account_dossiers")).toHaveLength(0);
   });
 
+  it("post com o e-mail de A mas lead_apollo_id de B não aparece no painel de A; o de A aparece", async () => {
+    const postB = { ...factRow, kind: "post", fato: "post do B", lead_apollo_id: "ap-B", lead_email: "ana@a.com" };
+    const postA = { ...factRow, kind: "post", fato: "post da A", lead_apollo_id: "ap-A", lead_email: "ana@a.com" };
+    const postAEmail = { ...factRow, kind: "post", fato: "post da A (e-mail)", lead_apollo_id: null, lead_email: "ANA@a.com" };
+    const fake = createQueueSupabase({
+      leads: [{ data: leadA }],
+      account_dossier_leads: [
+        { data: [{ dossier_id: "dossier-a", execution_id: null, created_at: "2026-10-01T00:00:00Z", lead_id: LEAD_ID }] },
+      ],
+      account_dossiers: [{ data: dossierRow("dossier-a") }],
+      account_dossier_facts: [{ data: [postB, postA, postAEmail] }],
+    });
+    const result = await lookupAccountDossier(fake.client, TENANT, { leadId: LEAD_ID }, NOW);
+    if (!("view" in result) || result.view.status !== "found") throw new Error("esperado found");
+    const textos = result.view.facts.map((f) => f.fato);
+    expect(textos).not.toContain("post do B");
+    expect(textos).toContain("post da A");
+    expect(textos).toContain("post da A (e-mail)");
+    expect(result.view.totalFacts).toBe(2);
+    assertReadOnlyAndTenantScoped(fake);
+  });
+
   it("leadId + identificadores coerentes (e-mail com outra caixa) -> casa normalmente", async () => {
     const fake = createQueueSupabase({
       leads: [{ data: leadA }],

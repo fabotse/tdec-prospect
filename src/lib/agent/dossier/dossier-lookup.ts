@@ -16,7 +16,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LeadWhyNow } from "@/types/agent";
 import type { AccountDossierLookupParams, AccountDossierView } from "@/types/account-dossier";
 import { readDossierFacts } from "./repository";
-import { buildDossierView, findLeadWhyNow, type DossierRow, type LeadIdent } from "./dossier-view";
+import {
+  belongsToOtherLead,
+  buildDossierView,
+  findLeadWhyNow,
+  type DossierRow,
+  type LeadIdent,
+} from "./dossier-view";
 
 export type AccountDossierLookupResult =
   | {
@@ -103,11 +109,6 @@ function normText(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-/** Dois valores so conflitam quando os dois existem e diferem. */
-function conflicts(a: string | null | undefined, b: string | null | undefined): boolean {
-  return Boolean(a && b && a !== b);
-}
-
 /**
  * D3.0: resolve UMA identidade coerente a partir da request.
  * - Com `leadId`: le o lead no tenant e usa so o `apollo_id`/e-mail dele. `apolloId`/e-mail
@@ -143,22 +144,10 @@ async function resolveIdent(
   return { leadId, apolloId: leadApollo, email: leadEmail };
 }
 
-/** A ligacao/entrada carrega identificador de OUTRO lead? */
-function belongsToOtherLead(
-  other: { leadId?: string | null; apolloId?: string | null; email?: string | null },
-  ident: ResolvedIdent
-): boolean {
-  return (
-    conflicts(other.leadId ?? null, ident.leadId) ||
-    conflicts(other.apolloId ?? null, ident.apolloId) ||
-    conflicts(normEmail(other.email), ident.email)
-  );
-}
-
 /** Entrada do whyNow casada com o lead e sem identificador divergente. */
 function findOwnWhyNow(whyNow: unknown, ident: ResolvedIdent): LeadWhyNow | null {
-  const entry = findLeadWhyNow(whyNow, { apolloId: ident.apolloId, email: ident.email });
-  return entry && !belongsToOtherLead(entry, ident) ? entry : null;
+  // `findLeadWhyNow` ja descarta entradas com identificador divergente (inclusive leadId).
+  return findLeadWhyNow(whyNow, ident);
 }
 
 /** D3.2: ligacao mais recente, uma query `.eq` por identificador do MESMO lead. */
