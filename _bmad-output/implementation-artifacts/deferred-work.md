@@ -658,3 +658,11 @@ source_spec: `spec-24-19-dossie-da-conta.md`
 severity: low
 reason: O CASE em supabase/migrations/00067_sweep_stuck_agent_steps.sql:92-99 cobre só os 5 steps antigos; o ELSE devolve "research_accounts". Corrigir exige uma migration nova com CREATE OR REPLACE FUNCTION de uma função usada pelo pg_cron, o que só o Fabossi aplica.
 status: open
+
+### DW-34: Ação "Gerar pesquisa" sob demanda no painel do dossiê (24.22 D6).
+origin: spec-deferred ef4b1fa93954
+location: src/components/dossier/AccountDossierPanel.tsx (botão "Gerar pesquisa (em breve)", desabilitado)
+source_spec: `spec-24-22-dossie-visivel-na-revisao-e-na-oportunidade.md`
+severity: low
+reason: Gerar a pesquisa fora do pipeline exigiria extrair researchAccount/link/evaluateWhyNow dos métodos privados do ResearchAccountsStep (arquivo no caminho até o Instantly, Regra nº 1 ponto 3), abriria um caminho novo de escrita em produção (account_dossiers/facts/leads) e de custo (Treg + OpenAI) sem teto nem estimativa próprios. Pede o OK do Fabossi e uma story própria. Hoje o painel mostra o botão desabilitado com o texto que explica que a pesquisa é feita pelo agente na etapa Pesquisa das Contas.
+status: open
