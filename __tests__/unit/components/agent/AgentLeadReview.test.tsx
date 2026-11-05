@@ -7,6 +7,7 @@
 
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AgentLeadReview } from "@/components/agent/AgentLeadReview";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { diagnoseEmptySearch } from "@/lib/agent/empty-search-diagnosis";
@@ -1313,5 +1314,109 @@ describe("AgentLeadReview — Story 24.15 triagem", () => {
       );
       expect(screen.queryByTestId("email-unverified")).not.toBeInTheDocument();
     });
+  });
+});
+
+// ==============================================
+// Story 24.22 — Dossiê (painel só leitura)
+// ==============================================
+
+describe("AgentLeadReview — dossiê (Story 24.22)", () => {
+  const dossierData = {
+    totalFound: 2,
+    leads: [
+      { name: "Alice Santos", title: "CTO", companyName: "Acme Corp", email: "Alice@Acme.com", apolloId: "ap-1" },
+      { name: "Bob Silva", title: "VP", companyName: "TechCo", email: "bob@techco.com", apolloId: "ap-2" },
+    ],
+    jobTitles: ["CTO", "VP"],
+  };
+
+  function renderWithQuery() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, retryDelay: 0 } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <AgentLeadReview data={dossierData} executionId="exec-001" stepNumber={2} totalSteps={5} />
+      </QueryClientProvider>
+    );
+  }
+
+  function dossierCalls() {
+    return mockFetch.mock.calls.filter(([url]) => String(url).startsWith("/api/account-dossiers/lookup"));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFetch.mockImplementation((url: string) => {
+      if (String(url).startsWith("/api/account-dossiers/lookup")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: { status: "none" } }) });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: { stepNumber: 2, status: "approved", nextStep: 3 } }),
+      });
+    });
+  });
+
+  it("nenhuma leitura do dossiê antes do clique", () => {
+    renderWithQuery();
+    expect(screen.getAllByRole("button", { name: /Ver dossiê de/ })).toHaveLength(2);
+    expect(dossierCalls()).toHaveLength(0);
+  });
+
+  it("o botão abre o painel e lê com executionId/apolloId/email", async () => {
+    renderWithQuery();
+    fireEvent.click(screen.getByRole("button", { name: "Ver dossiê de Alice Santos" }));
+
+    expect(await screen.findByText("Sem pesquisa")).toBeInTheDocument();
+    expect(screen.getByText("A pesquisa desta execução roda depois que você aprovar os leads.")).toBeInTheDocument();
+    const [[url]] = dossierCalls();
+    const params = new URL(String(url), "http://localhost").searchParams;
+    expect(params.get("executionId")).toBe("exec-001");
+    expect(params.get("apolloId")).toBe("ap-1");
+    expect(params.get("email")).toBe("alice@acme.com");
+    // A selecao nao muda ao abrir o dossie.
+    expect(screen.getByText("2 de 2 leads selecionados")).toBeInTheDocument();
+  });
+
+  it("falha 500 do dossiê não muda a seleção e o approve envia o mesmo payload", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (String(url).startsWith("/api/account-dossiers/lookup")) {
+        return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({}) });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: { stepNumber: 2, status: "approved", nextStep: 3 } }),
+      });
+    });
+    renderWithQuery();
+
+    fireEvent.click(screen.getByLabelText("Selecionar Bob Silva"));
+    fireEvent.click(screen.getByRole("button", { name: "Ver dossiê de Alice Santos" }));
+    expect(await screen.findByText("Não foi possível carregar o dossiê")).toBeInTheDocument();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByText("Não foi possível carregar o dossiê")).not.toBeInTheDocument());
+
+    expect(screen.getByText("1 de 2 leads selecionados")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Aprovar (1 leads)"));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/agent/executions/exec-001/steps/2/approve",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ approvedData: { leads: [dossierData.leads[0]] } }),
+        })
+      );
+    });
+  });
+
+  it("o botão segue habilitado depois de rejeitar (ler é permitido)", () => {
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <AgentLeadReview data={dossierData} executionId="exec-001" stepNumber={2} totalSteps={5} rejected />
+      </QueryClientProvider>
+    );
+    expect(screen.getByRole("button", { name: "Ver dossiê de Alice Santos" })).toBeEnabled();
   });
 });

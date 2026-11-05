@@ -26,6 +26,7 @@ import {
   Check,
   Copy,
   ExternalLink,
+  FileSearch,
   Flame,
   Lightbulb,
   Mail,
@@ -65,6 +66,12 @@ interface OpportunityCardProps {
   onStopSequence?: (opportunity: OpportunityCardData) => void;
   /** Story 21.9 — desabilita o atalho enquanto a mutation pende. */
   sequenceActionPending?: boolean;
+  /**
+   * Story 24.22 — abre o painel do dossiê da conta (Sheet vive no PageContent).
+   * Sem a prop, o card fica idêntico ao de antes. Só leitura: não expande o card,
+   * não marca `new→viewed` e não gera rascunho.
+   */
+  onOpenDossier?: (opportunity: OpportunityCardData) => void;
 }
 
 /**
@@ -89,6 +96,7 @@ export function OpportunityCard({
   localPhone,
   onStopSequence,
   sequenceActionPending,
+  onOpenDossier,
 }: OpportunityCardProps) {
   const [expanded, setExpanded] = useState(false);
   // AC5: transição new→viewed UMA vez por interação (não no mount — evita
@@ -533,6 +541,24 @@ export function OpportunityCard({
             >
               <Ban className="h-3 w-3" />
               Parar sequência
+            </Button>
+          )}
+
+          {/* Story 24.22 — dossiê da conta (só leitura; não chama handleOpen). */}
+          {onOpenDossier && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenDossier(opportunity);
+              }}
+              aria-label={`Ver dossiê de ${leadName}`}
+              data-testid="opportunity-action-dossier"
+            >
+              <FileSearch className="h-3 w-3" />
+              Dossiê
             </Button>
           )}
         </div>

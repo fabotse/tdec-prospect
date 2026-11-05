@@ -2,7 +2,7 @@
 title: '24.22 — Dossiê visível na revisão e na oportunidade'
 type: 'feature'
 created: '2026-11-05'
-status: ready-for-dev
+status: review
 baseline_commit: 'badafaf'
 context:
   - '{project-root}/CLAUDE.md'
@@ -18,7 +18,7 @@ operator_actions:
 
 # Story 24.22: Dossiê visível na revisão e na oportunidade
 
-Status: ready-for-dev
+Status: review
 
 > **BLOQUEIO:** nenhum. **Não precisa de migration.** O painel só lê dados que já existem em produção:
 > - `account_dossiers`, `account_dossier_facts` e `account_dossier_leads` (migration 00073, aplicada, com RLS de SELECT por tenant);
@@ -162,38 +162,38 @@ O DTO **não** leva `lead_apollo_id`/`lead_email` dos fatos nem nome ou e-mail d
 
 ## Tasks / Subtasks
 
-- [ ] **T1 — Tipos** (AC 1, 5): criar `src/types/account-dossier.ts` com o contrato acima. Não alterar `src/types/agent.ts`, só importar `WhyNowOutput`/`LeadWhyNow`/`WhyNowNoTriggerReason` de lá.
-- [ ] **T2 — Montagem pura** (AC 1, 5): criar `src/lib/agent/dossier/dossier-view.ts`, sem I/O:
-  - [ ] `findLeadWhyNow(whyNow: unknown, ident: {apolloId?, email?}): LeadWhyNow | null`: lê `output.whyNow` de forma **defensiva** (output antigo, sem `whyNow` ou fora do formato → `null`) e casa por `apolloId`, depois por e-mail minúsculo.
-  - [ ] `toWhyNowView(entry: LeadWhyNow | null): DossierViewWhyNow | null`, com `fonteUrl` passada por `httpUrl` (`src/lib/agent/dossier/facts.ts:91`; esse import é só server-side).
-  - [ ] `buildDossierView({dossierRow, facts: DossierFact[], ident, whyNowEntry, now})`:
+- [x] **T1 — Tipos** (AC 1, 5): criar `src/types/account-dossier.ts` com o contrato acima. Não alterar `src/types/agent.ts`, só importar `WhyNowOutput`/`LeadWhyNow`/`WhyNowNoTriggerReason` de lá.
+- [x] **T2 — Montagem pura** (AC 1, 5): criar `src/lib/agent/dossier/dossier-view.ts`, sem I/O:
+  - [x] `findLeadWhyNow(whyNow: unknown, ident: {apolloId?, email?}): LeadWhyNow | null`: lê `output.whyNow` de forma **defensiva** (output antigo, sem `whyNow` ou fora do formato → `null`) e casa por `apolloId`, depois por e-mail minúsculo.
+  - [x] `toWhyNowView(entry: LeadWhyNow | null): DossierViewWhyNow | null`, com `fonteUrl` passada por `httpUrl` (`src/lib/agent/dossier/facts.ts:91`; esse import é só server-side).
+  - [x] `buildDossierView({dossierRow, facts: DossierFact[], ident, whyNowEntry, now})`:
     - aplica D7 (posts só do lead) e D8 (ordem, `isTriggerSource`, corte em `DOSSIER_VIEW_MAX_FACTS = 50`);
     - `fonteUrl = httpUrl(fato.fonte_url)`;
     - `expired = expires_at < now`;
     - `dossierStatus`/`failedSources` são sanitizados (valor desconhecido vira `'partial'`/descartado).
-- [ ] **T3 — Leitura** (AC 1–4): criar `src/lib/agent/dossier/dossier-lookup.ts`. Só leitura, **nunca lança** e devolve `{ view } | { error }`.
-  - [ ] `lookupAccountDossier(supabase, tenantId, {executionId?, leadId?, apolloId?, email?}, now)`, seguindo D3:
+- [x] **T3 — Leitura** (AC 1–4): criar `src/lib/agent/dossier/dossier-lookup.ts`. Só leitura, **nunca lança** e devolve `{ view } | { error }`.
+  - [x] `lookupAccountDossier(supabase, tenantId, {executionId?, leadId?, apolloId?, email?}, now)`, seguindo D3:
     - execução validada por `agent_executions.select("id, tenant_id").eq("id", …).eq("tenant_id", tenantId)`;
     - `agent_steps` com `select("output")`, `.eq("execution_id")`, `.eq("step_type","research_accounts")`, `order step_number desc`, `limit 1`;
     - `account_dossier_leads` com `select("dossier_id, execution_id, created_at")`, uma query por identificador, `.eq("tenant_id")`, `order created_at desc`, `limit 1`;
     - `account_dossiers` com `select("id, company_domain, company_name, status, failed_sources, researched_at, expires_at")`, `.eq("id")`, `.eq("tenant_id")`, `.maybeSingle()`;
     - fatos via **`readDossierFacts`** (`src/lib/agent/dossier/repository.ts:197`, existente, sem alterar).
-  - [ ] Com `leadId` e sem `apolloId`: `leads.select("apollo_id").eq("id", leadId).eq("tenant_id", tenantId).maybeSingle()`. Erro aqui não derruba a busca: segue sem `apolloId`.
-  - [ ] Dossiê apontado mas inexistente/de outro tenant → segue para o próximo passo de D3. Se nada sobrar → `none`.
-  - [ ] Erro do `readDossierFacts` → `{ error }` (o painel mostra o estado de erro; não mostrar dossiê "vazio" falso).
-- [ ] **T4 — Rota** (AC 1–4, 6): criar `src/app/api/account-dossiers/lookup/route.ts` (GET), no molde de `src/app/api/agent/executions/[executionId]/steps/route.ts`:
-  - [ ] usar `getCurrentUserProfile` e `createClient` de sessão; validar os parâmetros (contrato acima);
-  - [ ] chamar `lookupAccountDossier` e devolver `{ data }`. Erro → 500 genérico com `console.error` do detalhe;
-  - [ ] o handler inteiro fica em try/catch → 500, nunca 200 com dado parcial inventado;
-  - [ ] `export const dynamic = "force-dynamic"`, se as outras rotas GET do projeto usarem (seguir o padrão encontrado);
-  - [ ] nenhum `POST`/`PATCH`/`DELETE` na rota.
-- [ ] **T5 — Hook** (AC 4, D9): criar `src/hooks/use-account-dossier.ts`:
-  - [ ] `useAccountDossier(target | null, { enabled })` com TanStack `useQuery`;
-  - [ ] `queryKey: ["account-dossier", executionId ?? null, leadId ?? null, apolloId ?? null, emailLower ?? null]`;
-  - [ ] `enabled: enabled && Boolean(target)`, `staleTime: 5 * 60_000`, `retry: 1`, `refetchOnWindowFocus: false`;
-  - [ ] `fetch` com `AbortSignal` do React Query; resposta não-ok → throw (vira `isError`).
-- [ ] **T6 — Componentes compartilhados** (AC 1–5): criar a pasta nova `src/components/dossier/`.
-  - [ ] `AccountDossierPanel.tsx`: recebe `{ view, isLoading, isError, onRetry, leadName, companyName, context: 'lead_review' | 'campaign' | 'opportunity' }` e renderiza os estados:
+  - [x] Com `leadId` e sem `apolloId`: `leads.select("apollo_id").eq("id", leadId).eq("tenant_id", tenantId).maybeSingle()`. Erro aqui não derruba a busca: segue sem `apolloId`.
+  - [x] Dossiê apontado mas inexistente/de outro tenant → segue para o próximo passo de D3. Se nada sobrar → `none`.
+  - [x] Erro do `readDossierFacts` → `{ error }` (o painel mostra o estado de erro; não mostrar dossiê "vazio" falso).
+- [x] **T4 — Rota** (AC 1–4, 6): criar `src/app/api/account-dossiers/lookup/route.ts` (GET), no molde de `src/app/api/agent/executions/[executionId]/steps/route.ts`:
+  - [x] usar `getCurrentUserProfile` e `createClient` de sessão; validar os parâmetros (contrato acima);
+  - [x] chamar `lookupAccountDossier` e devolver `{ data }`. Erro → 500 genérico com `console.error` do detalhe;
+  - [x] o handler inteiro fica em try/catch → 500, nunca 200 com dado parcial inventado;
+  - [x] `export const dynamic = "force-dynamic"`, se as outras rotas GET do projeto usarem (seguir o padrão encontrado);
+  - [x] nenhum `POST`/`PATCH`/`DELETE` na rota.
+- [x] **T5 — Hook** (AC 4, D9): criar `src/hooks/use-account-dossier.ts`:
+  - [x] `useAccountDossier(target | null, { enabled })` com TanStack `useQuery`;
+  - [x] `queryKey: ["account-dossier", executionId ?? null, leadId ?? null, apolloId ?? null, emailLower ?? null]`;
+  - [x] `enabled: enabled && Boolean(target)`, `staleTime: 5 * 60_000`, `retry: 1`, `refetchOnWindowFocus: false`;
+  - [x] `fetch` com `AbortSignal` do React Query; resposta não-ok → throw (vira `isError`).
+- [x] **T6 — Componentes compartilhados** (AC 1–5): criar a pasta nova `src/components/dossier/`.
+  - [x] `AccountDossierPanel.tsx`: recebe `{ view, isLoading, isError, onRetry, leadName, companyName, context: 'lead_review' | 'campaign' | 'opportunity' }` e renderiza os estados:
     - **Carregando:** `Skeleton`.
     - **Erro:** `Alert` com "Não foi possível carregar o dossiê" + `Button` "Tentar de novo" → `onRetry`.
     - **`none`:**
@@ -208,33 +208,33 @@ O DTO **não** leva `lead_apollo_id`/`lead_email` dos fatos nem nome ou e-mail d
       - sem fatos: "Pesquisa sem fatos com fonte";
       - "e mais N fatos" quando `totalFacts > facts.length`.
     - Datas formatadas com `Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" })` sobre `YYYY-MM-DD`, para não cair no dia anterior por fuso.
-  - [ ] Link seguro: o componente **revalida** no cliente com uma função pura local `safeHttpUrl(url)`:
+  - [x] Link seguro: o componente **revalida** no cliente com uma função pura local `safeHttpUrl(url)`:
     - `new URL` dentro de try, protocolo `http:`/`https:`, senão `null`;
     - não importar `facts.ts` no cliente, porque ele puxa `target-accounts`;
     - `<a href target="_blank" rel="noopener noreferrer">`, com rótulo = `hostname`;
     - inválida → texto "fonte inválida" sem `<a>`.
-  - [ ] `AccountDossierSheet.tsx`: recebe `{ open, onOpenChange, target: {executionId?, leadId?, apolloId?, email?, leadName, companyName} | null, context }`. Usa `Sheet side="right"` (padrão `LeadDetailPanel.tsx:682-688`) + `SheetHeader`/`SheetTitle` ("Dossiê — <empresa>") + `useAccountDossier(target, { enabled: open })` + `AccountDossierPanel`.
-  - [ ] Proibido `dangerouslySetInnerHTML`, `innerHTML` e renderizador de markdown nos três arquivos.
-- [ ] **T7 — Revisão de leads** (AC 1, 4, 6): `src/components/agent/AgentLeadReview.tsx`:
-  - [ ] Na célula "Nome" (`:684-706`), um `Button variant="ghost" size="sm" type="button"` com ícone `lucide-react` (`FileSearch`), texto "Dossiê" e `aria-label={\`Ver dossiê de ${lead.name}\`}`. Ele **não** usa `isDisabled`.
-  - [ ] Estado local `dossierLead` + um `<AccountDossierSheet>` fora da tabela, com `target = { executionId, apolloId: lead.apolloId, email: lead.email, leadName, companyName }` e `context="lead_review"`.
-  - [ ] **Preservar:** colunas, checkbox, `selectedIndices`, `toggleOne`, filtros, ordenação, `mergeFitScores`, os badges da 24.12/24.15/24.16, as chamadas `fetch-leads`/`approve`/`reject` e o payload `{ approvedData: { leads } }` byte a byte. O lead aberto não é selecionado nem desmarcado.
-- [ ] **T8 — Prévia da campanha** (AC 1, 4, 6): `src/components/agent/AgentCampaignPreview.tsx`:
-  - [ ] Na interface local `LeadIcebreaker` (`:34-40`), acrescentar `apolloId?: string | null; email?: string | null`. É só tipagem: o payload real já traz esses campos (`LeadWithIcebreaker`).
-  - [ ] Na linha de cada lead da lista de icebreakers (`:316-332`), o mesmo botão "Dossiê" + um `AccountDossierSheet` com `context="campaign"`.
-  - [ ] **Preservar:** colapso (`ICEBREAKER_COLLAPSE_THRESHOLD`), `CopyReviewBadge`, edição dos blocos, aprovar/rejeitar e todo o resto. Lead sem `apolloId` e sem `email` não mostra o botão.
-- [ ] **T9 — Central de oportunidades** (AC 2, 3, 4):
-  - [ ] `src/components/opportunities/OpportunityCard.tsx`: nova prop opcional `onOpenDossier?: (opportunity: OpportunityCardData) => void`. Quando houver `opportunity.lead` e a prop, renderizar `Button` "Dossiê" junto das ações do card, com `event.stopPropagation()`. **Não** chama `handleOpen` e **não** marca `new→viewed`. Sem a prop, o card é idêntico ao de hoje.
-  - [ ] `src/components/opportunities/OpportunitiesPageContent.tsx`: estado `dossierTarget: OpportunityCardData | null`, passar `onOpenDossier` aos cards e um `<AccountDossierSheet>` com `target = { leadId: lead.id, email: lead.email, leadName, companyName }` e `context="opportunity"`.
-  - [ ] **Preservar:** os filtros, a paginação, os dialogs de WhatsApp, telefone e parar sequência, o rascunho por IA, a triagem e o `GET /api/opportunities` (não alterar a rota nem o hook `use-opportunities.ts`).
-- [ ] **T10 — Testes (sem rede real)**: LLM, Treg, Apify, Apollo, Instantly e Supabase sempre mockados; `global.fetch` mockado nos componentes.
-  - [ ] `__tests__/unit/lib/agent/dossier/dossier-view.test.ts` (NOVO):
+  - [x] `AccountDossierSheet.tsx`: recebe `{ open, onOpenChange, target: {executionId?, leadId?, apolloId?, email?, leadName, companyName} | null, context }`. Usa `Sheet side="right"` (padrão `LeadDetailPanel.tsx:682-688`) + `SheetHeader`/`SheetTitle` ("Dossiê — <empresa>") + `useAccountDossier(target, { enabled: open })` + `AccountDossierPanel`.
+  - [x] Proibido `dangerouslySetInnerHTML`, `innerHTML` e renderizador de markdown nos três arquivos.
+- [x] **T7 — Revisão de leads** (AC 1, 4, 6): `src/components/agent/AgentLeadReview.tsx`:
+  - [x] Na célula "Nome" (`:684-706`), um `Button variant="ghost" size="sm" type="button"` com ícone `lucide-react` (`FileSearch`), texto "Dossiê" e `aria-label={\`Ver dossiê de ${lead.name}\`}`. Ele **não** usa `isDisabled`.
+  - [x] Estado local `dossierLead` + um `<AccountDossierSheet>` fora da tabela, com `target = { executionId, apolloId: lead.apolloId, email: lead.email, leadName, companyName }` e `context="lead_review"`.
+  - [x] **Preservar:** colunas, checkbox, `selectedIndices`, `toggleOne`, filtros, ordenação, `mergeFitScores`, os badges da 24.12/24.15/24.16, as chamadas `fetch-leads`/`approve`/`reject` e o payload `{ approvedData: { leads } }` byte a byte. O lead aberto não é selecionado nem desmarcado.
+- [x] **T8 — Prévia da campanha** (AC 1, 4, 6): `src/components/agent/AgentCampaignPreview.tsx`:
+  - [x] Na interface local `LeadIcebreaker` (`:34-40`), acrescentar `apolloId?: string | null; email?: string | null`. É só tipagem: o payload real já traz esses campos (`LeadWithIcebreaker`).
+  - [x] Na linha de cada lead da lista de icebreakers (`:316-332`), o mesmo botão "Dossiê" + um `AccountDossierSheet` com `context="campaign"`.
+  - [x] **Preservar:** colapso (`ICEBREAKER_COLLAPSE_THRESHOLD`), `CopyReviewBadge`, edição dos blocos, aprovar/rejeitar e todo o resto. Lead sem `apolloId` e sem `email` não mostra o botão.
+- [x] **T9 — Central de oportunidades** (AC 2, 3, 4):
+  - [x] `src/components/opportunities/OpportunityCard.tsx`: nova prop opcional `onOpenDossier?: (opportunity: OpportunityCardData) => void`. Quando houver `opportunity.lead` e a prop, renderizar `Button` "Dossiê" junto das ações do card, com `event.stopPropagation()`. **Não** chama `handleOpen` e **não** marca `new→viewed`. Sem a prop, o card é idêntico ao de hoje.
+  - [x] `src/components/opportunities/OpportunitiesPageContent.tsx`: estado `dossierTarget: OpportunityCardData | null`, passar `onOpenDossier` aos cards e um `<AccountDossierSheet>` com `target = { leadId: lead.id, email: lead.email, leadName, companyName }` e `context="opportunity"`.
+  - [x] **Preservar:** os filtros, a paginação, os dialogs de WhatsApp, telefone e parar sequência, o rascunho por IA, a triagem e o `GET /api/opportunities` (não alterar a rota nem o hook `use-opportunities.ts`).
+- [x] **T10 — Testes (sem rede real)**: LLM, Treg, Apify, Apollo, Instantly e Supabase sempre mockados; `global.fetch` mockado nos componentes.
+  - [x] `__tests__/unit/lib/agent/dossier/dossier-view.test.ts` (NOVO):
     - `findLeadWhyNow` (por apolloId, por e-mail com caixa mista, output antigo sem `whyNow`, formato inválido → null);
     - D7 (post de outro lead some, post do lead fica);
     - D8 (ordem, corte em 50, `totalFacts`, `isTriggerSource`);
     - `fonteUrl` `javascript:`/`data:`/relativa → `null`;
     - `expired`.
-  - [ ] `__tests__/unit/lib/agent/dossier/dossier-lookup.test.ts` (NOVO, `createChainBuilder`/`queue-supabase`):
+  - [x] `__tests__/unit/lib/agent/dossier/dossier-lookup.test.ts` (NOVO, `createChainBuilder`/`queue-supabase`):
     - D3.1 (execução + whyNow com dossierId);
     - D3.2 (por `lead_id`, por `apollo_id` lido de `leads`, por e-mail minúsculo; mais recente vence);
     - D3.3 `none`;
@@ -242,41 +242,41 @@ O DTO **não** leva `lead_apollo_id`/`lead_email` dos fatos nem nome ou e-mail d
     - erro de `readDossierFacts` → `error`;
     - **todas** as queries com `tenant_id` (asserção nas chamadas `.eq`);
     - nenhuma chamada a `.or(`, `.insert`, `.update`, `.delete` ou `.upsert` (asserção).
-  - [ ] `__tests__/unit/app/api/account-dossiers/lookup.test.ts` (NOVO, molde de `__tests__/unit/app/api/agent/executions/steps/reject.test.ts`): 401, 400 (sem identificador, UUID inválido), 404 (execução de outro tenant), 200 `found`/`none`, 500 genérico sem vazar mensagem do banco.
-  - [ ] `__tests__/unit/components/dossier/AccountDossierPanel.test.tsx` (NOVO):
+  - [x] `__tests__/unit/app/api/account-dossiers/lookup.test.ts` (NOVO, molde de `__tests__/unit/app/api/agent/executions/steps/reject.test.ts`): 401, 400 (sem identificador, UUID inválido), 404 (execução de outro tenant), 200 `found`/`none`, 500 genérico sem vazar mensagem do banco.
+  - [x] `__tests__/unit/components/dossier/AccountDossierPanel.test.tsx` (NOVO):
     - cada estado (carregando, erro + "Tentar de novo" chama `onRetry`, `none` com botão **desabilitado**, `found` com gatilho, sem gatilho com o texto da D11, `whyNow` null);
     - link com `rel="noopener noreferrer"` e `target="_blank"`;
     - `javascript:alert(1)` sem `<a>`;
     - fato com `<script>`/`<b>`/`**md**` aparece como texto literal (nenhum elemento `script`/`b` criado);
     - datas dd/mm/aaaa sem deslocamento de fuso.
-  - [ ] `AgentLeadReview.test.tsx`: o botão "Dossiê" abre o painel (fetch para `/api/account-dossiers/lookup` com `executionId`/`apolloId`/`email`). Antes do clique, **nenhum** fetch para essa rota. Falha 500 do dossiê não muda a seleção, e o approve envia o **mesmo** payload de antes. Os testes existentes ficam verdes **sem mudar expectativa**.
-  - [ ] `AgentCampaignPreview.test.tsx`: botão e painel; aprovar segue igual; testes existentes sem mudança de expectativa.
-  - [ ] `__tests__/unit/components/opportunities/OpportunityCard.test.tsx`:
+  - [x] `AgentLeadReview.test.tsx`: o botão "Dossiê" abre o painel (fetch para `/api/account-dossiers/lookup` com `executionId`/`apolloId`/`email`). Antes do clique, **nenhum** fetch para essa rota. Falha 500 do dossiê não muda a seleção, e o approve envia o **mesmo** payload de antes. Os testes existentes ficam verdes **sem mudar expectativa**.
+  - [x] `AgentCampaignPreview.test.tsx`: botão e painel; aprovar segue igual; testes existentes sem mudança de expectativa.
+  - [x] `__tests__/unit/components/opportunities/OpportunityCard.test.tsx`:
     - sem `onOpenDossier`, o card fica igual (sem botão);
     - com a prop, o clique chama o callback e **não** expande nem dispara o PATCH `viewed` nem a sugestão.
-  - [ ] Teste do `OpportunitiesPageContent`, se existir; se não, cobrir a abertura do Sheet pela página no teste do card ou num teste novo pequeno.
-- [ ] **T11 — Verificação e Regra nº 1** (obrigatório antes de dar por concluída):
-  - [ ] `npm run lint` (0 erros), `npm run typecheck` e `npm run test:run`, todos verdes.
-  - [ ] Diff vazia nos arquivos proibidos: `git diff main -- src/lib/agent/steps/ src/lib/agent/orchestrator.ts src/lib/agent/dossier/repository.ts src/lib/agent/dossier/why-now.ts src/lib/agent/dossier/config.ts 'src/lib/services/instantly*' src/app/api/opportunities/ src/hooks/use-opportunities.ts src/hooks/use-agent-execution.ts supabase/ src/types/agent.ts` → **vazio**.
-  - [ ] `grep -rn "dangerouslySetInnerHTML" src/components/dossier` → vazio.
-  - [ ] Preencher as **Completion Notes da Regra nº 1** (checklist abaixo).
-  - [ ] Registrar o follow-up da D6 em `_bmad-output/implementation-artifacts/deferred-work.md`.
-  - [ ] Commit sem `--no-verify`. No Linear, comentário com branch, SHA, checks e próximo dono. Com o PR aberto, a FEL-45 vai para **Review humano / PR**.
+  - [x] Teste do `OpportunitiesPageContent`, se existir; se não, cobrir a abertura do Sheet pela página no teste do card ou num teste novo pequeno.
+- [x] **T11 — Verificação e Regra nº 1** (obrigatório antes de dar por concluída):
+  - [x] `npm run lint` (0 erros), `npm run typecheck` e `npm run test:run`, todos verdes.
+  - [x] Diff vazia nos arquivos proibidos: `git diff main -- src/lib/agent/steps/ src/lib/agent/orchestrator.ts src/lib/agent/dossier/repository.ts src/lib/agent/dossier/why-now.ts src/lib/agent/dossier/config.ts 'src/lib/services/instantly*' src/app/api/opportunities/ src/hooks/use-opportunities.ts src/hooks/use-agent-execution.ts supabase/ src/types/agent.ts` → **vazio**.
+  - [x] `grep -rn "dangerouslySetInnerHTML" src/components/dossier` → vazio.
+  - [x] Preencher as **Completion Notes da Regra nº 1** (checklist abaixo).
+  - [x] Registrar o follow-up da D6 em `_bmad-output/implementation-artifacts/deferred-work.md`.
+  - [x] Commit sem `--no-verify`. No Linear, comentário com branch, SHA, checks e próximo dono. Com o PR aberto, a FEL-45 vai para **Review humano / PR**.
 
 ### Checklist das Completion Notes (Regra nº 1 do AGENTS.md/CLAUDE.md)
 
-- [ ] **O que pode ter mudado para o cliente:** listar os arquivos tocados e confirmar o que **não** mudou:
+- [x] **O que pode ter mudado para o cliente:** listar os arquivos tocados e confirmar o que **não** mudou:
   - rotas: 1 GET nova de leitura (`/api/account-dossiers/lookup`) e nenhuma rota existente alterada;
   - prompts: nenhum;
   - tabelas: nenhuma nova; só `SELECT` em `account_dossiers`, `account_dossier_facts`, `account_dossier_leads`, `agent_executions`, `agent_steps` e `leads`;
   - jobs: nenhum (`pg_cron` intocado);
   - integrações: nenhuma chamada externa nova (sem LLM, Treg, Apollo nem Instantly);
   - UI: botão "Dossiê" + painel lateral em `AgentLeadReview`, `AgentCampaignPreview` e `OpportunityCard`.
-- [ ] **Ponto 1 — campanhas rodando, webhook e `reply-sweep`:** confirmar por análise da diff que nada desses caminhos foi tocado (nenhum arquivo de webhook, tracking, `reply-sweep`, Edge Function ou Instantly).
-- [ ] **Ponto 2 — busca de leads:** confirmar por análise da diff que `search_companies`/`search_leads`, as rotas `fetch-leads`/Apollo e as buscas manuais não foram tocadas. No `AgentLeadReview`, só a apresentação ganhou o botão; os testes existentes seguem sem mudança de expectativa.
-- [ ] **Ponto 3 — criação, export e ativação:** diff vazia nos arquivos de T11. Payload do approve e da prévia idêntico (testes). Nada novo no caminho até o Instantly, nenhum lead filtrado ou bloqueado e nenhum atraso no fluxo (leitura só no clique).
-- [ ] **Dizer qual verificação foi feita:** análise da diff + testes mockados. Sem smoke real nesta story (proibido rodar contra produção). O smoke de leitura fica em `operator_actions`, para depois do merge.
-- [ ] **Se algum dos 3 pontos puder ser afetado:** parar e avisar o Fabossi antes de seguir (esperado: nenhum, porque a mudança é só de leitura e exibição).
+- [x] **Ponto 1 — campanhas rodando, webhook e `reply-sweep`:** confirmar por análise da diff que nada desses caminhos foi tocado (nenhum arquivo de webhook, tracking, `reply-sweep`, Edge Function ou Instantly).
+- [x] **Ponto 2 — busca de leads:** confirmar por análise da diff que `search_companies`/`search_leads`, as rotas `fetch-leads`/Apollo e as buscas manuais não foram tocadas. No `AgentLeadReview`, só a apresentação ganhou o botão; os testes existentes seguem sem mudança de expectativa.
+- [x] **Ponto 3 — criação, export e ativação:** diff vazia nos arquivos de T11. Payload do approve e da prévia idêntico (testes). Nada novo no caminho até o Instantly, nenhum lead filtrado ou bloqueado e nenhum atraso no fluxo (leitura só no clique).
+- [x] **Dizer qual verificação foi feita:** análise da diff + testes mockados. Sem smoke real nesta story (proibido rodar contra produção). O smoke de leitura fica em `operator_actions`, para depois do merge.
+- [x] **Se algum dos 3 pontos puder ser afetado:** parar e avisar o Fabossi antes de seguir (esperado: nenhum, porque a mudança é só de leitura e exibição).
 
 ## Dev Notes
 
@@ -376,11 +376,72 @@ O DTO **não** leva `lead_apollo_id`/`lead_email` dos fatos nem nome ou e-mail d
 ### Agent Model Used
 
 (create-story: Claude Opus 5.5 `claude-opus-5-5`, Claude Code, modo não interativo, 2026-11-05, máquina Eden)
+(dev-story: Claude Opus 5.5 `claude-opus-5-5`, Claude Code, modo não interativo, 2026-11-05, máquina Eden)
 
 ### Debug Log References
+
+- `agent_steps` **não tem** coluna `tenant_id` (migration 00048). A leitura do `research_accounts` só acontece depois de `agent_executions` ser validada com `.eq("id").eq("tenant_id")` e conferida em código (`row.tenant_id === tenantId`), além da RLS da sessão. O teste de lookup afirma `.eq("tenant_id")` em todas as tabelas que têm a coluna.
+- Os testes antigos de `AgentLeadReview`/`AgentCampaignPreview` renderizam **sem** `QueryClientProvider`. Para não mudar nenhuma expectativa nem exigir provider, o hook do dossiê vive num corpo que só monta dentro do `SheetContent` (que não existe com o Sheet fechado). Efeito colateral desejado: nenhuma leitura antes do clique (D9).
+- Execução de outro tenant: o lookup encerra cedo (`{ view: none, executionNotFound: true }`), sem ler steps nem ligações, e a rota responde 404.
+- D3.2: o `whyNow` lido da execução da ligação só é usado se `entry.dossierId === dossier.id` (gatilho avaliado para outro dossiê não aparece; vira "gatilho não avaliado").
+- Os `ECONNREFUSED 127.0.0.1:3000` no log do Vitest já existem no baseline (15 ocorrências antes e depois, nos mesmos arquivos; requisição a localhost de testes antigos, sem rede externa).
+- Lint em todos os arquivos tocados: 0 erros e 0 warnings (os 134 warnings do `npm run lint` são anteriores).
+- Nenhuma rota GET do projeto usa `export const dynamic`; o padrão encontrado foi seguido (sem a linha).
 
 ### Completion Notes List
 
 - create-story: análise de contexto concluída e guia completo para o dev criado. A story não implementa código nesta etapa.
+- dev-story: T1–T11 implementadas. Sem migration, nada em `supabase/`. Botão "Dossiê" + Sheet lateral na revisão de leads, na prévia da campanha e no card de oportunidade; uma rota GET de leitura.
+- Decisões menores (conservadoras):
+  - na revisão de leads, lead sem `apolloId` e sem `email` também não mostra o botão (a rota exigiria um identificador e devolveria 400), igual à prévia da campanha;
+  - fato com `kind`/`confianca` desconhecidos é descartado da visão (o `readDossierFacts` só faz cast);
+  - `researchedAt` (timestamp) é formatado no fuso de São Paulo; datas `YYYY-MM-DD` (fatos e gatilho) em UTC, sem deslocamento.
+- Checks: `npm run lint` 0 erros (134 warnings, todos pré-existentes); `npm run typecheck` limpo; `npm run test:run` 473 arquivos, 9340 testes passando, 2 skipped, 0 falhas.
+- Follow-up da D6 registrado em `deferred-work.md` (DW-34).
+
+#### Regra nº 1 — checklist
+
+- **Verificação feita:** **análise da diff + testes mockados.** Sem smoke real (proibido rodar contra produção nesta story). O smoke de leitura fica em `operator_actions`, para depois do merge.
+- **O que pode ter mudado para o cliente:**
+  - rotas: 1 GET nova de leitura (`/api/account-dossiers/lookup`), só exporta `GET` (teste afirma). Nenhuma rota existente alterada (`git diff main -- src/app/api/opportunities/` vazio; nenhuma rota do agente tocada);
+  - prompts: nenhum;
+  - tabelas: nenhuma nova; só `SELECT` em `account_dossiers`, `account_dossier_facts` (via `readDossierFacts` existente), `account_dossier_leads`, `agent_executions`, `agent_steps` e `leads`. Client de sessão (RLS), `.eq("tenant_id")` em toda tabela com a coluna, sem `.or()`/`.filter()`, sem `insert`/`update`/`delete`/`upsert` (asserções no teste de lookup);
+  - jobs: nenhum (`pg_cron` intocado); Edge Functions, secrets e env intocados;
+  - integrações: nenhuma chamada externa nova (sem LLM, Treg, Apify, Apollo nem Instantly); nada gravado em `api_usage_logs`;
+  - UI: botão "Dossiê" + painel lateral em `AgentLeadReview`, `AgentCampaignPreview` e `OpportunityCard` (via `OpportunitiesPageContent`). Leitura só ao abrir o painel (testes afirmam zero fetch antes do clique).
+- **Ponto 1 — campanhas rodando, webhook e `reply-sweep`:** OK por análise da diff. Nenhum arquivo de webhook, tracking, `reply-sweep`, Edge Function ou serviço do Instantly foi tocado (`git diff main -- 'src/lib/services/instantly*' supabase/` vazio).
+- **Ponto 2 — busca de leads:** OK por análise da diff. `search_companies`/`search_leads` (`src/lib/agent/steps/` com diff vazio), rotas `fetch-leads`/Apollo e buscas manuais não foram tocadas. No `AgentLeadReview` só a apresentação ganhou o botão; os 62 testes antigos seguem verdes sem mudança de expectativa, e o teste novo prova que abrir o dossiê (inclusive com 500) não muda a seleção.
+- **Ponto 3 — criação, export e ativação:** OK por análise da diff + testes. Diff vazio nos arquivos proibidos de T11 (`src/lib/agent/steps/`, `orchestrator.ts`, `dossier/{repository,why-now,config,facts,budget,icebreaker-posts}.ts`, `instantly*`, `src/app/api/opportunities/`, `use-opportunities.ts`, `use-agent-execution.ts`, `supabase/`, `src/types/agent.ts`, `AgentMessageBubble.tsx`, `AgentActivationGate.tsx`, `LeadDetailPanel.tsx`). Payload do approve da revisão (`{ approvedData: { leads } }`, inclusive e-mail em caixa mista intacto) e da prévia (`{ approvedData: { emailBlocks } }`) idêntico, comparado byte a byte nos testes. Nenhum lead filtrado ou bloqueado e nenhum atraso no fluxo.
+- **Algum dos 3 pontos pode ser afetado?** Não. A mudança é só de leitura e exibição; nada a escalar ao Fabossi.
 
 ### File List
+
+Novos:
+- `src/types/account-dossier.ts`
+- `src/lib/agent/dossier/dossier-view.ts`
+- `src/lib/agent/dossier/dossier-lookup.ts`
+- `src/app/api/account-dossiers/lookup/route.ts`
+- `src/hooks/use-account-dossier.ts`
+- `src/components/dossier/AccountDossierPanel.tsx`
+- `src/components/dossier/AccountDossierSheet.tsx`
+- `__tests__/unit/lib/agent/dossier/dossier-view.test.ts`
+- `__tests__/unit/lib/agent/dossier/dossier-lookup.test.ts`
+- `__tests__/unit/app/api/account-dossiers/lookup.test.ts`
+- `__tests__/unit/components/dossier/AccountDossierPanel.test.tsx`
+
+Alterados:
+- `src/components/agent/AgentLeadReview.tsx`
+- `src/components/agent/AgentCampaignPreview.tsx`
+- `src/components/opportunities/OpportunityCard.tsx`
+- `src/components/opportunities/OpportunitiesPageContent.tsx`
+- `__tests__/unit/components/agent/AgentLeadReview.test.tsx` (só bloco novo no fim)
+- `__tests__/unit/components/agent/AgentCampaignPreview.test.tsx` (só bloco novo no fim)
+- `__tests__/unit/components/opportunities/OpportunityCard.test.tsx` (só bloco novo no fim)
+- `__tests__/unit/components/opportunities/OpportunitiesPageContent.test.tsx` (só bloco novo no fim)
+- `_bmad-output/implementation-artifacts/deferred-work.md` (DW-34)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (só a linha 24-22 → `review`)
+- `_bmad-output/implementation-artifacts/spec-24-22-dossie-visivel-na-revisao-e-na-oportunidade.md`
+
+### Change Log
+
+- 2026-11-05: implementação da 24.22 (dossiê visível na revisão e na oportunidade); status → review.

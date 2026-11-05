@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Megaphone, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import { Megaphone, Loader2, ChevronDown, ChevronUp, FileSearch } from "lucide-react";
 import {
   Card,
   CardHeader,
@@ -19,6 +19,7 @@ import { CopyReviewBadge } from "@/components/builder/CopyReviewBadge";
 import type { CopyReviewStatus } from "@/types/copy-review";
 import { EmailUnverifiedWarning } from "@/components/leads/EmailUnverifiedWarning";
 import type { LeadEmailStatus } from "@/lib/leads/email-status";
+import { AccountDossierSheet } from "@/components/dossier/AccountDossierSheet";
 
 // === Types ===
 
@@ -37,6 +38,9 @@ interface LeadIcebreaker {
   icebreaker: string | null;
   /** Story 24.12: status do e-mail do enrichment (aviso so para invalid/unknown). */
   emailStatus?: LeadEmailStatus | null;
+  /** Story 24.22: so tipagem — o payload real (`LeadWithIcebreaker`) ja traz. */
+  apolloId?: string | null;
+  email?: string | null;
 }
 
 interface CampaignPreviewData {
@@ -93,6 +97,8 @@ export function AgentCampaignPreview({
     data.leadsWithIcebreakers.length <= ICEBREAKER_COLLAPSE_THRESHOLD
   );
   const setAdjustingStep = useAgentStore((s) => s.setAdjustingStep);
+  // Story 24.22: lead com o painel do dossie aberto (so leitura).
+  const [dossierLead, setDossierLead] = useState<LeadIcebreaker | null>(null);
 
   // Story 22.13: o sinal durável (servidor) vence o local (some no remount).
   const actionTaken: "approved" | "rejected" | null = rejected
@@ -325,6 +331,21 @@ export function AgentCampaignPreview({
                       </span>
                     )}
                     <EmailUnverifiedWarning status={lead.emailStatus} />
+                    {/* Story 24.22: leitura permitida mesmo apos aprovar/rejeitar. */}
+                    {(lead.apolloId || lead.email) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        type="button"
+                        className="h-6 self-start px-2 text-xs"
+                        onClick={() => setDossierLead(lead)}
+                        aria-label={`Ver dossiê de ${lead.name}`}
+                        data-testid="campaign-lead-dossier-button"
+                      >
+                        <FileSearch className="h-3 w-3" />
+                        Dossiê
+                      </Button>
+                    )}
                   </div>
                   <span className="text-xs text-muted-foreground text-right shrink-0 max-w-[50%]">
                     {lead.icebreaker ?? "Sem icebreaker"}
@@ -372,6 +393,25 @@ export function AgentCampaignPreview({
             Rejeitar
           </Button>
         </div>
+
+        <AccountDossierSheet
+          open={dossierLead !== null}
+          onOpenChange={(open) => {
+            if (!open) setDossierLead(null);
+          }}
+          target={
+            dossierLead
+              ? {
+                  executionId,
+                  apolloId: dossierLead.apolloId ?? null,
+                  email: dossierLead.email ?? null,
+                  leadName: dossierLead.name,
+                  companyName: dossierLead.companyName,
+                }
+              : null
+          }
+          context="campaign"
+        />
       </CardContent>
     </Card>
   );

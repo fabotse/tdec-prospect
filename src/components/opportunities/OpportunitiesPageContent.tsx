@@ -27,6 +27,7 @@ import {
   type OpportunitiesFilterState,
 } from "@/components/opportunities/OpportunitiesFilterBar";
 import { OpportunitiesEmptyState } from "@/components/opportunities/OpportunitiesEmptyState";
+import { AccountDossierSheet } from "@/components/dossier/AccountDossierSheet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -99,6 +100,9 @@ export function OpportunitiesPageContent() {
   const [sequenceStopReason, setSequenceStopReason] =
     useState<SequenceStopReason>("responded_other_channel");
   const sequenceAction = useLeadSequenceAction(sequenceStopTarget?.campaignId ?? "");
+
+  // Story 24.22 — painel do dossiê da conta (um Sheet por página, só leitura).
+  const [dossierTarget, setDossierTarget] = useState<OpportunityCardData | null>(null);
 
   const handleStopSequence = useCallback((opportunity: OpportunityCardData) => {
     setSequenceStopReason("responded_other_channel");
@@ -222,6 +226,7 @@ export function OpportunitiesPageContent() {
                     sequenceAction.isPending &&
                     sequenceStopTarget?.id === opportunity.id
                   }
+                  onOpenDossier={setDossierTarget}
                 />
               ))}
             </div>
@@ -335,6 +340,28 @@ export function OpportunitiesPageContent() {
         onReasonChange={setSequenceStopReason}
         onConfirm={confirmStopSequence}
         isPending={sequenceAction.isPending}
+      />
+
+      {/* Story 24.22 — dossiê da conta (leitura só ao abrir) */}
+      <AccountDossierSheet
+        open={!!dossierTarget?.lead}
+        onOpenChange={(open) => {
+          if (!open) setDossierTarget(null);
+        }}
+        target={
+          dossierTarget?.lead
+            ? {
+                leadId: dossierTarget.lead.id,
+                email: dossierTarget.lead.email,
+                leadName:
+                  [dossierTarget.lead.firstName, dossierTarget.lead.lastName]
+                    .filter(Boolean)
+                    .join(" ") || "Lead",
+                companyName: dossierTarget.lead.companyName,
+              }
+            : null
+        }
+        context="opportunity"
       />
     </div>
   );

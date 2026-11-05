@@ -8,6 +8,7 @@
 
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AgentCampaignPreview } from "@/components/agent/AgentCampaignPreview";
 import { useAgentStore } from "@/stores/use-agent-store";
 
@@ -489,5 +490,111 @@ describe("AgentCampaignPreview — aviso de e-mail nao verificado (Story 24.12)"
   it("sem emailStatus (execucoes antigas): nenhum aviso", () => {
     renderComponent();
     expect(screen.queryByTestId("email-unverified")).not.toBeInTheDocument();
+  });
+});
+
+// ==============================================
+// Story 24.22 — Dossiê (painel só leitura)
+// ==============================================
+
+describe("AgentCampaignPreview — dossiê (Story 24.22)", () => {
+  function dataWithIds() {
+    const data = createDefaultData();
+    return {
+      ...data,
+      leadsWithIcebreakers: [
+        { name: "Ana Silva", companyName: "Acme", icebreaker: "Vi que voce usa React", apolloId: "ap-1", email: "ana@acme.com" },
+        { name: "Bruno Costa", companyName: "TechCo", icebreaker: null, apolloId: null, email: null },
+      ],
+    };
+  }
+
+  function renderWithQuery() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, retryDelay: 0 } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <AgentCampaignPreview data={dataWithIds()} {...defaultProps} />
+      </QueryClientProvider>
+    );
+  }
+
+  function dossierCalls() {
+    return mockFetch.mock.calls.filter(([url]) => String(url).startsWith("/api/account-dossiers/lookup"));
+  }
+
+  const foundView = {
+    status: "found",
+    dossier: {
+      id: "d-1",
+      companyName: "Acme",
+      companyDomain: "acme.com",
+      dossierStatus: "complete",
+      failedSources: [],
+      researchedAt: "2026-11-01T15:00:00Z",
+      expired: false,
+    },
+    facts: [
+      { kind: "news", fato: "Acme abre escritório", fonteUrl: "https://news.example.com/a", data: "2026-10-01", confianca: "alta", isTriggerSource: true },
+    ],
+    totalFacts: 1,
+    whyNow: {
+      status: "trigger",
+      reason: null,
+      gatilho: "Noticia: Acme abre escritório",
+      hipoteseDor: "Como vão contratar?",
+      confianca: "alta",
+      fonteUrl: "https://news.example.com/a",
+      data: "2026-10-01",
+    },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFetch.mockImplementation((url: string) => {
+      if (String(url).startsWith("/api/account-dossiers/lookup")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: foundView }) });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: { stepNumber: 3, status: "approved", nextStep: 4 } }),
+      });
+    });
+  });
+
+  it("lead sem apolloId e sem e-mail não mostra o botão; nenhuma leitura antes do clique", () => {
+    renderWithQuery();
+    expect(screen.getAllByTestId("campaign-lead-dossier-button")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Ver dossiê de Bruno Costa" })).not.toBeInTheDocument();
+    expect(dossierCalls()).toHaveLength(0);
+  });
+
+  it("o botão abre o painel com gatilho e fatos", async () => {
+    renderWithQuery();
+    fireEvent.click(screen.getByRole("button", { name: "Ver dossiê de Ana Silva" }));
+    expect(await screen.findByTestId("dossier-trigger-text")).toHaveTextContent("Noticia: Acme abre escritório");
+    expect(screen.getByTestId("dossier-pain-text")).toHaveTextContent("Como vão contratar?");
+    const params = new URL(String(dossierCalls()[0][0]), "http://localhost").searchParams;
+    expect(params.get("executionId")).toBe("exec-001");
+    expect(params.get("apolloId")).toBe("ap-1");
+    expect(params.get("email")).toBe("ana@acme.com");
+  });
+
+  it("aprovar segue igual depois de abrir o dossiê", async () => {
+    renderWithQuery();
+    fireEvent.click(screen.getByRole("button", { name: "Ver dossiê de Ana Silva" }));
+    await screen.findByTestId("dossier-found");
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("dossier-found")).not.toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("campaign-approve-btn"));
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/agent/executions/exec-001/steps/3/approve",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ approvedData: { emailBlocks: createDefaultData().emailBlocks } }),
+        })
+      );
+    });
   });
 });

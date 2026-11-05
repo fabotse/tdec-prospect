@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { ShieldCheck, Loader2, SearchX, AlertTriangle } from "lucide-react";
+import { ShieldCheck, Loader2, SearchX, AlertTriangle, FileSearch } from "lucide-react";
 import {
   Card,
   CardHeader,
@@ -30,6 +30,7 @@ import {
   TableBody,
   TableCell,
 } from "@/components/ui/table";
+import { AccountDossierSheet } from "@/components/dossier/AccountDossierSheet";
 
 interface LeadPreview {
   name: string;
@@ -145,6 +146,8 @@ export function AgentLeadReview({
   const [loading, setLoading] = useState<"approve" | "reject" | null>(null);
   const [localActionTaken, setLocalActionTaken] = useState<"approved" | "rejected" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Story 24.22: lead com o painel do dossie aberto (so leitura; nao mexe na selecao).
+  const [dossierLead, setDossierLead] = useState<LeadPreview | null>(null);
   const setAdjustingStep = useAgentStore((s) => s.setAdjustingStep);
   // Story 22.14: sinais dos chips do empty-state. Os gates ja falam com o store
   // diretamente (padrao dos `handleReject`) — ver D4 no story file.
@@ -684,6 +687,22 @@ export function AgentLeadReview({
                   </TableCell>
                   <TableCell>
                     <span className="font-medium">{lead.name}</span>
+                    {/* Story 24.22: ler o dossie e permitido mesmo apos aprovar/rejeitar.
+                        Sem apolloId e sem e-mail nao ha como ligar ao dossie. */}
+                    {(lead.apolloId || lead.email) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        type="button"
+                        className="ml-1 h-6 px-2 text-xs"
+                        onClick={() => setDossierLead(lead)}
+                        aria-label={`Ver dossiê de ${lead.name}`}
+                        data-testid="lead-dossier-button"
+                      >
+                        <FileSearch className="h-3 w-3" />
+                        Dossiê
+                      </Button>
+                    )}
                     {lead.contactStatus === "already_contacted" && (
                       <Badge
                         variant="outline"
@@ -743,6 +762,25 @@ export function AgentLeadReview({
             Rejeitar
           </Button>
         </div>
+
+        <AccountDossierSheet
+          open={dossierLead !== null}
+          onOpenChange={(open) => {
+            if (!open) setDossierLead(null);
+          }}
+          target={
+            dossierLead
+              ? {
+                  executionId,
+                  apolloId: dossierLead.apolloId ?? null,
+                  email: dossierLead.email,
+                  leadName: dossierLead.name,
+                  companyName: dossierLead.companyName,
+                }
+              : null
+          }
+          context="lead_review"
+        />
       </CardContent>
     </Card>
   );

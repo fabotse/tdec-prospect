@@ -969,4 +969,31 @@ describe("OpportunityCard — Story 21.5", () => {
       ).toBeDisabled();
     });
   });
+
+  // Story 24.22 — botão "Dossiê" (só leitura)
+  describe("Dossiê (Story 24.22)", () => {
+    it("sem onOpenDossier o card fica igual (sem botão)", () => {
+      render(<OpportunityCard opportunity={makeOpportunity()} />);
+      expect(screen.queryByTestId("opportunity-action-dossier")).not.toBeInTheDocument();
+    });
+
+    it("sem lead não mostra o botão", () => {
+      render(<OpportunityCard opportunity={makeOpportunity({ lead: null })} onOpenDossier={vi.fn()} />);
+      expect(screen.queryByTestId("opportunity-action-dossier")).not.toBeInTheDocument();
+    });
+
+    it("o clique chama o callback e não expande, não marca viewed nem gera rascunho", async () => {
+      const user = userEvent.setup();
+      const onOpenDossier = vi.fn();
+      const opportunity = makeOpportunity({ status: "new" });
+      render(<OpportunityCard opportunity={opportunity} onOpenDossier={onOpenDossier} />);
+
+      await user.click(screen.getByRole("button", { name: "Ver dossiê de John Doe" }));
+
+      expect(onOpenDossier).toHaveBeenCalledWith(opportunity);
+      expect(mockMutate).not.toHaveBeenCalled();
+      expect(mockGenerate).not.toHaveBeenCalled();
+      expect(screen.getByTestId("opportunity-toggle-expand")).toHaveTextContent("Ver mais");
+    });
+  });
 });

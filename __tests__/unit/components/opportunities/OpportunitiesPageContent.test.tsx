@@ -7,7 +7,7 @@
  * Estados loading/error/empty/lista + paginação + busca client-side.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -501,5 +501,72 @@ describe("OpportunitiesPageContent — ações (Story 21.5)", () => {
     expect(
       screen.queryByTestId("opportunity-action-stop-sequence")
     ).not.toBeInTheDocument();
+  });
+
+  // Story 24.22 — Sheet do dossiê aberto pelo card (leitura só ao abrir)
+  describe("Dossiê (Story 24.22)", () => {
+    const fetchMock = vi.fn();
+
+    beforeEach(() => {
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: { status: "none" } }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    function dossierCalls() {
+      return fetchMock.mock.calls.filter(([url]) =>
+        String(url).startsWith("/api/account-dossiers/lookup")
+      );
+    }
+
+    it("abre o painel com leadId/email e mostra 'Sem pesquisa'; nada lido antes", async () => {
+      const user = userEvent.setup();
+      mockHookReturn({
+        opportunities: [makeOpportunity({ status: "new" })],
+        meta: { total: 1, page: 1, limit: 25, totalPages: 1 },
+      });
+
+      renderWithClient(<OpportunitiesPageContent />);
+      expect(dossierCalls()).toHaveLength(0);
+
+      await user.click(screen.getByRole("button", { name: "Ver dossiê de John Doe" }));
+
+      expect(await screen.findByText("Sem pesquisa")).toBeInTheDocument();
+      expect(screen.getByText("Dossiê — Acme Inc")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Gerar pesquisa (em breve)" })).toBeDisabled();
+      const params = new URL(String(dossierCalls()[0][0]), "http://localhost").searchParams;
+      expect(params.get("leadId")).toBe("lead-1");
+      expect(params.get("email")).toBe("john@acme.com");
+      expect(params.get("executionId")).toBeNull();
+      // Abrir o dossie nao dispara a triagem nem o new->viewed.
+      expect(mockMutate).not.toHaveBeenCalled();
+    });
+
+    it("erro na leitura mostra 'Tentar de novo' e a lista segue igual", async () => {
+      const user = userEvent.setup();
+      fetchMock.mockResolvedValue({ ok: false, status: 500, json: () => Promise.resolve({}) });
+      mockHookReturn({
+        opportunities: [makeOpportunity()],
+        meta: { total: 1, page: 1, limit: 25, totalPages: 1 },
+      });
+
+      renderWithClient(<OpportunitiesPageContent />);
+      await user.click(screen.getByRole("button", { name: "Ver dossiê de John Doe" }));
+
+      expect(
+        await screen.findByText("Não foi possível carregar o dossiê", undefined, { timeout: 3000 })
+      ).toBeInTheDocument();
+      const callsBefore = dossierCalls().length;
+      await user.click(screen.getByRole("button", { name: /Tentar de novo/ }));
+      await vi.waitFor(() => expect(dossierCalls().length).toBeGreaterThan(callsBefore));
+      expect(screen.getAllByTestId("opportunity-card")).toHaveLength(1);
+    });
   });
 });
