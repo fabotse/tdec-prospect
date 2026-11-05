@@ -88,11 +88,84 @@ interface LinkRow {
   created_at: string;
 }
 
-/** D3.2: ligacao mais recente, uma query `.eq` por identificador. */
+/** Identidade canonica do lead aberto: todos os campos sao do MESMO lead. */
+interface ResolvedIdent {
+  leadId: string | null;
+  apolloId: string | null;
+  email: string | null;
+}
+
+function normEmail(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim().toLowerCase() : null;
+}
+
+function normText(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** Dois valores so conflitam quando os dois existem e diferem. */
+function conflicts(a: string | null | undefined, b: string | null | undefined): boolean {
+  return Boolean(a && b && a !== b);
+}
+
+/**
+ * D3.0: resolve UMA identidade coerente a partir da request.
+ * - Com `leadId`: le o lead no tenant e usa so o `apollo_id`/e-mail dele. `apolloId`/e-mail
+ *   da request que divirjam do lead (ou que o lead nao tenha) -> null ("Sem pesquisa").
+ *   Lead inexistente/de outro tenant -> null.
+ * - Sem `leadId`: um unico identificador, por prioridade (`apolloId`, depois e-mail).
+ */
+async function resolveIdent(
+  supabase: SupabaseClient,
+  tenantId: string,
+  leadId: string | null,
+  apolloId: string | null,
+  email: string | null
+): Promise<ResolvedIdent | null> {
+  if (!leadId) {
+    if (apolloId) return { leadId: null, apolloId, email: null };
+    if (email) return { leadId: null, apolloId: null, email };
+    return null;
+  }
+  const { data, error } = await supabase
+    .from("leads")
+    .select("id, apollo_id, email")
+    .eq("id", leadId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  if (error) throw new LookupError(errorText(error));
+  const row = data as { id?: unknown; apollo_id?: unknown; email?: unknown } | null;
+  if (!row || (row.id !== undefined && row.id !== leadId)) return null;
+  const leadApollo = normText(row.apollo_id);
+  const leadEmail = normEmail(row.email);
+  if (apolloId && apolloId !== leadApollo) return null;
+  if (email && email !== leadEmail) return null;
+  return { leadId, apolloId: leadApollo, email: leadEmail };
+}
+
+/** A ligacao/entrada carrega identificador de OUTRO lead? */
+function belongsToOtherLead(
+  other: { leadId?: string | null; apolloId?: string | null; email?: string | null },
+  ident: ResolvedIdent
+): boolean {
+  return (
+    conflicts(other.leadId ?? null, ident.leadId) ||
+    conflicts(other.apolloId ?? null, ident.apolloId) ||
+    conflicts(normEmail(other.email), ident.email)
+  );
+}
+
+/** Entrada do whyNow casada com o lead e sem identificador divergente. */
+function findOwnWhyNow(whyNow: unknown, ident: ResolvedIdent): LeadWhyNow | null {
+  const entry = findLeadWhyNow(whyNow, { apolloId: ident.apolloId, email: ident.email });
+  return entry && !belongsToOtherLead(entry, ident) ? entry : null;
+}
+
+/** D3.2: ligacao mais recente, uma query `.eq` por identificador do MESMO lead. */
 async function findLatestLink(
   supabase: SupabaseClient,
   tenantId: string,
-  ident: { leadId: string | null; apolloId: string | null; email: string | null }
+  ident: ResolvedIdent
 ): Promise<LinkRow[]> {
   const filters: Array<[string, string]> = [];
   if (ident.leadId) filters.push(["lead_id", ident.leadId]);
@@ -103,7 +176,7 @@ async function findLatestLink(
   for (const [column, value] of filters) {
     const { data, error } = await supabase
       .from("account_dossier_leads")
-      .select("dossier_id, execution_id, created_at")
+      .select("dossier_id, execution_id, created_at, lead_id, lead_apollo_id, lead_email")
       .eq("tenant_id", tenantId)
       .eq(column, value)
       .order("created_at", { ascending: false })
@@ -111,6 +184,19 @@ async function findLatestLink(
     if (error) throw new LookupError(errorText(error));
     for (const row of (Array.isArray(data) ? data : data ? [data] : []) as Record<string, unknown>[]) {
       if (typeof row.dossier_id !== "string") continue;
+      // Ligacao com identificador de outro lead (ex.: e-mail igual, apollo diferente): ignora.
+      if (
+        belongsToOtherLead(
+          {
+            leadId: normText(row.lead_id),
+            apolloId: normText(row.lead_apollo_id),
+            email: normEmail(row.lead_email),
+          },
+          ident
+        )
+      ) {
+        continue;
+      }
       rows.push({
         dossier_id: row.dossier_id,
         execution_id: typeof row.execution_id === "string" ? row.execution_id : null,
@@ -148,26 +234,12 @@ export async function lookupAccountDossier(
   try {
     const executionId = params.executionId?.trim() || null;
     const leadId = params.leadId?.trim() || null;
-    let apolloId = params.apolloId?.trim() || null;
+    const apolloId = params.apolloId?.trim() || null;
     const email = params.email?.trim().toLowerCase() || null;
 
-    // D4: oportunidade traz `leadId`; o `apollo_id` vem de `leads` (erro aqui nao derruba).
-    if (leadId && !apolloId) {
-      try {
-        const { data } = await supabase
-          .from("leads")
-          .select("apollo_id")
-          .eq("id", leadId)
-          .eq("tenant_id", tenantId)
-          .maybeSingle();
-        const value = (data as { apollo_id?: unknown } | null)?.apollo_id;
-        if (typeof value === "string" && value.trim()) apolloId = value.trim();
-      } catch {
-        // segue sem apolloId
-      }
-    }
-
-    const ident: LeadIdent = { apolloId, email };
+    // D3.0: uma identidade coerente; identificadores conflitantes -> "Sem pesquisa".
+    // Feito antes da execucao: nada e lido da execucao para um lead incoerente.
+    const resolved = await resolveIdent(supabase, tenantId, leadId, apolloId, email);
 
     // D3.1: whyNow da execucao informada. Execucao inexistente/de outro tenant: nada e
     // lido dela nem depois dela (a rota responde 404, como o GET .../steps).
@@ -175,27 +247,30 @@ export async function lookupAccountDossier(
       if (!(await executionBelongsToTenant(supabase, tenantId, executionId))) {
         return { view: { status: "none" }, executionNotFound: true };
       }
-      const entry = findLeadWhyNow(await readExecutionWhyNow(supabase, executionId), ident);
+      if (!resolved) return { view: { status: "none" } };
+      const entry = findOwnWhyNow(await readExecutionWhyNow(supabase, executionId), resolved);
       if (entry?.dossierId) {
         const row = await readDossierRow(supabase, tenantId, entry.dossierId);
         if (row) {
-          return { view: await buildFound(supabase, tenantId, row, ident, entry, now) };
+          return { view: await buildFound(supabase, tenantId, row, resolved, entry, now) };
         }
       }
     }
 
+    if (!resolved) return { view: { status: "none" } };
+
     // D3.2: ligacao gravada mais recente.
-    const links = await findLatestLink(supabase, tenantId, { leadId, apolloId, email });
+    const links = await findLatestLink(supabase, tenantId, resolved);
     for (const link of links) {
       const row = await readDossierRow(supabase, tenantId, link.dossier_id);
       if (!row) continue; // inexistente/de outro tenant -> proxima ligacao
       let entry: LeadWhyNow | null = null;
       if (link.execution_id && (await executionBelongsToTenant(supabase, tenantId, link.execution_id))) {
-        const found = findLeadWhyNow(await readExecutionWhyNow(supabase, link.execution_id), ident);
+        const found = findOwnWhyNow(await readExecutionWhyNow(supabase, link.execution_id), resolved);
         // So vale o gatilho avaliado para ESTE dossie.
         entry = found && found.dossierId === row.id ? found : null;
       }
-      return { view: await buildFound(supabase, tenantId, row, ident, entry, now) };
+      return { view: await buildFound(supabase, tenantId, row, resolved, entry, now) };
     }
 
     // D3.3

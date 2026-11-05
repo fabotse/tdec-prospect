@@ -19,6 +19,7 @@ import {
 import { useAccountDossier } from "@/hooks/use-account-dossier";
 import type { AccountDossierContext, AccountDossierTarget } from "@/types/account-dossier";
 import { AccountDossierPanel } from "./AccountDossierPanel";
+import { DossierPanelErrorBoundary } from "./DossierPanelErrorBoundary";
 
 export interface AccountDossierSheetProps {
   open: boolean;
@@ -45,18 +46,23 @@ function AccountDossierSheetBody({
     },
     { enabled: open }
   );
+  const retry = () => {
+    void query.refetch();
+  };
+  // Nova tentativa depois de um erro: volta ao "carregando" ate a resposta chegar.
+  const retrying = query.isError && query.isFetching;
   return (
-    <AccountDossierPanel
-      view={query.data}
-      isLoading={query.isLoading}
-      isError={query.isError}
-      onRetry={() => {
-        void query.refetch();
-      }}
-      leadName={target.leadName}
-      companyName={target.companyName}
-      context={context}
-    />
+    <DossierPanelErrorBoundary onRetry={retry}>
+      <AccountDossierPanel
+        view={query.data}
+        isLoading={query.isLoading || retrying}
+        isError={query.isError && !retrying}
+        onRetry={retry}
+        leadName={target.leadName}
+        companyName={target.companyName}
+        context={context}
+      />
+    </DossierPanelErrorBoundary>
   );
 }
 

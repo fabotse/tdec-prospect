@@ -129,9 +129,9 @@ describe("lookupAccountDossier", () => {
     expect(fake.callsTo("agent_steps")).toHaveLength(0);
   });
 
-  it("D3.2 por lead_id + apollo_id lido de leads + e-mail minúsculo; a ligação mais recente vence", async () => {
+  it("D3.2 por lead_id + apollo_id/e-mail lidos de leads; a ligação mais recente vence", async () => {
     const fake = createQueueSupabase({
-      leads: [{ data: { apollo_id: "ap-77" } }],
+      leads: [{ data: { id: LEAD_ID, apollo_id: "ap-77", email: "Ana@Acme.com" } }],
       account_dossier_leads: [
         { data: [{ dossier_id: "dossier-old", execution_id: null, created_at: "2026-09-01T00:00:00Z" }] },
         { data: [{ dossier_id: "dossier-new", execution_id: OLD_EXEC, created_at: "2026-10-15T00:00:00Z" }] },
@@ -255,12 +255,192 @@ describe("lookupAccountDossier", () => {
     expect(result).toEqual({ error: "connection reset" });
   });
 
-  it("erro ao ler leads.apollo_id não derruba a busca", async () => {
+  it("erro ao ler o lead -> error (não casa por identificador não verificado)", async () => {
     const fake = createQueueSupabase({
       leads: [new Error("boom")],
     });
     const result = await lookupAccountDossier(fake.client, TENANT, { leadId: LEAD_ID }, NOW);
+    expect(result).toEqual({ error: "boom" });
+    expect(fake.callsTo("account_dossier_leads")).toHaveLength(0);
+  });
+});
+
+describe("lookupAccountDossier — identificadores conflitantes (D3.0)", () => {
+  const leadA = { id: LEAD_ID, apollo_id: "ap-A", email: "ana@a.com" };
+
+  it("leadId de A + e-mail de B -> none, sem ler ligações nem dossiês", async () => {
+    const fake = createQueueSupabase({ leads: [{ data: leadA }] });
+    const result = await lookupAccountDossier(
+      fake.client,
+      TENANT,
+      { leadId: LEAD_ID, email: "bia@b.com" },
+      NOW
+    );
     expect(result).toEqual({ view: { status: "none" } });
-    expect(fake.callsTo("account_dossier_leads")).toHaveLength(1);
+    expect(fake.callsTo("account_dossier_leads")).toHaveLength(0);
+    expect(fake.callsTo("account_dossiers")).toHaveLength(0);
+    const leadsQuery = fake.callsTo("leads")[0].chain;
+    expect(leadsQuery.eq).toHaveBeenCalledWith("tenant_id", TENANT);
+    assertReadOnlyAndTenantScoped(fake);
+  });
+
+  it("leadId de A + apolloId de B -> none", async () => {
+    const fake = createQueueSupabase({ leads: [{ data: leadA }] });
+    const result = await lookupAccountDossier(
+      fake.client,
+      TENANT,
+      { leadId: LEAD_ID, apolloId: "ap-B" },
+      NOW
+    );
+    expect(result).toEqual({ view: { status: "none" } });
+    expect(fake.callsTo("account_dossier_leads")).toHaveLength(0);
+  });
+
+  it("apolloId informado, mas o lead não tem apollo_id -> none (não dá para verificar)", async () => {
+    const fake = createQueueSupabase({ leads: [{ data: { ...leadA, apollo_id: null } }] });
+    const result = await lookupAccountDossier(
+      fake.client,
+      TENANT,
+      { leadId: LEAD_ID, apolloId: "ap-A" },
+      NOW
+    );
+    expect(result).toEqual({ view: { status: "none" } });
+  });
+
+  it("leadId inexistente/de outro tenant -> none", async () => {
+    const fake = createQueueSupabase({ leads: [{ data: null }] });
+    const result = await lookupAccountDossier(fake.client, TENANT, { leadId: LEAD_ID, email: "ana@a.com" }, NOW);
+    expect(result).toEqual({ view: { status: "none" } });
+    expect(fake.callsTo("account_dossier_leads")).toHaveLength(0);
+  });
+
+  it("execução + leadId de A + e-mail de B -> none, sem ler o whyNow", async () => {
+    const fake = createQueueSupabase({
+      leads: [{ data: leadA }],
+      agent_executions: [{ data: { id: EXEC, tenant_id: TENANT } }],
+      agent_steps: [{ data: [whyNowOutput({ ...triggerEntry, apolloId: "ap-B", email: "bia@b.com" })] }],
+    });
+    const result = await lookupAccountDossier(
+      fake.client,
+      TENANT,
+      { executionId: EXEC, leadId: LEAD_ID, email: "bia@b.com" },
+      NOW
+    );
+    expect(result).toEqual({ view: { status: "none" } });
+    expect(fake.callsTo("agent_steps")).toHaveLength(0);
+    expect(fake.callsTo("account_dossiers")).toHaveLength(0);
+  });
+
+  it("sem leadId: apolloId tem prioridade e o e-mail (de B) é ignorado", async () => {
+    const fake = createQueueSupabase({
+      account_dossier_leads: [
+        {
+          data: [
+            {
+              dossier_id: "dossier-a",
+              execution_id: null,
+              created_at: "2026-10-01T00:00:00Z",
+              lead_id: null,
+              lead_apollo_id: "ap-A",
+              lead_email: "ana@a.com",
+            },
+          ],
+        },
+      ],
+      account_dossiers: [{ data: dossierRow("dossier-a") }],
+      account_dossier_facts: [
+        {
+          data: [
+            { ...factRow, kind: "post", fato: "post de A", lead_apollo_id: "ap-A", lead_email: "ana@a.com" },
+            { ...factRow, kind: "post", fato: "post de B", lead_apollo_id: "ap-B", lead_email: "bia@b.com" },
+          ],
+        },
+      ],
+    });
+    const result = await lookupAccountDossier(
+      fake.client,
+      TENANT,
+      { apolloId: "ap-A", email: "bia@b.com" },
+      NOW
+    );
+    if (!("view" in result) || result.view.status !== "found") throw new Error("esperado found");
+    expect(result.view.dossier.id).toBe("dossier-a");
+    const links = fake.callsTo("account_dossier_leads").map((c) => c.chain);
+    expect(links).toHaveLength(1);
+    expect(links[0].eq).toHaveBeenCalledWith("lead_apollo_id", "ap-A");
+    expect(links[0].eq).not.toHaveBeenCalledWith("lead_email", expect.anything());
+    // Post de B nunca aparece no painel de A, mesmo com o e-mail de B na request.
+    const posts = result.view.facts.filter((f) => f.kind === "post").map((f) => f.fato);
+    expect(posts).toEqual(["post de A"]);
+    assertReadOnlyAndTenantScoped(fake);
+  });
+
+  it("sem leadId e sem apolloId: usa só o e-mail", async () => {
+    const fake = createQueueSupabase({});
+    await lookupAccountDossier(fake.client, TENANT, { email: "Ana@A.com" }, NOW);
+    const links = fake.callsTo("account_dossier_leads").map((c) => c.chain);
+    expect(links).toHaveLength(1);
+    expect(links[0].eq).toHaveBeenCalledWith("lead_email", "ana@a.com");
+  });
+
+  it("ligação por e-mail gravada para outro apollo_id é ignorada", async () => {
+    const fake = createQueueSupabase({
+      leads: [{ data: leadA }],
+      account_dossier_leads: [
+        { data: [] }, // lead_id
+        { data: [] }, // lead_apollo_id
+        {
+          data: [
+            {
+              dossier_id: "dossier-b",
+              execution_id: null,
+              created_at: "2026-10-01T00:00:00Z",
+              lead_id: null,
+              lead_apollo_id: "ap-B",
+              lead_email: "ana@a.com",
+            },
+          ],
+        },
+      ],
+    });
+    const result = await lookupAccountDossier(fake.client, TENANT, { leadId: LEAD_ID }, NOW);
+    expect(result).toEqual({ view: { status: "none" } });
+    expect(fake.callsTo("account_dossiers")).toHaveLength(0);
+  });
+
+  it("execução: entrada do whyNow casada por e-mail mas com apolloId de outro lead é descartada", async () => {
+    const fake = createQueueSupabase({
+      leads: [{ data: leadA }],
+      agent_executions: [{ data: { id: EXEC, tenant_id: TENANT } }],
+      agent_steps: [{ data: [whyNowOutput({ ...triggerEntry, apolloId: "ap-B", email: "ana@a.com" })] }],
+    });
+    const result = await lookupAccountDossier(
+      fake.client,
+      TENANT,
+      { executionId: EXEC, leadId: LEAD_ID },
+      NOW
+    );
+    // Sem entrada do proprio lead -> cai para as ligacoes (vazias) -> none.
+    expect(result).toEqual({ view: { status: "none" } });
+    expect(fake.callsTo("account_dossiers")).toHaveLength(0);
+  });
+
+  it("leadId + identificadores coerentes (e-mail com outra caixa) -> casa normalmente", async () => {
+    const fake = createQueueSupabase({
+      leads: [{ data: leadA }],
+      account_dossier_leads: [
+        { data: [{ dossier_id: "dossier-a", execution_id: null, created_at: "2026-10-01T00:00:00Z", lead_id: LEAD_ID }] },
+      ],
+      account_dossiers: [{ data: dossierRow("dossier-a") }],
+      account_dossier_facts: [{ data: [factRow] }],
+    });
+    const result = await lookupAccountDossier(
+      fake.client,
+      TENANT,
+      { leadId: LEAD_ID, apolloId: "ap-A", email: " ANA@a.com " },
+      NOW
+    );
+    if (!("view" in result) || result.view.status !== "found") throw new Error("esperado found");
+    expect(result.view.dossier.id).toBe("dossier-a");
   });
 });

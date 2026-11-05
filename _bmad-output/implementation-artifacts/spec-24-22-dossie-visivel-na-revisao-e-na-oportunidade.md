@@ -59,15 +59,19 @@ so that eu entenda o contexto da conta sem pesquisar de novo.
   - A rota não faz `INSERT`/`UPDATE`/`DELETE`, não chama LLM, Treg, Apify, Apollo nem Instantly e não grava em `api_usage_logs`, porque não há custo.
 
 - **D3 — Como o lead é ligado ao dossiê** (ordem de resolução, a primeira que achar vence):
-  1. **Com `executionId`** (telas do agente): validar que a execução é do tenant. Ler a linha `research_accounts` mais recente daquela execução (`step_type = 'research_accounts'`, `order step_number desc limit 1`, `select output`). Em `output.whyNow.leads`, casar o lead por `apolloId` e, se não casar, por e-mail em minúsculo. Se o lead casar e tiver `dossierId`, usar esse dossiê e esse `whyNow`.
-  2. **Ligação gravada** (`account_dossier_leads`, mais recente por `created_at`): uma query por identificador, com `.eq`. São três: `lead_id = leadId`, `lead_apollo_id = apolloId` e `lead_email = email minúsculo`. Junta tudo e pega a mais nova. Daí sai o `dossier_id` e o `execution_id`. O `whyNow` vem da linha `research_accounts` desse `execution_id`, depois de validar que a execução é do tenant. Se não vier, `whyNow = null` ("gatilho não avaliado").
+  0. **Identidade única e coerente (revisão Codex rodada 1).** Antes de qualquer casamento, a request vira **uma** identidade, sempre do mesmo lead:
+     - **Com `leadId`:** ler o lead (`leads`, `.eq("id").eq("tenant_id")`, `select id, apollo_id, email`) e usar **só** o `apollo_id`/e-mail dele. Se a request trouxer `apolloId` ou `email` que divirjam do lead (ou que o lead não tenha), responder `none` ("Sem pesquisa"), sem ler ligação, execução ou dossiê. Lead inexistente/de outro tenant → `none`. Erro ao ler o lead → estado de erro (não casa por identificador não verificado).
+     - **Sem `leadId`:** usar **um único** identificador, por prioridade: `apolloId`; se não houver, e-mail em minúsculo. O outro é ignorado (casamento, ligações e posts da D7).
+     - Ligações (D3.2) e entradas do `whyNow` (D3.1/D3.2) que carreguem identificador de **outro** lead (mesmo campo presente dos dois lados e diferente: `lead_id`, `apolloId`/`lead_apollo_id`, e-mail) são descartadas.
+  1. **Com `executionId`** (telas do agente): validar que a execução é do tenant. Ler a linha `research_accounts` mais recente daquela execução (`step_type = 'research_accounts'`, `order step_number desc limit 1`, `select output`). Em `output.whyNow.leads`, casar o lead da identidade D3.0 por `apolloId` e, se não casar, por e-mail em minúsculo (entrada com identificador divergente é descartada). Se o lead casar e tiver `dossierId`, usar esse dossiê e esse `whyNow`.
+  2. **Ligação gravada** (`account_dossier_leads`, mais recente por `created_at`): uma query por identificador **da identidade D3.0**, com `.eq` (até três, todos do mesmo lead: `lead_id`, `lead_apollo_id`, `lead_email` minúsculo). Ligação com identificador de outro lead é ignorada. Junta tudo e pega a mais nova. Daí sai o `dossier_id` e o `execution_id`. O `whyNow` vem da linha `research_accounts` desse `execution_id`, depois de validar que a execução é do tenant. Se não vier, `whyNow = null` ("gatilho não avaliado").
   3. Nada encontrado → `status: 'none'` ("Sem pesquisa").
 
   **Proibido montar `.or(...)` com string vinda da request** (injeção de filtro PostgREST). Só `.eq`/`.in` com valores. **Não** casar por domínio da empresa nem por nome: o domínio do dossiê vem do Apollo e pode não bater com o do e-mail, e um falso positivo mostraria a pesquisa de outra empresa. O lado seguro é "Sem pesquisa".
 
 - **D4 — Identificadores por tela:**
   - **Revisão de leads e prévia da campanha:** `executionId` (da mensagem), `apolloId` e `email` do lead do `previewData`. Esses leads ainda não têm `lead_id`. Na revisão de leads, o `research_accounts` da execução ainda não rodou (ele vem depois do gate), então o painel normalmente mostra um dossiê **anterior** ligado ao lead (D3.2) ou "Sem pesquisa", com a nota "A pesquisa desta execução roda depois que você aprovar os leads".
-  - **Oportunidade:** `leadId` (`opportunity.lead.id`) e `email`. A rota lê `leads.apollo_id` por `id` + `tenant_id` para também casar por `apolloId`. Oportunidade sem `lead` não mostra o botão.
+  - **Oportunidade:** `leadId` (`opportunity.lead.id`) e `email`. A rota lê `leads.apollo_id`/`email` por `id` + `tenant_id` e casa só pelos identificadores desse lead (D3.0); o `email` da request precisa bater com o do lead. Oportunidade sem `lead` não mostra o botão.
 
 - **D5 — Dossiê antigo/expirado:** mostra o dossiê mais recente encontrado, mesmo expirado, com "Pesquisa de dd/mm/aaaa". Se `expires_at < agora`, mostra também o badge "Desatualizado". Nada é recalculado.
 
@@ -391,6 +395,9 @@ O DTO **não** leva `lead_apollo_id`/`lead_email` dos fatos nem nome ou e-mail d
 ### Completion Notes List
 
 - create-story: análise de contexto concluída e guia completo para o dev criado. A story não implementa código nesta etapa.
+- review-fix (Codex rodada 1): 3 bloqueios corrigidos. (1) D3.0: identidade única e coerente — com `leadId` só valem o `apollo_id`/e-mail do lead (divergência → "Sem pesquisa"); sem `leadId`, um único identificador (`apolloId`, depois e-mail); ligações e entradas do `whyNow` com identificador de outro lead são descartadas, inclusive no caminho da execução. (2) DTO validado com zod no hook (`parseAccountDossierView`); resposta fora do formato vira erro local com "Tentar de novo"; painel envolto em `DossierPanelErrorBoundary` dentro do Sheet. (3) Prazo limite de 10 s (`ACCOUNT_DOSSIER_TIMEOUT_MS`) combinado com o `signal` do React Query (`AbortController` + `Promise.race`); timeout não é repetido automaticamente, vira erro com "Tentar de novo", e a nova tentativa funciona. Durante a nova tentativa o painel mostra "carregando".
+- review-fix — checks: `npm run lint` 0 erros (134 warnings, todos pré-existentes; 0 nos arquivos tocados); `npm run typecheck` limpo; `npm run test:run` 474 arquivos, 9355 testes passando, 2 skipped, 0 falhas.
+- review-fix — Regra nº 1: continua só leitura e exibição. Mudanças só em `dossier-lookup.ts` (uma coluna a mais no `select` de `leads` e de `account_dossier_leads`, ambas existentes na 00010/00073; só `.eq`), no hook e no Sheet do dossiê. Os 3 pontos seguem OK **por análise da diff** (nenhum arquivo do caminho até o Instantly, de busca de leads, webhook ou `reply-sweep` tocado; diff vazio nos proibidos de T11). Efeito visível possível: na revisão/prévia, lead com `apolloId` agora casa só por `apolloId` (antes também por e-mail) — pode mostrar "Sem pesquisa" onde antes casava só pelo e-mail; lado seguro, só no painel.
 - dev-story: T1–T11 implementadas. Sem migration, nada em `supabase/`. Botão "Dossiê" + Sheet lateral na revisão de leads, na prévia da campanha e no card de oportunidade; uma rota GET de leitura.
 - Decisões menores (conservadoras):
   - na revisão de leads, lead sem `apolloId` e sem `email` também não mostra o botão (a rota exigiria um identificador e devolveria 400), igual à prévia da campanha;
@@ -428,6 +435,10 @@ Novos:
 - `__tests__/unit/lib/agent/dossier/dossier-lookup.test.ts`
 - `__tests__/unit/app/api/account-dossiers/lookup.test.ts`
 - `__tests__/unit/components/dossier/AccountDossierPanel.test.tsx`
+- `src/components/dossier/DossierPanelErrorBoundary.tsx` (review-fix rodada 1)
+- `__tests__/unit/components/dossier/AccountDossierSheet.test.tsx` (review-fix rodada 1)
+
+Alterados no review-fix (rodada 1): `src/lib/agent/dossier/dossier-lookup.ts`, `src/hooks/use-account-dossier.ts`, `src/components/dossier/AccountDossierSheet.tsx`, `__tests__/unit/lib/agent/dossier/dossier-lookup.test.ts`, esta story.
 
 Alterados:
 - `src/components/agent/AgentLeadReview.tsx`
@@ -442,6 +453,20 @@ Alterados:
 - `_bmad-output/implementation-artifacts/sprint-status.yaml` (só a linha 24-22 → `review`)
 - `_bmad-output/implementation-artifacts/spec-24-22-dossie-visivel-na-revisao-e-na-oportunidade.md`
 
+### Review Triage Log
+
+- 2026-11-05 — Codex rodada 1 (commit `4b42c5d`), veredito PRECISA CORRIGIR:
+  1. **Identificadores conflitantes** (`dossier-lookup.ts` ~155/~188): `leadId`, `apolloId` e `email` de leads diferentes podiam mostrar o dossiê/posts de B no painel de A. **Aceito e corrigido** (D3.0). Testes: leadId de A + e-mail de B; leadId de A + apolloId de B; apolloId sem `apollo_id` no lead; lead inexistente; execução + identificadores conflitantes (whyNow nem é lido); sem leadId com apolloId de A + e-mail de B (só liga por apolloId, post de B não aparece); ligação por e-mail gravada para outro `apollo_id`; entrada do whyNow casada por e-mail com `apolloId` de outro lead; caso coerente com e-mail em outra caixa.
+  2. **DTO sem validação estrutural** (`use-account-dossier.ts` ~40): **aceito e corrigido** (zod + error boundary local). Testes: HTTP 200 com `{status:"found"}` incompleto → erro local e nova tentativa carrega; exceção de render contida com a tela hospedeira de pé.
+  3. **Sem prazo limite** (`use-account-dossier.ts` ~36): **aceito e corrigido** (10 s). Teste com fetch que nunca resolve (fake timers): erro, sinal abortado, sem retry automático, e "Tentar de novo" carrega.
+  - Itens OK do relatório (somente leitura, escopo, exibição segura, Regra nº 1) sem ação.
+
+### Spec Change Log
+
+- 2026-11-05 — D3 ganhou o passo **D3.0** (identidade única e coerente); D3.1/D3.2 passam a casar só pela identidade D3.0 e descartam ligação/entrada com identificador de outro lead; D4 (oportunidade) agora lê `apollo_id` **e** `email` do lead e exige que o `email` da request bata. Motivo: revisão Codex rodada 1, item 1 (nunca mostrar pesquisa de outra empresa por combinação de parâmetros). Mudança de comportamento registrada nas Completion Notes.
+- 2026-11-05 — AC4 (estados de erro) reforçado no cliente: validação estrutural do DTO, error boundary local e prazo limite de 10 s. Motivo: revisão Codex rodada 1, itens 2 e 3.
+
 ### Change Log
 
 - 2026-11-05: implementação da 24.22 (dossiê visível na revisão e na oportunidade); status → review.
+- 2026-11-05: review-fix Codex rodada 1 (D3.0 identidade coerente, DTO validado + error boundary, timeout de 10 s).
