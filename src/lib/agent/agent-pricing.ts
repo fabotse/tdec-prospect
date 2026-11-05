@@ -202,10 +202,12 @@ export function computeStepActualCost(
       return count(cost, "openai_fit_score") * prices.openai;
     case "research_accounts":
       // Story 24.19: Treg (US$ x cambio) + perfis Apify + chamadas de IA do classificador.
+      // Story 24.20: + chamadas de IA do motivo para abordar agora.
       return (
         count(cost, "treg_usd") * prices.treg +
         count(cost, "apify") * prices.apify +
-        count(cost, "openai_relevance") * prices.openai
+        count(cost, "openai_relevance") * prices.openai +
+        count(cost, "openai_why_now") * prices.openai
       );
     case "create_campaign": {
       const generationCalls =

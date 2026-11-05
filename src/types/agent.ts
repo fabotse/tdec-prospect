@@ -460,6 +460,86 @@ export interface ResearchAccountsOutput {
    * Ausente (output antigo) = nenhuma tentativa registrada (busca como hoje).
    */
   icebreakerPostsAttempted?: IcebreakerAttemptsByUrl;
+  /**
+   * Story 24.20: motivo para abordar agora, por lead. Ausente (output antigo) = nunca
+   * avaliado. NAO chega ao `create_campaign` (o uso na copy e da 24.21).
+   */
+  whyNow?: WhyNowOutput;
+}
+
+// === Why Now (Story 24.20) ===
+
+export type WhyNowNoTriggerReason =
+  | 'disabled'
+  | 'not_researched'
+  | 'facts_unavailable'
+  | 'no_eligible_facts'
+  | 'no_openai_key'
+  | 'call_limit'
+  | 'budget'
+  | 'time_budget'
+  | 'llm_error'
+  | 'timeout'
+  | 'invalid_response'
+  | 'llm_declined'
+  | 'low_confidence';
+
+/** Fato de origem do gatilho: copia do fato do dossie (nunca texto da LLM). */
+export interface WhyNowSourceFact {
+  /** Indice na lista de fatos da conta enviada a LLM. */
+  ref: number;
+  kind: 'news' | 'job' | 'post';
+  fato: string;
+  fonte_url: string;
+  data: string;
+  confianca: 'media' | 'alta';
+}
+
+export interface WhyNowTrigger {
+  /**
+   * Texto DETERMINISTICO montado do proprio fato de origem: "<Noticia|Vaga|Post>: <fato>",
+   * <= 240 caracteres. Nunca e escrito pela LLM (revisao Codex 2).
+   */
+  gatilho: string;
+  /**
+   * Hipotese de dor gerada pela LLM a partir do cargo (persona) e das dores da KB:
+   * PERGUNTA (termina com "?"), sem URL/dominio, sem numero ausente do fato, <= 240
+   * caracteres. Nao e afirmacao sobre a conta.
+   */
+  hipoteseDor: string;
+  confianca: 'media' | 'alta';
+  fatoOrigem: WhyNowSourceFact;
+}
+
+export interface LeadWhyNow {
+  /** Posicao em `readLeads(input)`. */
+  leadIndex: number;
+  apolloId: string | null;
+  /** Minusculo; para casar com o lead na 24.21. */
+  email: string | null;
+  companyDomain: string | null;
+  dossierId: string | null;
+  status: 'trigger' | 'no_trigger';
+  /** So em `no_trigger`. */
+  reason?: WhyNowNoTriggerReason;
+  trigger?: WhyNowTrigger;
+}
+
+export interface WhyNowFlags {
+  disabled?: boolean;
+  noOpenaiKey?: boolean;
+  callLimitReached?: boolean;
+  budgetExhausted?: boolean;
+  timeBudgetExhausted?: boolean;
+  unexpectedError?: boolean;
+}
+
+export interface WhyNowOutput {
+  /** 1 por lead de `readLeads`, na mesma ordem. */
+  leads: LeadWhyNow[];
+  summary: { withTrigger: number; withoutTrigger: number; llmCalls: number; llmFailedCalls: number };
+  kbPainsAvailable: boolean;
+  flags: WhyNowFlags;
 }
 
 // === Create Campaign Output (Story 17.3 AC #4) ===

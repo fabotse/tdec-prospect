@@ -46,7 +46,7 @@ import { ApifyService } from "@/lib/services/apify";
 import { classifyPostRelevance } from "@/lib/utils/relevance-classifier";
 import { loadKBContext } from "@/lib/utils/monitoring-processor";
 import { normalizeDomain } from "@/lib/agent/target-accounts";
-import { DOSSIER_CONFIG } from "@/lib/agent/dossier/config";
+import { DOSSIER_CONFIG, WHY_NOW_CONFIG } from "@/lib/agent/dossier/config";
 import { CostBudget } from "@/lib/agent/dossier/budget";
 import {
   corporateEmailDomain,
@@ -70,8 +70,19 @@ import {
   findReusableDossier,
   insertFacts,
   linkLeads,
+  readDossierFacts,
   saveDossier,
 } from "@/lib/agent/dossier/repository";
+import {
+  planAccountCall,
+  selectWhyNowForAccount,
+  type AccountCallPlan,
+  type SelectWhyNowResult,
+  type WhyNowClientFactory,
+  type WhyNowLeadResult,
+} from "@/lib/agent/dossier/why-now";
+import { readTenantICP } from "@/lib/agent/contextual-suggestions";
+import { EMPTY_TENANT_ICP, type TenantICP } from "@/lib/agent/icp-briefing";
 import {
   buildReusableEntry,
   type IcebreakerAttemptOutcome,
@@ -80,6 +91,7 @@ import {
 } from "@/lib/agent/dossier/icebreaker-posts";
 import type {
   DossierFailureReason,
+  LeadWhyNow,
   PipelineError,
   DossierSkipReason,
   DossierSource,
@@ -90,6 +102,9 @@ import type {
   StepInput,
   StepOutput,
   StepType,
+  WhyNowFlags,
+  WhyNowNoTriggerReason,
+  WhyNowOutput,
 } from "@/types/agent";
 import type { KBContextForClassification } from "@/lib/utils/relevance-classifier";
 import type { LinkedInPost } from "@/types/apify";
@@ -245,6 +260,66 @@ interface RunState {
   icebreakerPosts: ReusablePostsByUrl;
   /** FEL-77: perfis tentados no Apify sem posts reaproveitaveis (o create nao busca de novo). */
   icebreakerAttempts: IcebreakerAttemptsByUrl;
+  /**
+   * Story 24.20: fatos por conta pesquisada (para o gatilho). `facts: null` = fatos
+   * indisponiveis (dossie nao gravado ou leitura do reaproveitado falhou).
+   */
+  accountFacts: AccountFactsEntry[];
+}
+
+/** Story 24.20: fatos de UMA conta pesquisada nesta execucao. */
+interface AccountFactsEntry {
+  domain: string;
+  companyName: string | null;
+  dossierId: string | null;
+  facts: DossierFact[] | null;
+  leads: SearchLeadResult[];
+  /**
+   * Revisao Codex 1: dossie reaproveitado cujos fatos ainda vao ser lidos NA FASE (com o
+   * prazo da fase), nunca no pool da pesquisa. `savedPosts` = posts gravados agora.
+   */
+  pendingRead?: { savedPosts: DossierFact[] };
+}
+
+/** Story 24.20: conta a avaliar na fase; `plan: null` = fatos ainda a ler (reuso). */
+interface WhyNowTask {
+  entry: AccountFactsEntry;
+  plan: AccountCallPlan | null;
+}
+
+/** Story 24.20: estado da fase "motivo para abordar agora" de UMA execucao. */
+interface WhyNowRun {
+  started: boolean;
+  finished: boolean;
+  /** Resultado por indice de lead (`readLeads`). */
+  results: Map<number, LeadWhyNow>;
+  /** Motivo dos leads ainda nao avaliados quando o output e montado. */
+  pendingReason: WhyNowNoTriggerReason;
+  llmCalls: number;
+  llmFailedCalls: number;
+  kbPainsAvailable: boolean;
+  flags: WhyNowFlags;
+}
+
+function newWhyNowRun(): WhyNowRun {
+  return {
+    started: false,
+    finished: false,
+    results: new Map(),
+    pendingReason: "time_budget",
+    llmCalls: 0,
+    llmFailedCalls: 0,
+    kbPainsAvailable: false,
+    flags: {},
+  };
+}
+
+function sourceHost(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
 }
 
 export interface ResearchAccountsDeps {
@@ -252,6 +327,10 @@ export interface ResearchAccountsDeps {
   apify?: ApifyService;
   /** Relogio (ms) — injetavel nos testes de teto de tempo. */
   clock?: () => number;
+  /** Story 24.20: client OpenAI do gatilho (padrao: SDK `openai`). Injetavel nos testes. */
+  whyNowClient?: WhyNowClientFactory;
+  /** Story 24.20: leitura do ICP da KB (padrao: `readTenantICP`, service-role, fail-open). */
+  readIcp?: (tenantId: string) => Promise<TenantICP>;
 }
 
 // ==============================================
@@ -263,6 +342,8 @@ export class ResearchAccountsStep extends BaseStep {
   private readonly treg: TregService;
   private readonly apify: ApifyService;
   private readonly clock: () => number;
+  private readonly whyNowClient: WhyNowClientFactory | undefined;
+  private readonly readIcp: (tenantId: string) => Promise<TenantICP>;
 
   // Estado da execucao corrente (zerado a cada `run`).
   /** Instante (clock) do prazo duro da pesquisa. */
@@ -274,6 +355,11 @@ export class ResearchAccountsStep extends BaseStep {
   private doneAccounts: ResearchedAccount[] = [];
   /** O caminho de "pulada" ja mandou a propria mensagem; o `run` nao manda o resumo. */
   private summarySent = false;
+  /** Story 24.20: leads da execucao (`readLeads`), para o `whyNow` e o resumo. */
+  private runLeads: SearchLeadResult[] = [];
+  /** Story 24.20: indices (`readLeads`) de cada lead, por identidade do objeto. */
+  private leadIndexes = new Map<SearchLeadResult, number[]>();
+  private whyNowRun: WhyNowRun = newWhyNowRun();
 
   constructor(
     stepNumber: number,
@@ -286,6 +372,8 @@ export class ResearchAccountsStep extends BaseStep {
     this.treg = deps.treg ?? new TregService();
     this.apify = deps.apify ?? new ApifyService();
     this.clock = deps.clock ?? (() => Date.now());
+    this.whyNowClient = deps.whyNowClient;
+    this.readIcp = deps.readIcp ?? readTenantICP;
   }
 
   /** Informativo: nao ha o que aprovar. O pipeline segue direto para o `create_campaign`. */
@@ -312,6 +400,8 @@ export class ResearchAccountsStep extends BaseStep {
     this.runState = null;
     this.doneAccounts = [];
     this.summarySent = false;
+    this.setRunLeads([]);
+    this.whyNowRun = newWhyNowRun();
 
     const claim = await settleWithin(
       () => this.updateStepStatus(db, input.executionId, "running"),
@@ -399,7 +489,9 @@ export class ResearchAccountsStep extends BaseStep {
     // Fallback minimo sem a lista de contas e sem os posts (o que mais pesa). FEL-77: os
     // perfis cujos posts ficaram de fora viram "ja tentados" (registro pequeno), para o
     // `create_campaign` nao chamar o Apify uma segunda vez (cai no icebreaker padrao).
-    const { icebreakerPosts: droppedPosts, ...minimalData } = data;
+    // Story 24.20: o fallback minimo tambem tira o `whyNow` (como ja faz com as contas).
+    const { icebreakerPosts: droppedPosts, whyNow: droppedWhyNow, ...minimalData } = data;
+    void droppedWhyNow;
     if (droppedPosts && Object.keys(droppedPosts).length > 0) {
       const attempted: IcebreakerAttemptsByUrl = { ...(minimalData.icebreakerPostsAttempted ?? {}) };
       for (const [url, entry] of Object.entries(droppedPosts)) {
@@ -440,7 +532,7 @@ export class ResearchAccountsStep extends BaseStep {
     if (!this.summarySent) {
       await this.sendMessage(
         executionId,
-        ResearchAccountsStep.summaryText(result.data as unknown as ResearchAccountsOutput),
+        ResearchAccountsStep.summaryText(result.data as unknown as ResearchAccountsOutput, this.runLeads),
         "text",
         left(0.15)
       );
@@ -527,6 +619,7 @@ export class ResearchAccountsStep extends BaseStep {
 
     try {
       const leads = ResearchAccountsStep.readLeads(input);
+      this.setRunLeads(leads);
       const groups = ResearchAccountsStep.groupLeads(leads);
 
       if (groups.length === 0) {
@@ -581,6 +674,7 @@ export class ResearchAccountsStep extends BaseStep {
         leadsLinked: 0,
         icebreakerPosts: {},
         icebreakerAttempts: {},
+        accountFacts: [],
       };
       this.runState = state;
       if (state.premium && state.apifyKey) {
@@ -612,6 +706,9 @@ export class ResearchAccountsStep extends BaseStep {
       accounts = await runPool(merged, DOSSIER_CONFIG.accountConcurrency, (account) =>
         this.researchAccountSafe(runState, account)
       );
+
+      // Story 24.20: fase final, fail-open (nunca lanca nem muda o resto do output).
+      await this.evaluateWhyNowSafe(runState);
     } catch (error) {
       // Rede de seguranca: nenhuma excecao chega ao pipeline.
       console.error(
@@ -808,6 +905,7 @@ export class ResearchAccountsStep extends BaseStep {
       const dossierId = reuse.dossier.id;
       const posts = await this.collectPostsForReused(state, account, dossierId);
       let factsCount = reuse.dossier.factsCount;
+      let postsSaved = false;
       if (posts.facts.length > 0) {
         const inserted = await this.bounded(
           "gravacao de posts no dossie",
@@ -815,9 +913,14 @@ export class ResearchAccountsStep extends BaseStep {
           { error: "sem resposta antes do prazo do step" }
         );
         if (inserted.error) state.flags.persistFailed = true;
-        else factsCount += posts.facts.length;
+        else {
+          factsCount += posts.facts.length;
+          postsSaved = true;
+        }
       }
       await this.link(state, dossierId, account);
+      // Story 24.20: so marca a conta; a leitura dos fatos e da fase (fora deste pool).
+      this.rememberReusedFacts(state, account, domain, dossierId, postsSaved ? posts.facts : []);
       return {
         companyName: account.companyName ?? reuse.dossier.companyName,
         domain,
@@ -920,6 +1023,8 @@ export class ResearchAccountsStep extends BaseStep {
       state.flags.persistFailed = true;
     }
     if (saved.dossierId) await this.link(state, saved.dossierId, account);
+    // Story 24.20: fato nao gravado nao vira gatilho.
+    this.rememberAccountFacts(state, account, domain, saved.dossierId, saved.dossierId && !saved.error ? facts : null);
 
     return {
       companyName: account.companyName,
@@ -1293,6 +1398,431 @@ export class ResearchAccountsStep extends BaseStep {
   }
 
   // ==============================================
+  // WHY NOW (Story 24.20)
+  // ==============================================
+
+  private setRunLeads(leads: SearchLeadResult[]): void {
+    this.runLeads = leads;
+    this.leadIndexes = new Map();
+    leads.forEach((lead, index) => {
+      const list = this.leadIndexes.get(lead) ?? [];
+      list.push(index);
+      this.leadIndexes.set(lead, list);
+    });
+  }
+
+  /**
+   * Como `bounded`, mas SEM tocar nas flags da pesquisa (a fase do gatilho nunca muda o
+   * output da 24.19). Espera no maximo `ms` e nunca passa do prazo duro. Nunca lanca.
+   */
+  private async quietBounded<T>(label: string, op: () => Promise<T>, fallback: T, ms?: number): Promise<T> {
+    const limit = Math.max(0, Math.min(ms ?? Number.POSITIVE_INFINITY, this.remainingToDeadline()));
+    const outcome = await settleWithin(op, limit);
+    if (outcome.ok) return outcome.value;
+    console.error(
+      `[ResearchAccountsStep] ${label}:`,
+      outcome.timedOut ? "sem resposta antes do prazo" : errorMessage(outcome.error)
+    );
+    return fallback;
+  }
+
+  private rememberAccountFacts(
+    state: RunState,
+    account: ResolvedAccount,
+    domain: string,
+    dossierId: string | null,
+    facts: DossierFact[] | null
+  ): void {
+    if (!WHY_NOW_CONFIG.enabled) return;
+    state.accountFacts.push({ domain, companyName: account.companyName, dossierId, facts, leads: account.leads });
+  }
+
+  /**
+   * Reuso: so registra a conta como "fatos a ler". A leitura (`readDossierFacts`) roda na
+   * fase do gatilho, com o prazo da fase, para nunca ocupar um worker da pesquisa nem
+   * mudar nada do output da 24.19 (revisao Codex 1). Sincrono, nao espera nada.
+   */
+  private rememberReusedFacts(
+    state: RunState,
+    account: ResolvedAccount,
+    domain: string,
+    dossierId: string,
+    savedPosts: DossierFact[]
+  ): void {
+    if (!WHY_NOW_CONFIG.enabled) return;
+    state.accountFacts.push({
+      domain,
+      companyName: account.companyName,
+      dossierId,
+      facts: null,
+      leads: account.leads,
+      pendingRead: { savedPosts },
+    });
+  }
+
+  /** Le os fatos de um dossie reaproveitado dentro do prazo da fase. Nunca lanca. */
+  private async readReusedFacts(entry: AccountFactsEntry, waitMs: number): Promise<void> {
+    const dossierId = entry.dossierId;
+    const savedPosts = entry.pendingRead?.savedPosts ?? [];
+    entry.pendingRead = undefined;
+    if (!dossierId) return;
+    const stored = await this.quietBounded(
+      "leitura dos fatos do dossie (motivo para abordar agora)",
+      () => readDossierFacts(this.supabase, this.tenantId, dossierId),
+      { facts: [] as DossierFact[], error: "sem resposta antes do prazo da fase" },
+      waitMs
+    );
+    if (stored.error) {
+      console.error(`[ResearchAccountsStep] Fatos do dossie ${dossierId} indisponiveis para o gatilho:`, stored.error);
+      entry.facts = null;
+      return;
+    }
+    entry.facts = [...stored.facts, ...savedPosts];
+  }
+
+  private setLeadWhyNow(
+    lead: SearchLeadResult,
+    entry: AccountFactsEntry | null,
+    result: WhyNowLeadResult
+  ): void {
+    for (const leadIndex of this.leadIndexes.get(lead) ?? []) {
+      const base = {
+        leadIndex,
+        apolloId: lead.apolloId ?? null,
+        email: lead.email?.trim().toLowerCase() || null,
+        companyDomain: entry?.domain ?? null,
+        dossierId: entry?.dossierId ?? null,
+      };
+      this.whyNowRun.results.set(
+        leadIndex,
+        result.trigger
+          ? { ...base, status: "trigger", trigger: result.trigger }
+          : { ...base, status: "no_trigger", reason: result.reason }
+      );
+    }
+  }
+
+  private setLeadsWhyNow(
+    entry: AccountFactsEntry,
+    indexes: number[],
+    reason: WhyNowNoTriggerReason
+  ): void {
+    for (const i of indexes) this.setLeadWhyNow(entry.leads[i], entry, { reason });
+  }
+
+  /** Rede de seguranca da fase: nenhuma excecao sai daqui. */
+  private async evaluateWhyNowSafe(state: RunState): Promise<void> {
+    try {
+      await this.evaluateWhyNow(state);
+    } catch (error) {
+      console.error(
+        `[ResearchAccountsStep] Excecao inesperada no motivo para abordar agora (execution=${state.executionId}); o step segue:`,
+        errorMessage(error)
+      );
+      this.whyNowRun.flags.unexpectedError = true;
+      this.whyNowRun.pendingReason = "llm_error";
+    } finally {
+      this.whyNowRun.finished = true;
+    }
+  }
+
+  /**
+   * Gatilho por lead (1 chamada de LLM por conta com fato elegivel), com tetos de
+   * chamadas, custo reservado e tempo (fase + prazo duro). Nunca muda contas, resumo,
+   * flags, custo nem os posts da 24.19, e nunca pausa o pipeline.
+   */
+  private async evaluateWhyNow(state: RunState): Promise<void> {
+    const run = this.whyNowRun;
+    run.started = true;
+    if (!WHY_NOW_CONFIG.enabled) return;
+
+    const entries = state.accountFacts;
+    // Leads de contas nao pesquisadas (puladas, sem dominio...): `not_researched`.
+    const inEntries = new Set(entries.flatMap((entry) => entry.leads));
+    this.runLeads.forEach((lead) => {
+      if (!inEntries.has(lead)) this.setLeadWhyNow(lead, null, { reason: "not_researched" });
+    });
+    const allLeads = (entry: AccountFactsEntry) => entry.leads.map((_, i) => i);
+    for (const entry of entries) {
+      if (entry.facts === null && !entry.pendingRead) this.setLeadsWhyNow(entry, allLeads(entry), "facts_unavailable");
+    }
+
+    // Contas com fatos ja em memoria viram tarefa com plano; reaproveitadas, tarefa com
+    // leitura pendente (lida DENTRO da fase, em paralelo com as outras chamadas).
+    const tasks: WhyNowTask[] = [];
+    for (const entry of entries) {
+      if (entry.pendingRead) continue;
+      if (entry.facts === null) continue;
+      const plan = this.planWhyNowEntry(entry);
+      if (plan) tasks.push({ entry, plan });
+    }
+    for (const entry of entries) if (entry.pendingRead) tasks.push({ entry, plan: null });
+    if (tasks.length === 0) return;
+
+    const markTasks = (reason: WhyNowNoTriggerReason) => {
+      for (const task of tasks) {
+        if (task.plan) this.setLeadsWhyNow(task.entry, task.plan.callLeads, reason);
+        else {
+          task.entry.pendingRead = undefined;
+          this.setLeadsWhyNow(task.entry, allLeads(task.entry), reason);
+        }
+      }
+    };
+    if (this.remainingToDeadline() < WHY_NOW_CONFIG.minPhaseMs) {
+      run.flags.timeBudgetExhausted = true;
+      markTasks("time_budget");
+      return;
+    }
+    return this.runWhyNowCalls(state, tasks, this.phaseClock(), markTasks);
+  }
+
+  /** Plano de UMA conta com fatos: marca sem fato / alem do limite; `null` = sem chamada. */
+  private planWhyNowEntry(entry: AccountFactsEntry): AccountCallPlan | null {
+    const plan = planAccountCall(
+      entry.facts ?? [],
+      entry.leads.map((lead) => ({ apolloId: lead.apolloId ?? null, email: lead.email ?? null }))
+    );
+    this.setLeadsWhyNow(entry, plan.noEligible, "no_eligible_facts");
+    if (plan.overLimit.length > 0) {
+      this.whyNowRun.flags.callLimitReached = true;
+      this.setLeadsWhyNow(entry, plan.overLimit, "call_limit");
+    }
+    return plan.callLeads.length > 0 ? plan : null;
+  }
+
+  /** Prazo da fase: `min(agora + phaseBudgetMs, prazo duro)`. */
+  private phaseClock(): { left: () => number } {
+    const phaseDeadline = Math.min(this.clock() + WHY_NOW_CONFIG.phaseBudgetMs, this.deadlineAt);
+    return { left: () => Math.max(0, phaseDeadline - this.clock()) };
+  }
+
+  /**
+   * Chave, ICP, leituras pendentes e chamadas, todos dentro do prazo da fase. Nunca lanca.
+   * Sem chave OpenAI, contas com leitura pendente nem sao lidas: todos os leads delas
+   * ficam `no_openai_key` (nao ha como haver gatilho).
+   */
+  private async runWhyNowCalls(
+    state: RunState,
+    tasks: WhyNowTask[],
+    phase: { left: () => number },
+    markTasks: (reason: WhyNowNoTriggerReason) => void
+  ): Promise<void> {
+    const run = this.whyNowRun;
+    const phaseLeft = phase.left;
+
+    const apiKey = await this.quietBounded(
+      "leitura da chave da OpenAI (motivo para abordar agora)",
+      () => getServiceApiKeyOrNull(this.tenantId, "openai"),
+      null,
+      phaseLeft()
+    );
+    if (!apiKey) {
+      run.flags.noOpenaiKey = true;
+      markTasks("no_openai_key");
+      return;
+    }
+    const icp = await this.quietBounded(
+      "leitura do ICP (motivo para abordar agora)",
+      () => this.readIcp(this.tenantId),
+      EMPTY_TENANT_ICP,
+      phaseLeft()
+    );
+    const painPoints = typeof icp?.painPoints === "string" ? icp.painPoints.trim() : "";
+    run.kbPainsAvailable = painPoints.length > 0;
+
+    const budget = new CostBudget(WHY_NOW_CONFIG.maxCostUsdPerExecution);
+    let callsStarted = 0;
+
+    await runPool(tasks, WHY_NOW_CONFIG.concurrency, async (task) => {
+      const entry = task.entry;
+      let plan = task.plan;
+      if (!plan) {
+        // Revisao Codex 1: leitura do dossie reaproveitado com o prazo da fase; erro ou
+        // espera -> sem gatilho para esta conta (as outras seguem).
+        await this.readReusedFacts(entry, phaseLeft());
+        if (entry.facts === null) {
+          this.setLeadsWhyNow(entry, entry.leads.map((_, i) => i), "facts_unavailable");
+          return;
+        }
+        plan = this.planWhyNowEntry(entry);
+        if (!plan) return;
+      }
+      const callLeads = plan.callLeads;
+      if (callsStarted >= WHY_NOW_CONFIG.maxCallsPerExecution) {
+        run.flags.callLimitReached = true;
+        this.setLeadsWhyNow(entry, callLeads, "call_limit");
+        return;
+      }
+      const left = phaseLeft();
+      if (left < WHY_NOW_CONFIG.minCallMs) {
+        run.flags.timeBudgetExhausted = true;
+        this.setLeadsWhyNow(entry, callLeads, "time_budget");
+        return;
+      }
+      const reserve = WHY_NOW_CONFIG.reservedUsdPerCall;
+      if (!budget.tryReserve(reserve)) {
+        run.flags.budgetExhausted = true;
+        this.setLeadsWhyNow(entry, callLeads, "budget");
+        return;
+      }
+      callsStarted++;
+      run.llmCalls++;
+
+      const timeoutMs = Math.min(WHY_NOW_CONFIG.callTimeoutMs, left);
+      const startedAt = this.clock();
+      let outcome: SelectWhyNowResult;
+      try {
+        const call = await settleWithin(
+          () =>
+            selectWhyNowForAccount({
+              apiKey,
+              companyName: entry.companyName,
+              domain: entry.domain,
+              plan,
+              leads: callLeads.map((i) => ({
+                cargo: entry.leads[i].title ?? null,
+                empresa: entry.leads[i].companyName ?? entry.companyName,
+              })),
+              painPoints,
+              timeoutMs,
+              createClient: this.whyNowClient,
+              clock: this.clock,
+            }),
+          // O AbortController da chamada e a 1a linha; esta e a garantia do prazo da fase
+          // (e do prazo duro).
+          Math.max(0, Math.min(timeoutMs + 1_000, phaseLeft(), this.remainingToDeadline()))
+        );
+        if (call.ok) {
+          outcome = call.value;
+        } else {
+          const reason: WhyNowNoTriggerReason = call.timedOut ? "timeout" : "llm_error";
+          outcome = {
+            results: callLeads.map(() => ({ reason })),
+            attempted: true,
+            succeeded: false,
+            usage: {
+              model: "",
+              promptTokens: 0,
+              completionTokens: 0,
+              durationMs: Math.max(0, this.clock() - startedAt),
+              errorMessage: call.timedOut ? "sem resposta antes do prazo" : errorMessage(call.error),
+            },
+          };
+        }
+      } finally {
+        // Custo real em US$ desconhecido aqui: conta o reservado (conservador).
+        budget.settle(reserve, reserve);
+      }
+
+      if (!outcome.succeeded) run.llmFailedCalls++;
+      callLeads.forEach((i, j) => {
+        this.setLeadWhyNow(entry.leads[i], entry, outcome.results[j] ?? { reason: "invalid_response" });
+      });
+
+      await this.quietBounded(
+        "log de uso (motivo para abordar agora)",
+        () =>
+          logAgentUsage({
+            tenantId: this.tenantId,
+            executionId: state.executionId,
+            stepType: "research_accounts",
+            serviceName: "openai",
+            requestType: "why_now_trigger",
+            status: outcome.succeeded ? "success" : "failed",
+            calls: 1,
+            durationMs: outcome.usage.durationMs,
+            errorMessage: outcome.succeeded ? undefined : outcome.usage.errorMessage,
+            metadata: {
+              model: outcome.usage.model || undefined,
+              promptTokens: outcome.usage.promptTokens,
+              completionTokens: outcome.usage.completionTokens,
+              leads: callLeads.length,
+              eligibleFacts: plan.eligible.length,
+              triggers: outcome.results.filter((r) => r.trigger).length,
+            },
+          }),
+        undefined,
+        // Revisao Codex 1: o log tambem respeita o prazo da fase (a gravacao segue em
+        // segundo plano; so a fase nao espera por ela).
+        phaseLeft()
+      );
+    });
+  }
+
+  /** `output.whyNow` (sempre que houver leads); leads nao avaliados levam o motivo pendente. */
+  private buildWhyNow(): WhyNowOutput | undefined {
+    if (this.runLeads.length === 0) return undefined;
+    const run = this.whyNowRun;
+    const flags: WhyNowFlags = { ...run.flags };
+    let fallback: WhyNowNoTriggerReason;
+    if (!WHY_NOW_CONFIG.enabled) {
+      flags.disabled = true;
+      fallback = "disabled";
+    } else if (!run.started) {
+      fallback = "not_researched";
+    } else {
+      fallback = run.pendingReason;
+    }
+
+    const leads: LeadWhyNow[] = this.runLeads.map((lead, leadIndex) => {
+      const done = WHY_NOW_CONFIG.enabled ? run.results.get(leadIndex) : undefined;
+      if (done) return { ...done };
+      // Interrompido no meio da fase (backstop do prazo): os pendentes sao "tempo".
+      if (fallback === "time_budget") flags.timeBudgetExhausted = true;
+      return {
+        leadIndex,
+        apolloId: lead.apolloId ?? null,
+        email: lead.email?.trim().toLowerCase() || null,
+        companyDomain: null,
+        dossierId: null,
+        status: "no_trigger",
+        reason: fallback,
+      };
+    });
+    const withTrigger = leads.filter((l) => l.status === "trigger").length;
+    return {
+      leads,
+      summary: {
+        withTrigger,
+        withoutTrigger: leads.length - withTrigger,
+        llmCalls: run.llmCalls,
+        llmFailedCalls: run.llmFailedCalls,
+      },
+      kbPainsAvailable: run.kbPainsAvailable,
+      flags,
+    };
+  }
+
+  /** Bloco do resumo no chat. Nome e cargo vem dos leads em memoria (nunca do output). */
+  static whyNowSummaryText(whyNow: WhyNowOutput | undefined, leads: SearchLeadResult[] = []): string | null {
+    if (!whyNow || whyNow.flags.disabled || whyNow.leads.length === 0) return null;
+    const total = whyNow.leads.length;
+    const withTrigger = whyNow.leads.filter((l) => l.status === "trigger");
+    const ordered = [...withTrigger, ...whyNow.leads.filter((l) => l.status !== "trigger")];
+    const shown = ordered.slice(0, WHY_NOW_CONFIG.summaryMaxLeads);
+
+    const lines = [`Motivo para abordar agora: ${withTrigger.length} de ${plural(total, "lead", "leads")} com gatilho.`];
+    for (const entry of shown) {
+      const lead = leads[entry.leadIndex];
+      const name = lead?.name?.trim() || "Lead";
+      const company = lead?.companyName?.trim() || entry.companyDomain || "";
+      if (entry.status === "trigger" && entry.trigger) {
+        const who = [lead?.title?.trim(), company].filter(Boolean).join(", ");
+        const source = entry.trigger.fatoOrigem;
+        lines.push(
+          `- ${name}${who ? ` (${who})` : ""}: ${entry.trigger.gatilho} (fonte: ${sourceHost(source.fonte_url)}, ${source.data}, confianca ${entry.trigger.confianca})`
+        );
+      } else {
+        lines.push(`- ${name}${company ? ` (${company})` : ""}: sem gatilho, segue a copy padrao.`);
+      }
+    }
+    if (ordered.length > shown.length) {
+      lines.push(`... e mais ${plural(ordered.length - shown.length, "lead", "leads")}.`);
+    }
+    return lines.join("\n");
+  }
+
+  // ==============================================
   // OUTPUT
   // ==============================================
 
@@ -1321,6 +1851,8 @@ export class ResearchAccountsStep extends BaseStep {
     if (state && Object.keys(state.icebreakerAttempts).length > 0) {
       output.icebreakerPostsAttempted = { ...state.icebreakerAttempts };
     }
+    const whyNow = this.buildWhyNow();
+    if (whyNow) output.whyNow = whyNow;
     return {
       success: true,
       data: output as unknown as Record<string, unknown>,
@@ -1332,11 +1864,20 @@ export class ResearchAccountsStep extends BaseStep {
         treg_calls_estimated: state?.tregEstimatedCalls ?? 0,
         apify: state?.apifyCalls ?? 0,
         openai_relevance: state?.openaiRelevanceCalls ?? 0,
+        // Story 24.20: chamadas de IA tentadas do motivo para abordar agora.
+        openai_why_now: this.whyNowRun.llmCalls,
       },
     };
   }
 
-  static summaryText(output: ResearchAccountsOutput): string {
+  static summaryText(output: ResearchAccountsOutput, leads: SearchLeadResult[] = []): string {
+    const base = ResearchAccountsStep.researchSummaryText(output);
+    // Story 24.20: bloco de gatilhos por lead (ausente sem `whyNow` ou com o kill switch).
+    const whyNow = ResearchAccountsStep.whyNowSummaryText(output.whyNow, leads);
+    return whyNow ? `${base}\n\n${whyNow}` : base;
+  }
+
+  private static researchSummaryText(output: ResearchAccountsOutput): string {
     const { summary, flags } = output;
     if (flags.unexpectedError && summary.researched === 0) {
       return "Nao consegui concluir a pesquisa das contas. A campanha segue normalmente, sem dossie.";

@@ -42,10 +42,22 @@ vi.mock("@/lib/services/apify", () => ({
 }));
 
 const mockReadServiceApiKey = vi.fn();
+const mockGetServiceApiKeyOrNull = vi.fn();
 vi.mock("@/lib/agent/service-keys", () => ({
   readServiceApiKey: (...args: unknown[]) => mockReadServiceApiKey(...args),
-  getServiceApiKeyOrNull: vi.fn().mockResolvedValue(null),
+  getServiceApiKeyOrNull: (...args: unknown[]) => mockGetServiceApiKeyOrNull(...args),
   getServiceApiKey: vi.fn(),
+}));
+
+// Story 24.20: a LLM do gatilho e fake (SDK `openai` mockado) e o ICP nao sai do processo.
+const mockOpenaiCreate = vi.fn();
+vi.mock("openai", () => ({
+  default: class {
+    chat = { completions: { create: (...args: unknown[]) => mockOpenaiCreate(...args) } };
+  },
+}));
+vi.mock("@/lib/agent/contextual-suggestions", () => ({
+  readTenantICP: vi.fn(async () => ({ jobTitles: [], industries: [], companySizes: [], geographicFocus: [], painPoints: "" })),
 }));
 
 const mockLogAgentUsage = vi.fn();
@@ -69,6 +81,7 @@ vi.mock("@/lib/agent/steps/create-campaign-step", () => ({
 }));
 
 import { DeterministicOrchestrator } from "@/lib/agent/orchestrator";
+import { WHY_NOW_CONFIG } from "@/lib/agent/dossier/config";
 import { useAutoTrigger } from "@/hooks/use-auto-trigger";
 
 // ==============================================
@@ -91,6 +104,8 @@ interface FakeOptions {
   messages?: Mode;
   /** `account_dossiers` e afins. */
   dossiers?: Mode;
+  /** Story 24.20: o insert em `account_dossiers` devolve um id (dossie gravado). */
+  dossierIds?: boolean;
 }
 
 const LEAD = { name: "Ana", title: "CISO", companyName: "Banco X", email: "ana@bancox.com.br", linkedinUrl: null, apolloId: "ap-1" };
@@ -175,6 +190,12 @@ function createFakeDb(options: FakeOptions = {}) {
       return chain;
     }
     if (table === "agent_messages") return modeChain(options.messages ?? "ok");
+    if (table === "account_dossiers" && options.dossierIds) {
+      const chain = createChainBuilder();
+      chain.then = (resolve, reject) =>
+        Promise.resolve(chain.insert.mock.calls.length > 0 ? { data: { id: "dossier-1" }, error: null } : { data: [], error: null }).then(resolve, reject);
+      return chain;
+    }
     if (table.startsWith("account_dossier")) return modeChain(options.dossiers ?? "ok");
     return createChainBuilder();
   });
@@ -242,6 +263,8 @@ async function autoTrigger(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockGetServiceApiKeyOrNull.mockResolvedValue(null);
+  mockOpenaiCreate.mockRejectedValue(new Error("LLM nao configurada neste teste"));
   mockReadServiceApiKey.mockResolvedValue({ status: "ok", apiKey: "treg-key" });
   mockLogAgentUsage.mockResolvedValue(undefined);
   mockTregCall.mockImplementation((_key: string, endpoint: string) => tregOk(endpoint));
@@ -458,5 +481,104 @@ describe("research_accounts no pipeline — continuidade sem pending/running (2a
     expect(db.rows[2].status).toBe("pending");
     expect(await autoTrigger(db, orchestrator, "guided")).toEqual([]);
     expect(mockCreateCampaignRun).not.toHaveBeenCalled();
+  });
+});
+
+// ==============================================
+// STORY 24.20 — o gatilho nao chega ao create_campaign
+// ==============================================
+
+describe("research_accounts no pipeline — motivo para abordar agora (Story 24.20)", () => {
+  /** Treg com noticia recente do Banco X (fato elegivel `alta`). */
+  function tregWithNews(_key: string, endpoint: string, body: Record<string, unknown>) {
+    if (endpoint === "exa.web.search" && String(body.query).startsWith("noticias")) {
+      const publishedDate = new Date(Date.now() - 5 * 86_400_000).toISOString();
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: { results: [{ url: "https://valor.com.br/banco-x", title: "Banco X anuncia novo CISO", publishedDate }] },
+        costMicro: 7000,
+        durationMs: 5,
+      });
+    }
+    return tregOk(endpoint);
+  }
+
+  const llmTrigger = async (req: { messages: Array<{ content: string }> }) => {
+    const facts = req.messages[1].content.split("FATOS (")[1].split("LEADS (")[0];
+    const news = facts.split("\n").filter((l) => l.startsWith("{")).map((l) => JSON.parse(l)).find((f) => f.kind === "news");
+    return {
+      choices: [{ message: { content: JSON.stringify({ leads: [{ j: 0, ref: news.ref, gatilho: "O Banco X anunciou novo CISO.", hipotese_dor: "Como o novo CISO vai priorizar a visibilidade?", confianca: "alta" }] }) } }],
+      usage: { prompt_tokens: 10, completion_tokens: 5 },
+    };
+  };
+
+  async function runAndCreate(): Promise<{ research: Record<string, unknown>; previousStepOutput: unknown }> {
+    const db = createFakeDb({ dossierIds: true });
+    const orchestrator = new DeterministicOrchestrator(db.client, "api-key");
+    const research = await orchestrator.executeStep("exec-1", 3);
+    expect(research.success).toBe(true);
+    expect(db.rows[2].status).toBe("completed");
+    expect(await autoTrigger(db, orchestrator, "autopilot")).toEqual([4]);
+    expect(mockCreateCampaignRun).toHaveBeenCalledTimes(1);
+    const previousStepOutput = mockCreateCampaignRun.mock.calls[0][0].previousStepOutput;
+    mockCreateCampaignRun.mockClear();
+    return { research: research.data as Record<string, unknown>, previousStepOutput };
+  }
+
+  it("com whyNow no output, o previousStepOutput do create_campaign e deep-equal ao da fase desligada", async () => {
+    mockTregCall.mockImplementation(tregWithNews);
+    mockGetServiceApiKeyOrNull.mockImplementation(async (_t: string, service: string) => (service === "openai" ? "sk-tenant" : null));
+    mockOpenaiCreate.mockImplementation(llmTrigger);
+
+    const withPhase = await runAndCreate();
+    const whyNow = (withPhase.research as { whyNow?: { leads: Array<{ status: string }> } }).whyNow;
+    expect(whyNow?.leads).toEqual([expect.objectContaining({ status: "trigger" })]);
+    expect(mockOpenaiCreate).toHaveBeenCalledTimes(1);
+
+    const config = WHY_NOW_CONFIG as { enabled: boolean };
+    config.enabled = false;
+    try {
+      const withoutPhase = await runAndCreate();
+      expect((withoutPhase.research as { whyNow?: { flags: unknown } }).whyNow?.flags).toEqual({ disabled: true });
+      expect(withPhase.previousStepOutput).toEqual(withoutPhase.previousStepOutput);
+      expect(withPhase.previousStepOutput).toEqual({ leads: [LEAD], totalFound: 1 });
+      expect(JSON.stringify(withPhase.previousStepOutput)).not.toContain("whyNow");
+    } finally {
+      config.enabled = true;
+    }
+  });
+
+  it("LLM pendurada (ignora o abort): o step termina bem antes de 256 s e o create_campaign dispara", async () => {
+    vi.useFakeTimers();
+    mockTregCall.mockImplementation(tregWithNews);
+    mockGetServiceApiKeyOrNull.mockImplementation(async (_t: string, service: string) => (service === "openai" ? "sk-tenant" : null));
+    mockOpenaiCreate.mockReturnValue(NEVER);
+    const db = createFakeDb({ dossierIds: true });
+    const orchestrator = new DeterministicOrchestrator(db.client, "api-key");
+
+    let settledAt: number | null = null;
+    const startedAt = Date.now();
+    const research = orchestrator.executeStep("exec-1", 3).then((r) => {
+      settledAt = Date.now() - startedAt;
+      return r;
+    });
+    await vi.advanceTimersByTimeAsync(256_000);
+    expect(settledAt).not.toBeNull();
+    expect(settledAt!).toBeLessThanOrEqual(256_000);
+    // Timeout da chamada (20 s) + margem: a fase nao chega perto do prazo duro.
+    expect(settledAt!).toBeLessThanOrEqual(WHY_NOW_CONFIG.callTimeoutMs + 5_000);
+
+    const result = await research;
+    expect(result.success).toBe(true);
+    const output = result.data as { whyNow: { leads: Array<{ reason?: string }> }; flags: Record<string, unknown> };
+    expect(output.whyNow.leads).toEqual([expect.objectContaining({ reason: "timeout" })]);
+    expect(output.flags.timeBudgetExhausted).toBeUndefined();
+    expect(wasPaused(db)).toBe(false);
+
+    vi.useRealTimers();
+    expect(await autoTrigger(db, orchestrator, "autopilot")).toEqual([4]);
+    expect(mockCreateCampaignRun).toHaveBeenCalledTimes(1);
+    expect(mockCreateCampaignRun.mock.calls[0][0].previousStepOutput).toEqual({ leads: [LEAD], totalFound: 1 });
   });
 });

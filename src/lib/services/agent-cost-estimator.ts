@@ -9,7 +9,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { readServiceApiKey } from "@/lib/agent/service-keys";
 import type { CostEstimate, CostModel, ParsedBriefing } from "@/types/agent";
-import { DOSSIER_CONFIG } from "@/lib/agent/dossier/config";
+import { DOSSIER_CONFIG, WHY_NOW_CONFIG } from "@/lib/agent/dossier/config";
 import {
   AGENT_DEFAULT_COSTS,
   AGENT_PIPELINE_VOLUMES,
@@ -177,12 +177,18 @@ export class CostEstimatorService {
     const researchPremium = usePremiumIcebreakers
       ? leads * prices.apify + leads * DOSSIER_ESTIMATE_POSTS_PER_LEAD * prices.openai
       : 0;
+    // Story 24.20: ate N chamadas de IA do motivo para abordar agora (1 por conta, teto da execucao).
+    const whyNowCalls = WHY_NOW_CONFIG.enabled
+      ? Math.min(leads, WHY_NOW_CONFIG.maxCallsPerExecution)
+      : 0;
+    const researchWhyNow = whyNowCalls * prices.openai;
     const researchDescription = researchWithoutKey
       ? "Sem custo: a chave do Treg não está configurada e a pesquisa das contas será pulada"
       : `até US$ ${researchUsd.toFixed(2)} de pesquisa web (Treg) × ${formatBRL(prices.treg)}` +
       (usePremiumIcebreakers
         ? ` + ${leads} perfis LinkedIn × ${formatBRL(prices.apify)} + até ${leads * DOSSIER_ESTIMATE_POSTS_PER_LEAD} classificações de posts × ${formatBRL(prices.openai)}`
-        : "");
+        : "") +
+      (whyNowCalls > 0 ? ` + até ${whyNowCalls} chamadas de IA (motivo para abordar agora)` : "");
 
     const stepCosts: Record<string, { estimated: number; description: string }> = {
       search_companies: {
@@ -195,7 +201,10 @@ export class CostEstimatorService {
         description: "1 chamada de IA (Fit Score); busca Apollo não consome créditos",
       },
       research_accounts: {
-        estimated: researchSkipped || researchWithoutKey ? 0 : researchUsd * prices.treg + researchPremium,
+        estimated:
+          researchSkipped || researchWithoutKey
+            ? 0
+            : researchUsd * prices.treg + researchPremium + researchWhyNow,
         description: researchDescription,
       },
       create_campaign: {

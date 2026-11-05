@@ -139,10 +139,11 @@ describe("CostEstimatorService", () => {
       // create_campaign: 25 × 0,05 + 47 × 0,02 = 1,25 + 0,94 = 2,19
       expect(result.steps.create_campaign.estimated).toBeCloseTo(2.19);
       // Story 24.19: research = min(25 × US$ 0,02, teto US$ 0,50) × 5,50 = 2,75
-      expect(result.steps.research_accounts.estimated).toBeCloseTo(2.75);
+      // Story 24.20: + min(25, 10) chamadas de IA do motivo para abordar agora × 0,02 = 0,20
+      expect(result.steps.research_accounts.estimated).toBeCloseTo(2.75 + 0.2);
       expect(result.steps.export.estimated).toBe(0);
       expect(result.steps.activate.estimated).toBe(0);
-      expect(result.total).toBeCloseTo(2.81 + 2.75);
+      expect(result.total).toBeCloseTo(2.81 + 2.75 + 0.2);
       expect(result.currency).toBe("BRL");
     });
 
@@ -159,7 +160,8 @@ describe("CostEstimatorService", () => {
       expect(result.steps.create_campaign.estimated).toBeCloseTo(25 * 0.1 + 47 * 0.05);
       expect(result.steps.search_leads.estimated).toBeCloseTo(0.05);
       // Story 24.19: + research (sem `treg` no DB -> default 5,50 × US$ 0,50)
-      expect(result.total).toBeCloseTo(1.2 + 0.05 + 2.5 + 2.35 + 2.75);
+      // Story 24.20: + 10 chamadas de IA (motivo para abordar agora) × 0,05
+      expect(result.total).toBeCloseTo(1.2 + 0.05 + 2.5 + 2.35 + 2.75 + 10 * 0.05);
     });
 
     it("respeita skipSteps com custo 0", () => {
@@ -220,9 +222,9 @@ describe("CostEstimatorService", () => {
     describe("research_accounts (Story 24.19)", () => {
       it("sem toggle: min(leads × 0,02, 0,50) × treg", () => {
         const few = CostEstimatorService.estimateCosts(new Map(), createBriefing({ leadCount: 5 }));
-        expect(few.steps.research_accounts.estimated).toBeCloseTo(5 * 0.02 * 5.5);
+        expect(few.steps.research_accounts.estimated).toBeCloseTo(5 * 0.02 * 5.5 + 5 * 0.02);
         const many = CostEstimatorService.estimateCosts(new Map(), createBriefing({ leadCount: 100 }));
-        expect(many.steps.research_accounts.estimated).toBeCloseTo(0.5 * 5.5);
+        expect(many.steps.research_accounts.estimated).toBeCloseTo(0.5 * 5.5 + 10 * 0.02);
         expect(many.steps.research_accounts.description).toContain("US$ 0.50");
       });
 
@@ -231,13 +233,13 @@ describe("CostEstimatorService", () => {
           new Map(),
           createBriefing({ leadCount: 5, premiumIcebreakers: true })
         );
-        expect(result.steps.research_accounts.estimated).toBeCloseTo(5 * 0.02 * 5.5 + 5 * 0.15 + 5 * 10 * 0.02);
+        expect(result.steps.research_accounts.estimated).toBeCloseTo(5 * 0.02 * 5.5 + 5 * 0.15 + 5 * 10 * 0.02 + 5 * 0.02);
         expect(result.steps.research_accounts.description).toContain("perfis LinkedIn");
       });
 
       it("usa o cambio do cost_models quando existe e 0 se o step for pulado", () => {
         const custom = CostEstimatorService.estimateCosts(new Map([["treg", 6]]), createBriefing({ leadCount: 10 }));
-        expect(custom.steps.research_accounts.estimated).toBeCloseTo(10 * 0.02 * 6);
+        expect(custom.steps.research_accounts.estimated).toBeCloseTo(10 * 0.02 * 6 + 10 * 0.02);
         const skipped = CostEstimatorService.estimateCosts(new Map(), createBriefing({ skipSteps: ["research_accounts"] }));
         expect(skipped.steps.research_accounts.estimated).toBe(0);
       });
@@ -250,7 +252,7 @@ describe("CostEstimatorService", () => {
         expect(withoutKey.steps.research_accounts.description).toContain("chave do Treg");
 
         const withKey = CostEstimatorService.estimateCosts(new Map(), briefing, { tregConfigured: true });
-        expect(withKey.steps.research_accounts.estimated).toBeCloseTo(5 * 0.02 * 5.5 + 5 * 0.15 + 5 * 10 * 0.02);
+        expect(withKey.steps.research_accounts.estimated).toBeCloseTo(5 * 0.02 * 5.5 + 5 * 0.15 + 5 * 10 * 0.02 + 5 * 0.02);
         // O total cai exatamente o valor do research; o resto do plano nao muda.
         expect(withKey.total - withoutKey.total).toBeCloseTo(withKey.steps.research_accounts.estimated);
         expect(withoutKey.steps.create_campaign).toEqual(withKey.steps.create_campaign);
@@ -261,7 +263,21 @@ describe("CostEstimatorService", () => {
         expect(CostEstimatorService.estimateCosts(new Map(), briefing, {})).toEqual(
           CostEstimatorService.estimateCosts(new Map(), briefing)
         );
-        expect(CostEstimatorService.estimateCosts(new Map(), briefing).steps.research_accounts.estimated).toBeCloseTo(5 * 0.02 * 5.5);
+        expect(CostEstimatorService.estimateCosts(new Map(), briefing).steps.research_accounts.estimated).toBeCloseTo(5 * 0.02 * 5.5 + 5 * 0.02);
+      });
+
+      // Story 24.20: ate min(leads, teto de chamadas) chamadas de IA do motivo para abordar agora.
+      it("motivo para abordar agora: + min(leads, 10) chamadas de IA, com o trecho na descricao", () => {
+        const few = CostEstimatorService.estimateCosts(new Map(), createBriefing({ leadCount: 3 }));
+        expect(few.steps.research_accounts.estimated).toBeCloseTo(3 * 0.02 * 5.5 + 3 * 0.02);
+        expect(few.steps.research_accounts.description).toContain("+ até 3 chamadas de IA (motivo para abordar agora)");
+        const many = CostEstimatorService.estimateCosts(new Map(), createBriefing({ leadCount: 40 }));
+        expect(many.steps.research_accounts.description).toContain("+ até 10 chamadas de IA (motivo para abordar agora)");
+        const skipped = CostEstimatorService.estimateCosts(new Map(), createBriefing({ skipSteps: ["research_accounts"] }));
+        expect(skipped.steps.research_accounts.estimated).toBe(0);
+        const noKey = CostEstimatorService.estimateCosts(new Map(), createBriefing({ leadCount: 3 }), { tregConfigured: false });
+        expect(noKey.steps.research_accounts.estimated).toBe(0);
+        expect(noKey.steps.research_accounts.description).not.toContain("motivo para abordar agora");
       });
 
       it("cambio: fonte unica com default 5,5, sobreposto pelo cost_models do tenant", () => {

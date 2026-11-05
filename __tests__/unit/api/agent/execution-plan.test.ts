@@ -127,7 +127,8 @@ describe("GET /api/agent/executions/[executionId]/plan", () => {
       mockExecutionAndCostModels();
 
       const json = await (await GET(createRequest(), createParams())).json();
-      expect(json.data.costEstimate.steps.research_accounts.estimated).toBeCloseTo(25 * 0.02 * 5.5);
+      // Story 24.20: + min(25, 10) chamadas de IA do motivo para abordar agora × R$ 0,02.
+      expect(json.data.costEstimate.steps.research_accounts.estimated).toBeCloseTo(25 * 0.02 * 5.5 + 10 * 0.02);
     });
   });
 
