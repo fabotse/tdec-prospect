@@ -42,6 +42,7 @@ const PREP: MeetingPrep = {
     { text: "Ponto da KB", origin: "kb", refs: ["P1"] },
   ],
   objections: [{ objection: "Está caro", answer: "Mostrar ROI", origin: "sugestao", refs: [] }],
+  kbRefs: ["P1"],
 };
 
 describe("formatMeetingPrepText", () => {

@@ -2,7 +2,7 @@
 title: '24.23 — Preparação de reunião'
 type: 'feature'
 created: '2026-11-06'
-status: awaiting-operator
+status: review
 baseline_revision: '55a3671de4140722fc55521b8b4651cc39782d06'
 review_loop_iteration: 0
 followup_review_recommended: true

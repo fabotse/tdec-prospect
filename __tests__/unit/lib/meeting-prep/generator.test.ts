@@ -169,6 +169,24 @@ describe("validateItems", () => {
     expect(out.objections[1]).toMatchObject({ origin: "sugestao", refs: ["P1"] });
   });
 
+  it("número que é só parte de um número da fonte (3 dentro de 30) vira sugestão", () => {
+    const out = validateItems(
+      {
+        talkingPoints: [
+          { text: "ROI em 3 meses", origin: "kb", refs: ["P1"] },
+          { text: "Reduziram 0% dos incidentes", origin: "kb", refs: ["P1"] },
+          { text: "Reduziram 30% dos incidentes", origin: "kb", refs: ["P1"] },
+        ],
+        objections: [{ objection: "Caro", answer: "ROI em 3 meses", origin: "kb", refs: ["P1"] }],
+      },
+      CATALOG
+    );
+    expect(out.talkingPoints[0]).toMatchObject({ origin: "sugestao", refs: ["P1"] });
+    expect(out.talkingPoints[1]).toMatchObject({ origin: "sugestao", refs: ["P1"] });
+    expect(out.talkingPoints[2]).toMatchObject({ origin: "kb", refs: ["P1"] });
+    expect(out.objections[0]).toMatchObject({ origin: "sugestao", refs: ["P1"] });
+  });
+
   it("menos de 3 pontos válidos -> invalid_response", () => {
     const out = validateItems({ talkingPoints: points(2), objections: ONE_OBJECTION }, CATALOG);
     expect(out.reason).toBe("invalid_response");

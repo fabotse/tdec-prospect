@@ -31,7 +31,7 @@ function makeChain(table: string, result: { data: unknown; error: unknown }, log
   const record: Chain = { table, calls: [], result };
   log.push(record);
   const chain: Record<string, unknown> = {};
-  for (const m of ["select", "eq", "order", "limit", "update", "in"]) {
+  for (const m of ["select", "eq", "order", "limit", "update", "in", "ilike"]) {
     chain[m] = (...args: unknown[]) => {
       record.calls.push([m, args]);
       return chain;
@@ -167,7 +167,8 @@ const SAVED_PREP: MeetingPrep = {
     { text: "y", origin: "sugestao", refs: [] },
     { text: "z", origin: "sugestao", refs: [] },
   ],
-  objections: [],
+  objections: [{ objection: "Caro", answer: "ROI", origin: "sugestao", refs: [] }],
+  kbRefs: [],
 };
 
 function makeRequest(body: unknown) {
@@ -281,6 +282,7 @@ describe("POST /api/opportunities/:opportunityId/meeting-prep", () => {
     expect(prep.engagement.events).toEqual([{ type: "email_replied", at: "2026-11-02T09:00:00Z" }]);
     expect(prep.talkingPoints).toHaveLength(3);
     expect(prep.objections).toHaveLength(1);
+    expect(prep.kbRefs).toEqual(["P1", "KB-DORES", "KB-OBJ"]);
 
     // catálogo enviado ao gerador
     const { catalog, apiKey } = mockGenerate.mock.calls[0][0];
@@ -308,14 +310,14 @@ describe("POST /api/opportunities/:opportunityId/meeting-prep", () => {
     expect(upd.calls).toContainEqual(["eq", ["tenant_id", TENANT]]);
   });
 
-  it("toda query leva tenant_id (sessão e admin); eventos filtrados por campanha e e-mail nas duas caixas", async () => {
+  it("toda query leva tenant_id (sessão e admin); eventos filtrados por campanha e e-mail sem diferenciar caixa", async () => {
     await POST(makeRequest({}), params);
     for (const chain of [...sessionChains, ...adminChains]) {
       expect(chain.calls, `tabela ${chain.table}`).toContainEqual(["eq", ["tenant_id", TENANT]]);
     }
     const events = sessionChains.find((c) => c.table === "campaign_events")!;
     expect(events.calls).toContainEqual(["eq", ["campaign_id", "camp-1"]]);
-    expect(events.calls).toContainEqual(["in", ["lead_email", ["John@Acme.com", "john@acme.com"]]]);
+    expect(events.calls).toContainEqual(["ilike", ["lead_email", "John@Acme.com"]]);
     expect(events.calls).toContainEqual(["order", ["event_timestamp", { ascending: false }]]);
     expect(events.calls).toContainEqual(["limit", [20]]);
     // chave, KB e provas pelo client admin; dossiê pelo client de sessão
@@ -328,11 +330,11 @@ describe("POST /api/opportunities/:opportunityId/meeting-prep", () => {
     expect(mockLookup.mock.calls[0][2]).toEqual({ leadId: "lead-1", email: "John@Acme.com" });
   });
 
-  it("e-mail já minúsculo não duplica o filtro de eventos", async () => {
-    setup({ row: { ...baseRow, lead: { ...baseRow.lead, email: " john@acme.com " } } });
+  it("e-mail com metacaracteres de LIKE é tratado como literal no filtro de eventos", async () => {
+    setup({ row: { ...baseRow, lead: { ...baseRow.lead, email: " ana_paula%x@acme.com " } } });
     await POST(makeRequest({}), params);
     const events = sessionChains.find((c) => c.table === "campaign_events")!;
-    expect(events.calls).toContainEqual(["in", ["lead_email", ["john@acme.com"]]]);
+    expect(events.calls).toContainEqual(["ilike", ["lead_email", "ana\\_paula\\%x@acme.com"]]);
   });
 
   it("cache: briefing salvo e sem regenerate -> cached, sem LLM e sem log", async () => {

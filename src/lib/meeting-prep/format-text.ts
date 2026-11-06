@@ -30,6 +30,14 @@ export const EVENT_LABEL: Record<string, string> = {
   email_unsubscribed: "Descadastrou",
 };
 
+/**
+ * Rótulo de um mapa por chave vinda do jsonb, só por chave própria: `__proto__` ou
+ * `constructor` não podem devolver um objeto (o React quebraria ao renderizar).
+ */
+export function labelFor(map: Record<string, string>, key: string): string {
+  return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : key;
+}
+
 const DATE_TIME_BRT = new Intl.DateTimeFormat("pt-BR", {
   timeZone: "America/Sao_Paulo",
   day: "2-digit",
@@ -97,7 +105,7 @@ export function formatMeetingPrepText(prep: MeetingPrep, title?: string | null):
     }
     if (prep.account.facts.length === 0) out.push("Nenhum fato na pesquisa.");
     for (const fact of prep.account.facts) {
-      const meta = [FACT_KIND_LABEL[fact.kind] ?? fact.kind, formatDay(fact.data)];
+      const meta = [labelFor(FACT_KIND_LABEL, fact.kind), formatDay(fact.data)];
       const host = sourceHost(fact.fonteUrl);
       meta.push(host ? `fonte: ${host}` : "fonte inválida");
       out.push(`- ${fact.fato} (${meta.filter(Boolean).join(", ")})`);
@@ -119,7 +127,7 @@ export function formatMeetingPrepText(prep: MeetingPrep, title?: string | null):
   if (booked) out.push(`Reunião marcada em ${booked}`);
   for (const ev of e.events) {
     const at = formatDateTime(ev.at);
-    out.push(`- ${EVENT_LABEL[ev.type] ?? ev.type}${at ? ` em ${at}` : ""}`);
+    out.push(`- ${labelFor(EVENT_LABEL, ev.type)}${at ? ` em ${at}` : ""}`);
   }
 
   out.push("", "PONTOS DE CONVERSA");

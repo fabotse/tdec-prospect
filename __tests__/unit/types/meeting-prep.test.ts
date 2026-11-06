@@ -37,6 +37,7 @@ const VALID_PREP: MeetingPrep = {
     { text: "Ponto 3", origin: "sugestao", refs: [] },
   ],
   objections: [{ objection: "Caro", answer: "ROI", origin: "kb", refs: ["P1"] }],
+  kbRefs: ["P1"],
 };
 
 const ROW: OpportunityRow = {
@@ -77,8 +78,64 @@ describe("parseMeetingPrep", () => {
     ["versão errada", { ...VALID_PREP, version: 2 }],
     ["origem desconhecida", { ...VALID_PREP, talkingPoints: [{ text: "x", origin: "web", refs: [] }] }],
     ["account sem status", { ...VALID_PREP, account: { ...VALID_PREP.account, status: "talvez" } }],
+    ["só 1 ponto", { ...VALID_PREP, talkingPoints: VALID_PREP.talkingPoints.slice(0, 1) }],
+    ["sem objeções", { ...VALID_PREP, objections: [] }],
+    [
+      "6 pontos",
+      { ...VALID_PREP, talkingPoints: Array.from({ length: 6 }, () => VALID_PREP.talkingPoints[2]) },
+    ],
+    [
+      "ponto com texto vazio",
+      { ...VALID_PREP, talkingPoints: [...VALID_PREP.talkingPoints.slice(0, 2), { text: "  ", origin: "sugestao", refs: [] }] },
+    ],
+    ["data inválida", { ...VALID_PREP, generatedAt: "ontem" }],
   ])("lixo (%s) -> null", (_label, value) => {
     expect(parseMeetingPrep(value)).toBeNull();
+  });
+
+  it("citação que o snapshot não sustenta vira sugestão e perde o ref", () => {
+    const prep = {
+      ...VALID_PREP,
+      account: { ...VALID_PREP.account, status: "none" as const, facts: [] },
+      engagement: { ...VALID_PREP.engagement, replyText: null },
+      talkingPoints: [
+        { text: "Ponto 1", origin: "dossie" as const, refs: ["F999"] },
+        { text: "Ponto 2", origin: "resposta" as const, refs: ["R"] },
+        { text: "Ponto 3", origin: "kb" as const, refs: ["P1", "X9"] },
+      ],
+      objections: [{ objection: "Caro", answer: "ROI", origin: "dossie" as const, refs: ["F1"] }],
+    };
+    const out = parseMeetingPrep(prep);
+    expect(out?.talkingPoints).toEqual([
+      { text: "Ponto 1", origin: "sugestao", refs: [] },
+      { text: "Ponto 2", origin: "sugestao", refs: [] },
+      { text: "Ponto 3", origin: "kb", refs: ["P1"] },
+    ]);
+    expect(out?.objections[0]).toMatchObject({ origin: "sugestao", refs: [] });
+  });
+
+  it("fato vazio, gatilho vazio e prova fora de kbRefs não sustentam a origem", () => {
+    const prep = {
+      ...VALID_PREP,
+      account: {
+        ...VALID_PREP.account,
+        facts: [{ ...VALID_PREP.account.facts[0], fato: " " }],
+        whyNow: { gatilho: "", hipoteseDor: null },
+      },
+      talkingPoints: [
+        { text: "Ponto 1", origin: "dossie" as const, refs: ["F1"] },
+        { text: "Ponto 2", origin: "dossie" as const, refs: ["F-GATILHO"] },
+        { text: "Ponto 3", origin: "kb" as const, refs: ["P999"] },
+      ],
+    };
+    const out = parseMeetingPrep(prep);
+    expect(out?.talkingPoints.map((t) => t.origin)).toEqual(["sugestao", "sugestao", "sugestao"]);
+    expect(out?.talkingPoints.every((t) => t.refs.length === 0)).toBe(true);
+  });
+
+  it("briefing salvo antes do kbRefs (sem o campo) é descartado", () => {
+    const { kbRefs: _omit, ...legacy } = VALID_PREP;
+    expect(parseMeetingPrep(legacy)).toBeNull();
   });
 });
 

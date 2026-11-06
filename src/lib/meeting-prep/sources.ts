@@ -24,10 +24,14 @@ export const REPLY_MAX_CHARS = 2000;
 export const KB_TEXT_MAX_CHARS = 1500;
 export const MAX_EVENTS = 20;
 
-export const TRIGGER_REF_ID = "F-GATILHO";
-export const REPLY_REF_ID = "R";
-export const KB_PAINS_REF_ID = "KB-DORES";
-export const KB_OBJECTIONS_REF_ID = "KB-OBJ";
+import {
+  TRIGGER_REF_ID,
+  REPLY_REF_ID,
+  KB_PAINS_REF_ID,
+  KB_OBJECTIONS_REF_ID,
+} from "@/types/meeting-prep";
+
+export { TRIGGER_REF_ID, REPLY_REF_ID, KB_PAINS_REF_ID, KB_OBJECTIONS_REF_ID };
 
 // ==============================================
 // TIPOS

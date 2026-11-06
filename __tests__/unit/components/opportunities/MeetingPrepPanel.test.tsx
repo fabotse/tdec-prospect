@@ -56,6 +56,7 @@ const PREP: MeetingPrep = {
     { text: "Ponto da KB", origin: "kb", refs: ["P1"] },
   ],
   objections: [{ objection: "Está caro", answer: "Mostrar ROI", origin: "kb", refs: ["KB-OBJ"] }],
+  kbRefs: ["P1", "KB-OBJ"],
 };
 
 const noop = () => {};
@@ -99,6 +100,20 @@ describe("MeetingPrepPanel", () => {
     expect(screen.getByTestId("meeting-prep-reason")).toHaveTextContent(
       "Não foi possível preparar a reunião agora."
     );
+  });
+
+  it("tipo de evento e de fato vindos do jsonb como __proto__ não quebram o painel", () => {
+    renderPanel({
+      prep: {
+        ...PREP,
+        account: {
+          ...PREP.account,
+          facts: [{ ...PREP.account.facts[0], kind: "__proto__" }],
+        },
+        engagement: { ...PREP.engagement, events: [{ type: "__proto__", at: "2026-11-02T09:00:00Z" }] },
+      },
+    });
+    expect(screen.getAllByText(/__proto__/).length).toBeGreaterThanOrEqual(2);
   });
 
   it("briefing mostra as seções, Gerado em, e marca Sugestão", () => {

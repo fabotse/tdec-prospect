@@ -19,12 +19,15 @@ import type {
   MeetingPrepOrigin,
   MeetingPrepTalkingPoint,
 } from "@/types/meeting-prep";
-import { MEETING_PREP_ORIGINS } from "@/types/meeting-prep";
+import {
+  MAX_ITEMS,
+  MEETING_PREP_ORIGINS,
+  MIN_OBJECTIONS,
+  MIN_TALKING_POINTS,
+} from "@/types/meeting-prep";
 import { catalogRefOrigins, type MeetingPrepCatalog } from "./sources";
 
-export const MAX_ITEMS = 5;
-export const MIN_TALKING_POINTS = 3;
-export const MIN_OBJECTIONS = 1;
+export { MAX_ITEMS, MIN_TALKING_POINTS, MIN_OBJECTIONS };
 export const ITEM_MAX_CHARS = 400;
 export const MAX_REFS_PER_ITEM = 6;
 
@@ -220,6 +223,11 @@ function catalogRefTexts(catalog: MeetingPrepCatalog): Map<string, string> {
 
 const NUMBER_RE = /\d+(?:[.,]\d+)?/g;
 
+/** "30,5" e "30.5" são o mesmo número. */
+function normalizeNumber(n: string): string {
+  return n.replace(",", ".");
+}
+
 /**
  * Número no texto do item que não aparece nas fontes citadas = número inventado: o item
  * perde a origem e vira `sugestao` (os refs ficam).
@@ -232,8 +240,10 @@ function guardNumbers(
   if (resolved.origin === "sugestao") return resolved;
   const numbers = itemText.match(NUMBER_RE);
   if (!numbers) return resolved;
+  // Compara números inteiros (token a token), não substrings: "3" não vale por "30".
   const sourceText = resolved.refs.map((id) => texts.get(id) ?? "").join(" ");
-  return numbers.every((n) => sourceText.includes(n))
+  const sourceNumbers = new Set((sourceText.match(NUMBER_RE) ?? []).map(normalizeNumber));
+  return numbers.every((n) => sourceNumbers.has(normalizeNumber(n)))
     ? resolved
     : { origin: "sugestao", refs: resolved.refs };
 }

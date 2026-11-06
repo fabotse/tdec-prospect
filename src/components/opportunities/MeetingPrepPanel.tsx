@@ -19,6 +19,7 @@ import { safeHttpUrl } from "@/components/dossier/AccountDossierPanel";
 import {
   EVENT_LABEL,
   FACT_KIND_LABEL,
+  labelFor,
   ORIGIN_LABEL,
   formatDateTime,
   formatDay,
@@ -147,7 +148,7 @@ function AccountSection({ account }: { account: MeetingPrepAccount }) {
                 >
                   <div className="flex flex-wrap items-center gap-1">
                     <Badge variant="secondary">{fact.id}</Badge>
-                    <Badge variant="outline">{FACT_KIND_LABEL[fact.kind] ?? fact.kind}</Badge>
+                    <Badge variant="outline">{labelFor(FACT_KIND_LABEL, fact.kind)}</Badge>
                     <span className="ml-auto text-xs text-muted-foreground">
                       {formatDay(fact.data)}
                     </span>
@@ -202,7 +203,7 @@ function EngagementSection({ engagement }: { engagement: MeetingPrepEngagement }
         <ul className="flex flex-col gap-0.5" data-testid="meeting-prep-events">
           {engagement.events.map((event, index) => (
             <li key={`${event.type}-${event.at}-${index}`} className="text-xs text-muted-foreground">
-              {EVENT_LABEL[event.type] ?? event.type} · {formatDateTime(event.at)}
+              {labelFor(EVENT_LABEL, event.type)} · {formatDateTime(event.at)}
             </li>
           ))}
         </ul>

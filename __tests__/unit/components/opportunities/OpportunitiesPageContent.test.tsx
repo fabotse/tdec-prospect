@@ -609,7 +609,8 @@ describe("OpportunitiesPageContent — ações (Story 21.5)", () => {
         { text: "Ponto 2", origin: "sugestao", refs: [] },
         { text: "Ponto 3", origin: "sugestao", refs: [] },
       ],
-      objections: [],
+      objections: [{ objection: "Caro", answer: "ROI", origin: "sugestao", refs: [] }],
+      kbRefs: [],
     };
 
     beforeEach(() => {

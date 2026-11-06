@@ -47,6 +47,7 @@ const PREP: MeetingPrep = {
     { text: "C", origin: "sugestao", refs: [] },
   ],
   objections: [{ objection: "o", answer: "a", origin: "sugestao", refs: [] }],
+  kbRefs: [],
 };
 
 function card(id: string): OpportunityCardData {

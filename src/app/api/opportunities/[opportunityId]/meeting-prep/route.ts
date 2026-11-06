@@ -9,6 +9,7 @@ import { lookupAccountDossier } from "@/lib/agent/dossier/dossier-lookup";
 import { calculateMeetingPrepCost } from "@/lib/ai/meeting-prep-config";
 import {
   buildMeetingPrepSources,
+  catalogRefOrigins,
   MAX_EVENTS,
   type MeetingPrepDossierInput,
   type MeetingPrepEventInput,
@@ -198,6 +199,9 @@ export async function POST(
     engagement: sources.engagement,
     talkingPoints: result.talkingPoints,
     objections: result.objections,
+    kbRefs: [...catalogRefOrigins(sources.catalog)]
+      .filter(([, origin]) => origin === "kb")
+      .map(([id]) => id),
   };
 
   const { error: updateError } = await supabase
@@ -257,6 +261,11 @@ async function readCampaignName(
   }
 }
 
+/** Escapa metacaracteres de LIKE/ILIKE (`%`, `_`, `\`) para tratar o valor como literal. */
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
 async function readEvents(
   supabase: SupabaseClient,
   tenantId: string,
@@ -264,16 +273,15 @@ async function readEvents(
   leadEmail: string | null
 ): Promise<MeetingPrepEventInput[]> {
   if (!campaignId || !leadEmail) return [];
-  // O webhook grava `lead_email` na caixa original e o reply-processor em minúsculo:
-  // casa os dois (valores via `.in`, nunca filtro montado com string).
-  const emails = [...new Set([leadEmail, leadEmail.toLowerCase()])];
+  // O webhook grava `lead_email` na caixa recebida (pode diferir do lead): compara sem
+  // diferenciar caixa, com `%`, `_` e `\` escapados para o e-mail valer como literal.
   try {
     const { data, error } = await supabase
       .from("campaign_events")
       .select("event_type, event_timestamp")
       .eq("tenant_id", tenantId)
       .eq("campaign_id", campaignId)
-      .in("lead_email", emails)
+      .ilike("lead_email", escapeLikePattern(leadEmail))
       .order("event_timestamp", { ascending: false })
       .limit(MAX_EVENTS);
     if (error) {
