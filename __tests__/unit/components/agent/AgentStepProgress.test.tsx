@@ -382,3 +382,116 @@ describe("step running parado ha muito tempo (DW-11)", () => {
     expect(screen.getByTestId("step-retry-3")).toBeInTheDocument();
   });
 });
+
+// DW-12 (FEL-15): no guiado, o disparo do step seguinte e feito pelo card de aprovacao.
+// Se ele falha antes do orchestrator e a pagina recarrega, o step fica `pending` sem
+// saida. A linha ganha "Continuar" quando o pipeline esta claramente parado.
+describe("step pending parado depois de uma aprovacao (DW-12)", () => {
+  const NOW = new Date("2026-11-06T12:00:00Z");
+  const ago = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000).toISOString();
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function pipeline(approvedMinutesAgo: number, nextOverrides: Partial<AgentStep> = {}) {
+    return [
+      createStep({
+        id: "s1",
+        step_number: 1,
+        step_type: "search_companies",
+        status: "approved",
+        completed_at: ago(approvedMinutesAgo + 1),
+      }),
+      createStep({
+        id: "s2",
+        step_number: 2,
+        step_type: "search_leads",
+        status: "approved",
+        completed_at: ago(approvedMinutesAgo),
+      }),
+      createStep({
+        id: "s3",
+        step_number: 3,
+        step_type: "research_accounts",
+        status: "pending",
+        ...nextOverrides,
+      }),
+      createStep({ id: "s4", step_number: 4, step_type: "create_campaign", status: "pending" }),
+    ];
+  }
+
+  it("aprovado ha 3 min e nada andando: dica e Continuar, que dispara o step pendente", async () => {
+    const onRetryStep = vi.fn().mockResolvedValue(undefined);
+    render(<AgentStepProgress steps={pipeline(3)} currentStep={0} onRetryStep={onRetryStep} />);
+
+    expect(screen.getByTestId("step-stalled-3").textContent).toContain("não começou");
+    // So o primeiro pendente ganha a saida.
+    expect(screen.queryByTestId("step-continue-4")).not.toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("step-continue-3"));
+    });
+    expect(onRetryStep).toHaveBeenCalledWith(3);
+  });
+
+  it("logo depois de aprovar (disparo normal em curso): nada aparece", () => {
+    render(<AgentStepProgress steps={pipeline(0.2)} currentStep={0} onRetryStep={vi.fn()} />);
+    expect(screen.queryByTestId("step-continue-3")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("step-stalled-3")).not.toBeInTheDocument();
+  });
+
+  it("aparece sozinho quando passa do limite, sem dado novo", () => {
+    render(<AgentStepProgress steps={pipeline(0.5)} currentStep={0} onRetryStep={vi.fn()} />);
+    expect(screen.queryByTestId("step-continue-3")).not.toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+
+    expect(screen.getByTestId("step-continue-3")).toBeInTheDocument();
+  });
+
+  it("some quando o step comeca a rodar", () => {
+    const { rerender } = render(
+      <AgentStepProgress steps={pipeline(3)} currentStep={0} onRetryStep={vi.fn()} />
+    );
+    expect(screen.getByTestId("step-continue-3")).toBeInTheDocument();
+
+    rerender(
+      <AgentStepProgress
+        steps={pipeline(3, { status: "running", started_at: NOW.toISOString() })}
+        currentStep={3}
+        onRetryStep={vi.fn()}
+      />
+    );
+    expect(screen.queryByTestId("step-continue-3")).not.toBeInTheDocument();
+  });
+
+  it("sem onRetryStep (so leitura): nem botao nem dica", () => {
+    render(<AgentStepProgress steps={pipeline(3)} currentStep={0} />);
+    expect(screen.queryByTestId("step-continue-3")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("step-stalled-3")).not.toBeInTheDocument();
+  });
+
+  it("o botao fica desabilitado enquanto o disparo roda", async () => {
+    let resolve!: () => void;
+    const onRetryStep = vi.fn(() => new Promise<void>((r) => (resolve = r)));
+    render(<AgentStepProgress steps={pipeline(3)} currentStep={0} onRetryStep={onRetryStep} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("step-continue-3"));
+    });
+    expect(screen.getByTestId("step-continue-3")).toBeDisabled();
+
+    await act(async () => {
+      resolve();
+    });
+    expect(screen.getByTestId("step-continue-3")).not.toBeDisabled();
+  });
+});

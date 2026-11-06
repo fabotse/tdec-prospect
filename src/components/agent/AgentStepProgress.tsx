@@ -9,7 +9,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, CheckCircle2, XCircle, Circle, SkipForward, Clock, RotateCcw } from "lucide-react";
+import {
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  Circle,
+  SkipForward,
+  Clock,
+  RotateCcw,
+  Play,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,7 +26,9 @@ import {
   getStepErrorMessage,
   isStepErrorRetryable,
   isStepRunningTooLong,
+  isStepStalledAfterApproval,
   STALE_RUNNING_HINT,
+  STALLED_PENDING_HINT,
 } from "@/lib/agent/step-error-display";
 import { STEP_LABELS } from "@/types/agent";
 import type { AgentStep, StepType } from "@/types/agent";
@@ -32,6 +43,7 @@ interface AgentStepProgressProps {
   /**
    * Story 24.3 (AC3): reexecuta um step `failed` retryable pela rota execute (guards da
    * 24.2). Sem a prop, a linha mostra o erro mas nao oferece o botao.
+   * DW-12 (FEL-15): tambem e o "Continuar" do step `pending` parado depois de uma aprovacao.
    */
   onRetryStep?: (stepNumber: number) => Promise<void>;
 }
@@ -53,6 +65,7 @@ export function AgentStepProgress({ steps, currentStep, onRetryStep }: AgentStep
           <StepRow
             key={step.id}
             step={step}
+            steps={steps}
             currentStep={currentStep}
             activeIndex={activeIndex}
             activeTotal={activeTotal}
@@ -70,12 +83,14 @@ export function AgentStepProgress({ steps, currentStep, onRetryStep }: AgentStep
 
 function StepRow({
   step,
+  steps,
   currentStep,
   activeIndex,
   activeTotal,
   onRetryStep,
 }: {
   step: AgentStep;
+  steps: AgentStep[];
   currentStep: number;
   activeIndex: number;
   activeTotal: number;
@@ -91,15 +106,20 @@ function StepRow({
 
   // DW-11 (FEL-14): relogio so enquanto o step esta `running`, para a linha passar a
   // explicar o step parado sem depender de o polling trazer dado novo.
-  const isRunning = step.status === "running";
+  // DW-12 (FEL-15): o mesmo relogio vale para o step `pending` (pipeline parado depois
+  // de uma aprovacao).
+  const needsClock = step.status === "running" || step.status === "pending";
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
-    if (!isRunning) return;
+    if (!needsClock) return;
     // Sem setState sincrono aqui (lint): um `nowMs` antigo so atrasa o aviso em ate 30 s.
     const id = setInterval(() => setNowMs(Date.now()), 30_000);
     return () => clearInterval(id);
-  }, [isRunning]);
+  }, [needsClock]);
   const runningTooLong = isStepRunningTooLong(step, nowMs);
+  // Sem `onRetryStep` (painel so leitura) a dica mandaria clicar num botao que nao existe.
+  const stalledAfterApproval =
+    !!onRetryStep && isStepStalledAfterApproval(step, steps, nowMs);
 
   const handleRetry = async () => {
     if (!onRetryStep || isRetrying) return;
@@ -138,6 +158,14 @@ function StepRow({
           — {STALE_RUNNING_HINT}
         </span>
       )}
+      {stalledAfterApproval && (
+        <span
+          className="text-xs text-muted-foreground font-normal ml-1"
+          data-testid={`step-stalled-${step.step_number}`}
+        >
+          — {STALLED_PENDING_HINT}
+        </span>
+      )}
       {isFailed && errorMessage && (
         <span className="text-xs text-red-500 ml-1" data-testid={`step-error-${step.step_number}`}>
           — {formatStepErrorSentence(errorMessage, retryable)}
@@ -159,6 +187,24 @@ function StepRow({
             <RotateCcw className="h-3 w-3" />
           )}
           Tentar novamente
+        </Button>
+      )}
+      {stalledAfterApproval && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="ml-auto h-7 gap-1 text-xs"
+          onClick={handleRetry}
+          disabled={isRetrying}
+          data-testid={`step-continue-${step.step_number}`}
+        >
+          {isRetrying ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Play className="h-3 w-3" />
+          )}
+          Continuar
         </Button>
       )}
     </div>

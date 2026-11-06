@@ -95,3 +95,53 @@ export function isStepRunningTooLong(
   if (Number.isNaN(startedMs)) return false;
   return nowMs - startedMs > STALE_RUNNING_HINT_AFTER_MS;
 }
+
+/**
+ * DW-12 (FEL-15): no modo guiado quem dispara o step seguinte e o CARD de aprovacao, no
+ * cliente. Se esse disparo falha antes do orchestrator (422 de chave, 500, rede), o aviso
+ * com "Tentar novamente" vive so no store e some no F5: o card ja mostra "Aprovado", o
+ * step seguinte fica `pending` e o painel nao tinha botao para `pending`. No disparo
+ * normal o step sai de `pending` em segundos; 1 min sem sair = parado.
+ */
+export const STALLED_PENDING_AFTER_MS = 60 * 1000;
+
+/** Texto exibido na linha do step `pending` parado depois de uma aprovacao. */
+export const STALLED_PENDING_HINT =
+  'A etapa anterior foi aprovada, mas esta não começou. Clique em "Continuar" para iniciar.';
+
+/**
+ * `true` quando `step` e o proximo de um pipeline parado depois de uma aprovacao:
+ * - `step` esta `pending` e nao e `activate` (o card de ativacao ja tem a propria
+ *   retomada desde a 22.18, com a escolha "Ativar"/"Ativar Depois" do usuario);
+ * - nenhum step esta `running`, `awaiting_approval` ou `failed` (ha outra saida ou algo
+ *   em andamento). Excecao: `research_accounts` `failed` nao bloqueia — e informativo e o
+ *   pipeline segue sem ele (fail-open da 24.19), entao pode ficar `failed` para tras;
+ * - o step ativo anterior (ignorando `skipped`) esta `approved` ha mais de
+ *   `STALLED_PENDING_AFTER_MS` (`completed_at`, gravado pelo /approve). Data invalida
+ *   nunca conta como parado.
+ *
+ * O botao so dispara a rota execute; as guardas dela (24.2) seguem decidindo.
+ */
+export function isStepStalledAfterApproval(
+  step: Pick<AgentStep, "status" | "step_number" | "step_type">,
+  steps: ReadonlyArray<Pick<AgentStep, "status" | "step_number" | "step_type" | "completed_at">>,
+  nowMs: number
+): boolean {
+  if (step.status !== "pending" || step.step_type === "activate") return false;
+  const blocked = steps.some(
+    (s) =>
+      s.status === "running" ||
+      s.status === "awaiting_approval" ||
+      (s.status === "failed" && s.step_type !== "research_accounts")
+  );
+  if (blocked) return false;
+
+  const previous = steps
+    .filter((s) => s.step_number < step.step_number && s.status !== "skipped")
+    .sort((a, b) => b.step_number - a.step_number)[0];
+  if (!previous || previous.status !== "approved" || !previous.completed_at) return false;
+
+  const approvedMs = Date.parse(previous.completed_at);
+  if (Number.isNaN(approvedMs)) return false;
+  return nowMs - approvedMs > STALLED_PENDING_AFTER_MS;
+}
