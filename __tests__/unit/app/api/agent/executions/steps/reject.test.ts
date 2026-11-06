@@ -37,6 +37,13 @@ const messagesChain = createChainBuilder({ data: { id: "msg-1" }, error: null })
 
 const mockFrom = vi.fn();
 
+const mockLogServerError = vi.fn();
+
+vi.mock("@/lib/services/error-logger", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/services/error-logger")>()),
+  logServerError: (...args: unknown[]) => mockLogServerError(...args),
+}));
+
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(() => ({
     from: mockFrom,
@@ -101,6 +108,8 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/reject", (
     // default aqui evita acoplamento de ordem entre casos.
     messagesChain.then = (resolve: (value: { data: unknown; error: unknown }) => unknown) =>
       Promise.resolve({ data: { id: "msg-1" }, error: null }).then(resolve);
+    // DW-9: um caso troca o `update` por um que lanca — rearmar o default.
+    messagesChain.update = vi.fn().mockReturnValue(messagesChain);
 
     mockFrom.mockImplementation((table: string) => {
       if (table === "agent_executions") return executionsChain;
@@ -241,6 +250,118 @@ describe("POST /api/agent/executions/[executionId]/steps/[stepNumber]/reject", (
     const res = await POST(createRequest(), createParams());
     expect(res.status).toBe(200);
     expect(messagesChain.update).not.toHaveBeenCalled();
+  });
+
+  // ==============================================
+  // DW-9 (FEL-12): o carimbo continua fail-open, mas o `{ error }` do supabase-js
+  // (que nao lanca) agora vai para o log. Antes a falha passava em silencio e o
+  // ajuste tomava 409 sem rastro.
+  // ==============================================
+
+  type Resp = { data: unknown; error: unknown };
+  const GATE_ROW = {
+    id: "gate-9",
+    metadata: { messageType: "approval_gate", stepNumber: 1 },
+  };
+
+  /** insert da mensagem -> leitura do gate -> escrita do carimbo, em ordem. */
+  function sequenceMessages(responses: Resp[]) {
+    let call = 0;
+    messagesChain.then = (resolve: (value: Resp) => unknown) => {
+      const response = responses[Math.min(call, responses.length - 1)];
+      call += 1;
+      return Promise.resolve(response).then(resolve);
+    };
+  }
+
+  it("registra no log quando a escrita do carimbo devolve error, sem falhar o reject (DW-9)", async () => {
+    sequenceMessages([
+      { data: null, error: null },
+      { data: [GATE_ROW], error: null },
+      { data: null, error: { message: "update falhou", code: "XX000" } },
+    ]);
+
+    const res = await POST(createRequest(), createParams());
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.status).toBe("awaiting_approval");
+    expect(messagesChain.update).toHaveBeenCalled();
+    expect(mockLogServerError).toHaveBeenCalledTimes(1);
+    expect(mockLogServerError).toHaveBeenCalledWith({
+      source: "api",
+      route: "/api/agent/executions/[executionId]/steps/[stepNumber]/reject",
+      tenantId: "tenant-1",
+      error: "Carimbo rejected do gate nao gravado (step 1, escrita): update falhou",
+    });
+  });
+
+  it("registra no log quando a leitura do gate devolve error e nao tenta carimbar (DW-9)", async () => {
+    sequenceMessages([
+      { data: null, error: null },
+      { data: null, error: { message: "select falhou" } },
+    ]);
+
+    const res = await POST(createRequest(), createParams());
+
+    expect(res.status).toBe(200);
+    expect(messagesChain.update).not.toHaveBeenCalled();
+    expect(mockLogServerError).toHaveBeenCalledTimes(1);
+    expect(mockLogServerError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: "Carimbo rejected do gate nao gravado (step 1, leitura): select falhou",
+      })
+    );
+  });
+
+  it("registra no log uma excecao lancada no carimbo, sem falhar o reject (DW-9)", async () => {
+    sequenceMessages([
+      { data: null, error: null },
+      { data: [GATE_ROW], error: null },
+    ]);
+    messagesChain.update = vi.fn(() => {
+      throw new Error("rede caiu");
+    });
+
+    const res = await POST(createRequest(), createParams());
+
+    expect(res.status).toBe(200);
+    expect(mockLogServerError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: "Carimbo rejected do gate nao gravado (step 1, excecao): rede caiu",
+      })
+    );
+  });
+
+  it("sanitiza a mensagem antes de mandar ao log, que faz console.error cru (DW-9)", async () => {
+    sequenceMessages([
+      { data: null, error: null },
+      { data: [GATE_ROW], error: null },
+      {
+        data: null,
+        error: { message: "Failing row contains (lead joao@empresa.com, token=abc123secret)" },
+      },
+    ]);
+
+    await POST(createRequest(), createParams());
+
+    const logged = mockLogServerError.mock.calls[0][0].error as string;
+    expect(logged).not.toContain("joao@empresa.com");
+    expect(logged).not.toContain("abc123secret");
+    expect(logged).toContain("[email]");
+  });
+
+  it("nao registra nada no log quando o carimbo grava normalmente (DW-9)", async () => {
+    sequenceMessages([
+      { data: null, error: null },
+      { data: [GATE_ROW], error: null },
+      { data: null, error: null },
+    ]);
+
+    const res = await POST(createRequest(), createParams());
+
+    expect(res.status).toBe(200);
+    expect(messagesChain.update).toHaveBeenCalled();
+    expect(mockLogServerError).not.toHaveBeenCalled();
   });
 
   // Step not found
