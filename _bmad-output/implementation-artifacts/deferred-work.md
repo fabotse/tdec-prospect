@@ -496,7 +496,8 @@ location: src/stores/use-agent-store.ts stepTriggerFailure / src/components/agen
 source_spec: `spec-24-3-avanco-confiavel-e-tentar-novamente.md`
 severity: medium
 reason: O aviso com "Tentar novamente" e efemero (store). Depois do F5 o step N+1 fica pending, o card ja mostra aprovado e o painel nao tem botao para step pending. Antes desta story nao havia saida nem na mesma sessao (o problema ja existia). No autopilot o auto-trigger redispara.
-status: open
+status: resolved
+resolution: 2026-11-06 (FEL-15). O painel de progresso ganhou a saida que faltava depois do F5: a linha do step `pending` mostra "A etapa anterior foi aprovada, mas esta nao comecou" e um botao "Continuar" quando o pipeline esta parado (step ativo anterior `approved` ha mais de 1 min pelo `completed_at` do /approve, e nenhum step `running`, `awaiting_approval` ou `failed`, salvo `research_accounts` `failed`, que e fail-open). O botao usa o mesmo `handleRetryStep` do "Tentar novamente" (rota execute, guardas da 24.2; clique duplo vira 409 silencioso). O `activate` fica de fora: o card de ativacao ja tem a retomada da 22.18 com a escolha do usuario. Regra em `isStepStalledAfterApproval`/`STALLED_PENDING_HINT` (`src/lib/agent/step-error-display.ts`), UI em `src/components/agent/AgentStepProgress.tsx` (o relogio de 30 s da DW-11 passa a valer tambem para `pending`). O aviso do store continua efemero. Testes em `__tests__/unit/components/agent/AgentStepProgress.test.tsx` e `__tests__/unit/lib/agent/step-error-display.test.ts`. Rotas, banco, cron e caminho do Instantly intocados.
 
 ### DW-13: O comando anunciado "buscar leads" em awaiting_leads_input depende do LLM; se o /parse devolver import_leads, a instrucao de colar se repete.
 origin: spec-deferred ebcd3dcf5e71

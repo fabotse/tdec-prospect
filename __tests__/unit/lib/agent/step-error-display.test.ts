@@ -9,7 +9,9 @@ import {
   getStepErrorMessage,
   isStepErrorRetryable,
   isStepRunningTooLong,
+  isStepStalledAfterApproval,
   STALE_RUNNING_HINT_AFTER_MS,
+  STALLED_PENDING_AFTER_MS,
 } from "@/lib/agent/step-error-display";
 
 describe("formatStepErrorMessage", () => {
@@ -85,5 +87,84 @@ describe("isStepRunningTooLong (DW-11)", () => {
     expect(
       isStepRunningTooLong({ status: "running", started_at: "lixo", created_at: at(20 * 60_000) }, now)
     ).toBe(false);
+  });
+});
+
+describe("isStepStalledAfterApproval (DW-12)", () => {
+  const now = Date.parse("2026-11-06T12:00:00Z");
+  const at = (msAgo: number) => new Date(now - msAgo).toISOString();
+  const old = at(STALLED_PENDING_AFTER_MS + 1);
+
+  type S = {
+    step_number: number;
+    step_type:
+      | "search_companies"
+      | "search_leads"
+      | "research_accounts"
+      | "create_campaign"
+      | "export"
+      | "activate";
+    status: "pending" | "running" | "awaiting_approval" | "approved" | "completed" | "failed" | "skipped";
+    completed_at: string | null;
+  };
+  const s = (
+    step_number: number,
+    status: S["status"],
+    completed_at: string | null = null,
+    step_type: S["step_type"] = "search_leads"
+  ): S => ({ step_number, step_type, status, completed_at });
+
+  it("anterior aprovado ha mais do limite e nada andando: true", () => {
+    const steps = [s(1, "approved", old), s(2, "pending")];
+    expect(isStepStalledAfterApproval(steps[1], steps, now)).toBe(true);
+  });
+
+  it("no limite ou antes: false", () => {
+    const steps = [s(1, "approved", at(STALLED_PENDING_AFTER_MS)), s(2, "pending")];
+    expect(isStepStalledAfterApproval(steps[1], steps, now)).toBe(false);
+  });
+
+  it("ignora skipped entre o aprovado e o pendente", () => {
+    const steps = [s(1, "approved", old), s(2, "skipped"), s(3, "pending")];
+    expect(isStepStalledAfterApproval(steps[2], steps, now)).toBe(true);
+  });
+
+  it("anterior que nao foi aprovado (completed, pending) nao conta", () => {
+    const completed = [s(1, "completed", old), s(2, "pending")];
+    expect(isStepStalledAfterApproval(completed[1], completed, now)).toBe(false);
+    const queued = [s(1, "approved", old), s(2, "pending"), s(3, "pending")];
+    expect(isStepStalledAfterApproval(queued[2], queued, now)).toBe(false);
+  });
+
+  it("algo running, aguardando aprovacao ou failed bloqueia", () => {
+    for (const other of ["running", "awaiting_approval", "failed"] as const) {
+      const steps = [s(1, "approved", old), s(2, "pending"), s(3, other)];
+      expect(isStepStalledAfterApproval(steps[1], steps, now)).toBe(false);
+    }
+  });
+
+  it("research_accounts failed para tras nao bloqueia o export parado (fail-open 24.19)", () => {
+    const steps = [
+      s(1, "approved", old, "search_companies"),
+      s(2, "approved", old, "search_leads"),
+      s(3, "failed", old, "research_accounts"),
+      s(4, "approved", old, "create_campaign"),
+      s(5, "pending", null, "export"),
+    ];
+    expect(isStepStalledAfterApproval(steps[4], steps, now)).toBe(true);
+  });
+
+  it("nunca para o activate (o card de ativacao tem retomada propria)", () => {
+    const steps = [s(1, "approved", old, "export"), s(2, "pending", null, "activate")];
+    expect(isStepStalledAfterApproval(steps[1], steps, now)).toBe(false);
+  });
+
+  it("primeiro step, completed_at nulo ou data invalida: false", () => {
+    const first = [s(1, "pending")];
+    expect(isStepStalledAfterApproval(first[0], first, now)).toBe(false);
+    const noDate = [s(1, "approved", null), s(2, "pending")];
+    expect(isStepStalledAfterApproval(noDate[1], noDate, now)).toBe(false);
+    const bad = [s(1, "approved", "not-a-date"), s(2, "pending")];
+    expect(isStepStalledAfterApproval(bad[1], bad, now)).toBe(false);
   });
 });
