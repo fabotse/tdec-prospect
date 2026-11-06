@@ -23,6 +23,7 @@
 import { useRef, useState } from "react";
 import {
   Ban,
+  CalendarCheck,
   Check,
   Copy,
   ExternalLink,
@@ -72,6 +73,17 @@ interface OpportunityCardProps {
    * não marca `new→viewed` e não gera rascunho.
    */
   onOpenDossier?: (opportunity: OpportunityCardData) => void;
+  /**
+   * Story 24.23 — abre o painel "Preparar reunião" (Sheet vive no PageContent). Só
+   * aparece em oportunidade elegível (`intent='interessado'` ou `status='meeting_booked'`).
+   * Sem a prop, o card fica idêntico ao de antes. Não expande o card nem marca viewed.
+   */
+  onOpenMeetingPrep?: (opportunity: OpportunityCardData) => void;
+}
+
+/** Story 24.23 — mesma regra da rota `meeting-prep` (422 NOT_ELIGIBLE fora dela). */
+export function isMeetingPrepEligible(opportunity: Pick<OpportunityCardData, "intent" | "status">): boolean {
+  return opportunity.intent === "interessado" || opportunity.status === "meeting_booked";
 }
 
 /**
@@ -97,6 +109,7 @@ export function OpportunityCard({
   onStopSequence,
   sequenceActionPending,
   onOpenDossier,
+  onOpenMeetingPrep,
 }: OpportunityCardProps) {
   const [expanded, setExpanded] = useState(false);
   // AC5: transição new→viewed UMA vez por interação (não no mount — evita
@@ -561,6 +574,25 @@ export function OpportunityCard({
               Dossiê
             </Button>
           )}
+        </div>
+      )}
+
+      {/* Story 24.23 — preparação de reunião (só elegível; disponível mesmo sem lead). */}
+      {onOpenMeetingPrep && isMeetingPrepEligible(opportunity) && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenMeetingPrep(opportunity);
+            }}
+            data-testid="opportunity-action-meeting-prep"
+          >
+            <CalendarCheck className="h-3 w-3" />
+            Preparar reunião
+          </Button>
         </div>
       )}
 

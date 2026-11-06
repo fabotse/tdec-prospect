@@ -996,4 +996,51 @@ describe("OpportunityCard — Story 21.5", () => {
       expect(screen.getByTestId("opportunity-toggle-expand")).toHaveTextContent("Ver mais");
     });
   });
+
+  // Story 24.23 — botão "Preparar reunião" (só elegível)
+  describe("Preparar reunião (Story 24.23)", () => {
+    it("sem onOpenMeetingPrep o card fica igual (sem botão)", () => {
+      render(<OpportunityCard opportunity={makeOpportunity()} />);
+      expect(screen.queryByTestId("opportunity-action-meeting-prep")).not.toBeInTheDocument();
+    });
+
+    it("aparece para intent interessado e para status meeting_booked (mesmo sem lead)", () => {
+      const { unmount } = render(
+        <OpportunityCard opportunity={makeOpportunity({ intent: "interessado" })} onOpenMeetingPrep={vi.fn()} />
+      );
+      expect(screen.getByTestId("opportunity-action-meeting-prep")).toHaveTextContent("Preparar reunião");
+      unmount();
+      render(
+        <OpportunityCard
+          opportunity={makeOpportunity({ intent: "objecao", status: "meeting_booked", lead: null })}
+          onOpenMeetingPrep={vi.fn()}
+        />
+      );
+      expect(screen.getByTestId("opportunity-action-meeting-prep")).toBeInTheDocument();
+    });
+
+    it("não aparece para oportunidade não elegível", () => {
+      render(
+        <OpportunityCard
+          opportunity={makeOpportunity({ intent: "pediu_info", status: "viewed" })}
+          onOpenMeetingPrep={vi.fn()}
+        />
+      );
+      expect(screen.queryByTestId("opportunity-action-meeting-prep")).not.toBeInTheDocument();
+    });
+
+    it("o clique chama o callback e não expande, não marca viewed nem gera rascunho", async () => {
+      const user = userEvent.setup();
+      const onOpenMeetingPrep = vi.fn();
+      const opportunity = makeOpportunity({ status: "new" });
+      render(<OpportunityCard opportunity={opportunity} onOpenMeetingPrep={onOpenMeetingPrep} />);
+
+      await user.click(screen.getByTestId("opportunity-action-meeting-prep"));
+
+      expect(onOpenMeetingPrep).toHaveBeenCalledWith(opportunity);
+      expect(mockMutate).not.toHaveBeenCalled();
+      expect(mockGenerate).not.toHaveBeenCalled();
+      expect(screen.getByTestId("opportunity-toggle-expand")).toHaveTextContent("Ver mais");
+    });
+  });
 });

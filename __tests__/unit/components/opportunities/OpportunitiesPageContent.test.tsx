@@ -14,6 +14,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { OpportunitiesPageContent } from "@/components/opportunities/OpportunitiesPageContent";
 import type { OpportunityCardData } from "@/hooks/use-opportunities";
+import { toast } from "sonner";
+
+// Story 24.23: o Regenerar do briefing notifica erro por toast.
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
 
 /**
  * O WhatsAppComposerDialog usa `useAIGenerate` (react-query) internamente para
@@ -567,6 +573,168 @@ describe("OpportunitiesPageContent — ações (Story 21.5)", () => {
       await user.click(screen.getByRole("button", { name: /Tentar de novo/ }));
       await vi.waitFor(() => expect(dossierCalls().length).toBeGreaterThan(callsBefore));
       expect(screen.getAllByTestId("opportunity-card")).toHaveLength(1);
+    });
+  });
+
+  // Story 24.23 — Sheet "Preparar reunião" aberto pelo card
+  describe("Preparar reunião (Story 24.23)", () => {
+    const fetchMock = vi.fn();
+
+    const PREP = {
+      version: 1,
+      generatedAt: "2026-11-06T15:30:00.000Z",
+      account: {
+        status: "none",
+        companyName: null,
+        companyDomain: null,
+        researchedAt: null,
+        expired: false,
+        facts: [],
+        whyNow: null,
+      },
+      engagement: {
+        source: "reply",
+        campaignName: "Campanha Q3",
+        replySubject: "RE: Proposta",
+        replyText: "Tenho interesse",
+        repliedAt: null,
+        openCount: null,
+        clickCount: null,
+        lastEngagementAt: null,
+        meetingBookedAt: null,
+        events: [],
+      },
+      talkingPoints: [
+        { text: "Ponto 1", origin: "resposta", refs: ["R"] },
+        { text: "Ponto 2", origin: "sugestao", refs: [] },
+        { text: "Ponto 3", origin: "sugestao", refs: [] },
+      ],
+      objections: [{ objection: "Caro", answer: "ROI", origin: "sugestao", refs: [] }],
+      kbRefs: [],
+    };
+
+    beforeEach(() => {
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: { meetingPrep: PREP, saved: true } }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    function prepCalls() {
+      return fetchMock.mock.calls.filter(([url]) => String(url).includes("/meeting-prep"));
+    }
+
+    it("só elegível tem o botão; abrir gera uma vez e mostra o briefing", async () => {
+      const user = userEvent.setup();
+      mockHookReturn({
+        opportunities: [
+          makeOpportunity({ id: "opp-1", status: "new" }),
+          makeOpportunity({ id: "opp-2", intent: "pediu_info", status: "viewed" }),
+        ],
+        meta: { total: 2, page: 1, limit: 25, totalPages: 1 },
+      });
+
+      renderWithClient(<OpportunitiesPageContent />);
+      expect(screen.getAllByTestId("opportunity-action-meeting-prep")).toHaveLength(1);
+      expect(prepCalls()).toHaveLength(0);
+
+      await user.click(screen.getByTestId("opportunity-action-meeting-prep"));
+
+      expect(await screen.findByTestId("meeting-prep-briefing")).toBeInTheDocument();
+      expect(screen.getByText("Preparar reunião — Acme Inc")).toBeInTheDocument();
+      expect(prepCalls()).toHaveLength(1);
+      expect(String(prepCalls()[0][0])).toBe("/api/opportunities/opp-1/meeting-prep");
+      expect(JSON.parse(prepCalls()[0][1].body)).toEqual({ regenerate: false });
+      // Abrir o painel não dispara a triagem nem o new->viewed.
+      expect(mockMutate).not.toHaveBeenCalled();
+    });
+
+    it("briefing salvo abre sem chamar a rota", async () => {
+      const user = userEvent.setup();
+      mockHookReturn({
+        opportunities: [
+          makeOpportunity({ meetingPrep: PREP as unknown as OpportunityCardData["meetingPrep"] }),
+        ],
+        meta: { total: 1, page: 1, limit: 25, totalPages: 1 },
+      });
+
+      renderWithClient(<OpportunitiesPageContent />);
+      await user.click(screen.getByTestId("opportunity-action-meeting-prep"));
+
+      expect(await screen.findByTestId("meeting-prep-briefing")).toBeInTheDocument();
+      expect(prepCalls()).toHaveLength(0);
+    });
+
+    it("Regenerar: envia regenerate:true; falha mantém o briefing anterior e avisa", async () => {
+      const user = userEvent.setup();
+      const NEW_PREP = { ...PREP, talkingPoints: [...PREP.talkingPoints.slice(1), { text: "Ponto novo", origin: "sugestao", refs: [] }] };
+      mockHookReturn({
+        opportunities: [
+          makeOpportunity({ meetingPrep: PREP as unknown as OpportunityCardData["meetingPrep"] }),
+        ],
+        meta: { total: 1, page: 1, limit: 25, totalPages: 1 },
+      });
+
+      renderWithClient(<OpportunitiesPageContent />);
+      await user.click(screen.getByTestId("opportunity-action-meeting-prep"));
+      expect(await screen.findByTestId("meeting-prep-briefing")).toBeInTheDocument();
+
+      // 1) fail-open: briefing anterior fica e toast.error
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ data: { meetingPrep: null, reason: "llm_error" } }),
+      });
+      await user.click(screen.getByTestId("meeting-prep-regenerate"));
+      await vi.waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
+      expect(prepCalls()).toHaveLength(1);
+      expect(JSON.parse(prepCalls()[0][1].body)).toEqual({ regenerate: true });
+      expect(screen.getByTestId("meeting-prep-briefing")).toBeInTheDocument();
+      expect(screen.getByText(/Ponto 1/)).toBeInTheDocument();
+
+      // 2) resposta não-ok: toast.error de novo, briefing segue
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ error: { message: "Erro no servidor" } }),
+      });
+      await user.click(screen.getByTestId("meeting-prep-regenerate"));
+      await vi.waitFor(() => expect(toast.error).toHaveBeenCalledTimes(2));
+      expect(toast.error).toHaveBeenLastCalledWith("Erro no servidor");
+      expect(screen.getByText(/Ponto 1/)).toBeInTheDocument();
+
+      // 3) sucesso troca o briefing
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ data: { meetingPrep: NEW_PREP, saved: true } }),
+      });
+      await user.click(screen.getByTestId("meeting-prep-regenerate"));
+      expect(await screen.findByText(/Ponto novo/)).toBeInTheDocument();
+    });
+
+    it("falha da geração mostra o motivo e a lista segue igual", async () => {
+      const user = userEvent.setup();
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: { meetingPrep: null, reason: "llm_error" } }),
+      });
+      mockHookReturn({
+        opportunities: [makeOpportunity()],
+        meta: { total: 1, page: 1, limit: 25, totalPages: 1 },
+      });
+
+      renderWithClient(<OpportunitiesPageContent />);
+      await user.click(screen.getByTestId("opportunity-action-meeting-prep"));
+
+      expect(await screen.findByTestId("meeting-prep-empty")).toBeInTheDocument();
+      expect(screen.getByTestId("meeting-prep-reason")).toHaveTextContent(/não respondeu/);
+      expect(screen.getAllByTestId("opportunity-card")).toHaveLength(1);
+      expect(screen.getAllByTestId("opportunity-triage-contacted")).toHaveLength(1);
     });
   });
 });

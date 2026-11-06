@@ -6,6 +6,9 @@
 // Sem colisão: `Opportunity` ≠ `OpportunityConfig`/`OpportunityLead` (tracking.ts).
 // ==============================================
 
+import { parseMeetingPrep } from "./meeting-prep";
+import type { MeetingPrep } from "./meeting-prep";
+
 // ==============================================
 // CONST ARRAYS + UNION TYPES + GUARDS
 // (padrão EVENT_TYPES/isValidEventType de tracking.ts)
@@ -148,6 +151,11 @@ export interface OpportunityRow {
   last_engagement_at: string | null;
   // Story 21.7: marcador de idempotência do passe de notificação (NULL = ainda não avaliada)
   notified_at: string | null;
+  /**
+   * Story 24.23: briefing de preparação de reunião (jsonb, migration 00074). Opcional:
+   * antes da migration a coluna não existe. Lido via `parseMeetingPrep`.
+   */
+  meeting_prep?: unknown;
   created_at: string;
   updated_at: string;
 }
@@ -177,6 +185,8 @@ export interface Opportunity {
   lastEngagementAt: string | null;
   // Story 21.7: marcador de idempotência do passe de notificação (NULL = ainda não avaliada)
   notifiedAt: string | null;
+  /** Story 24.23: briefing salvo (null = fora do formato; ausente = coluna não lida). */
+  meetingPrep?: MeetingPrep | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -202,12 +212,17 @@ export function toOpportunity(row: OpportunityRow): Opportunity {
     clickCount: row.click_count,
     lastEngagementAt: row.last_engagement_at,
     notifiedAt: row.notified_at,
+    // Só quando a linha traz a coluna (antes da 00074 ela não existe).
+    meetingPrep: row.meeting_prep === undefined ? undefined : parseMeetingPrep(row.meeting_prep),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
 /**
+ * Story 24.23: `meeting_prep` fica FORA de propósito — um INSERT com a coluna antes da
+ * migration 00074 quebraria a ingestão de respostas.
+ *
  * TS (camelCase) -> Row (snake_case). Novo no projeto (bidirecional exigido pelo
  * AC4): necessário para os INSERTs da 21.2 (processador de respostas via service role).
  */
