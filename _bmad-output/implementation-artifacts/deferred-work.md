@@ -670,3 +670,27 @@ source_spec: `spec-24-22-dossie-visivel-na-revisao-e-na-oportunidade.md`
 severity: low
 reason: Gerar a pesquisa fora do pipeline exigiria extrair researchAccount/link/evaluateWhyNow dos métodos privados do ResearchAccountsStep (arquivo no caminho até o Instantly, Regra nº 1 ponto 3), abriria um caminho novo de escrita em produção (account_dossiers/facts/leads) e de custo (Treg + OpenAI) sem teto nem estimativa próprios. Pede o OK do Fabossi e uma story própria. Hoje o painel mostra o botão desabilitado com o texto que explica que a pesquisa é feita pelo agente na etapa Pesquisa das Contas.
 status: open
+
+### DW-35: Gerar o briefing automaticamente ao marcar reunião (24.23).
+origin: spec-deferred 24-23-preparacao-de-reuniao
+location: src/app/api/opportunities/[opportunityId]/meeting-prep/route.ts, src/components/opportunities/OpportunityCard.tsx (triagem "Reunião marcada")
+source_spec: `spec-24-23-preparacao-de-reuniao.md`
+severity: low
+reason: O AC aceita o clique em "Preparar reunião" ("ou"). Gerar ao marcar reunião seria um gasto silencioso de OpenAI a cada triagem, sem o vendedor pedir. Se for desejado, decidir com o Fabossi o gatilho (PATCH de status ou job) e o teto de custo; o PATCH /api/opportunities/[opportunityId] ficou intocado nesta story.
+status: open
+
+### DW-36: O briefing usa dossiê sob demanda quando a DW-34 for liberada (24.23).
+origin: spec-deferred 24-23-preparacao-de-reuniao
+location: src/components/opportunities/MeetingPrepPanel.tsx ("Sem pesquisa da conta" + nota da DW-34), src/app/api/opportunities/[opportunityId]/meeting-prep/route.ts (readDossier)
+source_spec: `spec-24-23-preparacao-de-reuniao.md`
+severity: low
+reason: Hoje, sem dossiê, o briefing mostra "Sem pesquisa da conta" e segue só com resposta e KB. Quando a pesquisa sob demanda (DW-34) existir, o painel pode oferecer "Gerar pesquisa" e regenerar o briefing com os fatos. Depende do OK do Fabossi na DW-34 (escrita nova em produção e gasto com Treg).
+status: open
+
+### DW-37: Gerar o dossiê sob demanda quando a oportunidade não tem pesquisa ("resumo da conta (dossiê, gerando se não houver)").
+origin: spec-deferred 75ce6b3e81d5
+location: src/app/api/opportunities/[opportunityId]/meeting-prep/route.ts (readDossier)
+source_spec: `spec-24-23-preparacao-de-reuniao.md`
+severity: medium
+reason: Exige extrair researchAccount do ResearchAccountsStep (arquivo no caminho até o Instantly, Regra nº 1 ponto 3) e abrir escrita nova em produção (account_dossiers/facts/leads) e custo Treg sem teto próprio. DW-34 e DW-36 pedem o OK do Fabossi. Hoje o briefing mostra "Sem pesquisa da conta" e segue. Listado em operator_actions.
+status: open
