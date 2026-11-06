@@ -471,7 +471,8 @@ location: src/app/api/agent/executions/[executionId]/steps/[stepNumber]/reject/r
 source_spec: `spec-24-2-execucao-protegida-contra-cobranca-dupla.md`
 severity: low
 reason: Codigo da 22.13 (reject/route.ts, update do metadata do gate sem checar `error`; so excecao lancada e capturada). Com a 24.2 o carimbo passou a liberar o PATCH de briefing e o execute do ajuste: se a escrita falhar, o chat entra em ajuste mas toda tentativa toma 409 ("responda sim para eu tentar de novo") sem nenhum log. Degradacao segura (sem cobranca), mas invisivel.
-status: open
+status: resolved
+resolution: 2026-11-06 (FEL-12). O carimbo continua fail-open (o reject responde 200 e o step segue `awaiting_approval`), mas deixou de ser silencioso: a rota confere o `{ error }` da leitura do gate e o da escrita do `rejected: true`, e registra a falha (e qualquer excecao lancada no bloco) com `logServerError` (console + Configuracoes -> Erros), com a mensagem "Carimbo rejected do gate nao gravado (step N, leitura|escrita|excecao): ...". Com erro na leitura nao tenta carimbar. Nao muda o que o usuario ve. Codigo em `src/app/api/agent/executions/[executionId]/steps/[stepNumber]/reject/route.ts`; testes em `__tests__/unit/app/api/agent/executions/steps/reject.test.ts`. Rotas execute e PATCH de briefing, banco, cron e caminho do Instantly intocados.
 
 ### DW-10: O AgentActivationGate trata o 409 superseded (STEP_ALREADY_RUNNING/STEP_NOT_EXECUTABLE) como erro e rearma o card.
 origin: spec-deferred f6bf5ad1c6c3

@@ -9,8 +9,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUserProfile } from "@/lib/supabase/tenant";
 import { createClient } from "@/lib/supabase/server";
+import { logServerError, sanitizeErrorMessage } from "@/lib/services/error-logger";
 import { STEP_LABELS } from "@/types/agent";
 import type { StepType } from "@/types/agent";
+
+const REJECT_ROUTE = "/api/agent/executions/[executionId]/steps/[stepNumber]/reject";
+
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return String(error);
+}
 
 export async function POST(
   request: NextRequest,
@@ -157,8 +168,23 @@ export async function POST(
   // Fail-open de proposito: a rejeicao em si (mensagem + step em awaiting_approval) ja
   // esta persistida; um erro aqui e de AUDITORIA e nao pode transformar um reject
   // bem-sucedido em 500 para o usuario.
+  //
+  // DW-9 (FEL-12): fail-open, mas nao silencioso. O supabase-js nao lanca: devolve
+  // `{ error }`. Desde a 24.2 o carimbo libera o PATCH de briefing e o execute do
+  // ajuste, entao uma falha aqui deixa o ajuste tomando 409. Por isso o `error` da
+  // leitura e da escrita vai para o log (console + Configuracoes -> Erros).
+  const logStampFailure = (phase: "leitura" | "escrita" | "excecao", error: unknown) =>
+    logServerError({
+      source: "api",
+      route: REJECT_ROUTE,
+      tenantId: profile.tenant_id,
+      // Sanitiza ja aqui: o console.error do logServerError sai antes da sanitizacao,
+      // e um erro do Postgres pode trazer o conteudo da linha (e-mail de lead etc.).
+      error: `Carimbo rejected do gate nao gravado (step ${stepNumber}, ${phase}): ${sanitizeErrorMessage(describeError(error))}`,
+    });
+
   try {
-    const { data: gateRows } = await supabase
+    const { data: gateRows, error: gateReadError } = await supabase
       .from("agent_messages")
       .select("id, metadata")
       .eq("execution_id", executionId)
@@ -167,20 +193,29 @@ export async function POST(
       .order("created_at", { ascending: false })
       .limit(1);
 
-    const gate = Array.isArray(gateRows) ? gateRows[0] : null;
-    if (gate?.id) {
-      // JSONB nao tem update parcial pelo client JS: le, espalha e regrava.
-      const currentMetadata =
-        gate.metadata && typeof gate.metadata === "object"
-          ? (gate.metadata as Record<string, unknown>)
-          : {};
-      await supabase
-        .from("agent_messages")
-        .update({ metadata: { ...currentMetadata, rejected: true } })
-        .eq("id", gate.id);
+    if (gateReadError) {
+      await logStampFailure("leitura", gateReadError);
+    } else {
+      const gate = Array.isArray(gateRows) ? gateRows[0] : null;
+      if (gate?.id) {
+        // JSONB nao tem update parcial pelo client JS: le, espalha e regrava.
+        const currentMetadata =
+          gate.metadata && typeof gate.metadata === "object"
+            ? (gate.metadata as Record<string, unknown>)
+            : {};
+        const { error: stampError } = await supabase
+          .from("agent_messages")
+          .update({ metadata: { ...currentMetadata, rejected: true } })
+          .eq("id", gate.id);
+
+        if (stampError) {
+          await logStampFailure("escrita", stampError);
+        }
+      }
     }
-  } catch {
-    // auditoria e best-effort — ver comentario acima
+  } catch (error) {
+    // auditoria e best-effort — ver comentario acima (logServerError nunca lanca)
+    await logStampFailure("excecao", error);
   }
 
   return NextResponse.json({
