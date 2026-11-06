@@ -429,7 +429,8 @@ location: __tests__/unit/components/agent/AgentApprovalGate.test.tsx
 source_spec: `spec-23-4-ci-no-github-e-base-verde.md`
 severity: low
 reason: A 23.4 só adicionou totalSteps={5} nos renders para satisfazer o tsc; a lacuna de cobertura já existia antes.
-status: open
+status: resolved
+resolution: 2026-11-06 (FEL-8), bloco `totalSteps no disparo do proximo step (DW-4)` em `__tests__/unit/components/agent/AgentApprovalGate.test.tsx` e `__tests__/unit/components/agent/AgentCampaignPreview.test.tsx`. Cada um aprova pelo botão real, com `fetch` mockado, e verifica: no último step (`stepNumber === totalSteps`) não sai nenhum `POST .../execute` nem aviso no store; o mesmo `stepNumber` com `totalSteps` maior dispara `/execute` do step seguinte. Teste de mutação feito à mão: trocar `totalSteps` por `Infinity` na chamada de `triggerNextStepChecked` dos dois componentes derruba os dois testes de último step. Só testes; nenhum código de produção mudou.
 
 ### DW-5: Edge Functions (supabase/functions, Deno) não passam por typecheck nem lint no CI.
 origin: spec-deferred 2c48d246f539

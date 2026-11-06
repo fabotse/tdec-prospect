@@ -443,3 +443,63 @@ describe("AgentApprovalGate — falha no disparo do proximo step (Story 24.3)", 
     expect(useAgentStore.getState().stepTriggerFailure).toBeNull();
   });
 });
+
+// ==============================================
+// DW-4 — totalSteps chega ao disparo do proximo step (guarda de ultimo step)
+// ==============================================
+
+describe("AgentApprovalGate — totalSteps no disparo do proximo step (DW-4)", () => {
+  const executeCalls = () =>
+    mockFetch.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes("/execute"));
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAgentStore.setState({ stepTriggerFailure: null });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: { status: "approved" } }),
+    });
+  });
+
+  async function approve(stepNumber: number, totalSteps: number) {
+    const onAction = vi.fn();
+    render(
+      <AgentApprovalGate
+        data={defaultData}
+        executionId="exec-001"
+        stepNumber={stepNumber}
+        totalSteps={totalSteps}
+        onAction={onAction}
+      />
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByText("Aprovar"));
+    });
+    await waitFor(() => expect(onAction).toHaveBeenCalled());
+    // O disparo nao e aguardado pelo componente: deixa a fila de microtasks/timers
+    // esvaziar antes de olhar se houve (ou nao) POST .../execute.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  it("ultimo step (stepNumber === totalSteps): aprovar NAO dispara /execute", async () => {
+    await approve(2, 2);
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/agent/executions/exec-001/steps/2/approve",
+      { method: "POST" }
+    );
+    expect(executeCalls()).toEqual([]);
+    expect(useAgentStore.getState().stepTriggerFailure).toBeNull();
+  });
+
+  it("mesmo stepNumber com totalSteps maior: dispara /execute do step seguinte", async () => {
+    await approve(2, 3);
+
+    expect(executeCalls()).toEqual(["/api/agent/executions/exec-001/steps/3/execute"]);
+  });
+});
