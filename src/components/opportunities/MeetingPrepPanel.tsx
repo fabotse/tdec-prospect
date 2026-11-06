@@ -95,10 +95,13 @@ function OriginBadge({ origin, refs }: { origin: MeetingPrepOrigin; refs: string
   );
 }
 
+/** Seção do briefing: o divisor vem do `divide-y` do contêiner. */
+const SECTION_CLASS = "flex flex-col gap-3 py-5 first:pt-0 last:pb-0";
+
 function AccountSection({ account }: { account: MeetingPrepAccount }) {
   return (
-    <section className="flex flex-col gap-2" data-testid="meeting-prep-account">
-      <h3 className="text-sm font-medium">Resumo da conta</h3>
+    <section className={SECTION_CLASS} data-testid="meeting-prep-account">
+      <h3 className="text-sm font-semibold">Resumo da conta</h3>
       {account.status !== "found" ? (
         <div className="flex flex-col gap-1" data-testid="meeting-prep-no-research">
           <p className="text-sm text-muted-foreground">
@@ -169,8 +172,8 @@ function EngagementSection({ engagement }: { engagement: MeetingPrepEngagement }
   const booked = formatDateTime(engagement.meetingBookedAt);
   const repliedAt = formatDateTime(engagement.repliedAt);
   return (
-    <section className="flex flex-col gap-2" data-testid="meeting-prep-engagement">
-      <h3 className="text-sm font-medium">Engajamento e resposta</h3>
+    <section className={SECTION_CLASS} data-testid="meeting-prep-engagement">
+      <h3 className="text-sm font-semibold">Engajamento e resposta</h3>
       {engagement.campaignName && (
         <p className="text-xs text-muted-foreground">Campanha: {engagement.campaignName}</p>
       )}
@@ -287,7 +290,7 @@ export function MeetingPrepPanel({
   const generatedAt = formatDateTime(prep.generatedAt);
 
   return (
-    <div className="flex flex-col gap-4" data-testid="meeting-prep-briefing">
+    <div className="flex flex-col gap-5" data-testid="meeting-prep-briefing">
       <div className="flex flex-wrap items-center gap-2">
         {generatedAt && (
           <span className="text-xs text-muted-foreground" data-testid="meeting-prep-generated-at">
@@ -326,44 +329,46 @@ export function MeetingPrepPanel({
         </p>
       )}
 
-      <AccountSection account={prep.account} />
-      <EngagementSection engagement={prep.engagement} />
+      <div className="flex flex-col divide-y divide-border border-t pt-5">
+        <AccountSection account={prep.account} />
+        <EngagementSection engagement={prep.engagement} />
 
-      <section className="flex flex-col gap-2" data-testid="meeting-prep-talking-points">
-        <h3 className="text-sm font-medium">Pontos de conversa</h3>
-        <ol className="flex flex-col gap-2">
-          {prep.talkingPoints.map((point, index) => (
-            <li key={index} className="flex flex-col gap-1" data-testid="meeting-prep-talking-point">
-              <p className="text-sm break-words">
-                {index + 1}. {point.text}
-              </p>
-              <OriginBadge origin={point.origin} refs={point.refs} />
-            </li>
-          ))}
-        </ol>
-      </section>
-
-      <section className="flex flex-col gap-2" data-testid="meeting-prep-objections">
-        <h3 className="text-sm font-medium">Objeções prováveis</h3>
-        {prep.objections.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nenhuma objeção prevista.</p>
-        ) : (
-          <ol className="flex flex-col gap-3">
-            {prep.objections.map((item, index) => (
-              <li key={index} className="flex flex-col gap-1" data-testid="meeting-prep-objection">
-                <p className="text-sm font-medium break-words">
-                  {index + 1}. {item.objection}
+        <section className={SECTION_CLASS} data-testid="meeting-prep-talking-points">
+          <h3 className="text-sm font-semibold">Pontos de conversa</h3>
+          <ol className="flex flex-col gap-4">
+            {prep.talkingPoints.map((point, index) => (
+              <li key={index} className="flex flex-col gap-1" data-testid="meeting-prep-talking-point">
+                <p className="text-sm break-words">
+                  {index + 1}. {point.text}
                 </p>
-                <p className="text-sm break-words text-foreground/90">
-                  <span className="text-muted-foreground">Resposta sugerida: </span>
-                  {item.answer}
-                </p>
-                <OriginBadge origin={item.origin} refs={item.refs} />
+                <OriginBadge origin={point.origin} refs={point.refs} />
               </li>
             ))}
           </ol>
-        )}
-      </section>
+        </section>
+
+        <section className={SECTION_CLASS} data-testid="meeting-prep-objections">
+          <h3 className="text-sm font-semibold">Objeções prováveis</h3>
+          {prep.objections.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nenhuma objeção prevista.</p>
+          ) : (
+            <ol className="flex flex-col gap-4">
+              {prep.objections.map((item, index) => (
+                <li key={index} className="flex flex-col gap-1" data-testid="meeting-prep-objection">
+                  <p className="text-sm font-medium break-words">
+                    {index + 1}. {item.objection}
+                  </p>
+                  <p className="text-sm break-words text-foreground/90">
+                    <span className="text-muted-foreground">Resposta sugerida: </span>
+                    {item.answer}
+                  </p>
+                  <OriginBadge origin={item.origin} refs={item.refs} />
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

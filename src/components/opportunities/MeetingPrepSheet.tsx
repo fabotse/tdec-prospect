@@ -104,14 +104,14 @@ export function MeetingPrepSheet({ opportunity, onOpenChange }: MeetingPrepSheet
     <Sheet open={Boolean(opportunity)} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="flex w-full flex-col overflow-hidden sm:max-w-lg"
+        className="flex w-full flex-col gap-0 overflow-hidden sm:max-w-xl"
         data-testid="meeting-prep-sheet"
       >
-        <SheetHeader className="flex-shrink-0">
+        <SheetHeader className="flex-shrink-0 border-b pr-12">
           <SheetTitle>Preparar reunião — {title}</SheetTitle>
           <SheetDescription>{leadName}</SheetDescription>
         </SheetHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           {opportunity && (
             <MeetingPrepSheetBody key={opportunity.id} opportunity={opportunity} title={title} />
           )}
