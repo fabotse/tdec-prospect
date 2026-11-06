@@ -67,3 +67,31 @@ export function getStepErrorMessage(
   const msg = (step.output as { error?: { message?: unknown } } | null)?.error?.message;
   return typeof msg === "string" && msg.length > 0 ? msg : null;
 }
+
+/**
+ * DW-11 (FEL-14): um step `running` que passou do limite da function (`maxDuration = 300`
+ * na rota execute) quase certamente morreu (timeout, crash, deploy). O banco so o libera
+ * com o sweeper da 24.1 (`running` ha mais de 10 min, cron a cada 2 min), entao por ate
+ * ~12 min o painel so mostrava o spinner. A partir deste limite a linha explica o que
+ * esta acontecendo. 6 min = 5 min da function + 1 min de folga para relogio/latencia.
+ */
+export const STALE_RUNNING_HINT_AFTER_MS = 6 * 60 * 1000;
+
+/** Texto exibido na linha do step `running` acima do limite. */
+export const STALE_RUNNING_HINT =
+  'Está demorando mais que o normal. Se a etapa tiver travado, ela é liberada sozinha em até 12 minutos do início e aí aparece "Tentar novamente".';
+
+/**
+ * `true` quando o step esta `running` ha mais de `STALE_RUNNING_HINT_AFTER_MS`. Usa
+ * `started_at` e, na falta, `created_at` (a mesma referencia do sweeper). Data invalida
+ * nunca conta como velha.
+ */
+export function isStepRunningTooLong(
+  step: Pick<AgentStep, "status" | "started_at" | "created_at">,
+  nowMs: number
+): boolean {
+  if (step.status !== "running") return false;
+  const startedMs = Date.parse(step.started_at ?? step.created_at);
+  if (Number.isNaN(startedMs)) return false;
+  return nowMs - startedMs > STALE_RUNNING_HINT_AFTER_MS;
+}

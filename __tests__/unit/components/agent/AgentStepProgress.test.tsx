@@ -5,7 +5,7 @@
  * Tests: rendering by status, correct labels
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { AgentStepProgress } from "@/components/agent/AgentStepProgress";
 import type { AgentStep } from "@/types/agent";
@@ -278,5 +278,107 @@ describe("AgentStepProgress — retry de step failed (Story 24.3)", () => {
       />
     );
     expect(screen.queryByTestId("step-retry-2")).not.toBeInTheDocument();
+  });
+});
+
+// DW-11 (FEL-14): step `running` que passou do limite da function ganha uma explicacao
+// na linha, ate o sweeper da 24.1 libera-lo (failed + "Tentar novamente").
+describe("step running parado ha muito tempo (DW-11)", () => {
+  const NOW = new Date("2026-11-06T12:00:00Z");
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function runningStep(startedMinutesAgo: number | null, overrides: Partial<AgentStep> = {}) {
+    return createStep({
+      status: "running",
+      step_number: 3,
+      step_type: "create_campaign",
+      started_at:
+        startedMinutesAgo === null
+          ? null
+          : new Date(NOW.getTime() - startedMinutesAgo * 60_000).toISOString(),
+      ...overrides,
+    });
+  }
+
+  it("running ha 2 min: so o spinner, sem aviso", () => {
+    render(<AgentStepProgress steps={[runningStep(2)]} currentStep={3} />);
+    expect(screen.queryByTestId("step-stale-3")).not.toBeInTheDocument();
+  });
+
+  it("running ha 7 min: explica que sera liberado e que aparece Tentar novamente", () => {
+    render(<AgentStepProgress steps={[runningStep(7)]} currentStep={3} />);
+    const text = screen.getByTestId("step-stale-3").textContent ?? "";
+    expect(text).toContain("demorando mais que o normal");
+    expect(text).toContain("12 minutos");
+    expect(text).toContain("Tentar novamente");
+    // Nao e o botao: o step ainda esta running e a rota recusaria (409).
+    expect(screen.queryByTestId("step-retry-3")).not.toBeInTheDocument();
+  });
+
+  it("o aviso aparece sozinho quando o tempo passa do limite, sem dado novo", () => {
+    render(<AgentStepProgress steps={[runningStep(5)]} currentStep={3} />);
+    expect(screen.queryByTestId("step-stale-3")).not.toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(90_000);
+    });
+
+    expect(screen.getByTestId("step-stale-3")).toBeInTheDocument();
+  });
+
+  it("sem started_at usa created_at (mesma referencia do sweeper)", () => {
+    render(
+      <AgentStepProgress
+        steps={[
+          runningStep(null, {
+            created_at: new Date(NOW.getTime() - 8 * 60_000).toISOString(),
+          }),
+        ]}
+        currentStep={3}
+      />
+    );
+    expect(screen.getByTestId("step-stale-3")).toBeInTheDocument();
+  });
+
+  it("step que nao esta running nunca mostra o aviso, mesmo antigo", () => {
+    render(
+      <AgentStepProgress
+        steps={[runningStep(30, { status: "completed" })]}
+        currentStep={4}
+      />
+    );
+    expect(screen.queryByTestId("step-stale-3")).not.toBeInTheDocument();
+  });
+
+  it("quando o sweeper libera o step (failed), o aviso sai e o botao aparece", () => {
+    const { rerender } = render(
+      <AgentStepProgress steps={[runningStep(11)]} currentStep={3} onRetryStep={vi.fn()} />
+    );
+    expect(screen.getByTestId("step-stale-3")).toBeInTheDocument();
+
+    rerender(
+      <AgentStepProgress
+        steps={[
+          runningStep(11, {
+            status: "failed",
+            error_message: "Etapa interrompida — tente novamente",
+            output: { error: { code: "STEP_INTERRUPTED", isRetryable: true } },
+          }),
+        ]}
+        currentStep={3}
+        onRetryStep={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByTestId("step-stale-3")).not.toBeInTheDocument();
+    expect(screen.getByTestId("step-retry-3")).toBeInTheDocument();
   });
 });
