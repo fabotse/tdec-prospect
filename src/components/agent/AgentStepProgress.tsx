@@ -8,7 +8,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, CheckCircle2, XCircle, Circle, SkipForward, Clock, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,8 @@ import {
   formatStepErrorSentence,
   getStepErrorMessage,
   isStepErrorRetryable,
+  isStepRunningTooLong,
+  STALE_RUNNING_HINT,
 } from "@/lib/agent/step-error-display";
 import { STEP_LABELS } from "@/types/agent";
 import type { AgentStep, StepType } from "@/types/agent";
@@ -87,6 +89,18 @@ function StepRow({
   const retryable = isFailed && isStepErrorRetryable(step);
   const errorMessage = isFailed ? getStepErrorMessage(step) : null;
 
+  // DW-11 (FEL-14): relogio so enquanto o step esta `running`, para a linha passar a
+  // explicar o step parado sem depender de o polling trazer dado novo.
+  const isRunning = step.status === "running";
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isRunning) return;
+    // Sem setState sincrono aqui (lint): um `nowMs` antigo so atrasa o aviso em ate 30 s.
+    const id = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, [isRunning]);
+  const runningTooLong = isStepRunningTooLong(step, nowMs);
+
   const handleRetry = async () => {
     if (!onRetryStep || isRetrying) return;
     setIsRetrying(true);
@@ -116,6 +130,14 @@ function StepRow({
           ? `Etapa ${activeIndex}/${activeTotal}: ${label}${step.status === "running" ? "..." : ""}`
           : label}
       </span>
+      {runningTooLong && (
+        <span
+          className="text-xs text-muted-foreground font-normal ml-1"
+          data-testid={`step-stale-${step.step_number}`}
+        >
+          — {STALE_RUNNING_HINT}
+        </span>
+      )}
       {isFailed && errorMessage && (
         <span className="text-xs text-red-500 ml-1" data-testid={`step-error-${step.step_number}`}>
           — {formatStepErrorSentence(errorMessage, retryable)}

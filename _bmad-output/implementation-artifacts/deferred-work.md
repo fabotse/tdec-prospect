@@ -487,7 +487,8 @@ location: src/lib/agent/client-utils.ts executeStepChecked / src/lib/agent/steps
 source_spec: `spec-24-3-avanco-confiavel-e-tentar-novamente.md`
 severity: medium
 reason: O maxDuration=300 so empurra o limite. Um 504 sem corpo JSON vira aviso retryable, mas o retry toma 409 STEP_NOT_EXECUTABLE (superseded) e o aviso some, com o step girando para sempre no painel. A deteccao de running velho e escopo da 24.1 (sweeper pg_cron, FR11/FR12).
-status: open
+status: resolved
+resolution: 2026-11-06 (FEL-14). A saida pelo banco ja existia desde a 24.1: o sweeper libera o step `running` com mais de 10 min (cron a cada 2 min) como `failed` com `STEP_INTERRUPTED` retryable, e o painel mostra "Tentar novamente" (polling de 3 s em `use-agent-execution.ts`). Faltava a tela no intervalo: agora a linha do step `running` ha mais de 6 min (5 min da function + folga) explica que esta demorando mais que o normal e que, se travou, e liberada sozinha em ate 12 min do inicio, e ai aparece "Tentar novamente" (`isStepRunningTooLong`/`STALE_RUNNING_HINT` em `src/lib/agent/step-error-display.ts`, `src/components/agent/AgentStepProgress.tsx`, com relogio de 30 s so enquanto o step esta `running`). O 409 superseded do retry continua silencioso de proposito (a linha do painel e quem explica). Testes em `__tests__/unit/components/agent/AgentStepProgress.test.tsx` e `__tests__/unit/lib/agent/step-error-display.test.ts`. Rota execute, sweeper, cron e caminho do Instantly intocados.
 
 ### DW-12: No modo guiado, uma falha pre-orchestrator no disparo apos aprovar um gate perde a unica saida depois de um F5.
 origin: spec-deferred 9046028e7a5b
