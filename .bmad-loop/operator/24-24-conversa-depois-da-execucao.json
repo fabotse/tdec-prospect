@@ -1,0 +1,12 @@
+{
+  "actions": [
+    "Revisar e dar o OK (ou pedir mudanca) para a substituicao de e-mail pela conversa antes do Aprovar: ela muda o texto que o export envia ao Instantly pelo mesmo caminho da edicao manual (Regra n 1, ponto 3).",
+    "Depois do merge e do deploy, fazer o smoke real numa execucao de teste: perguntar 'por que esse lead?', pedir 'reescreve o e-mail 2' com o gate da campanha aberto e clicar Substituir sem aprovar, e pedir 'traz mais 2 parecidos' numa execucao terminada sem confirmar o plano. Nao ativar nada no Instantly.",
+    "Decidir se a reescrita deve poder trocar a sequencia de uma campanha ja exportada no Instantly (hoje o card so oferece Copiar); se sim, abrir uma story propria.",
+    "No Linear, mover a FEL-47 para Review humano / PR com o PR aberto; nao marcar Done antes do merge e do smoke."
+  ],
+  "parked_at": "2026-11-09",
+  "run_id": "20261109-151100-aa17",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-24-24-conversa-depois-da-execucao.md",
+  "story_key": "24-24-conversa-depois-da-execucao"
+}

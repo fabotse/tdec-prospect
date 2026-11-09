@@ -44,6 +44,9 @@ const mockSetChatInputDraft = vi.fn();
 // Story 24.3: aviso efemero de falha no disparo de step
 const mockSetStepTriggerFailure = vi.fn();
 const mockClearStepTriggerFailure = vi.fn();
+// Story 24.24: troca de e-mail pedida pelo card da conversa
+const mockSetEmailBlockReplacement = vi.fn();
+const mockClearEmailBlockReplacement = vi.fn();
 let capturedStepProgressProps: Record<string, unknown> | null = null;
 
 let capturedOnSendMessage: ((content: string) => Promise<void>) | null = null;
@@ -189,6 +192,15 @@ vi.mock("@/components/agent/AgentStepProgress", () => ({
   },
 }));
 
+// Story 24.24: card da conversa depois da execucao (props capturadas)
+let capturedConversationCardProps: Record<string, unknown> | null = null;
+vi.mock("@/components/agent/AgentConversationCard", () => ({
+  AgentConversationCard: (props: Record<string, unknown>) => {
+    capturedConversationCardProps = props;
+    return <div data-testid="agent-conversation-card">conversation card</div>;
+  },
+}));
+
 vi.mock("@/components/agent/AgentStepTriggerError", () => ({
   AgentStepTriggerError: ({ failure }: { failure: { message: string } }) => (
     <div data-testid="step-trigger-error">{failure.message}</div>
@@ -242,6 +254,10 @@ function setupDefaults(overrides?: {
     stepTriggerFailure: overrides?.stepTriggerFailure ?? null,
     setStepTriggerFailure: mockSetStepTriggerFailure,
     clearStepTriggerFailure: mockClearStepTriggerFailure,
+    // Story 24.24
+    emailBlockReplacement: null,
+    setEmailBlockReplacement: mockSetEmailBlockReplacement,
+    clearEmailBlockReplacement: mockClearEmailBlockReplacement,
   };
   mockBriefingState = {
     status: overrides?.briefingStatus ?? "idle",
@@ -3241,3 +3257,331 @@ describe("AgentChat", () => {
     });
   });
 });
+
+// ==============================================
+// Story 24.24 — conversa depois da execucao
+// ==============================================
+
+describe("AgentChat — conversa depois da execucao (Story 24.24)", () => {
+  const USER_ID = "user-1";
+  const EXEC = "exec-run";
+  const STEPS_WITH_OUTPUT = [
+    { id: "s1", step_number: 1, step_type: "search_leads", status: "completed", output: { leads: [] } },
+    { id: "s3", step_number: 3, step_type: "create_campaign", status: "awaiting_approval", output: { emailBlocks: [] } },
+  ];
+  const REWRITE_PROPOSAL = {
+    stepNumber: 3,
+    position: 2,
+    blockPosition: 3,
+    emailMode: "follow-up",
+    original: { subject: "Antigo", body: "Corpo antigo" },
+    proposed: { subject: "Novo", body: "Corpo novo {{first_name}}" },
+    review: { status: "approved", reasons: [] },
+    canApply: true,
+    blockedReason: null,
+  };
+  const MORE_PROPOSAL = {
+    count: 2,
+    referenceName: "Joao Silva",
+    briefing: { jobTitles: ["CISO"], leadCount: 2, skipSteps: ["search_companies"] },
+    estimatedCostBRL: 10,
+    canStart: true,
+    blockedReason: null,
+  };
+
+  let conversationResponse: { ok: boolean; body: unknown };
+
+  function mockFetchRoutes() {
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url === "/api/agent/executions") {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({ data: [{ id: EXEC, user_id: USER_ID, status: "running", mode: "guided" }] }),
+        });
+      }
+      if (typeof url === "string" && url.endsWith("/conversation")) {
+        return Promise.resolve({
+          ok: conversationResponse.ok,
+          status: conversationResponse.ok ? 200 : 500,
+          json: () => Promise.resolve(conversationResponse.body),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+    });
+  }
+
+  function agentMessageBodies(): string[] {
+    return (global.fetch as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([url]) => typeof url === "string" && url.endsWith("/messages"))
+      .map(([, init]) => JSON.parse((init as RequestInit).body as string).content as string);
+  }
+
+  function conversationCalls() {
+    return (global.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
+      ([url]) => typeof url === "string" && url.endsWith("/conversation")
+    );
+  }
+
+  async function renderAttached() {
+    let utils!: ReturnType<typeof render>;
+    await act(async () => {
+      utils = render(<AgentChat />);
+    });
+    return utils;
+  }
+
+  async function send(content: string) {
+    await act(async () => {
+      await capturedOnSendMessage!(content);
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    capturedOnSendMessage = null;
+    capturedConversationCardProps = null;
+    setupDefaults({ executionId: EXEC, briefingStatus: "idle" });
+    mockUserState = { profile: { id: USER_ID } };
+    mockExecutionData = { messages: [], steps: STEPS_WITH_OUTPUT };
+    global.fetch = vi.fn();
+    conversationResponse = { ok: true, body: { data: { kind: "fallback" } } };
+    mockFetchRoutes();
+  });
+
+  it("pergunta: chama a rota e responde com o texto dela", async () => {
+    conversationResponse = { ok: true, body: { data: { kind: "answer", reply: "Joao e A: CISO de banco." } } };
+    await renderAttached();
+    await send("por que o Joao?");
+
+    const [[url, init]] = conversationCalls();
+    expect(url).toBe(`/api/agent/executions/${EXEC}/conversation`);
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ message: "por que o Joao?" });
+    expect(agentMessageBodies().at(-1)).toBe("Joao e A: CISO de banco.");
+    expect(mockRecordAgentTurn).toHaveBeenCalledWith("Joao e A: CISO de banco.");
+    expect(capturedConversationCardProps).toBeNull();
+  });
+
+  it("fallback da rota: resposta de status de hoje", async () => {
+    await renderAttached();
+    await send("e agora?");
+    expect(conversationCalls()).toHaveLength(1);
+    expect(agentMessageBodies().at(-1)).toContain("aguardando sua aprovacao");
+  });
+
+  it("erro da rota (500 ou rede): resposta de status de hoje", async () => {
+    conversationResponse = { ok: false, body: { error: {} } };
+    await renderAttached();
+    await send("e agora?");
+    expect(agentMessageBodies().at(-1)).toContain("aguardando sua aprovacao");
+  });
+
+  it("sem output nos steps: nem chama a rota", async () => {
+    mockExecutionData = {
+      messages: [],
+      steps: [{ id: "s1", step_number: 1, step_type: "search_leads", status: "running", output: null }],
+    };
+    await renderAttached();
+    await send("e agora?");
+    expect(conversationCalls()).toHaveLength(0);
+    expect(agentMessageBodies().at(-1)).toContain("Estou executando");
+  });
+
+  it("reescrita: mostra o card; Substituir grava no store e responde", async () => {
+    conversationResponse = {
+      ok: true,
+      body: { data: { kind: "rewrite", reply: "Escrevi uma nova versao do e-mail 2.", proposal: REWRITE_PROPOSAL } },
+    };
+    await renderAttached();
+    await send("reescreve o e-mail 2");
+
+    expect(agentMessageBodies().at(-1)).toBe("Escrevi uma nova versao do e-mail 2.");
+    expect(screen.getByTestId("agent-conversation-card")).toBeInTheDocument();
+    expect(capturedConversationCardProps?.card).toMatchObject({ kind: "rewrite", executionId: EXEC });
+
+    const onApply = capturedConversationCardProps?.onApply as (p: unknown) => void;
+    await act(async () => {
+      onApply(REWRITE_PROPOSAL);
+    });
+    await waitFor(() =>
+      expect(agentMessageBodies().at(-1)).toBe("Substituí o e-mail 2 na prévia. Aprove a campanha para valer.")
+    );
+    expect(mockSetEmailBlockReplacement).toHaveBeenCalledWith({
+      executionId: EXEC,
+      stepNumber: 3,
+      position: 2,
+      blockPosition: 3,
+      subject: "Novo",
+      body: "Corpo novo {{first_name}}",
+      review: { status: "approved", reasons: [] },
+    });
+    expect(screen.queryByTestId("agent-conversation-card")).not.toBeInTheDocument();
+  });
+
+  it("reescrita com o gate ja fechado: nao troca a previa", async () => {
+    mockExecutionData = {
+      messages: [],
+      steps: [
+        STEPS_WITH_OUTPUT[0],
+        { ...STEPS_WITH_OUTPUT[1], status: "approved" },
+      ],
+    };
+    conversationResponse = {
+      ok: true,
+      body: { data: { kind: "rewrite", reply: "Nova versao.", proposal: REWRITE_PROPOSAL } },
+    };
+    await renderAttached();
+    await send("reescreve o e-mail 2");
+    const onApply = capturedConversationCardProps?.onApply as (p: unknown) => void;
+    await act(async () => {
+      onApply(REWRITE_PROPOSAL);
+    });
+    expect(mockSetEmailBlockReplacement).not.toHaveBeenCalled();
+  });
+
+  it("Descartar limpa o card", async () => {
+    conversationResponse = {
+      ok: true,
+      body: { data: { kind: "rewrite", reply: "Nova versao.", proposal: REWRITE_PROPOSAL } },
+    };
+    await renderAttached();
+    await send("reescreve o e-mail 2");
+    const onDiscard = capturedConversationCardProps?.onDiscard as () => void;
+    act(() => onDiscard());
+    expect(screen.queryByTestId("agent-conversation-card")).not.toBeInTheDocument();
+  });
+
+  it("mais leads: o clique zera o cliente sem PATCH e semeia a conversa nova com prioridade sobre o ICP", async () => {
+    conversationResponse = {
+      ok: true,
+      body: { data: { kind: "more_leads", reply: "Posso abrir uma nova busca.", proposal: MORE_PROPOSAL } },
+    };
+    mockIcpProposalState = { proposal: { jobTitles: ["CFO"] }, isLoaded: true };
+    const utils = await renderAttached();
+    await send("traz mais 2 parecidos com o Joao");
+    expect(capturedConversationCardProps?.card).toMatchObject({ kind: "more_leads" });
+
+    const fetchCallsBefore = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
+    const onStartSearch = capturedConversationCardProps?.onStartSearch as (p: unknown) => void;
+    act(() => onStartSearch(MORE_PROPOSAL));
+
+    // Reset do cliente, sem nenhuma rota (nem PATCH de cancelamento, nem busca).
+    expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(fetchCallsBefore);
+    expect(mockSetCurrentExecutionId).toHaveBeenCalledWith(null);
+    expect(mockResetBriefing).toHaveBeenCalled();
+    expect(mockClearEmailBlockReplacement).toHaveBeenCalled();
+
+    // O store zerou: conversa nova, briefing idle -> o seed do "mais leads" vem antes do ICP.
+    mockStoreState.currentExecutionId = null;
+    mockExecutionData = { messages: [], steps: [] };
+    mockSeedIcpProposal.mockClear();
+    await act(async () => {
+      utils.rerender(<AgentChat />);
+    });
+    expect(mockSeedIcpProposal).toHaveBeenCalled();
+    const [seededBriefing, introTurn] = mockSeedIcpProposal.mock.calls[0];
+    expect(seededBriefing).toEqual(MORE_PROPOSAL.briefing);
+    expect(introTurn).toContain("Nova busca com os mesmos criterios");
+    expect(introTurn).toContain("2 leads");
+
+    // Card do briefing aberto: a abertura e o texto do "mais leads", nao o do ICP.
+    mockBriefingState = { ...mockBriefingState, status: "confirming", briefing: MORE_PROPOSAL.briefing };
+    await act(async () => {
+      utils.rerender(<AgentChat />);
+    });
+    expect(capturedMessageListProps.introMessage).toBe(introTurn);
+    expect(screen.queryByTestId("agent-conversation-card")).not.toBeInTheDocument();
+  });
+
+  it("mais leads com canStart false: o clique nao faz nada", async () => {
+    conversationResponse = {
+      ok: true,
+      body: {
+        data: {
+          kind: "more_leads",
+          reply: "Posso abrir uma nova busca.",
+          proposal: { ...MORE_PROPOSAL, canStart: false, blockedReason: "Disponivel quando esta execucao terminar." },
+        },
+      },
+    };
+    await renderAttached();
+    await send("traz mais 2");
+    const onStartSearch = capturedConversationCardProps?.onStartSearch as (p: unknown) => void;
+    act(() => onStartSearch({ ...MORE_PROPOSAL, canStart: false }));
+    expect(mockSetCurrentExecutionId).not.toHaveBeenCalledWith(null);
+    expect(mockResetBriefing).not.toHaveBeenCalled();
+  });
+
+  it("um card anterior some quando a pergunta seguinte recebe answer ou fallback", async () => {
+    conversationResponse = {
+      ok: true,
+      body: { data: { kind: "rewrite", reply: "Nova versao.", proposal: REWRITE_PROPOSAL } },
+    };
+    await renderAttached();
+    await send("reescreve o e-mail 2");
+    expect(screen.getByTestId("agent-conversation-card")).toBeInTheDocument();
+
+    conversationResponse = { ok: true, body: { data: { kind: "answer", reply: "Joao e A." } } };
+    await send("por que o Joao?");
+    expect(screen.queryByTestId("agent-conversation-card")).not.toBeInTheDocument();
+
+    conversationResponse = {
+      ok: true,
+      body: { data: { kind: "more_leads", reply: "Posso abrir.", proposal: MORE_PROPOSAL } },
+    };
+    await send("traz mais 2");
+    expect(screen.getByTestId("agent-conversation-card")).toBeInTheDocument();
+
+    conversationResponse = { ok: true, body: { data: { kind: "fallback" } } };
+    await send("e agora?");
+    expect(screen.queryByTestId("agent-conversation-card")).not.toBeInTheDocument();
+  });
+
+  it("o card some quando o store troca para outra execucao", async () => {
+    conversationResponse = {
+      ok: true,
+      body: { data: { kind: "rewrite", reply: "Nova versao.", proposal: REWRITE_PROPOSAL } },
+    };
+    const utils = await renderAttached();
+    await send("reescreve o e-mail 2");
+    expect(screen.getByTestId("agent-conversation-card")).toBeInTheDocument();
+
+    mockStoreState.currentExecutionId = "exec-outra";
+    await act(async () => {
+      utils.rerender(<AgentChat />);
+    });
+    expect(screen.queryByTestId("agent-conversation-card")).not.toBeInTheDocument();
+  });
+
+  it("seed do 'mais leads' que nao semeia: a abertura de um seed do ICP depois e a do ICP", async () => {
+    conversationResponse = {
+      ok: true,
+      body: { data: { kind: "more_leads", reply: "Posso abrir uma nova busca.", proposal: MORE_PROPOSAL } },
+    };
+    const ICP_BRIEFING = { jobTitles: ["CFO"], skipSteps: ["search_companies"] };
+    mockIcpProposalState = { proposal: ICP_BRIEFING, isLoaded: true };
+    const utils = await renderAttached();
+    await send("traz mais 2");
+    const onStartSearch = capturedConversationCardProps?.onStartSearch as (p: unknown) => void;
+    act(() => onStartSearch(MORE_PROPOSAL));
+
+    mockStoreState.currentExecutionId = null;
+    mockExecutionData = { messages: [], steps: [] };
+    mockSeedIcpProposal.mockClear();
+    mockSeedIcpProposal.mockReturnValueOnce(false);
+    await act(async () => {
+      utils.rerender(<AgentChat />);
+    });
+    // 1a chamada: o seed do "mais leads" (falhou); depois o do ICP.
+    expect(mockSeedIcpProposal.mock.calls[0][1]).toContain("Nova busca");
+    expect(mockSeedIcpProposal).toHaveBeenLastCalledWith(ICP_BRIEFING);
+
+    mockBriefingState = { ...mockBriefingState, status: "confirming", briefing: ICP_BRIEFING };
+    await act(async () => {
+      utils.rerender(<AgentChat />);
+    });
+    expect(capturedMessageListProps.introMessage).not.toContain("Nova busca");
+    expect(capturedMessageListProps.introMessage).toContain("Confirmar");
+  });
+});
+

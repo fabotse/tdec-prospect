@@ -221,3 +221,33 @@ describe("stepTriggerFailure (Story 24.3)", () => {
     expect(useAgentStore.getState().stepTriggerFailure).toBeNull();
   });
 });
+
+describe("emailBlockReplacement (Story 24.24)", () => {
+  const replacement = {
+    executionId: "exec-1",
+    stepNumber: 4,
+    position: 2,
+    blockPosition: 3,
+    subject: "Novo assunto",
+    body: "Novo corpo",
+    review: { status: "approved" as const, reasons: [] },
+  };
+
+  it("comeca null, grava e limpa", () => {
+    act(() => useAgentStore.getState().clearEmailBlockReplacement());
+    expect(useAgentStore.getState().emailBlockReplacement).toBeNull();
+
+    act(() => useAgentStore.getState().setEmailBlockReplacement(replacement));
+    expect(useAgentStore.getState().emailBlockReplacement).toEqual(replacement);
+
+    act(() => useAgentStore.getState().clearEmailBlockReplacement());
+    expect(useAgentStore.getState().emailBlockReplacement).toBeNull();
+  });
+
+  it("fica fora do localStorage (efemero)", () => {
+    act(() => useAgentStore.getState().setEmailBlockReplacement(replacement));
+    const raw = localStorage.getItem("tdec-agent-ui");
+    expect(raw ?? "").not.toContain("emailBlockReplacement");
+    act(() => useAgentStore.getState().clearEmailBlockReplacement());
+  });
+});

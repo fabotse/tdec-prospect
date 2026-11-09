@@ -5134,6 +5134,45 @@ describe("useBriefingFlow — Story 24.14 (ICP)", () => {
     expect(body.messages[1]).toEqual({ role: "user", content: "troca para CFO" });
   });
 
+  // Story 24.24: a conversa aberta pelo card "mais leads" usa o proprio texto de abertura.
+  async function firstParseMessages(introTurn: string | undefined) {
+    const fetchMock = createMockFetch([
+      {
+        url: /\/api\/agent\/briefing\/parse$/,
+        method: "POST",
+        response: mockJsonResponse({
+          ...COMPLETE_PARSE_RESPONSE,
+          briefing: { ...PROPOSAL, jobTitles: ["CFO"] },
+          canProceed: true,
+          missingFields: ["technology", "industry", "companySize"],
+        }),
+      },
+    ]);
+    const { result } = renderHook(() => useBriefingFlow());
+    act(() => {
+      result.current.seedIcpProposal(PROPOSAL, introTurn);
+    });
+    await act(async () => {
+      await result.current.processMessage("troca para CFO", EXEC_ID, mockSendAgentMessage);
+    });
+    return (fetchMock.calls()[0].body as { messages: Array<{ role: string; content: string }> })
+      .messages;
+  }
+
+  it("seedIcpProposal com introTurn: o texto dado entra na memoria no lugar do turno do ICP", async () => {
+    const messages = await firstParseMessages("Nova busca com os mesmos criterios para 2 leads.");
+    expect(messages[0]).toEqual({
+      role: "agent",
+      content: "Nova busca com os mesmos criterios para 2 leads.",
+    });
+    expect(messages[1]).toEqual({ role: "user", content: "troca para CFO" });
+  });
+
+  it("seedIcpProposal com introTurn em branco: volta ao turno do ICP", async () => {
+    const messages = await firstParseMessages("   ");
+    expect(messages[0]).toEqual({ role: "agent", content: buildIcpProposalTurn(PROPOSAL) });
+  });
+
   it("Confirmar no card com o local SO do ICP confirma (canConfirm)", async () => {
     const { result } = renderHook(() => useBriefingFlow());
     act(() => {

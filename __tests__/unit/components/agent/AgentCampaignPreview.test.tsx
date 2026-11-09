@@ -659,3 +659,98 @@ describe("AgentCampaignPreview — totalSteps no disparo do proximo step (DW-4)"
     expect(executeCalls()).toEqual(["/api/agent/executions/exec-001/steps/6/execute"]);
   });
 });
+
+// ==============================================
+// Story 24.24 — "Substituir na previa" vindo da conversa
+// ==============================================
+
+describe("AgentCampaignPreview — substituicao da conversa (24.24)", () => {
+  const replacement = {
+    executionId: "exec-001",
+    stepNumber: 3,
+    position: 2,
+    blockPosition: 1,
+    subject: "Assunto reescrito",
+    body: "Corpo reescrito {{first_name}}",
+    review: { status: "approved" as const, reasons: [] },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    act(() => useAgentStore.getState().clearEmailBlockReplacement());
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { stepNumber: 3, status: "approved", nextStep: 4 } }),
+    });
+  });
+
+  it("troca a posicao pedida, limpa o store e o Aprovar envia a nova versao", async () => {
+    renderComponent();
+    act(() => useAgentStore.getState().setEmailBlockReplacement(replacement));
+
+    expect(screen.getByTestId("email-subject-1")).toHaveTextContent("Assunto reescrito");
+    expect(screen.getByTestId("email-body-1")).toHaveTextContent("Corpo reescrito {{first_name}}");
+    expect(screen.getByTestId("email-subject-0")).toHaveTextContent("Assunto inicial");
+    await waitFor(() => expect(useAgentStore.getState().emailBlockReplacement).toBeNull());
+
+    fireEvent.click(screen.getByTestId("campaign-approve-btn"));
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.approvedData.emailBlocks[1]).toMatchObject({
+      position: 1,
+      subject: "Assunto reescrito",
+      body: "Corpo reescrito {{first_name}}",
+      review: { status: "approved", reasons: [] },
+    });
+    expect(body.approvedData.emailBlocks[0].subject).toBe("Assunto inicial");
+  });
+
+  it("sem o clique nada muda", () => {
+    renderComponent();
+    expect(screen.getByTestId("email-subject-1")).toHaveTextContent("Follow-up assunto");
+  });
+
+  it("ignora outra execucao ou outro step (e nao limpa o pedido)", () => {
+    renderComponent();
+    act(() => useAgentStore.getState().setEmailBlockReplacement({ ...replacement, executionId: "exec-x" }));
+    expect(screen.getByTestId("email-subject-1")).toHaveTextContent("Follow-up assunto");
+    expect(useAgentStore.getState().emailBlockReplacement).not.toBeNull();
+    act(() => useAgentStore.getState().setEmailBlockReplacement({ ...replacement, stepNumber: 9 }));
+    expect(screen.getByTestId("email-subject-1")).toHaveTextContent("Follow-up assunto");
+  });
+
+  it("campanha rejeitada: ignora e tira o pedido do store", async () => {
+    render(<AgentCampaignPreview data={createDefaultData()} {...defaultProps} rejected />);
+    act(() => useAgentStore.getState().setEmailBlockReplacement(replacement));
+    expect(screen.getByTestId("email-subject-1")).toHaveTextContent("Follow-up assunto");
+    await waitFor(() => expect(useAgentStore.getState().emailBlockReplacement).toBeNull());
+  });
+
+  it("campanha ja aprovada nesta previa: ignora e tira o pedido do store", async () => {
+    renderComponent();
+    fireEvent.click(screen.getByTestId("campaign-approve-btn"));
+    await waitFor(() => expect(screen.getByText(/Campanha aprovada/)).toBeInTheDocument());
+    act(() => useAgentStore.getState().setEmailBlockReplacement(replacement));
+    expect(screen.getByTestId("email-subject-1")).toHaveTextContent("Follow-up assunto");
+    await waitFor(() => expect(useAgentStore.getState().emailBlockReplacement).toBeNull());
+  });
+
+  it("com o Aprovar em voo: nao troca e o pedido fica no store", async () => {
+    mockFetch.mockReturnValue(new Promise(() => {}));
+    renderComponent();
+    fireEvent.click(screen.getByTestId("campaign-approve-btn"));
+    act(() => useAgentStore.getState().setEmailBlockReplacement(replacement));
+    expect(screen.getByTestId("email-subject-1")).toHaveTextContent("Follow-up assunto");
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(useAgentStore.getState().emailBlockReplacement).toEqual(replacement);
+    act(() => useAgentStore.getState().clearEmailBlockReplacement());
+  });
+
+  it("alvo divergente (posicao do bloco nao confere): nao troca", () => {
+    renderComponent();
+    act(() => useAgentStore.getState().setEmailBlockReplacement({ ...replacement, blockPosition: 7 }));
+    expect(screen.getByTestId("email-subject-1")).toHaveTextContent("Follow-up assunto");
+  });
+});
