@@ -123,8 +123,9 @@ describe("CostEstimatorService", () => {
 
   // Story 24.10: estimativa honesta — volumes reais do pipeline como teto.
   // Defaults: theirstack 0,10/credito, apollo 0,05/enrichment, openai 0,02/chamada,
-  // apify 0,15/perfil, instantly 0. Fluxo com tecnologia: 2 empresas, 25 leads, 3 e-mails.
-  // Chamadas de IA = 1 + 2×3 + 25 + 3×(1 + 2×2) = 47.
+  // apify 0,15/perfil, instantly 0. Fluxo com tecnologia: 2 empresas, 25 leads e, sem
+  // emailCount, 7 e-mails (DW-19: "maximo 7 emails" do prompt de estrutura).
+  // Chamadas de IA = 1 + 2×7 + 25 + 7×(1 + 2×2) = 75.
   describe("estimateCosts", () => {
     it("calcula a matriz do fluxo com tecnologia com defaults", () => {
       const result = CostEstimatorService.estimateCosts(new Map(), createBriefing());
@@ -136,14 +137,14 @@ describe("CostEstimatorService", () => {
       expect(result.steps.search_leads.description).toBe(
         "1 chamada de IA (Fit Score); busca Apollo não consome créditos"
       );
-      // create_campaign: 25 × 0,05 + 47 × 0,02 = 1,25 + 0,94 = 2,19
-      expect(result.steps.create_campaign.estimated).toBeCloseTo(2.19);
+      // create_campaign: 25 × 0,05 + 75 × 0,02 = 1,25 + 1,50 = 2,75
+      expect(result.steps.create_campaign.estimated).toBeCloseTo(2.75);
       // Story 24.19: research = min(25 × US$ 0,02, teto US$ 0,50) × 5,50 = 2,75
       // Story 24.20: + min(25, 10) chamadas de IA do motivo para abordar agora × 0,02 = 0,20
       expect(result.steps.research_accounts.estimated).toBeCloseTo(2.75 + 0.2);
       expect(result.steps.export.estimated).toBe(0);
       expect(result.steps.activate.estimated).toBe(0);
-      expect(result.total).toBeCloseTo(2.81 + 2.75 + 0.2);
+      expect(result.total).toBeCloseTo(3.37 + 2.75 + 0.2);
       expect(result.currency).toBe("BRL");
     });
 
@@ -157,11 +158,11 @@ describe("CostEstimatorService", () => {
       const result = CostEstimatorService.estimateCosts(costModels, createBriefing());
 
       expect(result.steps.search_companies.estimated).toBeCloseTo(2 * 3 * 0.2);
-      expect(result.steps.create_campaign.estimated).toBeCloseTo(25 * 0.1 + 47 * 0.05);
+      expect(result.steps.create_campaign.estimated).toBeCloseTo(25 * 0.1 + 75 * 0.05);
       expect(result.steps.search_leads.estimated).toBeCloseTo(0.05);
       // Story 24.19: + research (sem `treg` no DB -> default 5,50 × US$ 0,50)
       // Story 24.20: + 10 chamadas de IA (motivo para abordar agora) × 0,05
-      expect(result.total).toBeCloseTo(1.2 + 0.05 + 2.5 + 2.35 + 2.75 + 10 * 0.05);
+      expect(result.total).toBeCloseTo(1.2 + 0.05 + 2.5 + 3.75 + 2.75 + 10 * 0.05);
     });
 
     it("respeita skipSteps com custo 0", () => {
@@ -170,7 +171,7 @@ describe("CostEstimatorService", () => {
 
       expect(result.steps.search_companies.estimated).toBe(0);
       expect(result.steps.export.estimated).toBe(0);
-      expect(result.steps.create_campaign.estimated).toBeCloseTo(2.19);
+      expect(result.steps.create_campaign.estimated).toBeCloseTo(2.75);
     });
 
     it("usa leads importados como volume do create_campaign", () => {
@@ -181,8 +182,8 @@ describe("CostEstimatorService", () => {
       });
       const result = CostEstimatorService.estimateCosts(new Map(), briefing);
 
-      // 4 × 0,05 + (1 + 6 + 4 + 15) × 0,02 = 0,20 + 0,52
-      expect(result.steps.create_campaign.estimated).toBeCloseTo(0.72);
+      // 4 × 0,05 + (1 + 14 + 4 + 35) × 0,02 = 0,20 + 1,08
+      expect(result.steps.create_campaign.estimated).toBeCloseTo(1.28);
       expect(result.steps.search_companies.estimated).toBe(0);
       // Story 24.16: search_leads pulado (leads importados) -> sem Fit Score
       expect(result.steps.search_leads.estimated).toBe(0);
@@ -196,7 +197,7 @@ describe("CostEstimatorService", () => {
         expect(result.steps[key].description).toBeTruthy();
       }
       expect(result.steps.create_campaign.description).toContain("25 enriquecimentos");
-      expect(result.steps.create_campaign.description).toContain("47 chamadas de IA");
+      expect(result.steps.create_campaign.description).toContain("75 chamadas de IA");
     });
 
     it("expoe premiumIcebreakers (leads × apify) mesmo com o toggle desligado", () => {
@@ -204,7 +205,7 @@ describe("CostEstimatorService", () => {
 
       expect(result.premiumIcebreakers).toEqual({ perLead: 0.15, total: 25 * 0.15 });
       // desligado: nao entra no create_campaign
-      expect(result.steps.create_campaign.estimated).toBeCloseTo(2.19);
+      expect(result.steps.create_campaign.estimated).toBeCloseTo(2.75);
     });
 
     it("soma o premium ao create_campaign quando premiumIcebreakers=true", () => {
@@ -213,7 +214,7 @@ describe("CostEstimatorService", () => {
         createBriefing({ premiumIcebreakers: true })
       );
 
-      expect(result.steps.create_campaign.estimated).toBeCloseTo(2.19 + 3.75);
+      expect(result.steps.create_campaign.estimated).toBeCloseTo(2.75 + 3.75);
       expect(result.steps.create_campaign.description).toContain("icebreakers premium");
     });
 
@@ -366,6 +367,27 @@ describe("CostEstimatorService", () => {
 
       // 1 + 10 + 25 + 5 × 5 = 61 chamadas
       expect(result.steps.create_campaign.estimated).toBeCloseTo(25 * 0.05 + 61 * 0.02);
+    });
+
+    // DW-19: sem emailCount, o teto e o "maximo 7 emails" do prompt, qualquer que seja o
+    // objetivo (a heuristica por objetivo do prompt e so "tipica").
+    it.each(["COLD_OUTREACH", "REENGAGEMENT", "FOLLOW_UP", "NURTURE", null] as const)(
+      "DW-19: sem emailCount, objetivo %s estima 7 e-mails (75 chamadas)",
+      (objective) => {
+        const result = CostEstimatorService.estimateCosts(new Map(), createBriefing({ objective }));
+        expect(result.steps.create_campaign.estimated).toBeCloseTo(25 * 0.05 + 75 * 0.02);
+        expect(result.steps.create_campaign.description).toContain("até 75 chamadas de IA");
+      }
+    );
+
+    it("DW-19: emailCount pedido vence o teto (NURTURE com 2 e-mails)", () => {
+      const result = CostEstimatorService.estimateCosts(
+        new Map(),
+        createBriefing({ objective: "NURTURE", emailCount: 2 })
+      );
+      expect(result.steps.create_campaign.description).toContain(
+        `até ${estimateAICallsForCampaign(25, 2)} chamadas de IA`
+      );
     });
   });
 });

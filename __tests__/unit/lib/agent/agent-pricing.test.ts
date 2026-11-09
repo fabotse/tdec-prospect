@@ -7,12 +7,14 @@ import { describe, it, expect } from "vitest";
 import {
   AGENT_DEFAULT_COSTS,
   AGENT_PIPELINE_VOLUMES,
+  MAX_EMAILS_WITHOUT_COUNT,
   THEIRSTACK_CREDITS_PER_COMPANY,
   computeActualCost,
   computeStepActualCost,
   estimateAICallsForCampaign,
   formatBRL,
   formatCostLine,
+  resolveEmailVolume,
   resolveLeadCount,
   resolveLeadVolume,
   resolveLeadsPerPage,
@@ -25,11 +27,33 @@ const DEFAULT_PRICES = resolveUnitPrices(null);
 
 describe("agent-pricing", () => {
   describe("volumes", () => {
-    it("espelha o pipeline real: 2 empresas, 25 leads por busca, 3 e-mails", () => {
+    it("espelha o pipeline real: 2 empresas, 25 leads por busca", () => {
       expect(AGENT_PIPELINE_VOLUMES.companies).toBe(2);
       expect(AGENT_PIPELINE_VOLUMES.leadsPerSearch).toBe(25);
-      expect(AGENT_PIPELINE_VOLUMES.defaultEmails).toBe(3);
       expect(THEIRSTACK_CREDITS_PER_COMPANY).toBe(3);
+    });
+  });
+
+  // DW-19: sem emailCount, o teto e o "maximo 7 emails" do prompt de estrutura.
+  describe("DW-19 - volume de e-mails", () => {
+    it("o teto sem emailCount e 7 (limite duro do prompt padrao)", () => {
+      expect(MAX_EMAILS_WITHOUT_COUNT).toBe(7);
+    });
+
+    it("sem emailCount, usa 7 (o objetivo nao reduz o teto; ver agent-cost-estimator.test)", () => {
+      expect(resolveEmailVolume({})).toBe(7);
+      expect(resolveEmailVolume({ emailCount: null })).toBe(7);
+    });
+
+    it("emailCount pedido vence o teto (o prompt gera exatamente essa quantidade)", () => {
+      expect(resolveEmailVolume({ emailCount: 2 })).toBe(2);
+      expect(resolveEmailVolume({ emailCount: 10 })).toBe(10);
+    });
+
+    it("emailCount invalido (0, negativo, fracionado) cai no teto", () => {
+      expect(resolveEmailVolume({ emailCount: 0 })).toBe(7);
+      expect(resolveEmailVolume({ emailCount: -1 })).toBe(7);
+      expect(resolveEmailVolume({ emailCount: 2.5 })).toBe(7);
     });
   });
 
