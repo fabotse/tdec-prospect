@@ -1415,7 +1415,7 @@ export function AgentChat() {
       try {
         await sendAndRecordAgent(
           execId,
-          `Substituí o e-mail ${proposal.position} na prévia. Aprove a campanha para valer.`
+          `Mandei a nova versão do e-mail ${proposal.position} para a prévia da campanha. Confira lá: ela só vale quando você aprovar a campanha.`
         );
         await refetchMessages(execId);
       } catch {

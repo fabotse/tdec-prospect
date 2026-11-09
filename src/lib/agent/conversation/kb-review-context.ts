@@ -3,8 +3,8 @@
  *
  * Replica a leitura de `loadKBContext`/`loadProduct` do `create-campaign-step.ts` (que sao
  * privados e ficam intocados) e monta o `CopyReviewContext` igual ao `reviewEmailBlocks`.
- * Le com o client recebido (sessao) e `tenant_id` explicito. Nunca lanca: falha de
- * leitura vira contexto vazio (sem provas = nenhuma prova permitida).
+ * Le com o client recebido (sessao) e `tenant_id` explicito. `loadCopyReviewContext` nunca
+ * lanca: qualquer falha de leitura (KB, provas ou produto) vira null e a rota cai no fallback.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -13,7 +13,7 @@ import {
   type AIContextVariables,
   type KnowledgeBaseContext,
 } from "@/lib/services/knowledge-base-context";
-import { fetchKnowledgeBaseProofs } from "@/lib/services/knowledge-base-proofs";
+import type { KnowledgeBaseProof } from "@/types/knowledge-base";
 import { TEMPLATE_LEAD_VARIABLES } from "@/lib/agent/campaign-copy";
 import { transformProductRow, type Product, type ProductRow } from "@/types/product";
 import type { CopyReviewContext } from "@/lib/ai/copy-reviewer";
@@ -26,18 +26,33 @@ async function readSection(
   tenantId: string,
   section: "company" | "tone" | "icp"
 ): Promise<unknown> {
-  try {
-    const { data, error } = await supabase
-      .from("knowledge_base")
-      .select("content")
-      .eq("tenant_id", tenantId)
-      .eq("section", section)
-      .maybeSingle();
-    if (error || !data) return null;
-    return (data as { content?: unknown }).content ?? null;
-  } catch {
-    return null;
-  }
+  // Erro de leitura lanca: o `loadCopyReviewContext` devolve null e a rota cai no fallback.
+  const { data, error } = await supabase
+    .from("knowledge_base")
+    .select("content")
+    .eq("tenant_id", tenantId)
+    .eq("section", section)
+    .maybeSingle();
+  if (error) throw new Error(`knowledge_base (${section}): ${error.message}`);
+  if (!data) return null;
+  return (data as { content?: unknown }).content ?? null;
+}
+
+/**
+ * Mesma consulta do `fetchKnowledgeBaseProofs`, mas erro lanca: sem as provas a reescrita
+ * cortaria alegacoes legitimas do original. O loader compartilhado (falha = []) fica igual.
+ */
+async function readProofsStrict(
+  supabase: SupabaseClient,
+  tenantId: string
+): Promise<KnowledgeBaseProof[]> {
+  const { data, error } = await supabase
+    .from("knowledge_base_proofs")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`knowledge_base_proofs: ${error.message}`);
+  return Array.isArray(data) ? (data as KnowledgeBaseProof[]) : [];
 }
 
 /** Mesma leitura do `loadKBContext` do `create_campaign`. */
@@ -49,7 +64,7 @@ export async function loadConversationKBContext(
     readSection(supabase, tenantId, "company"),
     readSection(supabase, tenantId, "tone"),
     readSection(supabase, tenantId, "icp"),
-    fetchKnowledgeBaseProofs(supabase, tenantId, LOG_PREFIX),
+    readProofsStrict(supabase, tenantId),
   ]);
   if (!company && !tone && !icp && proofs.length === 0) return null;
   return {
@@ -68,18 +83,16 @@ export async function loadConversationProduct(
   productId: string | null | undefined
 ): Promise<Product | null> {
   if (!productId) return null;
-  try {
-    const { data, error } = await supabase
-      .from("products")
-      .select("*")
-      .eq("id", productId)
-      .eq("tenant_id", tenantId)
-      .maybeSingle();
-    if (error || !data) return null;
-    return transformProductRow(data as ProductRow);
-  } catch {
-    return null;
-  }
+  // Erro de leitura lanca (ver `readSection`); produto inexistente = null.
+  const { data, error } = await supabase
+    .from("products")
+    .select("*")
+    .eq("id", productId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  if (error) throw new Error(`products: ${error.message}`);
+  if (!data) return null;
+  return transformProductRow(data as ProductRow);
 }
 
 /** `CopyReviewContext` igual ao do `reviewEmailBlocks` (24.9). Puro. */
@@ -105,12 +118,15 @@ export function buildCopyReviewContext(
   };
 }
 
-/** Le KB + produto e monta o contexto da revisao. Nunca lanca. */
+/**
+ * Le KB + produto e monta o contexto da revisao. Nunca lanca: falha de leitura = null, e a
+ * rota cai no fallback em vez de reescrever sem a oferta ou sem as provas.
+ */
 export async function loadCopyReviewContext(
   supabase: SupabaseClient,
   tenantId: string,
   briefing: ParsedBriefing | null | undefined
-): Promise<CopyReviewContext> {
+): Promise<CopyReviewContext | null> {
   try {
     const [kb, product] = await Promise.all([
       loadConversationKBContext(supabase, tenantId),
@@ -124,9 +140,6 @@ export async function loadCopyReviewContext(
     return buildCopyReviewContext(aiVars, briefing);
   } catch (error) {
     console.error(`${LOG_PREFIX} falha ao montar o contexto da KB:`, error);
-    return buildCopyReviewContext(
-      { ...buildAIVariables(null), ...TEMPLATE_LEAD_VARIABLES },
-      briefing
-    );
+    return null;
   }
 }

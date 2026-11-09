@@ -53,9 +53,9 @@ describe("loadCopyReviewContext (24.24)", () => {
 
     const context = await loadCopyReviewContext(client, TENANT, BRIEFING);
 
-    expect(context.authorizedProofs).toContain("Banco Y reduziu 30% dos alertas");
-    expect(context.productName).toBe("SOC Gerenciado");
-    expect(context.audience).toBe("Cargos: CISO");
+    expect(context?.authorizedProofs).toContain("Banco Y reduziu 30% dos alertas");
+    expect(context?.productName).toBe("SOC Gerenciado");
+    expect(context?.audience).toBe("Cargos: CISO");
   });
 
   it("le o produto e a KB com tenant_id explicito", async () => {
@@ -70,19 +70,21 @@ describe("loadCopyReviewContext (24.24)", () => {
     }
   });
 
-  it("erro de leitura: contexto vazio (sem provas, sem produto)", async () => {
+  it("erro de leitura da KB ou do produto: null (a rota cai no fallback)", async () => {
     const dbError = { data: null, error: { message: "db down" } };
-    const { client } = clientWith({
-      knowledge_base: dbError,
-      knowledge_base_proofs: dbError,
-      products: dbError,
+    const kbDown = clientWith({ knowledge_base: dbError, products: { data: PRODUCT_ROW, error: null } });
+    expect(await loadCopyReviewContext(kbDown.client, TENANT, BRIEFING)).toBeNull();
+    const productDown = clientWith({ knowledge_base: { data: null, error: null }, products: dbError });
+    expect(await loadCopyReviewContext(productDown.client, TENANT, BRIEFING)).toBeNull();
+  });
+
+  it("so as provas falham: null (sem as provas a reescrita cortaria alegacoes legitimas)", async () => {
+    const { client, chains } = clientWith({
+      knowledge_base: { data: null, error: null },
+      knowledge_base_proofs: { data: null, error: { message: "db down" } },
+      products: { data: PRODUCT_ROW, error: null },
     });
-
-    const context = await loadCopyReviewContext(client, TENANT, BRIEFING);
-
-    expect(context.authorizedProofs).toBe("");
-    expect(context.productName).toBe("");
-    expect(context.productDescription).toBe("");
-    expect(context.audience).toBe("Cargos: CISO");
+    expect(await loadCopyReviewContext(client, TENANT, BRIEFING)).toBeNull();
+    expect(chains.knowledge_base_proofs[0].eq).toHaveBeenCalledWith("tenant_id", TENANT);
   });
 });

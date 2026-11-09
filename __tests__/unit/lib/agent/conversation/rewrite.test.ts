@@ -104,6 +104,7 @@ describe("rewriteEmailBlock", () => {
     expect(input).toMatchObject({ subject: "Assunto curto", emailMode: "initial", context: CONTEXT });
     expect(options.apiKey).toBe("sk-test");
     expect(typeof options.clean).toBe("function");
+    expect(options.dataDelimiters).toBe(true);
     expect(mockLogCopyReview).toHaveBeenCalledWith(expect.anything(), {
       tenantId: "tenant-1",
       source: "agent",
@@ -120,6 +121,23 @@ describe("rewriteEmailBlock", () => {
     const outcome = await rewriteEmailBlock({ ...BASE, clientFactory: llm.factory });
     expect(outcome.result?.proposed).toEqual({ subject: "A2", body: "B2 {{first_name}}" });
     expect(outcome.result?.review).toEqual({ status: "needs_human_review", reasons: ["Clichê: x"] });
+  });
+
+  it("texto do revisor passa pelos mesmos cortes da primeira geracao", async () => {
+    const llm = fakeLlm(JSON.stringify({ subject: "A", body: "B {{first_name}}" }));
+    mockReviewEmailCopy.mockResolvedValue(
+      reviewResult({ subject: "S".repeat(500), body: "C".repeat(5000), status: "needs_human_review" })
+    );
+    const outcome = await rewriteEmailBlock({ ...BASE, clientFactory: llm.factory });
+    expect(outcome.result?.proposed.subject.length).toBeLessThanOrEqual(200);
+    expect(outcome.result?.proposed.body.length).toBeLessThanOrEqual(3000);
+  });
+
+  it("revisor devolve texto vazio: vale a proposta validada", async () => {
+    const llm = fakeLlm(JSON.stringify({ subject: "A", body: "B {{first_name}}" }));
+    mockReviewEmailCopy.mockResolvedValue(reviewResult({ subject: "  ", body: "", status: "approved" }));
+    const outcome = await rewriteEmailBlock({ ...BASE, clientFactory: llm.factory });
+    expect(outcome.result?.proposed).toEqual({ subject: "A", body: "B {{first_name}}" });
   });
 
   it("revisor sem chave ou fora do ar: not_reviewed e a proposta segue", async () => {

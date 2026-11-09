@@ -220,6 +220,39 @@ describe("POST conversation (24.24)", () => {
     expect(await data(await call({ message: "por que o Joao?" }))).toEqual({ kind: "fallback" });
   });
 
+  it("erro de banco ao ler a execucao: fallback, nao 404", async () => {
+    mockFrom.mockImplementation(() => createChainBuilder({ data: null, error: { message: "db down" } }));
+    expect(await data(await call({ message: "por que o Joao?" }))).toEqual({ kind: "fallback" });
+  });
+
+  it("excecao na sessao ou no client: fallback, nunca 500", async () => {
+    mockGetCurrentUserProfile.mockRejectedValue(new Error("cookies down"));
+    expect(await data(await call({ message: "por que o Joao?" }))).toEqual({ kind: "fallback" });
+  });
+
+  it("erro ao ler o historico: fallback sem chamar o LLM", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "agent_executions") return createChainBuilder({ data: execution, error: null });
+      if (table === "agent_steps") return createChainBuilder({ data: steps, error: null });
+      return createChainBuilder({ data: null, error: { message: "db down" } });
+    });
+    expect(await data(await call({ message: "por que o Joao?" }))).toEqual({ kind: "fallback" });
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("erro ao ler os fatos do dossie: fallback sem chamar o LLM", async () => {
+    mockReadDossierFacts.mockResolvedValue({ facts: [], error: "db down" });
+    expect(await data(await call({ message: "por que o Joao?" }))).toEqual({ kind: "fallback" });
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("reescrita com a KB fora do ar: fallback sem gerar o e-mail", async () => {
+    mockLoadCopyReviewContext.mockResolvedValue(null);
+    llmReply({ intent: "rewrite", position: 3 });
+    expect(await data(await call({ message: "reescreve o e-mail 3" }))).toEqual({ kind: "fallback" });
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+
   // --- pergunta ---
 
   it("pergunta: answer com base no score, justificativa, gatilho e fatos; loga o uso", async () => {

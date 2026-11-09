@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Megaphone, Loader2, ChevronDown, ChevronUp, FileSearch } from "lucide-react";
 import {
   Card,
@@ -129,33 +130,55 @@ export function AgentCampaignPreview({
     emailBlockReplacement !== consumedReplacement &&
     !replacementStale &&
     loading === null;
+  // Alvo conferido aqui (e nao no updater): um alvo divergente nao troca nada e vira aviso.
+  const [droppedReplacement, setDroppedReplacement] = useState<EmailBlockReplacement | null>(null);
   if (replacementApplies && emailBlockReplacement) {
     const replacement = emailBlockReplacement;
     const index = replacement.position - 1;
     setConsumedReplacement(replacement);
-    setEditedBlocks((prev) => {
-      const target = prev[index];
-      if (!target || target.position !== replacement.blockPosition) return prev;
-      return prev.map((block, i) =>
-        i === index
-          ? {
-              ...block,
-              subject: replacement.subject,
-              body: replacement.body,
-              review: { status: replacement.review.status, reasons: [...replacement.review.reasons] },
-            }
-          : block
+    const target = editedBlocks[index];
+    if (!target || target.position !== replacement.blockPosition) {
+      setDroppedReplacement(replacement);
+    } else {
+      setEditedBlocks((prev) =>
+        prev.map((block, i) =>
+          i === index
+            ? {
+                ...block,
+                subject: replacement.subject,
+                body: replacement.body,
+                review: { status: replacement.review.status, reasons: [...replacement.review.reasons] },
+              }
+            : block
+        )
       );
-    });
+    }
   }
   useEffect(() => {
-    if (
-      emailBlockReplacement &&
-      (emailBlockReplacement === consumedReplacement || replacementStale)
-    ) {
+    if (!emailBlockReplacement) return;
+    if (replacementStale) {
+      // O gate fechou antes da troca (ex.: Aprovar em voo): a previa segue com o texto anterior.
+      toast.warning(
+        `A nova versao do e-mail ${emailBlockReplacement.position} nao entrou: a campanha ja tinha sido aprovada ou rejeitada.`
+      );
+      clearEmailBlockReplacement();
+      return;
+    }
+    if (emailBlockReplacement === consumedReplacement) {
+      if (emailBlockReplacement === droppedReplacement) {
+        toast.warning(
+          `A nova versao do e-mail ${emailBlockReplacement.position} nao entrou: a previa mudou desde a reescrita.`
+        );
+      }
       clearEmailBlockReplacement();
     }
-  }, [emailBlockReplacement, consumedReplacement, replacementStale, clearEmailBlockReplacement]);
+  }, [
+    emailBlockReplacement,
+    consumedReplacement,
+    droppedReplacement,
+    replacementStale,
+    clearEmailBlockReplacement,
+  ]);
 
   const handleFieldClick = (index: number, field: "subject" | "body") => {
     if (isDisabled) return;

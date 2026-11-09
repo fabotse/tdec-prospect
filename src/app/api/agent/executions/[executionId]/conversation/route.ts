@@ -69,20 +69,33 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ executionId: string }> }
 ) {
-  const profile = await getCurrentUserProfile();
-  if (!profile) return errorResponse(401, "UNAUTHORIZED", "Nao autenticado");
-  const tenantId = profile.tenant_id;
-
   const { executionId } = await params;
-  const supabase = (await createClient()) as unknown as SupabaseClient;
-
-  const { data: execution, error: execError } = await supabase
-    .from("agent_executions")
-    .select("id, status, briefing")
-    .eq("id", executionId)
-    .eq("tenant_id", tenantId)
-    .maybeSingle();
-  if (execError || !execution) {
+  // Story 24.24 (fail-safe): falha de sessao/banco antes do LLM tambem cai no fallback,
+  // nunca em 500 nem num 404 que confunde indisponibilidade com execucao inexistente.
+  let tenantId: string;
+  let supabase: SupabaseClient;
+  let execution: { id: string; status: string; briefing: unknown } | null;
+  try {
+    const profile = await getCurrentUserProfile();
+    if (!profile) return errorResponse(401, "UNAUTHORIZED", "Nao autenticado");
+    tenantId = profile.tenant_id;
+    supabase = (await createClient()) as unknown as SupabaseClient;
+    const { data, error: execError } = await supabase
+      .from("agent_executions")
+      .select("id, status, briefing")
+      .eq("id", executionId)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+    if (execError) return respond(FALLBACK);
+    execution = data as typeof execution;
+  } catch (error) {
+    console.error(
+      "[post-execution-chat] falha ao ler a execucao, usando a resposta de status:",
+      error instanceof Error ? error.message : error
+    );
+    return respond(FALLBACK);
+  }
+  if (!execution) {
     return errorResponse(404, "EXECUTION_NOT_FOUND", "Execucao nao encontrada");
   }
 
@@ -122,6 +135,8 @@ export async function POST(
       readHistory(supabase, executionId, message),
       readFacts(supabase, tenantId, steps),
     ]);
+    // Leitura incompleta = resposta sem base: cai no fallback em vez de responder pela metade.
+    if (history === null || facts === null) return respond(FALLBACK);
     const catalog = buildConversationCatalog({ steps, facts, briefing });
 
     const interpreted = await interpretMessage({ message, history, catalog }, apiKey);
@@ -160,6 +175,7 @@ export async function POST(
       }
 
       const context = await loadCopyReviewContext(supabase, tenantId, briefing);
+      if (!context) return respond(FALLBACK);
       const rewrite = await rewriteEmailBlock({
         original: { subject: email.subject, body: email.body },
         emailMode: email.emailMode,
@@ -244,7 +260,7 @@ export async function POST(
 }
 
 // ==============================================
-// LEITURAS (nenhuma lanca)
+// LEITURAS (nenhuma lanca; null = falha de leitura -> fallback)
 // ==============================================
 
 /** Ultimas mensagens de texto (usuario/agente), sem a mensagem atual (ja gravada). */
@@ -252,7 +268,7 @@ async function readHistory(
   supabase: SupabaseClient,
   executionId: string,
   message: string
-): Promise<ConversationTurn[]> {
+): Promise<ConversationTurn[] | null> {
   try {
     const { data, error } = await supabase
       .from("agent_messages")
@@ -262,7 +278,7 @@ async function readHistory(
       .eq("metadata->>messageType", "text")
       .order("created_at", { ascending: false })
       .limit(HISTORY_LIMIT + 1);
-    if (error || !Array.isArray(data)) return [];
+    if (error || !Array.isArray(data)) return null;
     const turns = (data as Array<{ role: string; content: unknown }>)
       .filter((row) => typeof row.content === "string" && row.content.trim())
       .map((row) => ({
@@ -274,7 +290,7 @@ async function readHistory(
     if (last && last.role === "user" && last.content.trim() === message) turns.pop();
     return turns.slice(-HISTORY_LIMIT);
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -283,7 +299,7 @@ async function readFacts(
   supabase: SupabaseClient,
   tenantId: string,
   steps: ConversationStep[]
-): Promise<Record<string, DossierFact[]>> {
+): Promise<Record<string, DossierFact[]> | null> {
   const research = [...steps].reverse().find((s) => s.step_type === "research_accounts");
   const output = research?.output as Partial<ResearchAccountsOutput> | null | undefined;
   const ids = Array.from(
@@ -297,10 +313,11 @@ async function readFacts(
   const entries = await Promise.all(
     ids.map(async (id) => {
       const result = await readDossierFacts(supabase, tenantId, id);
-      return [id, result.facts] as const;
+      return [id, result] as const;
     })
   );
-  return Object.fromEntries(entries);
+  if (entries.some(([, result]) => result.error)) return null;
+  return Object.fromEntries(entries.map(([id, result]) => [id, result.facts]));
 }
 
 async function logLlmUsage(

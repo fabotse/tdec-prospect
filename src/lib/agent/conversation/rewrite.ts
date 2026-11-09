@@ -139,7 +139,8 @@ export async function rewriteEmailBlock(params: RewriteEmailParams): Promise<Rew
     });
   const reviewing = reviewEmailCopy(
     { subject: proposed.subject, body: proposed.body, emailMode: params.emailMode, context: params.context },
-    { apiKey: params.apiKey, clean }
+    // Contexto (KB do tenant) e e-mail entram como dados no revisor tambem.
+    { apiKey: params.apiKey, clean, dataDelimiters: true }
   );
   let timer: ReturnType<typeof setTimeout> | undefined;
   const budget = new Promise<"expired">((resolve) => {
@@ -164,12 +165,10 @@ export async function rewriteEmailBlock(params: RewriteEmailParams): Promise<Rew
   }
 
   await logReview(outcome);
-  // O revisor pode ter reescrito (rewritten/needs_human_review): vale o texto dele.
-  const reviewed = clean(outcome.subject, outcome.body);
+  // O revisor pode ter reescrito (rewritten/needs_human_review): vale o texto dele, com os
+  // mesmos limpeza e cortes da primeira geracao (o revisor nao impoe os limites).
   const final: EmailCopy =
-    reviewed.subject.trim() && reviewed.body.trim()
-      ? { subject: reviewed.subject.trim(), body: reviewed.body.trim() }
-      : proposed;
+    validateRewrite({ subject: outcome.subject, body: outcome.body }) ?? proposed;
   return {
     result: { proposed: final, review: { status: outcome.status, reasons: outcome.reasons } },
     usage: call.usage,

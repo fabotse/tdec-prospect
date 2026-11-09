@@ -3404,7 +3404,7 @@ describe("AgentChat — conversa depois da execucao (Story 24.24)", () => {
       onApply(REWRITE_PROPOSAL);
     });
     await waitFor(() =>
-      expect(agentMessageBodies().at(-1)).toBe("Substituí o e-mail 2 na prévia. Aprove a campanha para valer.")
+      expect(agentMessageBodies().at(-1)).toBe("Mandei a nova versão do e-mail 2 para a prévia da campanha. Confira lá: ela só vale quando você aprovar a campanha.")
     );
     expect(mockSetEmailBlockReplacement).toHaveBeenCalledWith({
       executionId: EXEC,

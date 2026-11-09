@@ -19,6 +19,15 @@ import { useAgentStore } from "@/stores/use-agent-store";
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
+const mockToastWarning = vi.fn();
+vi.mock("sonner", () => ({
+  toast: {
+    warning: (...args: unknown[]) => mockToastWarning(...args),
+    error: vi.fn(),
+    success: vi.fn(),
+  },
+}));
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -748,9 +757,32 @@ describe("AgentCampaignPreview — substituicao da conversa (24.24)", () => {
     act(() => useAgentStore.getState().clearEmailBlockReplacement());
   });
 
-  it("alvo divergente (posicao do bloco nao confere): nao troca", () => {
+  it("alvo divergente (posicao do bloco nao confere): nao troca, avisa e limpa o pedido", async () => {
     renderComponent();
     act(() => useAgentStore.getState().setEmailBlockReplacement({ ...replacement, blockPosition: 7 }));
     expect(screen.getByTestId("email-subject-1")).toHaveTextContent("Follow-up assunto");
+    await waitFor(() => expect(useAgentStore.getState().emailBlockReplacement).toBeNull());
+    expect(mockToastWarning).toHaveBeenCalledWith(expect.stringContaining("nao entrou"));
+  });
+
+  it("Aprovar em voo que termina: o pedido cai, a previa nao muda e o usuario e avisado", async () => {
+    let resolveApprove: (value: unknown) => void = () => {};
+    mockFetch.mockReturnValueOnce(new Promise((resolve) => (resolveApprove = resolve)));
+    renderComponent();
+    fireEvent.click(screen.getByTestId("campaign-approve-btn"));
+    act(() => useAgentStore.getState().setEmailBlockReplacement(replacement));
+    expect(screen.getByTestId("email-subject-1")).toHaveTextContent("Follow-up assunto");
+    await act(async () => {
+      resolveApprove({
+        ok: true,
+        json: () => Promise.resolve({ data: { stepNumber: 3, status: "approved", nextStep: 4 } }),
+      });
+    });
+    await waitFor(() => expect(useAgentStore.getState().emailBlockReplacement).toBeNull());
+    expect(screen.getByTestId("email-subject-1")).toHaveTextContent("Follow-up assunto");
+    expect(mockToastWarning).toHaveBeenCalledWith(expect.stringContaining("ja tinha sido aprovada"));
+    // O que foi aprovado e o texto anterior.
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.approvedData.emailBlocks[1].subject).toBe("Follow-up assunto");
   });
 });

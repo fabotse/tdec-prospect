@@ -2,7 +2,7 @@
 title: '24.24 — Conversa depois da execução'
 type: 'feature'
 created: '2026-11-09'
-status: 'awaiting-operator'
+status: 'review'
 baseline_revision: '917eb47aca60e052aa54d82a8965555694d41b5e'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -272,3 +272,25 @@ Sem migration, sem `pg_cron` e sem env. O `sprint-status.yaml` não foi tocado.
 - `POST .../conversation` respondeu 401 sem sessão e 404 `EXECUTION_NOT_FOUND` para uma execução inexistente com sessão.
 
 Nenhuma mensagem foi enviada em execução real do cliente e nada foi gravado. O smoke funcional completo fica em `operator_actions`.
+
+## Review do Codex (Dev Ops Mac, FEL-47)
+
+Três rodadas adversariais sobre o diff inteiro. Veredito final: **APROVADO** (rodada 3).
+
+- **Rodada 1 (MUDANÇAS):**
+  - falha de sessão ou de banco na leitura da execução agora cai no `fallback` (antes podia dar 500 ou 404);
+  - falha ao ler o histórico ou os fatos do dossiê cai no `fallback` antes do LLM;
+  - falha ao ler a KB ou o produto faz o `loadCopyReviewContext` devolver null, e a rota cai no `fallback`;
+  - o "Substituir" não afirma mais a troca. Se a prévia descartar o pedido (gate fechado, Aprovar em voo ou alvo divergente), aparece um toast de aviso;
+  - o texto do revisor passa pelo `validateRewrite`, com os mesmos cortes da primeira versão.
+- **Rodada 2 (MUDANÇAS):**
+  - leitura estrita das provas na conversa (`readProofsStrict`); o loader compartilhado ficou intacto;
+  - opção `dataDelimiters` (opt-in) no `copy-reviewer`: na conversa, o contexto, os problemas e o e-mail vão entre delimitadores de dados, com um aviso no prompt de sistema. Sem a flag, o prompt é idêntico ao da 24.9, e um teste cobre isso.
+- **Pendência aceita (baixa):** se a leitura de `cost_models` falhar, o `ensureCostModels` (compartilhado) usa os preços padrão na prévia do card "mais leads". O card não executa nada. O plano normal, com o custo, aparece de novo antes do Confirmar.
+
+Os riscos residuais "Substituir responde sucesso sem confirmação" e "KB malformada cai no contexto vazio" foram resolvidos nessa passada.
+
+Checks depois das correções:
+- lint: 0 erros;
+- typecheck: limpo;
+- test:run: 488 arquivos, 9587 testes passaram e 2 foram pulados.
