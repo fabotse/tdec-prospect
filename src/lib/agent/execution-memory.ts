@@ -33,7 +33,19 @@ export const MAX_HISTORY_NAMES = 500;
 const MAX_ENTRIES_PER_LEAD = 3;
 /** Tamanho dos lotes de `.in` (mantém a URL do PostgREST curta). */
 const IN_CHUNK_SIZE = 100;
-const ROW_LIMIT = 2000;
+/** Lote menor para nomes de empresa: uma conta grande tem muitos leads no tenant. */
+const COMPANY_CHUNK_SIZE = 20;
+/**
+ * Teto de linhas por leitura. Fica IGUAL ao `max_rows` padrão do PostgREST no Supabase
+ * (1000): se o servidor cortar, o lote volta com exatamente `ROW_LIMIT` linhas e é
+ * detectado como incompleto. Um `limit` maior que o `max_rows` esconderia o corte.
+ */
+const ROW_LIMIT = 1000;
+/**
+ * Prazo da memória no plano. Passou disso, o plano sai sem a nota (`[]`): a memória é
+ * informativa e não pode segurar o "Iniciar Execução".
+ */
+export const MEMORY_TIMEOUT_MS = 3000;
 
 const CAMPAIGN_STEP_TYPES = ["create_campaign", "export"];
 
@@ -129,20 +141,39 @@ function chunk<T>(items: T[], size = IN_CHUNK_SIZE): T[][] {
 
 type QueryResult = { data: unknown; error: unknown };
 
-/** Roda `build` por lote e junta as linhas. Qualquer erro lança (o chamador faz fail-open). */
+interface ChunkedRows<Row> {
+  rows: Row[];
+  /**
+   * Valores dos lotes que voltaram com `ROW_LIMIT` linhas: a leitura pode ter sido cortada,
+   * então o que depende deles é omitido em vez de mostrado como completo.
+   */
+  incomplete: Set<string>;
+}
+
+/**
+ * Roda `build` por lote e junta as linhas. Qualquer erro lança (o chamador faz fail-open).
+ * Com `limit`, lote que volta cheio entra em `incomplete`.
+ */
 async function readInChunks<Row>(
   ids: string[],
   build: (batch: string[]) => PromiseLike<QueryResult>,
-  label: string
-): Promise<Row[]> {
-  if (ids.length === 0) return [];
-  const results = await Promise.all(chunk(ids).map((batch) => build(batch)));
+  label: string,
+  options: { size?: number; limit?: number } = {}
+): Promise<ChunkedRows<Row>> {
+  const incomplete = new Set<string>();
+  if (ids.length === 0) return { rows: [], incomplete };
+  const batches = chunk(ids, options.size);
+  const results = await Promise.all(batches.map((batch) => build(batch)));
   const rows: Row[] = [];
-  for (const result of results) {
+  results.forEach((result, index) => {
     if (result.error) throw new MemoryReadError(label, result.error);
-    rows.push(...((result.data ?? []) as Row[]));
-  }
-  return rows;
+    const batchRows = (result.data ?? []) as Row[];
+    if (options.limit !== undefined && batchRows.length >= options.limit) {
+      for (const id of batches[index]) incomplete.add(id);
+    }
+    rows.push(...batchRows);
+  });
+  return { rows, incomplete };
 }
 
 class MemoryReadError extends Error {
@@ -190,10 +221,36 @@ function campaignIdFromOutput(output: unknown): string | null {
 }
 
 /**
- * Até 3 execuções anteriores parecidas que geraram campanha, mais recentes primeiro.
- * Nunca lança: erro → `[]`.
+ * Até 3 execuções anteriores parecidas que geraram campanha exportada, mais recentes
+ * primeiro. Nunca lança e nunca passa de `timeoutMs`: erro ou prazo → `[]`.
  */
 export async function findSimilarExecutions(
+  supabase: SupabaseClient,
+  tenantId: string,
+  briefing: ParsedBriefing,
+  currentExecutionId: string,
+  timeoutMs: number = MEMORY_TIMEOUT_MS
+): Promise<PreviousExecutionMemory[]> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<PreviousExecutionMemory[]>((resolve) => {
+    timer = setTimeout(() => {
+      console.warn(`[execution-memory] memória passou de ${timeoutMs} ms; plano sai sem a nota`);
+      resolve([]);
+    }, timeoutMs);
+  });
+  try {
+    // As leituras que ainda estiverem em voo depois do prazo são só SELECTs: terminam
+    // sozinhas e o resultado é descartado.
+    return await Promise.race([
+      readSimilarExecutions(supabase, tenantId, briefing, currentExecutionId),
+      deadline,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function readSimilarExecutions(
   supabase: SupabaseClient,
   tenantId: string,
   briefing: ParsedBriefing,
@@ -233,84 +290,85 @@ export async function findSimilarExecutions(
       }
     }
 
-    const withCampaign = similar
-      .filter((row) => campaignByExecution.has(row.id))
-      .slice(0, MAX_MEMORY_ITEMS);
-    if (withCampaign.length === 0) return [];
+    const candidates = similar.filter((row) => campaignByExecution.has(row.id));
+    if (candidates.length === 0) return [];
 
-    const campaignIds = unique(withCampaign.map((row) => campaignByExecution.get(row.id)));
-
-    const [campaignsResult, repliesResult, opportunitiesResult] = await Promise.all([
+    // Primeiro descobre quais campanhas existem e foram exportadas; só depois corta em 3.
+    // Assim rascunhos recentes não tomam o lugar de uma execução antiga com resultado.
+    const { data: campaignRows, error: campaignsError } = await supabase
+      .from("campaigns")
+      .select("id, name")
+      .eq("tenant_id", tenantId)
+      .in("id", unique(candidates.map((row) => campaignByExecution.get(row.id))))
       // Só campanhas exportadas para o Instantly: rascunho nunca enviado não tem resultado.
-      supabase
-        .from("campaigns")
-        .select("id, name")
-        .eq("tenant_id", tenantId)
-        .in("id", campaignIds)
-        .not("external_campaign_id", "is", null),
-      supabase
-        .from("campaign_events")
-        .select("campaign_id, lead_email")
-        .eq("tenant_id", tenantId)
-        .in("campaign_id", campaignIds)
-        .eq("event_type", "email_replied")
-        .limit(ROW_LIMIT),
-      supabase
-        .from("opportunities")
-        .select("campaign_id, status")
-        .eq("tenant_id", tenantId)
-        .in("campaign_id", campaignIds)
-        .limit(ROW_LIMIT),
-    ]);
-    if (campaignsResult.error) throw new MemoryReadError("campaigns", campaignsResult.error);
-    if (repliesResult.error) throw new MemoryReadError("campaign_events", repliesResult.error);
-    if (opportunitiesResult.error) {
-      throw new MemoryReadError("opportunities", opportunitiesResult.error);
-    }
+      .not("external_campaign_id", "is", null);
+    if (campaignsError) throw new MemoryReadError("campaigns", campaignsError);
 
     const campaignNames = new Map<string, string>();
-    for (const row of (campaignsResult.data ?? []) as Array<{ id: string; name: string | null }>) {
+    for (const row of (campaignRows ?? []) as Array<{ id: string; name: string | null }>) {
       if (row.name) campaignNames.set(row.id, row.name);
     }
 
-    const repliers = new Map<string, Set<string>>();
-    for (const row of (repliesResult.data ?? []) as Array<{
-      campaign_id: string;
-      lead_email: string | null;
-    }>) {
-      const email = normalizeText(row.lead_email);
-      if (!email) continue;
-      const set = repliers.get(row.campaign_id) ?? new Set<string>();
-      set.add(email);
-      repliers.set(row.campaign_id, set);
-    }
+    // Campanha apagada, de outro tenant ou nunca exportada: não há o que citar.
+    const selected = candidates
+      .filter((row) => campaignNames.has(campaignByExecution.get(row.id) as string))
+      .slice(0, MAX_MEMORY_ITEMS);
+    if (selected.length === 0) return [];
 
-    const opportunityCounts = new Map<string, { total: number; meetings: number }>();
-    for (const row of (opportunitiesResult.data ?? []) as Array<{
-      campaign_id: string;
-      status: string | null;
-    }>) {
-      const counts = opportunityCounts.get(row.campaign_id) ?? { total: 0, meetings: 0 };
-      counts.total += 1;
-      if (row.status === "meeting_booked") counts.meetings += 1;
-      opportunityCounts.set(row.campaign_id, counts);
-    }
+    const selectedCampaignIds = unique(selected.map((row) => campaignByExecution.get(row.id)));
+
+    // Uma leitura por campanha (no máximo 3): o teto de linhas vale por campanha e, se
+    // bater, a contagem não é exata e a campanha fica de fora em vez de citar número errado.
+    const results = await Promise.all(
+      selectedCampaignIds.map(async (campaignId) => {
+        const [repliesResult, opportunitiesResult] = await Promise.all([
+          supabase
+            .from("campaign_events")
+            .select("lead_email")
+            .eq("tenant_id", tenantId)
+            .eq("campaign_id", campaignId)
+            .eq("event_type", "email_replied")
+            .limit(ROW_LIMIT),
+          supabase
+            .from("opportunities")
+            .select("status")
+            .eq("tenant_id", tenantId)
+            .eq("campaign_id", campaignId)
+            .limit(ROW_LIMIT),
+        ]);
+        if (repliesResult.error) throw new MemoryReadError("campaign_events", repliesResult.error);
+        if (opportunitiesResult.error) {
+          throw new MemoryReadError("opportunities", opportunitiesResult.error);
+        }
+        const replyRows = (repliesResult.data ?? []) as Array<{ lead_email: string | null }>;
+        const opportunityRows = (opportunitiesResult.data ?? []) as Array<{ status: string | null }>;
+        if (replyRows.length >= ROW_LIMIT || opportunityRows.length >= ROW_LIMIT) {
+          return [campaignId, null] as const;
+        }
+        const repliers = new Set(replyRows.map((row) => normalizeText(row.lead_email)).filter(Boolean));
+        return [
+          campaignId,
+          {
+            replies: repliers.size,
+            opportunities: opportunityRows.length,
+            meetings: opportunityRows.filter((row) => row.status === "meeting_booked").length,
+          },
+        ] as const;
+      })
+    );
+    const countsByCampaign = new Map(results);
 
     const memory: PreviousExecutionMemory[] = [];
-    for (const row of withCampaign) {
+    for (const row of selected) {
       const campaignId = campaignByExecution.get(row.id) as string;
-      const campaignName = campaignNames.get(campaignId);
-      // Campanha apagada, de outro tenant ou nunca exportada: não há o que citar.
-      if (!campaignName) continue;
-      const counts = opportunityCounts.get(campaignId) ?? { total: 0, meetings: 0 };
+      const counts = countsByCampaign.get(campaignId);
+      if (!counts) continue;
       memory.push({
         executionId: row.id,
         createdAt: row.created_at,
         label: briefingLabel(row.briefing as Partial<ParsedBriefing> | null),
-        campaignName,
-        replies: repliers.get(campaignId)?.size ?? 0,
-        opportunities: counts.total,
-        meetings: counts.meetings,
+        campaignName: campaignNames.get(campaignId) as string,
+        ...counts,
       });
     }
     return memory;
@@ -417,7 +475,7 @@ export async function findLeadWorkHistory(
   try {
     const requestedIds = new Set(ids);
 
-    const [leadsById, leadsByCompany] = await Promise.all([
+    const [byIdRead, byCompanyRead] = await Promise.all([
       readInChunks<LeadRow>(
         ids,
         (batch) =>
@@ -427,7 +485,8 @@ export async function findLeadWorkHistory(
             .eq("tenant_id", tenantId)
             .in("apollo_id", batch)
             .limit(ROW_LIMIT),
-        "leads"
+        "leads",
+        { limit: ROW_LIMIT }
       ),
       readInChunks<LeadRow>(
         names,
@@ -438,9 +497,12 @@ export async function findLeadWorkHistory(
             .eq("tenant_id", tenantId)
             .in("company_name", batch)
             .limit(ROW_LIMIT),
-        "leads"
+        "leads",
+        { size: COMPANY_CHUNK_SIZE, limit: ROW_LIMIT }
       ),
     ]);
+    const leadsById = byIdRead.rows;
+    const leadsByCompany = byCompanyRead.rows;
 
     const ownLeads = leadsById.filter((row) => row.apollo_id && requestedIds.has(row.apollo_id));
     const ownLeadIds = new Set(ownLeads.map((row) => row.id));
@@ -455,7 +517,7 @@ export async function findLeadWorkHistory(
     if (leadIds.length === 0) return emptyHistory();
 
     // `campaign_leads` não tem `tenant_id`: a RLS cobre e os `lead_id` já são do tenant.
-    const campaignLeads = await readInChunks<CampaignLeadRow>(
+    const campaignLeadsRead = await readInChunks<CampaignLeadRow>(
       leadIds,
       (batch) =>
         supabase
@@ -463,14 +525,16 @@ export async function findLeadWorkHistory(
           .select("campaign_id, lead_id, added_at")
           .in("lead_id", batch)
           .limit(ROW_LIMIT),
-      "campaign_leads"
+      "campaign_leads",
+      { limit: ROW_LIMIT }
     );
+    const campaignLeads = campaignLeadsRead.rows;
     if (campaignLeads.length === 0) return emptyHistory();
 
     const campaignIds = unique(campaignLeads.map((row) => row.campaign_id));
     const workedLeadIds = unique(campaignLeads.map((row) => row.lead_id));
 
-    const [campaigns, opportunities] = await Promise.all([
+    const [campaignsRead, opportunitiesRead] = await Promise.all([
       readInChunks<CampaignRow>(
         campaignIds,
         (batch) =>
@@ -492,9 +556,20 @@ export async function findLeadWorkHistory(
             .eq("tenant_id", tenantId)
             .in("lead_id", batch)
             .limit(ROW_LIMIT),
-        "opportunities"
+        "opportunities",
+        { limit: ROW_LIMIT }
       ),
     ]);
+    const campaigns = campaignsRead.rows;
+    const opportunities = opportunitiesRead.rows;
+
+    // Leitura cortada pelo teto de linhas: o que depende dela some em vez de aparecer
+    // incompleto (ex.: "sem resposta registrada" quando a reunião ficou fora do corte).
+    const incompleteLeadIds = new Set([
+      ...campaignLeadsRead.incomplete,
+      ...opportunitiesRead.incomplete,
+    ]);
+    const isComplete = (rowIds: string[]) => rowIds.every((id) => !incompleteLeadIds.has(id));
 
     const campaignById = new Map(campaigns.map((row) => [row.id, row]));
 
@@ -535,6 +610,7 @@ export async function findLeadWorkHistory(
       ownByApollo.set(row.apollo_id as string, list);
     }
     for (const [apolloId, rowIds] of ownByApollo) {
+      if (byIdRead.incomplete.has(apolloId) || !isComplete(rowIds)) continue;
       const seen = new Set<string>();
       const entries = rowIds
         .flatMap((leadId) => entriesByLeadId.get(leadId) ?? [])
@@ -558,6 +634,7 @@ export async function findLeadWorkHistory(
       accountLeadsByName.set(row.company_name as string, list);
     }
     for (const [companyName, rowIds] of accountLeadsByName) {
+      if (byCompanyRead.incomplete.has(companyName) || !isComplete(rowIds)) continue;
       const workedRows = rowIds.filter((leadId) => (entriesByLeadId.get(leadId)?.length ?? 0) > 0);
       if (workedRows.length === 0) continue;
       const entries = workedRows.flatMap((leadId) => entriesByLeadId.get(leadId) ?? []).sort(byRecency);

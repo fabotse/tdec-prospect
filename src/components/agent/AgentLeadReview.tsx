@@ -750,7 +750,7 @@ export function AgentLeadReview({
                       </Badge>
                     )}
                     {(() => {
-                      const entries = lookupOwn(workHistory?.leads, lead.apolloId?.trim());
+                      const entries = lookupOwn(workHistory?.leads, lead.apolloId);
                       if (!entries || entries.length === 0) return null;
                       const hidden = entries.length - MAX_VISIBLE_WORK_ENTRIES;
                       return (
@@ -761,7 +761,7 @@ export function AgentLeadReview({
                       );
                     })()}
                     {(() => {
-                      const summary = lookupOwn(workHistory?.accounts, lead.companyName?.trim());
+                      const summary = lookupOwn(workHistory?.accounts, lead.companyName);
                       if (!summary) return null;
                       return (
                         <p className="text-xs text-muted-foreground" data-testid="account-work-history">

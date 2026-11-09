@@ -169,20 +169,69 @@ describe("findSimilarExecutions", () => {
     expect(fake.callsTo("campaign_events")).toHaveLength(0);
   });
 
-  it("no máximo 3 execuções, as mais recentes com campanha", async () => {
-    const rows = [1, 2, 3, 4].map((n) => ({ id: `e${n}`, briefing: briefing(), created_at: `2026-10-0${n}T12:00:00Z` }));
+  it("no máximo 3 execuções, as mais recentes com campanha (ordem do banco: desc)", async () => {
+    // O banco devolve em `created_at desc`: e4 é a mais recente.
+    const rows = [4, 3, 2, 1].map((n) => ({ id: `e${n}`, briefing: briefing(), created_at: `2026-10-0${n}T12:00:00Z` }));
     const fake = createQueueSupabase({
       agent_executions: [{ data: rows }],
       agent_steps: [{ data: rows.map((r) => ({ execution_id: r.id, step_type: "export", output: { campaignId: `c-${r.id}` } })) }],
       campaigns: [{ data: rows.map((r) => ({ id: `c-${r.id}`, name: `Camp ${r.id}` })) }],
-      campaign_events: [{ data: [] }],
+    });
+    const memory = await findSimilarExecutions(fake.client, TENANT, briefing(), "exec-now");
+    expect(memory.map((m) => m.executionId)).toEqual(["e4", "e3", "e2"]);
+    expect(fake.callsTo("agent_executions")[0].chain.order).toHaveBeenCalledWith("created_at", {
+      ascending: false,
+    });
+    // Resultados só das 3 escolhidas, uma leitura por campanha.
+    expect(fake.callsTo("campaign_events").map((c) => c.chain.eq.mock.calls)).toHaveLength(3);
+  });
+
+  it("rascunhos recentes não escondem uma execução mais antiga com campanha exportada", async () => {
+    const rows = [5, 4, 3, 2].map((n) => ({ id: `e${n}`, briefing: briefing(), created_at: `2026-10-0${n}T12:00:00Z` }));
+    const fake = createQueueSupabase({
+      agent_executions: [{ data: rows }],
+      agent_steps: [{ data: rows.map((r) => ({ execution_id: r.id, step_type: "create_campaign", output: { campaignId: `c-${r.id}` } })) }],
+      // e5, e4 e e3 são rascunhos (o filtro external_campaign_id não devolve); só e2 foi exportada.
+      campaigns: [{ data: [{ id: "c-e2", name: "Exportada" }] }],
+      campaign_events: [{ data: [{ lead_email: "a@x.com" }] }],
       opportunities: [{ data: [] }],
     });
     const memory = await findSimilarExecutions(fake.client, TENANT, briefing(), "exec-now");
-    expect(memory.map((m) => m.executionId)).toEqual(["e1", "e2", "e3"]);
+    expect(memory).toEqual([
+      expect.objectContaining({ executionId: "e2", campaignName: "Exportada", replies: 1 }),
+    ]);
+    expect(fake.callsTo("campaigns")[0].chain.in).toHaveBeenCalledWith("id", ["c-e5", "c-e4", "c-e3", "c-e2"]);
   });
 
-  it.each(["agent_executions", "agent_steps", "opportunities", "campaign_events"])(
+  it("leitura de resultados cortada pelo teto -> a campanha não é citada com número parcial", async () => {
+    const fake = createQueueSupabase({
+      agent_executions: [{ data: [previous] }],
+      agent_steps: [{ data: [{ execution_id: "exec-old", step_type: "export", output: { campaignId: "camp-1" } }] }],
+      campaigns: [{ data: [{ id: "camp-1", name: "CISO SP" }] }],
+      campaign_events: [{ data: Array.from({ length: 1000 }, (_, i) => ({ lead_email: `l${i}@x.com` })) }],
+      opportunities: [{ data: [] }],
+    });
+    expect(await findSimilarExecutions(fake.client, TENANT, briefing(), "exec-now")).toEqual([]);
+  });
+
+  it("leitura que não termina -> [] dentro do prazo", async () => {
+    const hanging = {
+      from: vi.fn(() => {
+        const chain: Record<string, unknown> = {};
+        for (const method of ["select", "eq", "neq", "order", "limit", "in", "not"]) {
+          chain[method] = () => chain;
+        }
+        chain.then = () => new Promise(() => {});
+        return chain;
+      }),
+    } as unknown as Parameters<typeof findSimilarExecutions>[0];
+    const started = Date.now();
+    expect(await findSimilarExecutions(hanging, TENANT, briefing(), "exec-now", 20)).toEqual([]);
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(console.warn).toHaveBeenCalled();
+  });
+
+  it.each(["agent_executions", "agent_steps", "campaigns", "opportunities", "campaign_events"])(
     "erro em %s -> [] com console.warn",
     async (table) => {
       const queues: Record<string, Array<{ data?: unknown; error?: unknown }>> = {
@@ -380,5 +429,51 @@ describe("findLeadWorkHistory", () => {
     });
     const history = await findLeadWorkHistory(fake.client, TENANT, ["ap-1"], ["Acme"]);
     expect(history.accounts["Acme"].result).toBe("opt_out");
+  });
+
+  it("leitura de campaign_leads cortada pelo teto -> o lead não aparece com histórico parcial", async () => {
+    const fake = createQueueSupabase({
+      leads: [{ data: [{ id: "l1", apollo_id: "ap-1", company_name: null }] }],
+      campaign_leads: [
+        {
+          data: Array.from({ length: 1000 }, (_, i) => ({
+            campaign_id: `c${i}`,
+            lead_id: "l1",
+            added_at: "2026-09-01T12:00:00Z",
+          })),
+        },
+      ],
+      campaigns: [{ data: [{ id: "c0", name: "Camp 0", created_at: null }] }],
+      opportunities: [{ data: [] }],
+    });
+    const history = await findLeadWorkHistory(fake.client, TENANT, ["ap-1"], []);
+    expect(history.leads["ap-1"]).toBeUndefined();
+  });
+
+  it("nomes de empresa vão em lotes de 20 e um lote cortado só some com aquelas contas", async () => {
+    const names = Array.from({ length: 25 }, (_, i) => `Empresa ${i}`);
+    const fake = createQueueSupabase({
+      leads: [
+        // lote 1 (20 nomes) volta cheio: contas desse lote ficam de fora
+        { data: Array.from({ length: 1000 }, (_, i) => ({ id: `x${i}`, apollo_id: `ax${i}`, company_name: "Empresa 0" })) },
+        // lote 2 (5 nomes)
+        { data: [{ id: "l2", apollo_id: "ap-2", company_name: "Empresa 24" }] },
+      ],
+      campaign_leads: [
+        {
+          data: [
+            { campaign_id: "c1", lead_id: "x0", added_at: "2026-09-01T12:00:00Z" },
+            { campaign_id: "c1", lead_id: "l2", added_at: "2026-09-01T12:00:00Z" },
+          ],
+        },
+      ],
+      campaigns: [{ data: [{ id: "c1", name: "Camp 1", created_at: null }] }],
+      opportunities: [{ data: [] }],
+    });
+    const history = await findLeadWorkHistory(fake.client, TENANT, [], names);
+    const batches = fake.callsTo("leads").map((call) => call.chain.in.mock.calls[0][1] as string[]);
+    expect(batches.map((b) => b.length)).toEqual([20, 5]);
+    expect(history.accounts["Empresa 0"]).toBeUndefined();
+    expect(history.accounts["Empresa 24"]).toMatchObject({ contacts: 1, lastCampaignName: "Camp 1" });
   });
 });

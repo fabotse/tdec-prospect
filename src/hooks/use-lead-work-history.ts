@@ -53,12 +53,17 @@ function getInertClient(): QueryClient {
   return inertClient;
 }
 
+/**
+ * Valores ORIGINAIS (sem `trim`): a conta casa pelo `company_name` exato, então "Acme " e
+ * "Acme" são chaves diferentes. O `trim` só serve para descartar valores vazios.
+ */
 function normalizeList(values: Array<string | null | undefined>): string[] {
   return Array.from(
     new Set(
-      values
-        .map((value) => (typeof value === "string" ? value.trim() : ""))
-        .filter((value) => value.length > 0 && value.length <= MAX_ITEM_LENGTH)
+      values.filter(
+        (value): value is string =>
+          typeof value === "string" && value.trim().length > 0 && value.length <= MAX_ITEM_LENGTH
+      )
     )
   )
     .sort()
