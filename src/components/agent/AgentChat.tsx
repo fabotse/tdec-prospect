@@ -38,6 +38,10 @@ import {
   AgentConfirmationCard,
   type ConfirmationCardVariant,
 } from "./AgentConfirmationCard";
+import {
+  AgentConversationCard,
+  type ConversationCardState,
+} from "./AgentConversationCard";
 import { useAgentExecution, useSendMessage } from "@/hooks/use-agent-execution";
 import { useAgentOnboarding } from "@/hooks/use-agent-onboarding";
 import { useAutoTrigger } from "@/hooks/use-auto-trigger";
@@ -54,6 +58,7 @@ import {
   parseBriefingFieldInput,
   buildChipEditTurn,
   buildIcpProposalTurn,
+  BRIEFING_CARD_HINT,
   ICP_MISSING_HINT,
   type AnalyzeReferencesFn,
   type BriefingCardAction,
@@ -70,8 +75,14 @@ import {
   buildExecutionStatusReply,
   buildPreExecutionReply,
 } from "@/lib/agent/execution-status-reply";
+import { hasConversationalOutput } from "@/lib/agent/conversation/context";
 import { STEP_LABELS } from "@/types/agent";
 import type { AgentExecution, ExecutionMode, ParsedBriefing, PlannedStep } from "@/types/agent";
+import type {
+  MoreLeadsProposal,
+  PostExecutionChatResult,
+  RewriteProposal,
+} from "@/types/post-execution-chat";
 import type { CreateProductInput } from "@/types/product";
 
 /** Contagem pre-busca devolvida por `GET /plan?viability=1` (Story 22.14, AC7). */
@@ -97,6 +108,46 @@ function buildViabilityNote(viability: SearchViability | null): string {
   return `\n\nEstimativa com os filtros novos: ~${viability.estimatedResults} resultados.`;
 }
 
+/**
+ * Story 24.24: pergunta a conversa depois da execucao. Qualquer falha (rede, !ok, formato
+ * inesperado) vira null e o chat usa a resposta de status de hoje.
+ */
+async function fetchPostExecutionChat(
+  executionId: string,
+  message: string
+): Promise<PostExecutionChatResult | null> {
+  try {
+    const response = await fetch(`/api/agent/executions/${executionId}/conversation`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+    if (!response.ok) return null;
+    const result = await response.json().catch(() => null);
+    const data = result?.data as PostExecutionChatResult | undefined;
+    if (!data || typeof data !== "object") return null;
+    if (data.kind === "answer" && typeof data.reply === "string" && data.reply.trim()) return data;
+    if (
+      (data.kind === "rewrite" || data.kind === "more_leads") &&
+      typeof data.reply === "string" &&
+      data.reply.trim() &&
+      data.proposal &&
+      typeof data.proposal === "object"
+    ) {
+      return data;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Story 24.24: abertura da conversa nova criada pelo card "mais leads". Sem acentos. */
+export function buildMoreLeadsIntroTurn(proposal: Pick<MoreLeadsProposal, "count" | "referenceName">): string {
+  const reference = proposal.referenceName ? ` (referencia: ${proposal.referenceName})` : "";
+  return `Nova busca com os mesmos criterios da execucao anterior, para ${proposal.count} ${proposal.count === 1 ? "lead" : "leads"}${reference}. Nada foi iniciado: a busca so comeca depois do plano com o custo e do Confirmar.\n${BRIEFING_CARD_HINT}`;
+}
+
 export function AgentChat() {
   const currentExecutionId = useAgentStore((s) => s.currentExecutionId);
   const setCurrentExecutionId = useAgentStore((s) => s.setCurrentExecutionId);
@@ -120,6 +171,9 @@ export function AgentChat() {
   // Story 24.3: aviso efemero de falha no disparo de um step (pre-orchestrator).
   const stepTriggerFailure = useAgentStore((s) => s.stepTriggerFailure);
   const clearStepTriggerFailure = useAgentStore((s) => s.clearStepTriggerFailure);
+  // Story 24.24: "Substituir na previa" do card da conversa depois da execucao.
+  const setEmailBlockReplacement = useAgentStore((s) => s.setEmailBlockReplacement);
+  const clearEmailBlockReplacement = useAgentStore((s) => s.clearEmailBlockReplacement);
 
   const [isModeSubmitting, setIsModeSubmitting] = useState(false);
   const [isPlanSubmitting, setIsPlanSubmitting] = useState(false);
@@ -133,6 +187,12 @@ export function AgentChat() {
   // steps / reattachedStatus — sem ele, "Nova conversa" nessa janela cancelaria uma execucao
   // paga SEM o dialog de aviso de creditos.
   const [confirmedThisSession, setConfirmedThisSession] = useState(false);
+  // Story 24.24: card da conversa depois da execucao (estado local, nunca persistido).
+  const [conversationCard, setConversationCard] = useState<ConversationCardState | null>(null);
+  // Story 24.24: seed pendente da conversa nova aberta pelo card "mais leads" (prioridade
+  // sobre o ICP) e o texto de abertura que substitui o do ICP.
+  const pendingSeedRef = useRef<{ briefing: ParsedBriefing; introTurn: string } | null>(null);
+  const [seededIntroTurn, setSeededIntroTurn] = useState<string | null>(null);
 
   const { isFirstTime } = useAgentOnboarding();
   const { profile } = useUser();
@@ -270,7 +330,23 @@ export function AgentChat() {
   // POST de criacao em voo: o seed nao pode entrar nessa janela.
   const creatingExecutionRef = useRef(false);
 
+  // Story 24.24: seed da conversa nova aberta pelo card "mais leads". Roda antes do seed
+  // do ICP e o bloqueia enquanto pendente; o texto de abertura e o do card.
   useEffect(() => {
+    const seed = pendingSeedRef.current;
+    if (!seed || !isFreshConversation || creatingExecutionRef.current) return;
+    if (briefingState.status !== "idle") return;
+    pendingSeedRef.current = null;
+    if (seedIcpProposal(seed.briefing, seed.introTurn)) {
+      pendingProposalTurnRef.current = seed.introTurn;
+    } else {
+      // Nao semeou: o texto do "mais leads" nao pode virar a abertura de um seed do ICP.
+      setSeededIntroTurn(null);
+    }
+  }, [isFreshConversation, briefingState.status, seedIcpProposal]);
+
+  useEffect(() => {
+    if (pendingSeedRef.current) return;
     if (!isFreshConversation || !icpProposal || creatingExecutionRef.current) return;
     if (briefingState.status !== "idle") return;
     if (seedIcpProposal(icpProposal)) {
@@ -279,9 +355,10 @@ export function AgentChat() {
   }, [isFreshConversation, icpProposal, briefingState.status, seedIcpProposal]);
 
   // Proposta semeada e ainda sem execucao: so o seed leva a `confirming` sem execucao.
+  // Story 24.24: a conversa aberta pelo card "mais leads" usa o texto do card.
   const icpIntroMessage =
     !currentExecutionId && briefingState.status === "confirming" && briefingState.briefing
-      ? buildIcpProposalTurn(briefingState.briefing)
+      ? seededIntroTurn ?? buildIcpProposalTurn(briefingState.briefing)
       : null;
   // ICP sem cargos (leitura OK, sem proposta) -> dica no estado vazio. Falha -> nada.
   const icpEmptyStateHint =
@@ -340,6 +417,7 @@ export function AgentChat() {
       // Anexa a execucao ANTES de persistir a proposta: falha no persist nunca deixa a
       // execucao orfa nem faz o proximo gesto criar uma segunda.
       setCurrentExecutionId(execId);
+      setSeededIntroTurn(null);
       const proposalTurn = pendingProposalTurnRef.current;
       if (proposalTurn) {
         pendingProposalTurnRef.current = null;
@@ -965,9 +1043,28 @@ export function AgentChat() {
         } catch {
           // o onError do useSendMessage ja trata o rollback/aviso
         }
-        const reply = isPostConfirmExecution
-          ? buildExecutionStatusReply(steps)
-          : buildPreExecutionReply({ showModeSelector, showExecutionPlan });
+        let reply: string;
+        if (isPostConfirmExecution) {
+          // Story 24.24: com output dos steps, a conversa responde (pergunta, reescrita ou
+          // mais leads). Sem output ou com qualquer falha, a resposta de status de hoje.
+          // Um card de mensagem anterior nao sobrevive a uma pergunta nova.
+          setConversationCard(null);
+          const conversation = hasConversationalOutput(steps)
+            ? await fetchPostExecutionChat(execId, content)
+            : null;
+          if (conversation && conversation.kind !== "fallback") {
+            reply = conversation.reply;
+            if (conversation.kind === "rewrite") {
+              setConversationCard({ kind: "rewrite", executionId: execId, proposal: conversation.proposal });
+            } else if (conversation.kind === "more_leads") {
+              setConversationCard({ kind: "more_leads", executionId: execId, proposal: conversation.proposal });
+            }
+          } else {
+            reply = buildExecutionStatusReply(steps);
+          }
+        } else {
+          reply = buildPreExecutionReply({ showModeSelector, showExecutionPlan });
+        }
         await sendAndRecordAgent(execId, reply);
         await refetchMessages(execId);
       } catch {
@@ -1186,6 +1283,55 @@ export function AgentChat() {
   // Story 22.10 — "Nova conversa"
   // ============================================================
 
+  // Story 24.24: reset do cliente extraido de `cancelCurrentExecution` (sem PATCH). Tambem
+  // usado pelo card "mais leads", quando a execucao ja terminou.
+  const resetClientConversation = useCallback(() => {
+    // Reset integral (AC6). O persist/partialize do zustand propaga o null ao
+    // localStorage sozinho — nao ha o que limpar a mao.
+    setCurrentExecutionId(null);
+    setShowModeSelector(false);
+    setShowExecutionPlan(false);
+    setExecutionMode(null);
+    setAgentProcessing(false);
+    setTotalSteps(0);
+    setReattachedStatus(null);
+    setConfirmedThisSession(false);
+    // Sem isto o historico some da tela mas o briefing sobrevive em memoria: o agente
+    // retomaria a conversa antiga (pedindo confirmacao de um resumo que ninguem ve).
+    resetBriefing();
+    // Story 22.13: um ajuste em aberto nao pode atravessar para a conversa nova —
+    // a primeira mensagem dela seria sequestrada pelo ramo de ajuste de uma execucao
+    // que ja nao existe.
+    clearAdjustingStep();
+    // Story 22.14: mesmo motivo — um chip clicado (ou um texto sugerido no input) da
+    // execucao encerrada nao pode atravessar para a conversa nova.
+    clearPendingChipAdjustment();
+    setChatInputDraft(null);
+    // Story 24.3: o aviso de disparo da execucao encerrada nao atravessa.
+    clearStepTriggerFailure();
+    // Story 24.14: a proposta da conversa encerrada nao atravessa (o seed refaz).
+    pendingProposalTurnRef.current = null;
+    // Story 24.24: card, troca pendente e abertura da conversa encerrada nao atravessam.
+    setConversationCard(null);
+    clearEmailBlockReplacement();
+    setSeededIntroTurn(null);
+    pendingSeedRef.current = null;
+    setShowAbandonDialog(false);
+  }, [
+    setCurrentExecutionId,
+    setShowModeSelector,
+    setShowExecutionPlan,
+    setExecutionMode,
+    setAgentProcessing,
+    setTotalSteps,
+    resetBriefing,
+    clearAdjustingStep,
+    clearPendingChipAdjustment,
+    setChatInputDraft,
+    clearStepTriggerFailure,
+    clearEmailBlockReplacement,
+  ]);
+
   // Cancela no servidor e — SO em caso de sucesso — zera o cliente inteiro.
   // Tudo-ou-nada de proposito: limpar a UI com a execucao viva no servidor recriaria a
   // "execucao fantasma" que a 22.8 fechou (steps rodando e gastando, invisiveis).
@@ -1209,51 +1355,13 @@ export function AgentChat() {
         }
       }
 
-      // Reset integral (AC6). O persist/partialize do zustand propaga o null ao
-      // localStorage sozinho — nao ha o que limpar a mao.
-      setCurrentExecutionId(null);
-      setShowModeSelector(false);
-      setShowExecutionPlan(false);
-      setExecutionMode(null);
-      setAgentProcessing(false);
-      setTotalSteps(0);
-      setReattachedStatus(null);
-      setConfirmedThisSession(false);
-      // Sem isto o historico some da tela mas o briefing sobrevive em memoria: o agente
-      // retomaria a conversa antiga (pedindo confirmacao de um resumo que ninguem ve).
-      resetBriefing();
-      // Story 22.13: um ajuste em aberto nao pode atravessar para a conversa nova —
-      // a primeira mensagem dela seria sequestrada pelo ramo de ajuste de uma execucao
-      // que ja nao existe.
-      clearAdjustingStep();
-      // Story 22.14: mesmo motivo — um chip clicado (ou um texto sugerido no input) da
-      // execucao encerrada nao pode atravessar para a conversa nova.
-      clearPendingChipAdjustment();
-      setChatInputDraft(null);
-      // Story 24.3: o aviso de disparo da execucao encerrada nao atravessa.
-      clearStepTriggerFailure();
-      // Story 24.14: a proposta da conversa encerrada nao atravessa (o seed refaz).
-      pendingProposalTurnRef.current = null;
-      setShowAbandonDialog(false);
+      resetClientConversation();
     } catch {
       toast.error("Erro ao encerrar a conversa. Tente novamente.");
     } finally {
       setIsCancelling(false);
     }
-  }, [
-    currentExecutionId,
-    setCurrentExecutionId,
-    setShowModeSelector,
-    setShowExecutionPlan,
-    setExecutionMode,
-    setAgentProcessing,
-    setTotalSteps,
-    resetBriefing,
-    clearAdjustingStep,
-    clearPendingChipAdjustment,
-    setChatInputDraft,
-    clearStepTriggerFailure,
-  ]);
+  }, [currentExecutionId, resetClientConversation]);
 
   const handleNewConversation = useCallback(() => {
     // Briefing (pending): nada foi gasto -> encerra direto, sem fricção (a dor comum).
@@ -1264,6 +1372,80 @@ export function AgentChat() {
     }
     void cancelCurrentExecution();
   }, [isPostConfirmExecution, cancelCurrentExecution]);
+
+  // ============================================================
+  // Story 24.24 — conversa depois da execucao (botoes do card)
+  // ============================================================
+
+  // O card so vale para a execucao em que nasceu: some no reset e na troca de execucao.
+  const visibleConversationCard =
+    conversationCard && attachedExecutionId && conversationCard.executionId === attachedExecutionId
+      ? conversationCard
+      : null;
+
+  const handleApplyRewrite = useCallback(
+    async (proposal: RewriteProposal) => {
+      const execId = conversationCard?.executionId;
+      if (!execId || execId !== attachedExecutionId) return;
+      // O gate pode ter fechado depois da resposta: confere o status atual do step.
+      const step = steps.find((s) => s.step_number === proposal.stepNumber);
+      if (!proposal.canApply || step?.status !== "awaiting_approval") {
+        setConversationCard(null);
+        try {
+          await sendAndRecordAgent(
+            execId,
+            "A campanha nao esta mais aguardando aprovacao, entao a previa nao foi trocada."
+          );
+          await refetchMessages(execId);
+        } catch {
+          toast.error("Erro ao enviar resposta do agente.");
+        }
+        return;
+      }
+      setEmailBlockReplacement({
+        executionId: execId,
+        stepNumber: proposal.stepNumber,
+        position: proposal.position,
+        blockPosition: proposal.blockPosition,
+        subject: proposal.proposed.subject,
+        body: proposal.proposed.body,
+        review: proposal.review,
+      });
+      setConversationCard(null);
+      try {
+        await sendAndRecordAgent(
+          execId,
+          `Mandei a nova versão do e-mail ${proposal.position} para a prévia da campanha. Confira lá: ela só vale quando você aprovar a campanha.`
+        );
+        await refetchMessages(execId);
+      } catch {
+        toast.error("Erro ao enviar resposta do agente.");
+      }
+    },
+    [
+      conversationCard,
+      attachedExecutionId,
+      steps,
+      setEmailBlockReplacement,
+      sendAndRecordAgent,
+      refetchMessages,
+    ]
+  );
+
+  // "Comecar nova busca": so com a execucao terminada. Nao chama nenhuma rota: zera o
+  // cliente (sem PATCH, a execucao ja e terminal) e abre a conversa nova com o card do
+  // briefing preenchido. A busca so roda depois do Confirmar e do plano, como hoje.
+  const handleStartMoreLeads = useCallback(
+    (proposal: MoreLeadsProposal) => {
+      if (!proposal.canStart) return;
+      const introTurn = buildMoreLeadsIntroTurn(proposal);
+      resetClientConversation();
+      // O efeito do seed semeia assim que o reset chegar (conversa nova, briefing `idle`).
+      pendingSeedRef.current = { briefing: proposal.briefing, introTurn };
+      setSeededIntroTurn(introTurn);
+    },
+    [resetClientConversation]
+  );
 
   // Story 24.5: card derivado do estado do hook (nunca persistido). So numa execucao
   // pre-confirm, fora do ajuste pos-rejeicao e sem seletor de modo/plano na tela.
@@ -1342,6 +1524,15 @@ export function AgentChat() {
         stepTriggerFailure.executionId === attachedExecutionId && (
           <AgentStepTriggerError failure={stepTriggerFailure} />
         )}
+      {visibleConversationCard && (
+        <AgentConversationCard
+          card={visibleConversationCard}
+          disabled={isAgentProcessing}
+          onApply={(proposal) => void handleApplyRewrite(proposal)}
+          onStartSearch={handleStartMoreLeads}
+          onDiscard={() => setConversationCard(null)}
+        />
+      )}
       {confirmationCardVariant && (
         <AgentConfirmationCard
           variant={confirmationCardVariant}

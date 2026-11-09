@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Megaphone, Loader2, ChevronDown, ChevronUp, FileSearch } from "lucide-react";
 import {
   Card,
@@ -17,6 +18,7 @@ import { reportTriggerFailure } from "@/lib/agent/report-trigger-failure";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { CopyReviewBadge } from "@/components/builder/CopyReviewBadge";
 import type { CopyReviewStatus } from "@/types/copy-review";
+import type { EmailBlockReplacement } from "@/types/post-execution-chat";
 import { EmailUnverifiedWarning } from "@/components/leads/EmailUnverifiedWarning";
 import type { LeadEmailStatus } from "@/lib/leads/email-status";
 import { AccountDossierSheet } from "@/components/dossier/AccountDossierSheet";
@@ -97,6 +99,9 @@ export function AgentCampaignPreview({
     data.leadsWithIcebreakers.length <= ICEBREAKER_COLLAPSE_THRESHOLD
   );
   const setAdjustingStep = useAgentStore((s) => s.setAdjustingStep);
+  // Story 24.24: "Substituir na previa" vindo do card da conversa.
+  const emailBlockReplacement = useAgentStore((s) => s.emailBlockReplacement);
+  const clearEmailBlockReplacement = useAgentStore((s) => s.clearEmailBlockReplacement);
   // Story 24.22: lead com o painel do dossie aberto (so leitura).
   const [dossierLead, setDossierLead] = useState<LeadIcebreaker | null>(null);
 
@@ -106,6 +111,74 @@ export function AgentCampaignPreview({
     : localActionTaken;
 
   const isDisabled = loading !== null || actionTaken !== null;
+
+  // Story 24.24: aplica a reescrita aceita na conversa. So nesta previa (mesma execucao e
+  // step), com o gate aberto (sem acao local, sem `rejected`) e com o alvo conferido. O
+  // texto entra em `editedBlocks` — o mesmo caminho da edicao a mao — e so vale no Aprovar.
+  // Aplicado no render (padrao "ajustar estado quando um valor muda"); o efeito so limpa
+  // o pedido no store depois de consumido.
+  const [consumedReplacement, setConsumedReplacement] = useState<EmailBlockReplacement | null>(null);
+  const replacementMatches =
+    emailBlockReplacement !== null &&
+    emailBlockReplacement.executionId === executionId &&
+    emailBlockReplacement.stepNumber === stepNumber;
+  // Gate fechado nesta previa: o pedido nunca mais vale e sai do store.
+  const replacementStale = replacementMatches && (Boolean(rejected) || localActionTaken !== null);
+  // Com um Aprovar em voo o pedido espera no store (a aprovacao sai com o texto atual).
+  const replacementApplies =
+    replacementMatches &&
+    emailBlockReplacement !== consumedReplacement &&
+    !replacementStale &&
+    loading === null;
+  // Alvo conferido aqui (e nao no updater): um alvo divergente nao troca nada e vira aviso.
+  const [droppedReplacement, setDroppedReplacement] = useState<EmailBlockReplacement | null>(null);
+  if (replacementApplies && emailBlockReplacement) {
+    const replacement = emailBlockReplacement;
+    const index = replacement.position - 1;
+    setConsumedReplacement(replacement);
+    const target = editedBlocks[index];
+    if (!target || target.position !== replacement.blockPosition) {
+      setDroppedReplacement(replacement);
+    } else {
+      setEditedBlocks((prev) =>
+        prev.map((block, i) =>
+          i === index
+            ? {
+                ...block,
+                subject: replacement.subject,
+                body: replacement.body,
+                review: { status: replacement.review.status, reasons: [...replacement.review.reasons] },
+              }
+            : block
+        )
+      );
+    }
+  }
+  useEffect(() => {
+    if (!emailBlockReplacement) return;
+    if (replacementStale) {
+      // O gate fechou antes da troca (ex.: Aprovar em voo): a previa segue com o texto anterior.
+      toast.warning(
+        `A nova versao do e-mail ${emailBlockReplacement.position} nao entrou: a campanha ja tinha sido aprovada ou rejeitada.`
+      );
+      clearEmailBlockReplacement();
+      return;
+    }
+    if (emailBlockReplacement === consumedReplacement) {
+      if (emailBlockReplacement === droppedReplacement) {
+        toast.warning(
+          `A nova versao do e-mail ${emailBlockReplacement.position} nao entrou: a previa mudou desde a reescrita.`
+        );
+      }
+      clearEmailBlockReplacement();
+    }
+  }, [
+    emailBlockReplacement,
+    consumedReplacement,
+    droppedReplacement,
+    replacementStale,
+    clearEmailBlockReplacement,
+  ]);
 
   const handleFieldClick = (index: number, field: "subject" | "body") => {
     if (isDisabled) return;

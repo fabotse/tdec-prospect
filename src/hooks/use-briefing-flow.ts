@@ -450,7 +450,7 @@ function generateBriefingSummary(briefing: ParsedBriefing, missingFields?: strin
 }
 
 // Story 24.5: instrucoes dos cards de confirmacao (rotulos iguais aos botoes).
-const BRIEFING_CARD_HINT =
+export const BRIEFING_CARD_HINT =
   'Se estiver tudo certo, clique em "Confirmar" no card abaixo. Para mudar algo, edite um campo no card ou me diga o ajuste.';
 
 // ==============================================
@@ -1133,7 +1133,7 @@ export interface UseBriefingFlowReturn {
    * `confirming` com o briefing proposto e grava o turno do agente na memoria (o turno NAO
    * e persistido aqui — a execucao so nasce no primeiro gesto). Devolve se semeou.
    */
-  seedIcpProposal: (briefing: ParsedBriefing) => boolean;
+  seedIcpProposal: (briefing: ParsedBriefing, introTurn?: string) => boolean;
 }
 
 export function useBriefingFlow(): UseBriefingFlowReturn {
@@ -2382,7 +2382,9 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
 
   // O seed roda num efeito: a memoria nao-vazia (push sincrono) impede semear duas vezes
   // (StrictMode / re-render) e semear por cima de uma conversa que ja comecou.
-  const seedIcpProposal = useCallback((briefing: ParsedBriefing): boolean => {
+  // Story 24.24: `introTurn` substitui o turno do ICP na memoria (conversa nova aberta pelo
+  // card "mais leads" da conversa depois da execucao).
+  const seedIcpProposal = useCallback((briefing: ParsedBriefing, introTurn?: string): boolean => {
     if (state.status !== "idle" || conversationRef.current.length > 0) return false;
     const missingFields = TRACKED_MISSING_FIELDS.filter((field) => {
       if (field === "jobTitles") return briefing.jobTitles.length === 0;
@@ -2396,7 +2398,10 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       missingFields,
       isComplete: false,
     }));
-    conversationRef.current.push({ role: "agent", content: buildIcpProposalTurn(briefing) });
+    conversationRef.current.push({
+      role: "agent",
+      content: introTurn && introTurn.trim() ? introTurn : buildIcpProposalTurn(briefing),
+    });
     return true;
   }, [state.status]);
 

@@ -17,6 +17,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { ExecutionMode, StepType } from "@/types/agent";
 import type { ChipDelta } from "@/lib/agent/empty-search-diagnosis";
+import type { EmailBlockReplacement } from "@/types/post-execution-chat";
 
 /**
  * Story 22.13: estado de AJUSTE POS-REJEICAO.
@@ -97,6 +98,12 @@ interface AgentUIState {
    */
   chatInputDraft: string | null;
   stepTriggerFailure: StepTriggerFailureState | null;
+  /**
+   * Story 24.24: "Substituir na previa" clicado no card da conversa. A previa da campanha
+   * (mesma execucao e step) aplica em `editedBlocks` e limpa. Efemero (fora do partialize):
+   * a troca so vale com o Aprovar, e um refresh descarta o pedido.
+   */
+  emailBlockReplacement: EmailBlockReplacement | null;
 }
 
 interface AgentUIActions {
@@ -114,6 +121,8 @@ interface AgentUIActions {
   setChatInputDraft: (draft: string | null) => void;
   setStepTriggerFailure: (failure: StepTriggerFailureState) => void;
   clearStepTriggerFailure: () => void;
+  setEmailBlockReplacement: (replacement: EmailBlockReplacement) => void;
+  clearEmailBlockReplacement: () => void;
 }
 
 export const useAgentStore = create<AgentUIState & AgentUIActions>()(
@@ -130,6 +139,7 @@ export const useAgentStore = create<AgentUIState & AgentUIActions>()(
       pendingChipAdjustment: null,
       chatInputDraft: null,
       stepTriggerFailure: null,
+      emailBlockReplacement: null,
 
       setCurrentExecutionId: (id) => set({ currentExecutionId: id }),
       setInputDisabled: (disabled) => set({ isInputDisabled: disabled }),
@@ -145,6 +155,8 @@ export const useAgentStore = create<AgentUIState & AgentUIActions>()(
       setChatInputDraft: (draft) => set({ chatInputDraft: draft }),
       setStepTriggerFailure: (failure) => set({ stepTriggerFailure: failure }),
       clearStepTriggerFailure: () => set({ stepTriggerFailure: null }),
+      setEmailBlockReplacement: (replacement) => set({ emailBlockReplacement: replacement }),
+      clearEmailBlockReplacement: () => set({ emailBlockReplacement: null }),
     }),
     {
       // Story 22.8: so o currentExecutionId persiste (localStorage). As demais flags
@@ -163,6 +175,7 @@ export const useAgentStore = create<AgentUIState & AgentUIActions>()(
       // sao sinais de UM gesto, consumidos em seguida pelo AgentChat/AgentInput. Persistidos,
       // um refresh reaplicaria um ajuste que o usuario ja tinha abandonado.
       // Story 24.3: `stepTriggerFailure` tambem fica de fora (aviso efemero de um disparo).
+      // Story 24.24: `emailBlockReplacement` tambem (pedido de um clique, consumido na previa).
       name: "tdec-agent-ui",
       partialize: (state) => ({ currentExecutionId: state.currentExecutionId }),
     }

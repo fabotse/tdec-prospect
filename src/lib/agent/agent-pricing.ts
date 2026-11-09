@@ -42,7 +42,7 @@ export const AGENT_PIPELINE_VOLUMES = {
 } as const;
 
 /** Story 24.13: teto de N (mesmo limite do `fetch-leads`). */
-const MAX_LEAD_COUNT = 500;
+export const MAX_LEAD_COUNT = 500;
 
 /**
  * Story 24.13: N valido do briefing (inteiro de 1 a 500) ou null. Valor fora da faixa
