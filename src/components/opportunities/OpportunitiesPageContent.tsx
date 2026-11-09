@@ -28,6 +28,7 @@ import {
 } from "@/components/opportunities/OpportunitiesFilterBar";
 import { OpportunitiesEmptyState } from "@/components/opportunities/OpportunitiesEmptyState";
 import { AccountDossierSheet } from "@/components/dossier/AccountDossierSheet";
+import { MeetingPrepSheet } from "@/components/opportunities/MeetingPrepSheet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -103,6 +104,9 @@ export function OpportunitiesPageContent() {
 
   // Story 24.22 — painel do dossiê da conta (um Sheet por página, só leitura).
   const [dossierTarget, setDossierTarget] = useState<OpportunityCardData | null>(null);
+
+  // Story 24.23 — painel "Preparar reunião" (um Sheet por página).
+  const [meetingPrepTarget, setMeetingPrepTarget] = useState<OpportunityCardData | null>(null);
 
   const handleStopSequence = useCallback((opportunity: OpportunityCardData) => {
     setSequenceStopReason("responded_other_channel");
@@ -227,6 +231,7 @@ export function OpportunitiesPageContent() {
                     sequenceStopTarget?.id === opportunity.id
                   }
                   onOpenDossier={setDossierTarget}
+                  onOpenMeetingPrep={setMeetingPrepTarget}
                 />
               ))}
             </div>
@@ -362,6 +367,14 @@ export function OpportunitiesPageContent() {
             : null
         }
         context="opportunity"
+      />
+
+      {/* Story 24.23 — preparação de reunião (gera só ao abrir, sem briefing salvo) */}
+      <MeetingPrepSheet
+        opportunity={meetingPrepTarget}
+        onOpenChange={(open) => {
+          if (!open) setMeetingPrepTarget(null);
+        }}
       />
     </div>
   );
