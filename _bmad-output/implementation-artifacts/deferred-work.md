@@ -694,3 +694,10 @@ source_spec: `spec-24-23-preparacao-de-reuniao.md`
 severity: medium
 reason: Exige extrair researchAccount do ResearchAccountsStep (arquivo no caminho até o Instantly, Regra nº 1 ponto 3) e abrir escrita nova em produção (account_dossiers/facts/leads) e custo Treg sem teto próprio. DW-34 e DW-36 pedem o OK do Fabossi. Hoje o briefing mostra "Sem pesquisa da conta" e segue. Listado em operator_actions.
 status: open
+
+### DW-38: Nenhuma verificação contra o schema, os dados e a RLS reais; tudo é testado com mocks.
+origin: spec-deferred 9eae244ca2a5
+location: src/lib/agent/execution-memory.ts
+source_spec: `spec-24-25-memoria-entre-execucoes.md`
+reason: Os testes simulam o Supabase e o fetch. Para fechar: smoke real (tela + banco) abrindo o plano de um briefing parecido com uma execução anterior exportada e uma revisão com lead/conta já trabalhados.
+status: open

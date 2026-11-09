@@ -3,7 +3,7 @@
  * Story 16.5 - AC: #1, #2, #4, #5
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AgentExecutionPlan } from "@/components/agent/AgentExecutionPlan";
@@ -400,7 +400,7 @@ describe("AgentExecutionPlan", () => {
       // chamador pede — o fetchStepEstimatedCost do AgentChat bate no mesmo endpoint a
       // cada turno de ajuste e nao pode disparar chamada externa (Trap #7).
       expect(global.fetch).toHaveBeenCalledWith(
-        `/api/agent/executions/${EXEC_ID}/plan?viability=1`
+        `/api/agent/executions/${EXEC_ID}/plan?viability=1&memory=1`
       );
     });
   });
@@ -459,6 +459,53 @@ describe("AgentExecutionPlan", () => {
         expect(screen.getByTestId("agent-execution-plan")).toBeInTheDocument();
       });
       expect(screen.queryByTestId("plan-viability")).not.toBeInTheDocument();
+    });
+  });
+  // ==============================================
+  // Story 24.25 — memória entre execuções
+  // ==============================================
+  describe("memória entre execuções (24.25)", () => {
+    const memoryItem = {
+      executionId: "exec-old",
+      createdAt: "2026-10-20T15:00:00Z",
+      label: "CISO · São Paulo",
+      campaignName: "CISO SP",
+      replies: 2,
+      opportunities: 1,
+      meetings: 0,
+    };
+
+    function mockPlan(memory: unknown) {
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: { ...mockPlanData.data, memory } }),
+      });
+    }
+
+    it("mostra a nota com briefing, data, campanha, respostas e oportunidades", async () => {
+      mockPlan([
+        memoryItem,
+        { ...memoryItem, executionId: "exec-2", replies: 1, opportunities: 3, meetings: 2 },
+        { ...memoryItem, executionId: "exec-3", replies: 0, opportunities: 0 },
+      ]);
+      renderPlan();
+
+      const note = await screen.findByTestId("plan-memory");
+      const lines = within(note).getAllByTestId("plan-memory-item").map((el) => el.textContent);
+      expect(lines).toEqual([
+        "Seu briefing anterior “CISO · São Paulo” (20/10/2026, campanha CISO SP) teve 2 respostas e 1 oportunidade.",
+        "Seu briefing anterior “CISO · São Paulo” (20/10/2026, campanha CISO SP) teve 1 resposta, 3 oportunidades e 2 reuniões.",
+        "Seu briefing anterior “CISO · São Paulo” (20/10/2026, campanha CISO SP) ainda sem respostas.",
+      ]);
+      // Informativa: custo e botão iguais.
+      expect(screen.getByTestId("plan-confirm-btn")).toBeEnabled();
+    });
+
+    it.each([[[]], [undefined]])("sem memória (%o) não mostra nota", async (memory) => {
+      mockPlan(memory);
+      renderPlan();
+      await screen.findByTestId("plan-total-cost");
+      expect(screen.queryByTestId("plan-memory")).not.toBeInTheDocument();
     });
   });
 });

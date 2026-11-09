@@ -31,6 +31,13 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { AccountDossierSheet } from "@/components/dossier/AccountDossierSheet";
+import { useLeadWorkHistory } from "@/hooks/use-lead-work-history";
+import {
+  formatMemoryDate,
+  LEAD_WORK_RESULT_LABELS,
+  type AccountWorkSummary,
+  type LeadWorkEntry,
+} from "@/types/execution-memory";
 
 interface LeadPreview {
   name: string;
@@ -107,6 +114,23 @@ function mergeFitScores(previous: LeadPreview[], fetched: LeadPreview[]): LeadPr
   return orderByScreening(sortByFitGrade(merged));
 }
 
+/** Story 24.25: quantas campanhas do lead aparecem na linha antes do "+N". */
+const MAX_VISIBLE_WORK_ENTRIES = 2;
+
+/** Leitura de mapa vindo da rede sem cair em chaves herdadas ("constructor" etc.). */
+function lookupOwn<T>(map: Record<string, T> | undefined, key: string | null | undefined): T | undefined {
+  if (!map || !key || !Object.prototype.hasOwnProperty.call(map, key)) return undefined;
+  return map[key];
+}
+
+function describeWorkEntry(entry: LeadWorkEntry): string {
+  return `Campanha ${entry.campaignName} · ${formatMemoryDate(entry.date)} · ${LEAD_WORK_RESULT_LABELS[entry.result]}`;
+}
+
+function describeAccountWork(summary: AccountWorkSummary): string {
+  return `Conta já trabalhada: ${summary.contacts} contato(s) · última campanha ${summary.lastCampaignName} (${formatMemoryDate(summary.lastDate)}) · ${LEAD_WORK_RESULT_LABELS[summary.result]}`;
+}
+
 /**
  * Story 24.15: indices dos `count` primeiros leads ELEGIVEIS (nem orgao publico, nem ja
  * contatado). `count` null = todos os elegiveis.
@@ -149,6 +173,14 @@ export function AgentLeadReview({
   // Story 24.22: lead com o painel do dossie aberto (so leitura; nao mexe na selecao).
   const [dossierLead, setDossierLead] = useState<LeadPreview | null>(null);
   const setAdjustingStep = useAgentStore((s) => s.setAdjustingStep);
+  // Story 24.25: historico resumido por lead e por conta. Somente leitura; falha = nada
+  // aparece. Nao entra na selecao, na ordem nem no payload do Aprovar.
+  const historyApolloIds = useMemo(() => localLeads.map((lead) => lead.apolloId), [localLeads]);
+  const historyCompanyNames = useMemo(
+    () => localLeads.map((lead) => lead.companyName),
+    [localLeads]
+  );
+  const workHistory = useLeadWorkHistory(historyApolloIds, historyCompanyNames);
   // Story 22.14: sinais dos chips do empty-state. Os gates ja falam com o store
   // diretamente (padrao dos `handleReject`) — ver D4 no story file.
   const setPendingChipAdjustment = useAgentStore((s) => s.setPendingChipAdjustment);
@@ -717,6 +749,26 @@ export function AgentLeadReview({
                         Órgão público
                       </Badge>
                     )}
+                    {(() => {
+                      const entries = lookupOwn(workHistory?.leads, lead.apolloId?.trim());
+                      if (!entries || entries.length === 0) return null;
+                      const hidden = entries.length - MAX_VISIBLE_WORK_ENTRIES;
+                      return (
+                        <p className="text-xs text-muted-foreground" data-testid="lead-work-history">
+                          {entries.slice(0, MAX_VISIBLE_WORK_ENTRIES).map(describeWorkEntry).join("; ")}
+                          {hidden > 0 ? ` +${hidden}` : ""}
+                        </p>
+                      );
+                    })()}
+                    {(() => {
+                      const summary = lookupOwn(workHistory?.accounts, lead.companyName?.trim());
+                      if (!summary) return null;
+                      return (
+                        <p className="text-xs text-muted-foreground" data-testid="account-work-history">
+                          {describeAccountWork(summary)}
+                        </p>
+                      );
+                    })()}
                     {lead.fitReason && (
                       <p className="text-xs text-muted-foreground" data-testid="fit-reason">
                         {lead.fitReason}

@@ -17,6 +17,7 @@ import { getInjectableServiceApiKey } from "@/lib/agent/service-keys";
 import { buildAccountSearchFilters, buildDirectSearchFilters } from "@/lib/agent/search-defaults";
 import { isAccountListMode } from "@/lib/agent/target-accounts";
 import { logAgentUsage } from "@/lib/agent/agent-usage";
+import { findSimilarExecutions } from "@/lib/agent/execution-memory";
 import type { ParsedBriefing } from "@/types/agent";
 
 // ==============================================
@@ -191,11 +192,20 @@ export async function GET(
   // Story 22.14 (AC7): contagem de viabilidade SÓ quando pedida explicitamente — ver o
   // comentário de `estimateSearchViability` (Trap #7).
   const wantsViability = request.nextUrl.searchParams.get("viability") === "1";
-  const viability = wantsViability
-    ? await estimateSearchViability(profile.tenant_id, briefing, executionId)
-    : null;
+  // Story 24.25: memória entre execuções, também SÓ com opt-in (`memory=1`) — mesmo
+  // motivo da viabilidade (Trap #7). Somente leitura, sem custo, fail-open (`[]`).
+  // As duas leituras rodam em paralelo para manter o NFR de <5 s.
+  const wantsMemory = request.nextUrl.searchParams.get("memory") === "1";
+  const [viability, memory] = await Promise.all([
+    wantsViability
+      ? estimateSearchViability(profile.tenant_id, briefing, executionId)
+      : Promise.resolve(null),
+    wantsMemory
+      ? findSimilarExecutions(supabase, profile.tenant_id, briefing, executionId)
+      : Promise.resolve([]),
+  ]);
 
   return NextResponse.json({
-    data: { steps, costEstimate, totalActiveSteps, viability },
+    data: { steps, costEstimate, totalActiveSteps, viability, memory },
   });
 }
