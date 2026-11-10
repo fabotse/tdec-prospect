@@ -56,6 +56,13 @@ vi.mock("@/lib/agent/agent-usage", () => ({
   logAgentUsage: (...args: unknown[]) => mockLogAgentUsage(...args),
 }));
 
+// Story 24.25: memoria entre execucoes (suite propria em execution-memory.test.ts). Mockada
+// para provar que ela SO roda com o opt-in `?memory=1`.
+const mockFindSimilarExecutions = vi.fn();
+vi.mock("@/lib/agent/execution-memory", () => ({
+  findSimilarExecutions: (...args: unknown[]) => mockFindSimilarExecutions(...args),
+}));
+
 // ==============================================
 // HELPERS
 // ==============================================
@@ -555,6 +562,59 @@ describe("GET /api/agent/executions/[executionId]/plan", () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+  describe("memoria entre execucoes (24.25)", () => {
+    const MEMORY = [
+      {
+        executionId: "exec-old",
+        createdAt: "2026-10-20T15:00:00Z",
+        label: "CTO · Sao Paulo",
+        campaignName: "CTO SP",
+        replies: 2,
+        opportunities: 1,
+        meetings: 0,
+      },
+    ];
+
+    function mockExecutionOnly() {
+      let callCount = 0;
+      mockFrom.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return createChainBuilder({ data: { id: EXEC_ID, briefing: mockBriefing, status: "pending" }, error: null });
+        }
+        return createChainBuilder({ data: [], error: null });
+      });
+    }
+
+    beforeEach(() => {
+      mockGetCurrentUserProfile.mockResolvedValue(mockProfile);
+      mockFindSimilarExecutions.mockResolvedValue(MEMORY);
+    });
+
+    it("SEM ?memory=1 nao le memoria e devolve memory []", async () => {
+      mockExecutionOnly();
+      const json = await (await GET(createRequest(), createParams())).json();
+      expect(mockFindSimilarExecutions).not.toHaveBeenCalled();
+      expect(json.data.memory).toEqual([]);
+    });
+
+    it("COM ?memory=1 devolve as execucoes parecidas sem mudar custo nem steps", async () => {
+      mockExecutionOnly();
+      const without = await (await GET(createRequest(), createParams())).json();
+      mockExecutionOnly();
+      const json = await (await GET(createRequest("?memory=1"), createParams())).json();
+
+      expect(mockFindSimilarExecutions).toHaveBeenCalledWith(
+        expect.anything(),
+        "tenant-456",
+        mockBriefing,
+        EXEC_ID
+      );
+      expect(json.data.memory).toEqual(MEMORY);
+      expect(json.data.steps).toEqual(without.data.steps);
+      expect(json.data.costEstimate).toEqual(without.data.costEstimate);
     });
   });
 });
