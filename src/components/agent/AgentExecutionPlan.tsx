@@ -11,12 +11,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Building2, Users, Mail, Upload, Play, Loader2, AlertCircle, RotateCcw, Linkedin, FileSearch } from "lucide-react";
+import { Building2, Users, Mail, Upload, Play, Loader2, AlertCircle, RotateCcw, Linkedin, FileSearch, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/agent/agent-pricing";
 import type { PlannedStep, CostEstimate } from "@/types/agent";
+import { formatMemoryDate, type PreviousExecutionMemory } from "@/types/execution-memory";
 
 interface AgentExecutionPlanProps {
   executionId: string;
@@ -35,6 +36,31 @@ interface PlanData {
    * contagem falhou — o plano continua idêntico ao de hoje nesses casos.
    */
   viability?: { estimatedResults: number; isLow: boolean } | null;
+  /**
+   * Story 24.25: execuções anteriores parecidas (até 3) com os resultados das campanhas.
+   * Informativo: nunca muda custo, steps nem o "Iniciar Execução".
+   */
+  memory?: PreviousExecutionMemory[];
+}
+
+function plural(count: number, singular: string, pluralForm: string): string {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+/** Story 24.25: uma linha por execução anterior, no texto do I/O Matrix. */
+export function describePreviousExecution(item: PreviousExecutionMemory): string {
+  const intro = `Seu briefing anterior “${item.label}” (${formatMemoryDate(item.createdAt)}, campanha ${item.campaignName})`;
+  if (item.replies === 0 && item.opportunities === 0 && item.meetings === 0) {
+    return `${intro} ainda sem respostas.`;
+  }
+  const parts = [
+    plural(item.replies, "resposta", "respostas"),
+    plural(item.opportunities, "oportunidade", "oportunidades"),
+  ];
+  if (item.meetings > 0) parts.push(plural(item.meetings, "reunião", "reuniões"));
+  const joined =
+    parts.length === 2 ? parts.join(" e ") : `${parts.slice(0, -1).join(", ")} e ${parts[parts.length - 1]}`;
+  return `${intro} teve ${joined}.`;
 }
 
 const STEP_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -65,8 +91,9 @@ export function AgentExecutionPlan({
       // Story 22.14 (AC7): `viability=1` é o opt-in da contagem pré-busca. Só ESTE
       // chamador pede — o `fetchStepEstimatedCost` do AgentChat (22.13) bate no mesmo
       // endpoint a cada turno de ajuste e não pode disparar chamada externa (Trap #7).
+      // Story 24.25: `memory=1` é o opt-in da memória entre execuções (mesma regra).
       const response = await fetch(
-        `/api/agent/executions/${executionId}/plan?viability=1`
+        `/api/agent/executions/${executionId}/plan?viability=1&memory=1`
       );
       if (!response.ok) {
         throw new Error("Erro ao gerar plano");
@@ -189,6 +216,27 @@ export function AgentExecutionPlan({
               </>
             )}
           </p>
+        </div>
+      )}
+
+      {/* Story 24.25: memória entre execuções. Só informa — nunca muda custo nem steps. */}
+      {Array.isArray(plan.memory) && plan.memory.length > 0 && (
+        <div
+          className="flex items-start gap-2 rounded-md border border-border bg-muted/50 px-3 py-2 mb-3"
+          data-testid="plan-memory"
+        >
+          <History className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
+          <div className="flex flex-col gap-1">
+            {plan.memory.map((item) => (
+              <p
+                key={item.executionId}
+                className="text-caption text-muted-foreground"
+                data-testid="plan-memory-item"
+              >
+                {describePreviousExecution(item)}
+              </p>
+            ))}
+          </div>
         </div>
       )}
 
