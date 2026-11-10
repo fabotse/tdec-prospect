@@ -12,6 +12,7 @@ import { AgentLeadReview } from "@/components/agent/AgentLeadReview";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { diagnoseEmptySearch } from "@/lib/agent/empty-search-diagnosis";
 import type { ParsedBriefing } from "@/types/agent";
+import { LEAD_WORK_HISTORY_TIMEOUT_MS } from "@/hooks/use-lead-work-history";
 
 // ==============================================
 // MOCKS
@@ -1418,5 +1419,155 @@ describe("AgentLeadReview — dossiê (Story 24.22)", () => {
       </QueryClientProvider>
     );
     expect(screen.getByRole("button", { name: "Ver dossiê de Alice Santos" })).toBeEnabled();
+  });
+});
+
+// ==============================================
+// Story 24.25 — histórico do lead e da conta na revisão
+// ==============================================
+describe("AgentLeadReview — histórico do lead e da conta (24.25)", () => {
+  const historyData = {
+    totalFound: 2,
+    leads: [
+      {
+        name: "Alice Santos",
+        title: "CTO",
+        companyName: "Acme Corp",
+        email: "alice@acme.com",
+        apolloId: "ap-1",
+        contactStatus: "already_contacted" as const,
+      },
+      { name: "Bob Silva", title: "VP", companyName: "TechCo", email: "bob@techco.com", apolloId: "ap-2" },
+    ],
+    jobTitles: ["CTO", "VP"],
+  };
+
+  const HISTORY = {
+    leads: {
+      "ap-1": [
+        { campaignName: "CISO SP", date: "2026-10-01T15:00:00Z", result: "meeting_booked" },
+        { campaignName: "Antiga", date: "2026-09-01T15:00:00Z", result: "no_reply" },
+        { campaignName: "Mais antiga", date: "2026-08-01T15:00:00Z", result: "replied" },
+      ],
+    },
+    accounts: {
+      TechCo: { contacts: 2, lastCampaignName: "TI SP", lastDate: "2026-10-05T15:00:00Z", result: "replied" },
+    },
+  };
+
+  function renderWithQuery() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, retryDelay: 0 } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <AgentLeadReview data={historyData} executionId="exec-001" stepNumber={2} totalSteps={5} />
+      </QueryClientProvider>
+    );
+  }
+
+  function historyCalls() {
+    return mockFetch.mock.calls.filter(([url]) => String(url) === "/api/agent/lead-history");
+  }
+
+  function mockHistoryResponse(response: unknown) {
+    mockFetch.mockImplementation((url: string) => {
+      if (String(url) === "/api/agent/lead-history") return Promise.resolve(response);
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: { stepNumber: 2, status: "approved", nextStep: 3 } }),
+      });
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockHistoryResponse({ ok: true, json: () => Promise.resolve({ data: HISTORY }) });
+  });
+
+  it("mostra até 2 campanhas do lead com +N e o resumo da conta", async () => {
+    renderWithQuery();
+
+    const leadLine = await screen.findByTestId("lead-work-history");
+    expect(leadLine).toHaveTextContent(
+      "Campanha CISO SP · 01/10/2026 · reunião marcada; Campanha Antiga · 01/09/2026 · sem resposta registrada +1"
+    );
+    expect(screen.getByTestId("lead-already-contacted")).toBeInTheDocument();
+    expect(screen.getByTestId("account-work-history")).toHaveTextContent(
+      "Conta já trabalhada: 2 contato(s) · última campanha TI SP (05/10/2026) · respondeu"
+    );
+
+    const [[, init]] = historyCalls();
+    expect(JSON.parse(String((init as RequestInit).body))).toEqual({
+      apolloIds: ["ap-1", "ap-2"],
+      companyNames: ["Acme Corp", "TechCo"],
+    });
+  });
+
+  it("não muda seleção, ordem nem o payload do Aprovar", async () => {
+    renderWithQuery();
+    await screen.findByTestId("lead-work-history");
+
+    // Alice está "Já contatado" e fica fora da pré-seleção, como antes.
+    expect(screen.getByText("1 de 2 leads selecionados")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Aprovar (1 leads)"));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/agent/executions/exec-001/steps/2/approve",
+        expect.objectContaining({
+          body: JSON.stringify({ approvedData: { leads: [historyData.leads[1]] } }),
+        })
+      );
+    });
+  });
+
+  it.each([
+    ["500", { ok: false, status: 500, json: () => Promise.resolve({}) }],
+    ["formato inválido", { ok: true, json: () => Promise.resolve({ data: { leads: "x" } }) }],
+  ])("falha da rota (%s) não mostra histórico nem erro", async (_label, response) => {
+    mockHistoryResponse(response);
+    renderWithQuery();
+
+    await waitFor(() => expect(historyCalls().length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getByText("Alice Santos")).toBeInTheDocument());
+    expect(screen.queryByTestId("lead-work-history")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("account-work-history")).not.toBeInTheDocument();
+    expect(screen.getByText("1 de 2 leads selecionados")).toBeInTheDocument();
+  });
+
+  it("rota pendurada: aborta no prazo (com 1 retry) e a revisão segue utilizável", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const signals: AbortSignal[] = [];
+      mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+        if (String(url) === "/api/agent/lead-history") {
+          if (init?.signal) signals.push(init.signal);
+          return new Promise(() => {});
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+      });
+      renderWithQuery();
+
+      await waitFor(() => expect(signals).toHaveLength(1));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(LEAD_WORK_HISTORY_TIMEOUT_MS + 1);
+      });
+      await waitFor(() => expect(signals).toHaveLength(2));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(LEAD_WORK_HISTORY_TIMEOUT_MS + 1);
+      });
+
+      expect(signals.every((signal) => signal.aborted)).toBe(true);
+      expect(screen.queryByTestId("lead-work-history")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("account-work-history")).not.toBeInTheDocument();
+      expect(screen.getByText("1 de 2 leads selecionados")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sem QueryClientProvider a revisão renderiza e não busca histórico", () => {
+    render(<AgentLeadReview data={historyData} executionId="exec-001" stepNumber={2} totalSteps={5} />);
+    expect(screen.getByText("Alice Santos")).toBeInTheDocument();
+    expect(historyCalls()).toHaveLength(0);
   });
 });
