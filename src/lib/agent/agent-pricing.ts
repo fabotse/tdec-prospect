@@ -37,9 +37,28 @@ export const AGENT_PIPELINE_VOLUMES = {
   leadsPerSearch: 25,
   /** Story 24.13: teto de leads por pagina da busca Apollo (limite da API). */
   maxLeadsPerSearch: 100,
-  /** E-mails da sequencia quando o usuario nao pediu uma quantidade. */
-  defaultEmails: 3,
 } as const;
+
+/**
+ * DW-19: e-mails da sequencia quando o usuario nao pede uma quantidade. A heuristica por
+ * objetivo do prompt de estrutura (`campaign_structure_generation` em
+ * `src/lib/ai/prompts/defaults.ts`) e so "tipica" (COLD_OUTREACH 4-5, REENGAGEMENT 3,
+ * FOLLOW_UP 3-4, NURTURE 5-7); a regra dura do prompt e "maximo 7 emails", entao o teto
+ * honesto e 7 para qualquer objetivo. Se o prompt padrao mudar, atualizar aqui.
+ */
+export const MAX_EMAILS_WITHOUT_COUNT = 7;
+
+/**
+ * DW-19: quantos e-mails a estimativa considera — o `emailCount` pedido (inteiro
+ * positivo, que o prompt manda gerar EXATAMENTE), senao o teto do prompt padrao.
+ */
+export function resolveEmailVolume(briefing: Pick<ParsedBriefing, "emailCount">): number {
+  const requested = briefing.emailCount;
+  if (typeof requested === "number" && Number.isInteger(requested) && requested > 0) {
+    return requested;
+  }
+  return MAX_EMAILS_WITHOUT_COUNT;
+}
 
 /** Story 24.13: teto de N (mesmo limite do `fetch-leads`). */
 export const MAX_LEAD_COUNT = 500;
