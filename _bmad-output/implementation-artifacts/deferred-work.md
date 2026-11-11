@@ -506,7 +506,8 @@ origin: spec-deferred ebcd3dcf5e71
 location: src/hooks/use-briefing-flow.ts (handler awaiting_leads_input)
 source_spec: `spec-24-4-conversa-sem-becos-sem-saida.md`
 reason: maybe-false. O ramo so sai para a busca quando o LLM nao devolve nextAction import_leads (use-briefing-flow.ts, handler awaiting_leads_input); o fallback por palavra-chave so roda quando o /parse falha. Para resolver: rodar o /parse real com a conversa do ramo de leads + "buscar leads" e ver o nextAction devolvido. Se o LLM devolver import_leads, decidir se "buscar leads" exato vira saida deterministica.
-status: open
+status: resolved
+resolution: 2026-11-09 (FEL-16). O /parse real nao foi rodado (o `.env.local` aponta para a producao do cliente); a correcao fecha o caso sem depender da resposta do LLM. O comando anunciado em `LEADS_EXIT_HINT` virou saida deterministica: `isLeadsSearchCommand` (`src/hooks/use-briefing-flow.ts`) reconhece exatamente "buscar leads" (tolera maiuscula, acento, aspas, espacos e pontuacao final) e `handleLeadsConversation` sai do ramo para a busca sem chamar o /parse, pelo mesmo caminho do fallback de falha do /parse (`exitToSearch`: com cargo e local vai ao resumo; sem eles pergunta os campos). Vale em `awaiting_leads_input` e em `confirming_leads` (descarta a lista colada). Qualquer outra frase continua indo ao LLM como antes. Testes em `__tests__/unit/hooks/use-briefing-flow.test.tsx` (LLM devolvendo import_leads e o comando saindo mesmo assim, sem chamada ao /parse). Rotas, banco, cron e caminho do Instantly intocados.
 
 ### DW-14: O resumo do produto diz "Cadastrei o X" antes de o produto ser salvo, e agora termina oferecendo "seguir sem produto".
 origin: spec-deferred 45f9e94fca94
