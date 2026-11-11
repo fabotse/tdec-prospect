@@ -464,7 +464,8 @@ location: src/components/agent/AgentChat.tsx handleSendMessage
 source_spec: `spec-24-2-execucao-protegida-contra-cobranca-dupla.md`
 severity: low
 reason: O guard da 24.2 tira essa mensagem do fluxo de briefing (correto pela AC), mas cai no mesmo caminho "briefing confirmado -> so persiste" que ja existia sem resposta (AgentChat.tsx, fim do handleSendMessage). A conversa sem beco sem saida e escopo da 24.4.
-status: open
+status: resolved
+resolution: 2026-11-09 (FEL-11). O codigo ja estava resolvido pela 24.4 (5019c67, 2026-10-16): fora do ajuste, uma execucao pos-confirm (steps carregados ou status reatachado `running`/`paused`) cai no ramo pos-confirmacao do `handleSendMessage`, que grava a mensagem E responde (status deterministico do `buildExecutionStatusReply`; com output dos steps, a conversa da 24.24). Faltava a prova: o teste da 24.2 para o F5 (reattach `running`/`paused`, steps ainda nao carregados) so conferia a gravacao. Agora exige tambem uma resposta do agente ("A execucao esta em andamento..."), os dois turnos na memoria, o refetch e o fim do "processando". Comentario desatualizado ("a mensagem so e persistida") corrigido em `src/components/agent/AgentChat.tsx`; nenhuma logica mudou. Teste em `__tests__/unit/components/agent/AgentChat.test.tsx` (bloco reattach, `24.2: execucao reatachada ...`). Vale para a execucao ja validada no mount; a janela antes da validacao virou o DW-39. Banco, cron e caminho do Instantly intocados.
 
 ### DW-9: O carimbo `rejected: true` do POST /reject ignora o `{ error }` retornado pelo supabase-js, entao uma falha nessa escrita passa em silencio.
 origin: spec-deferred b062d5da2ca3
@@ -701,4 +702,12 @@ origin: spec-deferred 9eae244ca2a5
 location: src/lib/agent/execution-memory.ts
 source_spec: `spec-24-25-memoria-entre-execucoes.md`
 reason: Os testes simulam o Supabase e o fetch. Para fechar: smoke real (tela + banco) abrindo o plano de um briefing parecido com uma execução anterior exportada e uma revisão com lead/conta já trabalhados.
+status: open
+
+### DW-39: Mensagem enviada logo apos o F5, antes da validacao do id persistido terminar, vai para o fluxo de briefing mesmo numa execucao running/paused.
+origin: review FEL-11 (Codex, rodada 1)
+location: src/components/agent/AgentChat.tsx (attachGateOpen / isPostConfirmExecution / handleSendMessage; AgentInput sem `disabled` enquanto o portao esta fechado)
+source_spec: `spec-24-2-execucao-protegida-contra-cobranca-dupla.md`
+severity: low
+reason: Ate o GET /api/agent/executions do mount voltar (e o profile carregar), `steps=[]`, `reattachedStatus=null` e `confirmedThisSession=false`, entao `isPostConfirmExecution` e falso; o input ja esta habilitado e `ensureExecution` devolve o id persistido. Uma mensagem nessa janela (dura o tempo de carregar o profile e do GET; sem limite garantido) entra no `processBriefing` de uma execucao ja confirmada. Variante: se o GET falhar (rede/!ok/shape), o `finally` abre o portao com `reattachedStatus=null`, e ate os steps carregarem a mensagem tambem vai ao briefing. Nao fica sem resposta (o briefing responde), mas a guarda da 24.2 (AC3) nao vale nessa janela. Desde a 24.5 o texto nao confirma o briefing (so o clique no card), o que limita o estrago. Correcao candidata: desabilitar o AgentInput enquanto `!attachGateOpen` (nao cobre a variante da falha), ou tratar "id persistido pendente de validacao" como pos-confirm. Preexistente (22.8/24.2); fora do escopo do FEL-11.
 status: open
