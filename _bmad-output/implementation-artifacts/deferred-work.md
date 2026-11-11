@@ -554,7 +554,8 @@ location: src/lib/services/agent-cost-estimator.ts (emails = briefing.emailCount
 source_spec: `spec-24-10-custo-real-e-estimativa-honesta.md`
 severity: low
 reason: src/lib/ai/prompts/defaults.ts:794-818 (heuristica por objetivo). A suposicao de 3 e anterior a esta story (22.5, "Sem emailCount, mantem a heuristica de 3") e foi mantida no intent-contract. Diferenca no default: 47 vs 61 chamadas (~R$ 0,28 a R$ 0,02/chamada).
-status: open
+status: resolved
+resolution: 2026-11-09 (FEL-22). Sem `emailCount`, a estimativa usa 7 e-mails em vez de 3, para qualquer objetivo: a heuristica por objetivo do prompt de estrutura e so "tipica" (COLD_OUTREACH 4-5, REENGAGEMENT 3, FOLLOW_UP 3-4, NURTURE 5-7) e a regra dura do prompt padrao e "maximo 7 emails", entao 7 e o teto honesto (review do Codex). Constante `MAX_EMAILS_WITHOUT_COUNT` e funcao `resolveEmailVolume` em `src/lib/agent/agent-pricing.ts` (o `AGENT_PIPELINE_VOLUMES.defaultEmails` saiu); `src/lib/services/agent-cost-estimator.ts` passa a usa-la. `emailCount` pedido (inteiro positivo) continua vencendo. No default (25 leads) o teto vai de 47 para 75 chamadas de IA (+R$ 0,56). Limite conhecido, fora do escopo: a geracao (`parseStructureJSON` no `CreateCampaignStep`) nao corta a estrutura, entao uma IA que ignore o prompt, ou um prompt de tenant sobrescrito, ainda pode passar de 7; cortar mexe na geracao da campanha e precisa do OK do Fabossi. Se o prompt padrao mudar, atualizar a constante. Testes em `__tests__/unit/lib/agent/agent-pricing.test.ts` e `__tests__/unit/lib/services/agent-cost-estimator.test.ts`. So a estimativa do plano muda; geracao da campanha, busca de leads, banco, cron e caminho do Instantly intocados.
 
 ### DW-20: O fetch-leads pode buscar mais de 25 leads depois do plano, entao o "ate 25 leads" da estimativa deixa de ser teto nesses casos.
 origin: spec-deferred b52075066044
