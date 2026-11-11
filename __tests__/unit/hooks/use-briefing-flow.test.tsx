@@ -16,6 +16,7 @@ import {
   isProductSkip,
   extractProductName,
   isSearchPreference,
+  isLeadsSearchCommand,
   looksLikeLeadPaste,
   toMemoryContent,
   parseBriefingFieldInput,
@@ -4063,6 +4064,16 @@ describe("useBriefingFlow", () => {
         expect(toMemoryContent(long)).toBe(`${"a".repeat(2000)}\n[...lista truncada]`);
         expect(toMemoryContent("curto")).toBe("curto");
       });
+
+      it("DW-13: isLeadsSearchCommand so aceita o comando anunciado exato", () => {
+        expect(isLeadsSearchCommand("buscar leads")).toBe(true);
+        expect(isLeadsSearchCommand("  Buscar Leads. ")).toBe(true);
+        expect(isLeadsSearchCommand('"buscar leads"')).toBe(true);
+        expect(isLeadsSearchCommand("BUSCAR   LEADS!")).toBe(true);
+        expect(isLeadsSearchCommand("vou buscar leads na planilha")).toBe(false);
+        expect(isLeadsSearchCommand("buscar")).toBe(false);
+        expect(isLeadsSearchCommand("prefiro buscar leads")).toBe(false);
+      });
     });
 
     describe("produto sem nome", () => {
@@ -4415,6 +4426,60 @@ describe("useBriefingFlow", () => {
         expect(result.current.state.status).toBe("awaiting_leads_input");
         expect(lastAgentText()).toContain("cole a lista");
         expect(lastAgentText()).toContain("buscar leads");
+      });
+
+      it("DW-13: 'buscar leads' sai do ramo mesmo se o LLM devolveria import_leads (sem chamar /parse)", async () => {
+        const result = await enterLeads();
+        const fetchMock = mockRoutes([{ url: PARSE_URL, response: mockJsonResponse(IMPORT_RESPONSE) }]);
+        await send(result, "buscar leads");
+
+        expect(fetchMock.calls().filter((c) => PARSE_URL.test(c.url))).toHaveLength(0);
+        expect(result.current.state.status).toBe("awaiting_fields");
+        expect(result.current.state.briefing?.skipSteps).not.toContain("search_leads");
+        expect(lastAgentText()).not.toContain("cole a lista");
+      });
+
+      it("DW-13: 'Buscar leads.' com cargo/local no briefing vai ao resumo de busca", async () => {
+        mockRoutes([
+          {
+            url: PARSE_URL,
+            response: mockJsonResponse({
+              ...IMPORT_RESPONSE,
+              briefing: {
+                ...IMPORT_RESPONSE.briefing,
+                jobTitles: ["CTO"],
+                location: "SP",
+                leadCount: 10,
+                productSlug: "prod-123",
+              },
+            }),
+          },
+        ]);
+        const { result } = renderHook(() => useBriefingFlow());
+        await send(result, "Ja tenho meus leads");
+        expect(result.current.state.status).toBe("awaiting_leads_input");
+
+        await send(result, "Buscar leads.");
+
+        expect(result.current.state.status).toBe("confirming");
+        expect(result.current.state.briefing?.leadCount).toBe(10);
+        expect(result.current.state.briefing?.productSlug).toBe("prod-123");
+        expect(isLeadsSearchCommand("buscar leads?")).toBe(false);
+        expect(result.current.state.briefing?.skipSteps).not.toContain("search_leads");
+        expect(result.current.state.briefing?.importedLeads).toBeUndefined();
+      });
+
+      it("DW-13: 'buscar leads' em confirming_leads descarta a lista e sai para a busca", async () => {
+        const result = await enterLeads();
+        await send(result, "joao@empresa.com");
+        expect(result.current.state.status).toBe("confirming_leads");
+
+        const fetchMock = mockRoutes([{ url: PARSE_URL, response: mockJsonResponse(IMPORT_RESPONSE) }]);
+        await send(result, "buscar leads");
+
+        expect(fetchMock.calls().filter((c) => PARSE_URL.test(c.url))).toHaveLength(0);
+        expect(result.current.state.status).toBe("awaiting_fields");
+        expect(result.current.state.briefing?.importedLeads).toBeUndefined();
       });
 
       it("/parse falha + palavra-chave de busca: sai do ramo", async () => {

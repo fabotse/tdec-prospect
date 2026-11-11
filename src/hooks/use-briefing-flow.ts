@@ -677,6 +677,19 @@ export function extractProductName(message: string): string {
   return name.slice(0, 100).trim();
 }
 
+/**
+ * DW-13: a mensagem e exatamente o comando anunciado em LEADS_EXIT_HINT ("buscar leads"),
+ * tolerando maiuscula, acento, aspas, espacos e ponto ou exclamacao no fim ("buscar leads?"
+ * e pergunta e segue para o LLM). Saida deterministica do ramo de leads: nao depende do
+ * nextAction do LLM.
+ */
+export function isLeadsSearchCommand(message: string): boolean {
+  const normalized = normalizeAnswer(message)
+    .replace(/^["'`“”‘’\s]+|["'`“”‘’.!\s]+$/g, "")
+    .replace(/\s+/g, " ");
+  return normalized === "buscar leads";
+}
+
 /** Story 24.4: fallback por palavra-chave quando o /parse falha no ramo de leads. */
 export function isSearchPreference(message: string): boolean {
   const normalized = normalizeAnswer(message);
@@ -1844,13 +1857,8 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
       const handleLeadsConversation = async (
         stayInBranch: () => Promise<{ handled: boolean }>
       ): Promise<{ handled: boolean }> => {
-        setState((prev) => ({ ...prev, status: "parsing" }));
-        let parsed: BriefingParseResponse;
-        try {
-          parsed = carryProductSlug(await callParseAPI(executionId), state.briefing);
-        } catch {
-          // Fallback por palavra-chave: pedido de busca sai do ramo; senao fica nele.
-          if (!isSearchPreference(content)) return stayInBranch();
+        // Sai do ramo para a busca com o briefing atual (sem /parse).
+        const exitToSearch = async (): Promise<{ handled: boolean }> => {
           if (!state.briefing) {
             setState((prev) => ({ ...prev, status: "awaiting_fields" }));
             await sendAndRecord(
@@ -1881,6 +1889,20 @@ export function useBriefingFlow(): UseBriefingFlowReturn {
             state.briefing,
             state.productMentioned
           );
+        };
+
+        // DW-13: o comando anunciado ("buscar leads") sai do ramo sem depender do LLM,
+        // que podia devolver import_leads e repetir a instrucao de colar.
+        if (isLeadsSearchCommand(content)) return exitToSearch();
+
+        setState((prev) => ({ ...prev, status: "parsing" }));
+        let parsed: BriefingParseResponse;
+        try {
+          parsed = carryProductSlug(await callParseAPI(executionId), state.briefing);
+        } catch {
+          // Fallback por palavra-chave: pedido de busca sai do ramo; senao fica nele.
+          if (!isSearchPreference(content)) return stayInBranch();
+          return exitToSearch();
         }
 
         // O LLM ainda indica import ("espera, vou pegar a lista") -> continua no ramo. A
