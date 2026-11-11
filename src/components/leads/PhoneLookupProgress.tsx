@@ -71,18 +71,41 @@ export function PhoneLookupProgress({
   const total = leads.length;
   const progressPercent = total > 0 ? (current / total) * 100 : 0;
 
+  // DW-3: o reset ao fechar e a validacao de lista vazia ajustam o estado
+  // durante o render (padrao do React para estado que depende de prop), em vez
+  // de setState dentro de efeito. As condicoes sao as mesmas dos efeitos antigos.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (!open) {
+      // Reset ao fechar
+      setCurrent(0);
+      setResults([]);
+      setIsProcessing(false);
+      setIsComplete(false);
+      setHasError(false);
+      setErrorMessage(null);
+    }
+  } else if (open && !isProcessing && !isComplete && !hasError && leads.length === 0) {
+    // Validacao: aberto, ocioso e sem leads -> erro, e a busca nao dispara
+    setHasError(true);
+    setErrorMessage("Nenhum lead selecionado para buscar telefone. Selecione leads na tabela primeiro.");
+  }
+
+  // Refs nao podem ser mexidos no render: o reset deles ao fechar fica no efeito
+  useEffect(() => {
+    if (!open) {
+      abortControllerRef.current = null;
+      finalResultsRef.current = [];
+    }
+  }, [open]);
+
   // Start processing when dialog opens
   useEffect(() => {
     if (!open || isProcessing || isComplete || hasError) return;
 
-    // Validate leads array before processing
-    if (leads.length === 0) {
-      // Validacao ao abrir: refatorar p/ estado derivado mudaria quando o dialogo dispara o processamento (story 23.4)
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setHasError(true);
-      setErrorMessage("Nenhum lead selecionado para buscar telefone. Selecione leads na tabela primeiro.");
-      return;
-    }
+    // Sem leads o erro e marcado no render (acima); nunca chama a busca
+    if (leads.length === 0) return;
 
     const processLeads = async () => {
       setIsProcessing(true);
@@ -147,22 +170,6 @@ export function PhoneLookupProgress({
     // Call onComplete with final results when user closes
     onComplete(finalResultsRef.current);
   }, [onComplete]);
-
-  // Reset state when dialog closes
-  useEffect(() => {
-    if (!open) {
-      // Reset ao fechar: mantido no efeito para nao mudar quando o processamento reinicia (story 23.4)
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setCurrent(0);
-      setResults([]);
-      setIsProcessing(false);
-      setIsComplete(false);
-      setHasError(false);
-      setErrorMessage(null);
-      abortControllerRef.current = null;
-      finalResultsRef.current = [];
-    }
-  }, [open]);
 
   // Get lead name by ID
   const getLeadName = (leadId: string): string => {

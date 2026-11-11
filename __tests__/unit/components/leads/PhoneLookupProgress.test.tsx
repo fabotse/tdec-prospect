@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PhoneLookupProgress } from "@/components/leads/PhoneLookupProgress";
@@ -337,6 +337,190 @@ describe("PhoneLookupProgress", () => {
         // After completion, should show "Fechar" button instead of "Cancelar"
         expect(screen.getByRole("button", { name: /fechar/i })).toBeInTheDocument();
       });
+    });
+  });
+
+  // DW-3: fixa o comportamento de abrir/fechar/reabrir; o estado agora é
+  // ajustado no render quando `open` muda, sem setState dentro de efeito
+  describe("abrir, fechar e reabrir (DW-3)", () => {
+    function renderDialog(leads: ReturnType<typeof createMockLead>[], open: boolean) {
+      const Wrapper = createWrapper();
+      const ui = (l: typeof leads, o: boolean) => (
+        <Wrapper>
+          <PhoneLookupProgress
+            leads={l}
+            open={o}
+            onComplete={mockOnComplete}
+            onCancel={mockOnCancel}
+          />
+        </Wrapper>
+      );
+      const result = render(ui(leads, open));
+      return {
+        ...result,
+        setProps: (l: typeof leads, o: boolean) => result.rerender(ui(l, o)),
+      };
+    }
+
+    it("montado aberto sem leads mostra o erro e não chama a busca", () => {
+      renderDialog([], true);
+
+      expect(
+        screen.getByText(/Nenhum lead selecionado para buscar telefone/i)
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/Processando 0 de 0/)).not.toBeInTheDocument();
+      expect(batchPhoneLookup).not.toHaveBeenCalled();
+    });
+
+    it("reabrir depois de concluir zera o estado e busca de novo", async () => {
+      const mockBatchLookup = vi.mocked(batchPhoneLookup);
+      mockBatchLookup.mockImplementationOnce(async (_leads, onProgress) => {
+        onProgress?.(1, 1, { leadId: "1", status: "found", phone: "+5511" });
+        return [{ leadId: "1", status: "found", phone: "+5511" }];
+      });
+      let resolveSecond: (r: Awaited<ReturnType<typeof batchPhoneLookup>>) => void = () => {};
+      mockBatchLookup.mockImplementationOnce(
+        () => new Promise((resolve) => { resolveSecond = resolve; })
+      );
+
+      const leads = [createMockLead({ id: "1", firstName: "Ana", lastName: "" })];
+      const { setProps } = renderDialog(leads, true);
+
+      await waitFor(() => {
+        expect(screen.getByText("Concluído")).toBeInTheDocument();
+      });
+      expect(screen.getByText("+5511")).toBeInTheDocument();
+      expect(mockBatchLookup).toHaveBeenCalledTimes(1);
+
+      setProps(leads, false);
+      setProps(leads, true);
+
+      // Estado zerado: sem resultado antigo, contador do zero, busca disparada de novo
+      await waitFor(() => {
+        expect(mockBatchLookup).toHaveBeenCalledTimes(2);
+      });
+      expect(screen.getByText("Processando 0 de 1")).toBeInTheDocument();
+      expect(screen.queryByText("+5511")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /cancelar/i })).toBeInTheDocument();
+
+      resolveSecond([]);
+      await waitFor(() => {
+        expect(screen.getByText("Concluído")).toBeInTheDocument();
+      });
+    });
+
+    it("rerender aberto com os mesmos dados não dispara a busca de novo", async () => {
+      const mockBatchLookup = vi.mocked(batchPhoneLookup);
+      mockBatchLookup.mockResolvedValue([]);
+
+      const leads = [createMockLead({ id: "1" })];
+      const { setProps } = renderDialog(leads, true);
+
+      await waitFor(() => {
+        expect(screen.getByText("Concluído")).toBeInTheDocument();
+      });
+      setProps([...leads], true);
+      setProps([...leads], true);
+
+      expect(mockBatchLookup).toHaveBeenCalledTimes(1);
+    });
+
+    it("reabrir com a lista vazia mostra o erro e o Fechar não devolve resultados antigos", async () => {
+      const user = userEvent.setup();
+      const mockBatchLookup = vi.mocked(batchPhoneLookup);
+      const firstResults = [{ leadId: "1", status: "found" as const, phone: "+55" }];
+      mockBatchLookup.mockResolvedValue(firstResults);
+
+      const leads = [createMockLead({ id: "1" })];
+      const { setProps } = renderDialog(leads, true);
+
+      await waitFor(() => {
+        expect(screen.getByText("Concluído")).toBeInTheDocument();
+      });
+
+      setProps([], false);
+      setProps([], true);
+
+      expect(
+        screen.getByText(/Nenhum lead selecionado para buscar telefone/i)
+      ).toBeInTheDocument();
+      expect(mockBatchLookup).toHaveBeenCalledTimes(1);
+
+      await user.click(screen.getByRole("button", { name: /fechar/i }));
+      expect(mockOnComplete).toHaveBeenCalledWith([]);
+    });
+
+    it("fechar depois de um erro e reabrir com leads limpa o erro e busca", async () => {
+      const mockBatchLookup = vi.mocked(batchPhoneLookup);
+      mockBatchLookup.mockResolvedValue([]);
+
+      const leads = [createMockLead({ id: "1" })];
+      const { setProps } = renderDialog([], true);
+      expect(screen.getByText(/Nenhum lead selecionado/i)).toBeInTheDocument();
+
+      setProps([], false);
+      setProps(leads, true);
+
+      await waitFor(() => {
+        expect(mockBatchLookup).toHaveBeenCalledTimes(1);
+      });
+      expect(screen.queryByText(/Nenhum lead selecionado/i)).not.toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText("Concluído")).toBeInTheDocument();
+      });
+    });
+
+    it("resultado que chega depois de fechar: reabrir sem leads mostra o Concluído, não o erro (igual ao antigo)", async () => {
+      const mockBatchLookup = vi.mocked(batchPhoneLookup);
+      let resolveFirst: (r: Awaited<ReturnType<typeof batchPhoneLookup>>) => void = () => {};
+      mockBatchLookup.mockImplementationOnce(
+        () => new Promise((resolve) => { resolveFirst = resolve; })
+      );
+
+      const leads = [createMockLead({ id: "1" })];
+      const { setProps } = renderDialog(leads, true);
+      await waitFor(() => {
+        expect(mockBatchLookup).toHaveBeenCalledTimes(1);
+      });
+
+      // Fecha no meio da busca; a busca termina com o diálogo fechado
+      setProps(leads, false);
+      await act(async () => {
+        resolveFirst([{ leadId: "1", status: "found", phone: "+55" }]);
+      });
+
+      setProps([], true);
+
+      expect(screen.getByText("Concluído")).toBeInTheDocument();
+      expect(screen.queryByText(/Nenhum lead selecionado/i)).not.toBeInTheDocument();
+      expect(mockBatchLookup).toHaveBeenCalledTimes(1);
+    });
+
+    it("aberto e ocioso: leads que viram lista vazia mostram o erro sem nova busca", async () => {
+      const mockBatchLookup = vi.mocked(batchPhoneLookup);
+      let rejectFirst: (e: Error) => void = () => {};
+      mockBatchLookup.mockImplementationOnce(
+        () => new Promise((_resolve, reject) => { rejectFirst = reject; })
+      );
+
+      const leads = [createMockLead({ id: "1" })];
+      const { setProps } = renderDialog(leads, true);
+      await waitFor(() => {
+        expect(mockBatchLookup).toHaveBeenCalledTimes(1);
+      });
+
+      // Sem transição de `open`: a lista esvazia e a busca é abortada
+      setProps([], true);
+      await act(async () => {
+        const abort = new Error("aborted");
+        abort.name = "AbortError";
+        rejectFirst(abort);
+      });
+
+      expect(
+        screen.getByText(/Nenhum lead selecionado para buscar telefone/i)
+      ).toBeInTheDocument();
+      expect(mockBatchLookup).toHaveBeenCalledTimes(1);
     });
   });
 });
