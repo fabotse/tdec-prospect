@@ -18,6 +18,7 @@ import {
   THEIRSTACK_CREDITS_PER_COMPANY,
   estimateAICallsForCampaign,
   formatBRL,
+  resolveEmailVolume,
   resolveLeadVolume,
   resolveUnitPrices,
 } from "@/lib/agent/agent-pricing";
@@ -148,7 +149,8 @@ export class CostEstimatorService {
     const companies = AGENT_PIPELINE_VOLUMES.companies;
     // Story 24.13: importados > N > 25 (fonte unica em agent-pricing).
     const leads = resolveLeadVolume(briefing);
-    const emails = briefing.emailCount ?? AGENT_PIPELINE_VOLUMES.defaultEmails;
+    // DW-19: sem emailCount, o teto do prompt de estrutura (7; fonte unica em agent-pricing).
+    const emails = resolveEmailVolume(briefing);
     const aiCalls = estimateAICallsForCampaign(leads, emails);
     const credits = companies * THEIRSTACK_CREDITS_PER_COMPANY;
 
