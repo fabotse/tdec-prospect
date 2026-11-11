@@ -998,7 +998,7 @@ export function AgentChat() {
       // o briefing renasce `idle` e uma mensagem livre + "sim" sobrescrevia o briefing de
       // uma execucao ja paga. Fora do ajuste (tratado acima), uma execucao ja reconhecida
       // como pos-confirm cai no ramo abaixo, que persiste E responde (Story 24.4; DW-8).
-      // Ressalva (DW-38): enquanto a validacao do id persistido nao termina, o reattach
+      // Ressalva (DW-39): enquanto a validacao do id persistido nao termina, o reattach
       // ainda nao e conhecido e a mensagem vai para o briefing.
       if (briefingState.status !== "confirmed" && !isPostConfirmExecution) {
         // Enviar mensagem do usuario primeiro

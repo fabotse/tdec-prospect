@@ -56,6 +56,7 @@ Transformar o agente no caminho para poucos leads de altíssima qualidade. Hoje 
 - **Migrations:** só aditivas e versionadas (próximo número livre em `supabase/migrations/`). Agentes escrevem e nunca aplicam; o código não sobe antes da migration aplicada. Para incluir um serviço novo nos CHECKs de `service_name` (`api_configs`, `api_usage_logs`), seguir o modelo drop + add da constraint (ver `00065`), sem tocar em linhas. Documentar o rollback.
 - **Dossiê:** fatos `{fato, fonte_url, data, confiança}` ligados a tenant, domínio da empresa e lead, com RLS por tenant e reuso por cerca de 30 dias.
 - **Saída para o Instantly:** texto 1-para-1 em variáveis personalizadas por lead. Leads "sem gatilho" usam o template padrão. Dado ausente vira variável do Instantly (`{{firstName}}`, `{{companyName}}`) ou é omitido.
+- **Conversa pós-execução e memória:** o LLM lê o output dos steps (score, justificativa, dossiê, e-mails) para responder. Qualquer ação nova roda pelo pipeline determinístico, nunca direto pelo LLM. A memória entre execuções usa os resultados do loop de resposta (respostas e oportunidades).
 - Branch por épico, com PR para `main` ao final.
 
 ## UX & Interaction Patterns
@@ -64,6 +65,8 @@ Transformar o agente no caminho para poucos leads de altíssima qualidade. Hoje 
 - "Tentar novamente" no card de step com falha, com mensagem coerente com `isRetryable`.
 - Revisão de leads: badge A/B/C + justificativa de 1 linha, ordenação por score, pré-seleção dos N pedidos, input numérico de quantidade e aviso discreto de "e-mail não verificado".
 - Indicador por e-mail do revisor: aprovado / reescrito / precisa revisão humana / não revisado.
+- Pedidos que custam dinheiro feitos na conversa (inclusive depois da execução) aparecem num card com a ação e o custo estimado. Reescritas pedidas no chat só substituem o original depois da confirmação do usuário.
+- Lead ou conta já trabalhados aparecem na revisão com histórico resumido (campanha, data, resultado).
 - Painel de dossiê (fatos com fonte e data, gatilho "por que agora", hipótese de dor) na revisão do agente e no card da oportunidade. Sem dossiê, mostra "sem pesquisa" com ação de gerar.
 
 ## Cross-Story Dependencies

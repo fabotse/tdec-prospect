@@ -464,7 +464,7 @@ source_spec: `spec-24-2-execucao-protegida-contra-cobranca-dupla.md`
 severity: low
 reason: O guard da 24.2 tira essa mensagem do fluxo de briefing (correto pela AC), mas cai no mesmo caminho "briefing confirmado -> so persiste" que ja existia sem resposta (AgentChat.tsx, fim do handleSendMessage). A conversa sem beco sem saida e escopo da 24.4.
 status: resolved
-resolution: 2026-11-09 (FEL-11). O codigo ja estava resolvido pela 24.4 (5019c67, 2026-10-16): fora do ajuste, uma execucao pos-confirm (steps carregados ou status reatachado `running`/`paused`) cai no ramo pos-confirmacao do `handleSendMessage`, que grava a mensagem E responde (status deterministico do `buildExecutionStatusReply`; com output dos steps, a conversa da 24.24). Faltava a prova: o teste da 24.2 para o F5 (reattach `running`/`paused`, steps ainda nao carregados) so conferia a gravacao. Agora exige tambem uma resposta do agente ("A execucao esta em andamento..."), os dois turnos na memoria, o refetch e o fim do "processando". Comentario desatualizado ("a mensagem so e persistida") corrigido em `src/components/agent/AgentChat.tsx`; nenhuma logica mudou. Teste em `__tests__/unit/components/agent/AgentChat.test.tsx` (bloco reattach, `24.2: execucao reatachada ...`). Vale para a execucao ja validada no mount; a janela antes da validacao virou o DW-38. Banco, cron e caminho do Instantly intocados.
+resolution: 2026-11-09 (FEL-11). O codigo ja estava resolvido pela 24.4 (5019c67, 2026-10-16): fora do ajuste, uma execucao pos-confirm (steps carregados ou status reatachado `running`/`paused`) cai no ramo pos-confirmacao do `handleSendMessage`, que grava a mensagem E responde (status deterministico do `buildExecutionStatusReply`; com output dos steps, a conversa da 24.24). Faltava a prova: o teste da 24.2 para o F5 (reattach `running`/`paused`, steps ainda nao carregados) so conferia a gravacao. Agora exige tambem uma resposta do agente ("A execucao esta em andamento..."), os dois turnos na memoria, o refetch e o fim do "processando". Comentario desatualizado ("a mensagem so e persistida") corrigido em `src/components/agent/AgentChat.tsx`; nenhuma logica mudou. Teste em `__tests__/unit/components/agent/AgentChat.test.tsx` (bloco reattach, `24.2: execucao reatachada ...`). Vale para a execucao ja validada no mount; a janela antes da validacao virou o DW-39. Banco, cron e caminho do Instantly intocados.
 
 ### DW-9: O carimbo `rejected: true` do POST /reject ignora o `{ error }` retornado pelo supabase-js, entao uma falha nessa escrita passa em silencio.
 origin: spec-deferred b062d5da2ca3
@@ -696,7 +696,14 @@ severity: medium
 reason: Exige extrair researchAccount do ResearchAccountsStep (arquivo no caminho até o Instantly, Regra nº 1 ponto 3) e abrir escrita nova em produção (account_dossiers/facts/leads) e custo Treg sem teto próprio. DW-34 e DW-36 pedem o OK do Fabossi. Hoje o briefing mostra "Sem pesquisa da conta" e segue. Listado em operator_actions.
 status: open
 
-### DW-38: Mensagem enviada logo apos o F5, antes da validacao do id persistido terminar, vai para o fluxo de briefing mesmo numa execucao running/paused.
+### DW-38: Nenhuma verificação contra o schema, os dados e a RLS reais; tudo é testado com mocks.
+origin: spec-deferred 9eae244ca2a5
+location: src/lib/agent/execution-memory.ts
+source_spec: `spec-24-25-memoria-entre-execucoes.md`
+reason: Os testes simulam o Supabase e o fetch. Para fechar: smoke real (tela + banco) abrindo o plano de um briefing parecido com uma execução anterior exportada e uma revisão com lead/conta já trabalhados.
+status: open
+
+### DW-39: Mensagem enviada logo apos o F5, antes da validacao do id persistido terminar, vai para o fluxo de briefing mesmo numa execucao running/paused.
 origin: review FEL-11 (Codex, rodada 1)
 location: src/components/agent/AgentChat.tsx (attachGateOpen / isPostConfirmExecution / handleSendMessage; AgentInput sem `disabled` enquanto o portao esta fechado)
 source_spec: `spec-24-2-execucao-protegida-contra-cobranca-dupla.md`
