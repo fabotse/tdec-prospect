@@ -996,7 +996,10 @@ export function AgentChat() {
       // Story 16.3: Rotear para fluxo de briefing se nao confirmado.
       // Story 24.2 (AC3): NUNCA para uma execucao que ja passou pelo confirm. Apos um F5
       // o briefing renasce `idle` e uma mensagem livre + "sim" sobrescrevia o briefing de
-      // uma execucao ja paga. Fora do ajuste (tratado acima), a mensagem so e persistida.
+      // uma execucao ja paga. Fora do ajuste (tratado acima), uma execucao ja reconhecida
+      // como pos-confirm cai no ramo abaixo, que persiste E responde (Story 24.4; DW-8).
+      // Ressalva (DW-39): enquanto a validacao do id persistido nao termina, o reattach
+      // ainda nao e conhecido e a mensagem vai para o briefing.
       if (briefingState.status !== "confirmed" && !isPostConfirmExecution) {
         // Enviar mensagem do usuario primeiro
         sendMessageMutation.mutate({ executionId: execId, content });

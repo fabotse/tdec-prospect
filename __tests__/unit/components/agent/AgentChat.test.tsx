@@ -1219,12 +1219,27 @@ describe("AgentChat", () => {
           await capturedOnSendMessage!("sim, pode mudar para Curitiba");
         });
 
-        // so persistida
+        // persistida
         expect(mockMutate).toHaveBeenCalledWith({
           executionId: "exec-run",
           content: "sim, pode mudar para Curitiba",
         });
         expect(mockProcessMessage).not.toHaveBeenCalled();
+        // DW-8: e respondida (sem beco sem saida). Com os steps ainda nao carregados,
+        // a resposta e o status "em andamento" e os dois turnos vao a memoria.
+        const agentReplies = (global.fetch as ReturnType<typeof vi.fn>).mock.calls
+          .filter(
+            ([url, init]) =>
+              url === "/api/agent/executions/exec-run/messages" &&
+              (init as RequestInit | undefined)?.method === "POST"
+          )
+          .map(([, init]) => JSON.parse((init as RequestInit).body as string).content as string);
+        expect(agentReplies).toHaveLength(1);
+        expect(agentReplies[0]).toContain("A execucao esta em andamento");
+        expect(mockRecordUserTurn).toHaveBeenCalledWith("sim, pode mudar para Curitiba");
+        expect(mockRecordAgentTurn).toHaveBeenCalledWith(agentReplies[0]);
+        expect(mockRefetchMessages).toHaveBeenCalledWith("exec-run");
+        expect(mockSetAgentProcessing).toHaveBeenLastCalledWith(false);
         // nenhum PATCH de briefing
         const patchCalls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
           ([url, init]) =>
