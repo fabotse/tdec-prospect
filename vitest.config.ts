@@ -30,8 +30,11 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
+    alias: [
+      { find: '@', replacement: path.resolve(__dirname, './src') },
+      // DW-25: Edge Functions (Deno) importam `npm:<pacote>@<versão>`. Mapeia para
+      // o pacote do node_modules para os testes poderem carregar o arquivo real.
+      { find: /^npm:((?:@[^/]+\/)?[^@/]+)(?:@[^/]*)?(\/.*)?$/, replacement: '$1$2' },
+    ],
   },
 })
