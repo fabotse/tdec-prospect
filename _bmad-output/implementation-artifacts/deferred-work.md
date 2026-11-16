@@ -414,7 +414,8 @@ origin: review-budget-followup
 source_spec: `22-16-campanha-do-agente-visivel-em-campanhas.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260727-230325-92d3; this entry preserves the lingering recommendation for a deliberate later review.
-status: open
+status: resolved
+resolution: 2026-11-16 (FEL-6). Review independente feita sobre o codigo atual do main (7aa1afb), nao so o diff original: `campaign-persistence.ts`, `persistCampaignRow`/`readOwnCampaignId` do `create-campaign-step.ts`, o carimbo do `export-step.ts` (agora junto da idempotencia da 24.2), o `markLocalCampaignActive` do `activate-step.ts` e o aviso do builder. Leitura propria + review adversarial do Codex. Achados: (1) corrigido: depois da 24.1, uma falha nas 3 tentativas do `saveCheckpoint`/`saveAwaitingApproval` vira STEP_PERSISTENCE_ERROR retryable e cai no `saveFailure`, que (24.2) grava `{ ...partialOutput, error }`. O `create_campaign` nunca registrava parcial, entao o `campaignId` da campanha JA inserida sumia do output e o "Tentar novamente" criava uma SEGUNDA campanha em /campaigns. Agora o step registra `{ campaignId }` via `recordPartialOutput` em dois pontos (mesmo mecanismo do `externalCampaignId` do export): no INICIO do `executeInternal`, re-registrando o id de uma tentativa anterior antes de qualquer operacao que possa falhar (senao um retry que falhasse na geracao apagava o id de novo, achado do Codex), e logo apos gravar uma campanha nova. Isso fecha, para o `campaignId`, o defer de 2026-07-28 sobre o `saveFailure` apagar as chaves de idempotencia (a parte da BaseStep a 24.2 ja tinha resolvido; o `activated` da 22.18 segue coberto pelo pre-flight no Instantly). Testes em `__tests__/unit/lib/agent/steps/create-campaign-step.test.ts` (3 casos `DW-2 (FEL-6)`: checkpoint falhando, retry que falha na geracao, e `saveAwaitingApproval` no modo guiado); o fake stateful de `agent_steps` ganhou `failStatusWrite(status, n)`. Mutacao confirmada nos dois pontos: sem cada registro, um teste quebra. (2) virou o DW-42. Sem migration; export, ativacao, busca de leads e webhook intocados.
 
 ### DW-3: Refatorar os dois efeitos do PhoneLookupProgress para tirar os eslint-disable de react-hooks/set-state-in-effect.
 origin: spec-deferred cb3e40f7f6c2
@@ -730,4 +731,12 @@ location: src/lib/agent/lead-persistence.ts (Fase 1 + Fase 2 de persistApprovedL
 source_spec: `22-15-leads-do-agente-em-meus-leads-com-segmento.md`
 severity: low
 reason: As duas leem antes de qualquer INSERT, nao acham `maria@acme.com` e as duas inserem. `leads` so tem unique em (tenant_id, apollo_id), entao nao ha 23505 e a reconciliacao nao roda; cada uma devolve `inserted: 1` sem `degraded`. Mesma lacuna das rotas do produto (import-csv, create-batch), que tambem nao tem trava por email. Fechar exige uma unique sobre `lower(trim(email))` por tenant (migration, e os dados atuais ja tem duplicatas) ou uma trava distribuida (advisory lock via RPC). Decisao do Fabossi.
+status: open
+
+### DW-42: A ativacao marca a campanha local como "Ativa" mesmo quando o Instantly diz que ela esta Pausada ou Concluida.
+origin: review FEL-6 (review independente da 22.16)
+location: src/lib/agent/steps/activate-step.ts (ramo `mustNotActivate` + `markLocalCampaignActive`)
+source_spec: `22-16-campanha-do-agente-visivel-em-campanhas.md`
+severity: low
+reason: O pre-flight da 22.18 nao dispara o activate quando a campanha ja esta Active, Paused, Completed ou RunningSubsequences no Instantly (o endpoint e activate-or-resume), mas o fluxo segue igual ao da ativacao real: grava `campaigns.status = 'active'` e manda "Campanha '...' ativa no Instantly". Para Paused/Completed isso e falso, e nenhuma rota do produto corrige `campaigns.status` depois. Exige que alguem pause ou conclua a campanha no Instantly entre o export e o clique em Ativar, entao e raro. Correcao candidata: mapear o status lido no pre-flight para o enum local (`paused`/`completed`) em vez de `active`, e ajustar a mensagem. Fica no arquivo da ativacao (caminho ate o Instantly, Regra no 1), por isso nao foi feito no FEL-6 sem OK do Fabossi.
 status: open

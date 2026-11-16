@@ -114,6 +114,17 @@ export class CreateCampaignStep extends BaseStep {
   protected async executeInternal(input: StepInput): Promise<StepOutput> {
     const { briefing, previousStepOutput } = input;
 
+    // DW-2 (FEL-6): a chave de idempotencia da campanha local (`campaignId` gravado por
+    // uma tentativa anterior DESTE step) e lida ANTES de qualquer operacao que possa
+    // falhar e re-registrada como parcial. O `run()` zera o parcial a cada tentativa e o
+    // `saveFailure` grava `{ ...partialOutput, error }`: sem isto, um retry que falhasse
+    // na geracao (JSON invalido, 429) apagava o `campaignId` e a tentativa seguinte
+    // inseria uma SEGUNDA campanha em /campaigns.
+    const existingCampaignId = await this.readOwnCampaignId(input.executionId);
+    if (existingCampaignId) {
+      await this.recordPartialOutput(input.executionId, { campaignId: existingCampaignId });
+    }
+
     // Story 17.11: Imported leads flow (both search steps skipped)
     const isImportedLeadsFlow =
       briefing.skipSteps?.includes("search_companies") &&
@@ -414,8 +425,17 @@ export class CreateCampaignStep extends BaseStep {
     data.campaignId = await this.persistCampaignRow(
       input.executionId,
       campaignName,
-      persistedLeadIds
+      persistedLeadIds,
+      existingCampaignId
     );
+
+    // DW-2 (FEL-6): a campanha recem-gravada tambem vira parcial. Se o
+    // `saveCheckpoint`/`saveAwaitingApproval` falhar (Story 24.1: STEP_PERSISTENCE_ERROR,
+    // retryable), o `saveFailure` preserva o `campaignId` e o "Tentar novamente" reusa a
+    // linha. Mesmo mecanismo do `externalCampaignId` do export (24.2).
+    if (data.campaignId) {
+      await this.recordPartialOutput(input.executionId, { campaignId: data.campaignId });
+    }
 
     return {
       success: true,
@@ -549,19 +569,19 @@ export class CreateCampaignStep extends BaseStep {
    * e por ele que o `export` sabe qual linha carimbar com o `external_campaign_id`, a
    * chave de que analytics (Epic 10/14), `reply-sweep` e webhook (Epic 21) dependem.
    *
-   * IDEMPOTENCIA: le o `campaignId` do `output` JA gravado DESTE mesmo step. Uma
-   * re-execucao (ajuste pos-rejeicao, 22.13) atualiza a linha existente em vez de criar
-   * uma segunda campanha. Se a leitura falhar, seguimos como 1a vez — uma campanha extra
-   * em rascunho e preferivel a nenhuma.
+   * IDEMPOTENCIA: `existingCampaignId` e o `campaignId` do `output` JA gravado DESTE
+   * mesmo step (lido no inicio do `executeInternal`). Uma re-execucao (ajuste
+   * pos-rejeicao, 22.13, ou retry) atualiza a linha existente em vez de criar uma segunda
+   * campanha. Se a leitura falhou, seguimos como 1a vez — uma campanha extra em rascunho
+   * e preferivel a nenhuma.
    */
   private async persistCampaignRow(
     executionId: string,
     campaignName: string,
-    leadIds: string[]
+    leadIds: string[],
+    existingCampaignId: string | null
   ): Promise<string | null> {
     try {
-      const existingCampaignId = await this.readOwnCampaignId(executionId);
-
       const result = await persistAgentCampaign({
         supabase: this.supabase,
         tenantId: this.tenantId,
