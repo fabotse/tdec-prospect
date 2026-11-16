@@ -137,6 +137,13 @@ deferred: []
   - `[low]` `[reject]` (verification-gap, other) 1-clique com LinkedIn de outro contato não liga o lead — mesmo motivo do 9º achado.
   - `[false]` `[reject]` (intent) Spec sem `awaiting-operator`/`operator_actions` e sem commit — feitos no Finalize: aplicar a 00075, conferir a chave do Treg e o smoke viraram `operator_actions`.
 
+### 2026-11-16 — Review do Codex (orquestrador, rodada 1)
+- `[medium]` `[patch]` Re-import duplicava contato que ganhou LinkedIn depois (dedup sem LinkedIn só olhava contatos com `linkedin_url` nulo) — a comparação por nome + empresa/domínio agora usa todos os contatos do tenant; teste de importar → enriquecer → reimportar.
+- `[low]` `[patch]` 2000 linhas podiam passar de 1 MB no corpo da Server Action — o dialog mede os bytes do JSON (`KNOWN_CONTACTS_IMPORT_MAX_BYTES` = 900 KB) e pede para dividir o CSV; teste de componente.
+
+### 2026-11-16 — Review do Codex (orquestrador, rodada 2)
+- `[medium]` `[patch]` Mesma pessoa no CSV com e sem LinkedIn entrava duas vezes (os conjuntos de dedup eram independentes) — a linha sem LinkedIn é ignorada quando outra linha do arquivo tem o mesmo nome + empresa com LinkedIn, em qualquer ordem; testes nas duas ordens.
+
 ## Design Notes
 
 - **Relação `reuniao_marcada`:** a AC lista cliente atual, ex-cliente e parceiro, mas também pede o lead da reunião marcada "com 1 clique". Esse lead ainda não é nenhum dos três; gravar um deles seria dado falso. O 4º valor mantém o clique único e o gestor pode editar a relação depois. A 25.2 acompanha todos os contatos com LinkedIn, qualquer que seja a relação.

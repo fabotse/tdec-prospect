@@ -104,6 +104,18 @@ export interface KnownContactImportReport {
  */
 export const KNOWN_CONTACTS_IMPORT_MAX_ROWS = 2000;
 
+/**
+ * Tamanho máximo do corpo enviado à Server Action no import (bytes do JSON das linhas).
+ * O limite padrão do Next é 1 MB; a folga cobre o envelope da chamada. Arquivo acima disso
+ * é recusado no navegador com a orientação de dividir, em vez do erro genérico do servidor.
+ */
+export const KNOWN_CONTACTS_IMPORT_MAX_BYTES = 900_000;
+
+/** Bytes (UTF-8) do JSON das linhas, como vão no corpo da Server Action. */
+export function knownContactsImportPayloadBytes(rows: unknown[]): number {
+  return new TextEncoder().encode(JSON.stringify(rows)).length;
+}
+
 /** Mensagens de validação (cadastro manual e relatório do import). */
 export const KNOWN_CONTACT_ERRORS = {
   missingName: "Informe o nome",

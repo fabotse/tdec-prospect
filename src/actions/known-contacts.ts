@@ -370,6 +370,18 @@ export async function importKnownContacts(
       candidates.push({ line, label, data: normalized.data });
     });
 
+    // Mesma pessoa no arquivo com e sem LinkedIn: fica a linha com LinkedIn (em qualquer ordem).
+    const keysWithLinkedin = new Set(
+      candidates.filter((c) => c.data.linkedin_url).map((c) => noLinkedinKey(c.data))
+    );
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const c = candidates[i];
+      if (!c.data.linkedin_url && keysWithLinkedin.has(noLinkedinKey(c.data))) {
+        skipped.push({ line: c.line, value: c.label, reason: KNOWN_CONTACT_ERRORS.duplicateContactInFile });
+        candidates.splice(i, 1);
+      }
+    }
+
     const supabase = await createClient();
 
     // LinkedIn já cadastrado no tenant
@@ -396,7 +408,9 @@ export async function importKnownContacts(
       }
     }
 
-    // Contatos sem LinkedIn já cadastrados no tenant (páginas de 1000)
+    // Linhas sem LinkedIn: compara nome + empresa/domínio com TODOS os contatos do tenant,
+    // inclusive os que ganharam LinkedIn depois (busca ou edição), para o re-import não
+    // duplicar quem já foi enriquecido (páginas de 1000).
     const existingNoLinkedin = new Set<string>();
     if (seenNoLinkedin.size > 0) {
       for (let from = 0; ; from += PAGE_SIZE) {
@@ -404,12 +418,11 @@ export async function importKnownContacts(
           .from(TABLE)
           .select("full_name, company_name, company_domain")
           .eq("tenant_id", profile.tenant_id)
-          .is("linkedin_url", null)
           .order("id", { ascending: true })
           .range(from, from + PAGE_SIZE - 1);
 
         if (error) {
-          console.error("Error checking existing known contacts without LinkedIn:", error);
+          console.error("Error checking existing known contacts by name and company:", error);
           return {
             success: false,
             error: dbErrorMessage(error, "Erro ao importar os contatos. Tente novamente."),

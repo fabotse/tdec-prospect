@@ -441,6 +441,19 @@ describe("KnownContactsImportDialog", () => {
     expect(report).toHaveTextContent("Linha 3 (Bia): relação desconhecida");
   });
 
+  it("arquivo dentro do limite de linhas mas grande demais em bytes: pede para dividir", async () => {
+    renderDialog();
+    const long = (c: string, n: number) => c.repeat(n);
+    const lines = Array.from(
+      { length: 1900 },
+      (_, i) => `${long("N", 150)}${i};${long("C", 200)};${long("E", 200)};;;cliente`
+    );
+    await upload(["nome;cargo;empresa;dominio;linkedin;relacao", ...lines].join("\n"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Divida o CSV em partes menores/);
+    expect(screen.getByRole("button", { name: /^importar$/i })).toBeDisabled();
+    expect(importContacts).not.toHaveBeenCalled();
+  });
+
   it("erro da action aparece no dialog", async () => {
     importContacts.mockResolvedValue({ success: false, error: "Apenas gestores e diretores…" });
     renderDialog();

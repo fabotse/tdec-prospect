@@ -361,7 +361,8 @@ describe("known contacts actions", () => {
         [4, "já existe um contato com esse nome e empresa"],
         [5, "já existe um contato com esse nome e empresa"],
       ]);
-      expect(fake.calls[0].log).toContainEqual({ method: "is", args: ["linkedin_url", null] });
+      // Compara com todos os contatos do tenant, não só os que ainda estão sem LinkedIn.
+      expect(fake.calls[0].log.some((l) => l.method === "is")).toBe(false);
       expect(fake.calls[0].log).toContainEqual({ method: "eq", args: ["tenant_id", "tenant-1"] });
       expect(fake.calls[0].log).toContainEqual({ method: "range", args: [0, 999] });
       const inserted = arg(fake, 1, "insert") as Array<Record<string, unknown>>;
@@ -369,6 +370,63 @@ describe("known contacts actions", () => {
         ["José Souza", "Acme"],
         ["José Souza", "Outra"],
       ]);
+    });
+
+    it.each([
+      ["com LinkedIn primeiro", [true, false]],
+      ["sem LinkedIn primeiro", [false, true]],
+    ])("mesma pessoa no arquivo com e sem LinkedIn (%s): fica a linha com LinkedIn", async (_, order) => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(admin);
+      const fake = useSupabase([{ data: [] }, { data: [] }, {}]);
+      const rows = (order as boolean[]).map((withLinkedin, i) =>
+        row(i + 2, {
+          fullName: "Ana Prado",
+          companyName: "Acme",
+          linkedinUrl: withLinkedin ? "linkedin.com/in/ana-prado" : "",
+        })
+      );
+      const noLinkedinLine = (order as boolean[]).indexOf(false) + 2;
+
+      const res = await importKnownContacts(rows);
+
+      expect(res.success && res.data).toEqual({
+        accepted: 1,
+        skipped: [
+          {
+            line: noLinkedinLine,
+            value: "Ana Prado",
+            reason: "contato repetido no arquivo (mesmo nome e empresa)",
+          },
+        ],
+      });
+      const insertCall = fake.calls.find((c) => c.log.some((l) => l.method === "insert"));
+      const inserted = insertCall?.log.find((l) => l.method === "insert")?.args[0] as Array<Record<string, unknown>>;
+      expect(inserted.map((r) => r.linkedin_url)).toEqual(["https://www.linkedin.com/in/ana-prado"]);
+    });
+
+    it("re-import depois de preencher o LinkedIn não duplica o contato", async () => {
+      vi.mocked(getCurrentUserProfile).mockResolvedValue(admin);
+      // Ana/Acme foi importada sem LinkedIn e depois enriquecida pela busca.
+      const fake = useSupabase([
+        {
+          data: [
+            {
+              full_name: "Ana Prado",
+              company_name: "Acme",
+              company_domain: null,
+              linkedin_url: "https://www.linkedin.com/in/ana-prado",
+            },
+          ],
+        },
+      ]);
+
+      const res = await importKnownContacts([row(2, { fullName: "Ana Prado", companyName: "Acme" })]);
+
+      expect(res.success && res.data).toEqual({
+        accepted: 0,
+        skipped: [{ line: 2, value: "Ana Prado", reason: "já existe um contato com esse nome e empresa" }],
+      });
+      expect(fake.calls).toHaveLength(1);
     });
 
     it("sem LinkedIn: existentes lidos em páginas de 1000", async () => {

@@ -24,7 +24,9 @@ import { parseKnownContactsCsv } from "@/lib/utils/known-contacts";
 import { decodeCsv } from "@/lib/utils/csv-decode";
 import type { ActionResult } from "@/types/knowledge-base";
 import {
+  KNOWN_CONTACTS_IMPORT_MAX_BYTES,
   KNOWN_CONTACTS_IMPORT_MAX_ROWS,
+  knownContactsImportPayloadBytes,
   type KnownContactImportReport,
   type KnownContactImportRow,
 } from "@/types/known-contact";
@@ -75,6 +77,11 @@ export function KnownContactsImportDialog({
     if (parsed.rows.length > KNOWN_CONTACTS_IMPORT_MAX_ROWS) {
       setRows(null);
       setError(`Máximo de ${KNOWN_CONTACTS_IMPORT_MAX_ROWS} linhas por import`);
+      return;
+    }
+    if (knownContactsImportPayloadBytes(parsed.rows) > KNOWN_CONTACTS_IMPORT_MAX_BYTES) {
+      setRows(null);
+      setError("Arquivo grande demais para um import só. Divida o CSV em partes menores e importe uma de cada vez.");
       return;
     }
     setError(null);
