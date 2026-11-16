@@ -20,6 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { parseSuppressionCsv } from "@/lib/utils/suppression";
+import { decodeCsv } from "@/lib/utils/csv-decode";
 import type { ActionResult } from "@/types/knowledge-base";
 import {
   SUPPRESSION_IMPORT_MAX_ROWS,
@@ -27,15 +28,8 @@ import {
   type SuppressionImportRow,
 } from "@/types/suppression";
 
-/** UTF-8 quando válido; senão Windows-1252 (CSV salvo pelo Excel em português). */
-export function decodeCsv(buffer: ArrayBuffer | null | undefined): string {
-  if (!buffer) return "";
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
-  } catch {
-    return new TextDecoder("windows-1252").decode(buffer);
-  }
-}
+// Story 25.1: movido para `@/lib/utils/csv-decode`; reexportado para quem já importava daqui.
+export { decodeCsv };
 
 interface SuppressionImportDialogProps {
   open: boolean;

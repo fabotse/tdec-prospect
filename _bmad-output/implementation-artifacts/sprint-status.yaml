@@ -613,7 +613,7 @@ development_status:
   # Depende do Epic 23 (base de clientes/supressao) e do Epic 24 Marco 2 (servico Treg). Radar in-app (sem WhatsApp).
   #
   epic-25: backlog
-  25-1-contatos-conhecidos: backlog
+  25-1-contatos-conhecidos: awaiting-operator
   25-2-ex-clientes-que-mudaram-de-empresa: backlog
   25-3-gatilhos-das-contas-do-icp: backlog
   25-4-painel-do-radar: backlog

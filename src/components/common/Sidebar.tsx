@@ -16,6 +16,8 @@ import {
   Radar,
   Bot,
   Inbox,
+  RadioTower,
+  Contact,
 } from "lucide-react";
 import {
   Tooltip,
@@ -67,6 +69,13 @@ const navItems: NavItem[] = [
   // Story 21.4 (AC1/AC7): SEM adminOnly — a Central é ferramenta de trabalho do SDR.
   { label: "Oportunidades", href: "/opportunities", icon: Inbox },
   { label: "Insights", href: "/insights", icon: Lightbulb },
+  // Story 25.1: Radar de Oportunidades, visível a todos (o SDR só lê).
+  {
+    label: "Radar",
+    href: "/radar/known-contacts",
+    icon: RadioTower,
+    subItems: [{ label: "Contatos conhecidos", href: "/radar/known-contacts", icon: Contact }],
+  },
   { label: `Agente ${BRAND.name}`, href: "/agent", icon: Bot },
   {
     label: "Configurações",

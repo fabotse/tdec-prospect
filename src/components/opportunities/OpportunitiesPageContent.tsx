@@ -29,6 +29,9 @@ import {
 import { OpportunitiesEmptyState } from "@/components/opportunities/OpportunitiesEmptyState";
 import { AccountDossierSheet } from "@/components/dossier/AccountDossierSheet";
 import { MeetingPrepSheet } from "@/components/opportunities/MeetingPrepSheet";
+import { useAddKnownContactFromOpportunity } from "@/hooks/use-known-contacts";
+import { useUser } from "@/hooks/use-user";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -107,6 +110,33 @@ export function OpportunitiesPageContent() {
 
   // Story 24.23 — painel "Preparar reunião" (um Sheet por página).
   const [meetingPrepTarget, setMeetingPrepTarget] = useState<OpportunityCardData | null>(null);
+
+  // Story 25.1 — contato conhecido com 1 clique (só admin recebe o botão).
+  const { isAdmin, isLoading: isUserLoading, isProfileLoading } = useUser();
+  const canAddKnownContact = isAdmin && !isUserLoading && !isProfileLoading;
+  const addKnownContact = useAddKnownContactFromOpportunity();
+  const [knownContactTargetId, setKnownContactTargetId] = useState<string | null>(null);
+
+  const handleAddKnownContact = useCallback(
+    async (opportunity: OpportunityCardData) => {
+      setKnownContactTargetId(opportunity.id);
+      try {
+        const result = await addKnownContact.mutateAsync(opportunity.id);
+        if (!result.success) {
+          toast.error(result.error);
+        } else if (result.data?.alreadyKnown) {
+          toast.info("Esse lead já é contato conhecido");
+        } else {
+          toast.success("Lead adicionado aos contatos conhecidos");
+        }
+      } catch {
+        toast.error("Erro ao adicionar o contato conhecido. Tente novamente.");
+      } finally {
+        setKnownContactTargetId(null);
+      }
+    },
+    [addKnownContact]
+  );
 
   const handleStopSequence = useCallback((opportunity: OpportunityCardData) => {
     setSequenceStopReason("responded_other_channel");
@@ -232,6 +262,10 @@ export function OpportunitiesPageContent() {
                   }
                   onOpenDossier={setDossierTarget}
                   onOpenMeetingPrep={setMeetingPrepTarget}
+                  onAddKnownContact={canAddKnownContact ? handleAddKnownContact : undefined}
+                  knownContactPending={
+                    addKnownContact.isPending && knownContactTargetId === opportunity.id
+                  }
                 />
               ))}
             </div>
