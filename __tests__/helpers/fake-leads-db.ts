@@ -100,6 +100,13 @@ interface InjectedFailure {
   op: QueryContext["op"];
   error: { code?: string; message: string };
   remaining: number;
+  /**
+   * DW-1 (FEL-5): a escrita ACONTECE e so a resposta se perde (queda de conexao depois
+   * do commit, gateway 502/504). Sem isto o fake so sabe falhar ANTES de gravar.
+   */
+  afterWrite: boolean;
+  /** Status HTTP devolvido junto do erro (o supabase-js expoe `status` ao lado de `error`). */
+  status?: number;
 }
 
 function escapeRegExp(value: string): string {
@@ -240,21 +247,29 @@ export class FakeDb {
     table: string,
     op: QueryContext["op"],
     error: { code?: string; message: string },
-    times = 1
+    times = 1,
+    options: { afterWrite?: boolean; status?: number } = {}
   ): void {
-    this.failures.push({ table, op, error, remaining: times });
+    this.failures.push({
+      table,
+      op,
+      error,
+      remaining: times,
+      afterWrite: options.afterWrite ?? false,
+      status: options.status,
+    });
   }
 
-  private takeFailure(ctx: QueryContext): { code?: string; message: string } | null {
+  private takeFailure(ctx: QueryContext): InjectedFailure | null {
     const failure = this.failures.find(
       (f) => f.table === ctx.table && f.op === ctx.op && f.remaining > 0
     );
     if (!failure) return null;
     failure.remaining -= 1;
-    return failure.error;
+    return failure;
   }
 
-  execute(ctx: QueryContext): { data: unknown; error: unknown } {
+  execute(ctx: QueryContext): { data: unknown; error: unknown; status?: number } {
     this.log.push({
       table: ctx.table,
       op: ctx.op,
@@ -269,7 +284,16 @@ export class FakeDb {
     });
 
     const injected = this.takeFailure(ctx);
-    if (injected) return { data: null, error: injected };
+    if (injected) {
+      if (injected.afterWrite) {
+        // So simula "gravou e a resposta se perdeu" se a escrita de fato passou.
+        const written = this.dispatch(ctx);
+        if (written.error) return written;
+      }
+      return injected.status === undefined
+        ? { data: null, error: injected.error }
+        : { data: null, error: injected.error, status: injected.status };
+    }
 
     const result = this.dispatch(ctx);
 

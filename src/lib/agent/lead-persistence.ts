@@ -235,6 +235,24 @@ function isUniqueViolation(error: unknown): boolean {
   );
 }
 
+/**
+ * DW-1 (FEL-5): erro de escrita com resultado DESCONHECIDO — o INSERT pode ter sido
+ * commitado e so a resposta se perdeu. Tratar isso como "nada foi salvo" faz o step
+ * mandar reimportar leads que podem estar na base.
+ *
+ * Definitivo (nada gravado): erro com codigo do Postgres (SQLSTATE) ou do PostgREST
+ * (`PGRST...`), ou um 4xx sem codigo (ex.: 413 do gateway, que recusa antes do banco).
+ * Desconhecido: sem codigo E sem um 4xx — fetch que caiu (`code: ""`, status 0), 5xx de
+ * gateway sem corpo JSON (502/504) e 408.
+ */
+function isOutcomeUnknown(error: unknown, status?: number): boolean {
+  const code =
+    typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined;
+  if (typeof code === "string" && code.trim() !== "") return false;
+  if (typeof status === "number" && status >= 400 && status < 500 && status !== 408) return false;
+  return true;
+}
+
 function toError(error: unknown, fallbackMessage: string): Error {
   if (error instanceof Error) return error;
   const message =
@@ -716,7 +734,7 @@ export async function persistApprovedLeads(
   };
 
   for (const batch of chunk(pending, CHUNK_SIZE)) {
-    const { data, error } = await supabase
+    const { data, error, status } = await supabase
       .from("leads")
       .insert(batch.map((entry) => buildRow(entry.record)))
       .select("id, apollo_id, email");
@@ -756,6 +774,8 @@ export async function persistApprovedLeads(
             .select("id, apollo_id, email");
 
           if (retry.error) {
+            // DW-1 (FEL-5): resposta perdida pode ser escrita commitada.
+            if (isOutcomeUnknown(retry.error, retry.status)) anythingPersisted = true;
             failOrDegrade(retry.error, "Falha ao inserir leads apos colisao unica");
           } else {
             applyInsertedRows((retry.data ?? []) as ExistingLeadRow[], remaining);
@@ -768,6 +788,10 @@ export async function persistApprovedLeads(
       continue;
     }
 
+    // DW-1 (FEL-5): sem codigo de erro o resultado e desconhecido — os leads podem ter
+    // sido gravados. Nao lanca: o resultado sai `degraded` e o step usa a bolha de
+    // salvamento INCERTO ("confira antes de importar de novo"), nunca a de falha total.
+    if (isOutcomeUnknown(error, status)) anythingPersisted = true;
     failOrDegrade(error, "Falha ao inserir leads");
   }
 

@@ -618,6 +618,66 @@ describe("persistApprovedLeads (Story 22.15)", () => {
     expect(db.segments).toHaveLength(0);
   });
 
+  it("DW-1 (FEL-5): resposta do insert perdida DEPOIS do commit: nao lanca, devolve degraded", async () => {
+    // Queda de conexao/gateway 502 depois do commit: o supabase-js devolve um erro SEM
+    // codigo, mas as linhas estao na base. Lancar aqui fazia o step mandar "importe-os
+    // manualmente" sobre leads salvos — a duplicata que a 22.15 existe para evitar.
+    db.fail("leads", "insert", { code: "", message: "TypeError: fetch failed" }, 1, {
+      afterWrite: true,
+      status: 0,
+    });
+
+    const result = await run(db, [lead()]);
+
+    expect(db.leads).toHaveLength(1);
+    expect(result.degraded).toBe(true);
+    expect(result.inserted).toBe(0);
+    expect(result.leadIds).toEqual([]);
+    // Sem id confirmado nao ha o que agrupar: nenhum segmento orfao.
+    expect(db.segments).toHaveLength(0);
+  });
+
+  it("DW-1 (FEL-5): erro sem codigo num lote nao deixa um erro DEFINITIVO posterior lancar", async () => {
+    // 1o lote: resultado desconhecido (pode ter gravado). 2o lote: recusa definitiva.
+    // Lancar no 2o mandaria reimportar o que o 1o pode ter salvo.
+    db.fail("leads", "insert", { message: "upstream request timeout" }, 1, {
+      afterWrite: true,
+      status: 504,
+    });
+    db.fail("leads", "insert", { code: "42501", message: "permission denied for table leads" });
+    const leads = Array.from({ length: 101 }, (_, i) =>
+      lead({ apolloId: `apollo-${i}`, email: `lead${i}@acme.com` })
+    );
+
+    const result = await run(db, leads);
+
+    expect(result.degraded).toBe(true);
+    expect(db.leads).toHaveLength(100);
+  });
+
+  it("DW-1 (FEL-5): 4xx sem codigo (413 do gateway) e recusa DEFINITIVA: continua lancando", async () => {
+    // O gateway recusa antes do banco: nada foi gravado, e a bolha de falha total esta certa.
+    db.fail("leads", "insert", { message: "Request Entity Too Large" }, 1, { status: 413 });
+
+    await expect(run(db, [lead()])).rejects.toThrow(/Request Entity Too Large/);
+    expect(db.leads).toHaveLength(0);
+    expect(db.segments).toHaveLength(0);
+  });
+
+  it("DW-1 (FEL-5): resposta perdida no RETRY apos 23505: nao lanca, devolve degraded", async () => {
+    db.fail("leads", "insert", { code: "23505", message: "duplicate key value" });
+    db.fail("leads", "insert", { code: "", message: "TypeError: fetch failed" }, 1, {
+      afterWrite: true,
+      status: 0,
+    });
+
+    const result = await run(db, [lead()]);
+
+    expect(db.leads).toHaveLength(1);
+    expect(result.degraded).toBe(true);
+    expect(result.leadIds).toEqual([]);
+  });
+
   it("falha no segmento com leads NOVOS: degrada (os leads ja estao salvos), nao lanca", async () => {
     // Irmao do teste de leads JA na base: aqui nada preexistia, mas o insert de leads
     // funcionou. A tabela `leads` estava saudavel — abortar tudo por causa do segmento

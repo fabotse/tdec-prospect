@@ -374,7 +374,8 @@ origin: review-budget-followup
 source_spec: `22-15-leads-do-agente-em-meus-leads-com-segmento.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260727-144127-3277; this entry preserves the lingering recommendation for a deliberate later review.
-status: open
+status: resolved
+resolution: 2026-11-12 (FEL-5). Review independente feita sobre o codigo atual do main (c54d8aa), nao so o diff original: `lead-persistence.ts`, `persistLeadsToMyLeads` do `create-campaign-step.ts` e a cadeia do `segmentName` (parser, PATCH do briefing, merge do ajuste, resumo e `briefingChanged`). Leitura propria + review adversarial do Codex. A cadeia do `segmentName` esta inteira. 3 achados: (1) corrigido: um INSERT de leads cuja resposta se perde depois do commit (fetch caiu, gateway 502/504; o supabase-js devolve erro SEM codigo) era tratado como "nada salvo", o helper lancava e o step mandava "importe-os manualmente" sobre leads que podiam estar na base. Agora erro sem SQLSTATE/PGRST no insert conta como "pode ter gravado": o helper nao lanca, devolve `degraded` e o step usa a bolha de salvamento incerto que ja existia ("confira antes de importar de novo"). Testes em `__tests__/unit/lib/agent/lead-persistence.test.ts` (2 casos `DW-1 (FEL-5)`); o `FakeDb` ganhou `fail(..., { afterWrite: true })` para simular escrita commitada com resposta perdida. (2) e (3) viraram o DW-40 e o DW-41. Sem migration; export, ativacao, busca de leads e webhook intocados.
 
 ## 2026-07-28 — Story 22.16 (campanha do agente em `campaigns`), review pass
 
@@ -713,4 +714,20 @@ location: src/components/agent/AgentChat.tsx (attachGateOpen / isPostConfirmExec
 source_spec: `spec-24-2-execucao-protegida-contra-cobranca-dupla.md`
 severity: low
 reason: Ate o GET /api/agent/executions do mount voltar (e o profile carregar), `steps=[]`, `reattachedStatus=null` e `confirmedThisSession=false`, entao `isPostConfirmExecution` e falso; o input ja esta habilitado e `ensureExecution` devolve o id persistido. Uma mensagem nessa janela (dura o tempo de carregar o profile e do GET; sem limite garantido) entra no `processBriefing` de uma execucao ja confirmada. Variante: se o GET falhar (rede/!ok/shape), o `finally` abre o portao com `reattachedStatus=null`, e ate os steps carregarem a mensagem tambem vai ao briefing. Nao fica sem resposta (o briefing responde), mas a guarda da 24.2 (AC3) nao vale nessa janela. Desde a 24.5 o texto nao confirma o briefing (so o clique no card), o que limita o estrago. Correcao candidata: desabilitar o AgentInput enquanto `!attachGateOpen` (nao cobre a variante da falha), ou tratar "id persistido pendente de validacao" como pos-confirm. Preexistente (22.8/24.2); fora do escopo do FEL-11.
+status: open
+
+### DW-40: A busca de dedupe por email e a de segmento podem voltar truncadas pelo teto de linhas do PostgREST, e a ausencia do registro exato vira INSERT duplicado.
+origin: review FEL-5 (Codex, review independente da 22.15)
+location: src/lib/agent/lead-persistence.ts (fetchExistingLeads, resolveOrCreateSegment)
+source_spec: `22-15-leads-do-agente-em-meus-leads-com-segmento.md`
+severity: low
+reason: Os dois filtros sao `ilike` NAO ancorados (`%valor%`) e o PostgREST ainda trata `*` como curinga; o match final e reconferido em memoria, mas so sobre as linhas que VOLTARAM. Se um bloco de 50 emails (ou um nome curto de segmento) casar mais linhas que o `db-max-rows` do projeto, o registro exato pode ficar fora da resposta. No email, o lead e inserido de novo e o resultado sai limpo (duplicata silenciosa). No segmento, o insert bate na `unique_segment_name_per_tenant`, a re-busca volta truncada do mesmo jeito e o resultado sai `degraded` (leads salvos fora do segmento). Exige um email com `*` ou centenas de candidatos por bloco, entao e raro hoje. Correcao candidata, sem migration: paginar com ordem estavel (`.order("id").range(...)`) avancando pelo numero de linhas efetivamente RECEBIDO e parando so numa pagina vazia (parar na "pagina incompleta" falha se o teto do servidor for menor que a pagina pedida). O teto efetivo de producao nao foi consultado.
+status: open
+
+### DW-41: Duas execucoes concorrentes do mesmo tenant duplicam um lead que so tem email (sem apolloId).
+origin: review FEL-5 (Codex, review independente da 22.15)
+location: src/lib/agent/lead-persistence.ts (Fase 1 + Fase 2 de persistApprovedLeads)
+source_spec: `22-15-leads-do-agente-em-meus-leads-com-segmento.md`
+severity: low
+reason: As duas leem antes de qualquer INSERT, nao acham `maria@acme.com` e as duas inserem. `leads` so tem unique em (tenant_id, apollo_id), entao nao ha 23505 e a reconciliacao nao roda; cada uma devolve `inserted: 1` sem `degraded`. Mesma lacuna das rotas do produto (import-csv, create-batch), que tambem nao tem trava por email. Fechar exige uma unique sobre `lower(trim(email))` por tenant (migration, e os dados atuais ja tem duplicatas) ou uma trava distribuida (advisory lock via RPC). Decisao do Fabossi.
 status: open
