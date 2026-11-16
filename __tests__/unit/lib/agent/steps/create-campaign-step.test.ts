@@ -224,6 +224,16 @@ function createStatefulAgentSteps() {
     output: Record<string, unknown> | null;
   };
   const rows: StepRow[] = [];
+  /**
+   * DW-2 (FEL-6): falhas injetadas nas gravacoes de STATUS (`saveCheckpoint` /
+   * `saveAwaitingApproval`), por status e quantidade. E o caminho do
+   * STEP_PERSISTENCE_ERROR (24.1), que cai no `saveFailure` DEPOIS de a campanha ja estar
+   * gravada.
+   */
+  const statusFailures = new Map<string, number>();
+  const failStatusWrite = (status: string, times: number) => {
+    statusFailures.set(status, times);
+  };
 
   /** Semeia (ou substitui) a linha de um step — usado para montar o cenario multi-linha. */
   const setRow = (
@@ -275,6 +285,12 @@ function createStatefulAgentSteps() {
           const filters = Object.fromEntries(eq);
 
           if (op === "update") {
+            const status = typeof payload.status === "string" ? payload.status : null;
+            const remaining = status ? statusFailures.get(status) ?? 0 : 0;
+            if (status && remaining > 0) {
+              statusFailures.set(status, remaining - 1);
+              return { data: null, error: { code: "08006", message: "connection failure" } };
+            }
             if ("output" in payload) {
               setRow(
                 String(filters.execution_id),
@@ -304,7 +320,7 @@ function createStatefulAgentSteps() {
     return chain;
   };
 
-  return { rows, setRow, make };
+  return { rows, setRow, failStatusWrite, make };
 }
 
 /**
@@ -3053,6 +3069,82 @@ describe("CreateCampaignStep (AC #1, #2, #3, #4)", () => {
       expect((second.data as Record<string, unknown>).campaignId).toBe(firstId);
       expect(db.campaignLeads).toHaveLength(2);
       expect(noticeMessages()).toHaveLength(0);
+    });
+
+    it("DW-2 (FEL-6): checkpoint que falha depois de gravar a campanha nao faz o retry criar a segunda", async () => {
+      // Story 24.1: as 3 tentativas do `saveCheckpoint` falham -> STEP_PERSISTENCE_ERROR
+      // (retryable) -> `saveFailure` grava `{ ...parcial, error }`. Sem o `campaignId` no
+      // parcial, o output virava so `{ error }` e o "Tentar novamente" inseria OUTRA
+      // campanha em /campaigns.
+      agentSteps.failStatusWrite("completed", 3);
+
+      setupStructureThenContent();
+      await expect(step.run(createInput())).rejects.toMatchObject({
+        code: "STEP_PERSISTENCE_ERROR",
+      });
+
+      expect(db.campaigns).toHaveLength(1);
+      const firstId = db.campaigns[0].id;
+      const failedOutput = agentSteps.rows.find(
+        (r) => r.execution_id === "exec-001" && r.step_number === 3
+      )?.output;
+      expect(failedOutput?.campaignId).toBe(firstId);
+      expect(failedOutput?.error).toBeDefined();
+
+      setupStructureThenContent();
+      const retry = await step.run(createInput());
+
+      expect(retry.success).toBe(true);
+      expect(db.campaigns).toHaveLength(1);
+      expect((retry.data as Record<string, unknown>).campaignId).toBe(firstId);
+      expect(db.campaignLeads).toHaveLength(2);
+    });
+
+    it("DW-2 (FEL-6): um retry que falha ANTES de gravar (geracao) nao apaga o campaignId", async () => {
+      // Tentativa 1: campanha gravada, checkpoint falha. Tentativa 2: a geracao devolve
+      // JSON invalido (retryable) antes da persistencia. Tentativa 3: sucesso. Sem
+      // re-registrar o id no INICIO do step, a 2a gravava so `{ error }` e a 3a criava
+      // a segunda campanha.
+      agentSteps.failStatusWrite("completed", 3);
+      setupStructureThenContent();
+      await expect(step.run(createInput())).rejects.toMatchObject({
+        code: "STEP_PERSISTENCE_ERROR",
+      });
+      const firstId = db.campaigns[0].id;
+
+      mockGenerateText.mockReset();
+      mockGenerateText.mockResolvedValue({ text: "isto nao e JSON", model: "gpt-4o", usage: {} });
+      await expect(step.run(createInput())).rejects.toMatchObject({
+        message: expect.stringContaining("Formato invalido"),
+      });
+      const afterSecond = agentSteps.rows.find(
+        (r) => r.execution_id === "exec-001" && r.step_number === 3
+      )?.output;
+      expect(afterSecond?.campaignId).toBe(firstId);
+
+      mockGenerateText.mockReset();
+      setupStructureThenContent();
+      const third = await step.run(createInput());
+
+      expect(third.success).toBe(true);
+      expect(db.campaigns).toHaveLength(1);
+      expect((third.data as Record<string, unknown>).campaignId).toBe(firstId);
+    });
+
+    it("DW-2 (FEL-6): no modo guiado, falha do saveAwaitingApproval tambem preserva o campaignId", async () => {
+      agentSteps.failStatusWrite("awaiting_approval", 3);
+      const guided = { ...createInput(), mode: "guided" } as StepInput;
+
+      setupStructureThenContent();
+      await expect(step.run(guided)).rejects.toMatchObject({ code: "STEP_PERSISTENCE_ERROR" });
+      const firstId = db.campaigns[0].id;
+
+      setupStructureThenContent();
+      const retry = await step.run(guided);
+
+      expect(retry.success).toBe(true);
+      expect(db.campaigns).toHaveLength(1);
+      expect((retry.data as Record<string, unknown>).campaignId).toBe(firstId);
     });
 
     it("o campaignId de OUTRA execucao nao e adotado (a leitura filtra por execution_id)", async () => {
