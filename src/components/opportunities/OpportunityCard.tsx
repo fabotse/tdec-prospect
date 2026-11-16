@@ -37,6 +37,7 @@ import {
   Search,
   Send,
   Sparkles,
+  UserPlus,
   X as XIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -79,6 +80,21 @@ interface OpportunityCardProps {
    * Sem a prop, o card fica idêntico ao de antes. Não expande o card nem marca viewed.
    */
   onOpenMeetingPrep?: (opportunity: OpportunityCardData) => void;
+  /**
+   * Story 25.1 — torna o lead contato conhecido com 1 clique. Só aparece com
+   * `status='meeting_booked'` e lead presente; o PageContent só passa a prop para admin.
+   * Sem a prop, o card fica idêntico ao de antes. Não expande o card nem marca viewed.
+   */
+  onAddKnownContact?: (opportunity: OpportunityCardData) => void;
+  /** Story 25.1 — desabilita o botão enquanto a mutation pende. */
+  knownContactPending?: boolean;
+}
+
+/** Story 25.1 — mesma regra da action `addKnownContactFromOpportunity`. */
+export function isKnownContactEligible(
+  opportunity: Pick<OpportunityCardData, "status" | "lead">
+): boolean {
+  return opportunity.status === "meeting_booked" && !!opportunity.lead;
 }
 
 /** Story 24.23 — mesma regra da rota `meeting-prep` (422 NOT_ELIGIBLE fora dela). */
@@ -110,6 +126,8 @@ export function OpportunityCard({
   sequenceActionPending,
   onOpenDossier,
   onOpenMeetingPrep,
+  onAddKnownContact,
+  knownContactPending,
 }: OpportunityCardProps) {
   const [expanded, setExpanded] = useState(false);
   // AC5: transição new→viewed UMA vez por interação (não no mount — evita
@@ -592,6 +610,27 @@ export function OpportunityCard({
           >
             <CalendarCheck className="h-3 w-3" />
             Preparar reunião
+          </Button>
+        </div>
+      )}
+
+      {/* Story 25.1 — contato conhecido com 1 clique (admin; reunião marcada com lead). */}
+      {onAddKnownContact && isKnownContactEligible(opportunity) && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddKnownContact(opportunity);
+            }}
+            disabled={knownContactPending}
+            aria-label={`Tornar ${leadName} contato conhecido`}
+            data-testid="opportunity-action-known-contact"
+          >
+            <UserPlus className="h-3 w-3" />
+            Contato conhecido
           </Button>
         </div>
       )}

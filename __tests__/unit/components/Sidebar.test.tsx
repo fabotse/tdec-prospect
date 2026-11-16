@@ -784,4 +784,34 @@ describe('Sidebar', () => {
       expect(screen.queryByRole('link', { name: /technographic/i })).not.toBeInTheDocument()
     })
   })
+
+  describe('Radar (Story 25.1)', () => {
+    it('mostra Radar → Contatos conhecidos para o gestor', async () => {
+      const user = userEvent.setup()
+      render(<Sidebar {...defaultProps} />)
+
+      await user.click(screen.getByRole('button', { name: /radar/i }))
+      expect(screen.getByRole('menuitem', { name: /contatos conhecidos/i })).toHaveAttribute(
+        'href',
+        '/radar/known-contacts'
+      )
+    })
+
+    it('mostra Radar também para o SDR', async () => {
+      const user = userEvent.setup()
+      mockUseUser.mockReturnValue(mockUserReturn({ isAdmin: false, role: 'sdr' }))
+      render(<Sidebar {...defaultProps} />)
+
+      await user.click(screen.getByRole('button', { name: /radar/i }))
+      expect(screen.getByRole('menuitem', { name: /contatos conhecidos/i })).toBeInTheDocument()
+    })
+
+    it('abre o submenu sozinho na rota do Radar', () => {
+      mockUsePathname.mockReturnValue('/radar/known-contacts')
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByRole('menuitem', { name: /contatos conhecidos/i })).toBeInTheDocument()
+    })
+  })
 })
+

@@ -18,7 +18,22 @@ import { toast } from "sonner";
 
 // Story 24.23: o Regenerar do briefing notifica erro por toast.
 vi.mock("sonner", () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
+}));
+
+// Story 25.1: o botão "Contato conhecido" só vai para admin (useUser) e chama a action
+// via useAddKnownContactFromOpportunity.
+const mockUseUser = vi.fn(() => ({ isAdmin: true, isLoading: false, isProfileLoading: false }));
+vi.mock("@/hooks/use-user", () => ({
+  useUser: () => mockUseUser(),
+}));
+const mockAddKnownContact = vi.fn();
+let mockKnownContactPending = false;
+vi.mock("@/hooks/use-known-contacts", () => ({
+  useAddKnownContactFromOpportunity: () => ({
+    mutateAsync: mockAddKnownContact,
+    isPending: mockKnownContactPending,
+  }),
 }));
 
 /**
@@ -735,6 +750,85 @@ describe("OpportunitiesPageContent — ações (Story 21.5)", () => {
       expect(screen.getByTestId("meeting-prep-reason")).toHaveTextContent(/não respondeu/);
       expect(screen.getAllByTestId("opportunity-card")).toHaveLength(1);
       expect(screen.getAllByTestId("opportunity-triage-contacted")).toHaveLength(1);
+    });
+  });
+
+  describe("Contato conhecido (Story 25.1)", () => {
+    beforeEach(() => {
+      mockUseUser.mockReturnValue({ isAdmin: true, isLoading: false, isProfileLoading: false });
+      mockKnownContactPending = false;
+    });
+
+    it("pendente: só o botão do card clicado fica desabilitado", async () => {
+      const user = userEvent.setup();
+      // A mutation fica pendente (nunca resolve) depois do clique.
+      mockAddKnownContact.mockReturnValue(new Promise(() => {}));
+      mockKnownContactPending = true;
+      mockHookReturn({
+        opportunities: [
+          makeOpportunity({ id: "opp-1", status: "meeting_booked" }),
+          makeOpportunity({ id: "opp-2", status: "meeting_booked" }),
+        ],
+        meta: { total: 2, page: 1, limit: 25, totalPages: 1 },
+      });
+
+      render(<OpportunitiesPageContent />);
+      const [first, second] = screen.getAllByTestId("opportunity-action-known-contact");
+      // Sem alvo ainda: nenhum card desabilitado.
+      expect(first).not.toBeDisabled();
+      expect(second).not.toBeDisabled();
+
+      await user.click(first);
+
+      const [firstAfter, secondAfter] = screen.getAllByTestId("opportunity-action-known-contact");
+      expect(firstAfter).toBeDisabled();
+      expect(secondAfter).not.toBeDisabled();
+    });
+
+    it("admin vê o botão só no card com reunião marcada e lead", () => {
+      mockHookReturn({
+        opportunities: [
+          makeOpportunity({ id: "opp-1", status: "meeting_booked" }),
+          makeOpportunity({ id: "opp-2", status: "viewed" }),
+          makeOpportunity({ id: "opp-3", status: "meeting_booked", lead: null }),
+        ],
+        meta: { total: 3, page: 1, limit: 25, totalPages: 1 },
+      });
+
+      render(<OpportunitiesPageContent />);
+      expect(screen.getAllByTestId("opportunity-action-known-contact")).toHaveLength(1);
+    });
+
+    it("SDR não vê o botão", () => {
+      mockUseUser.mockReturnValue({ isAdmin: false, isLoading: false, isProfileLoading: false });
+      mockHookReturn({
+        opportunities: [makeOpportunity({ status: "meeting_booked" })],
+        meta: { total: 1, page: 1, limit: 25, totalPages: 1 },
+      });
+
+      render(<OpportunitiesPageContent />);
+      expect(screen.queryByTestId("opportunity-action-known-contact")).not.toBeInTheDocument();
+    });
+
+    it.each([
+      [{ success: true, data: { alreadyKnown: false } }, "success"],
+      [{ success: true, data: { alreadyKnown: true } }, "info"],
+      [{ success: false, error: "Os contatos conhecidos ainda não estão disponíveis" }, "error"],
+    ] as const)("clique chama a action e mostra o toast (%o)", async (result, kind) => {
+      const user = userEvent.setup();
+      mockAddKnownContact.mockResolvedValue(result);
+      mockHookReturn({
+        opportunities: [makeOpportunity({ id: "opp-9", status: "meeting_booked" })],
+        meta: { total: 1, page: 1, limit: 25, totalPages: 1 },
+      });
+
+      render(<OpportunitiesPageContent />);
+      await user.click(screen.getByTestId("opportunity-action-known-contact"));
+
+      expect(mockAddKnownContact).toHaveBeenCalledWith("opp-9");
+      await vi.waitFor(() => expect(toast[kind]).toHaveBeenCalledTimes(1));
+      // O clique não expande o card nem dispara triagem/new->viewed.
+      expect(mockMutate).not.toHaveBeenCalled();
     });
   });
 });

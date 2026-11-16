@@ -1043,4 +1043,65 @@ describe("OpportunityCard — Story 21.5", () => {
       expect(screen.getByTestId("opportunity-toggle-expand")).toHaveTextContent("Ver mais");
     });
   });
+
+  describe("Contato conhecido (Story 25.1)", () => {
+    it("sem a prop, nenhum botão (card idêntico ao de antes)", () => {
+      render(<OpportunityCard opportunity={makeOpportunity({ status: "meeting_booked" })} />);
+      expect(screen.queryByTestId("opportunity-action-known-contact")).not.toBeInTheDocument();
+    });
+
+    it("com a prop, só aparece em meeting_booked com lead", () => {
+      const onAdd = vi.fn();
+      const { rerender } = render(
+        <OpportunityCard
+          opportunity={makeOpportunity({ status: "viewed" })}
+          onAddKnownContact={onAdd}
+        />
+      );
+      expect(screen.queryByTestId("opportunity-action-known-contact")).not.toBeInTheDocument();
+
+      rerender(
+        <OpportunityCard
+          opportunity={makeOpportunity({ status: "meeting_booked", lead: null })}
+          onAddKnownContact={onAdd}
+        />
+      );
+      expect(screen.queryByTestId("opportunity-action-known-contact")).not.toBeInTheDocument();
+
+      rerender(
+        <OpportunityCard
+          opportunity={makeOpportunity({ status: "meeting_booked" })}
+          onAddKnownContact={onAdd}
+        />
+      );
+      expect(screen.getByTestId("opportunity-action-known-contact")).toHaveTextContent(
+        "Contato conhecido"
+      );
+    });
+
+    it("clique emite a oportunidade sem expandir nem marcar viewed", async () => {
+      const user = userEvent.setup();
+      const onAdd = vi.fn();
+      const opportunity = makeOpportunity({ status: "meeting_booked" });
+      render(<OpportunityCard opportunity={opportunity} onAddKnownContact={onAdd} />);
+
+      await user.click(screen.getByTestId("opportunity-action-known-contact"));
+
+      expect(onAdd).toHaveBeenCalledWith(opportunity);
+      expect(mockMutate).not.toHaveBeenCalled();
+      expect(mockGenerate).not.toHaveBeenCalled();
+    });
+
+    it("desabilitado enquanto pende", () => {
+      render(
+        <OpportunityCard
+          opportunity={makeOpportunity({ status: "meeting_booked" })}
+          onAddKnownContact={vi.fn()}
+          knownContactPending
+        />
+      );
+      expect(screen.getByTestId("opportunity-action-known-contact")).toBeDisabled();
+    });
+  });
 });
+

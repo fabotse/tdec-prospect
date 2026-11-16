@@ -55,7 +55,8 @@ const REASON_BY_STATUS: Record<string, string> = {
 export const ALL_ACCOUNTS_SUPPRESSED_MESSAGE =
   "Todas as contas da sua lista estao com negociacao em andamento, entao nao busquei ninguem. Ajuste a lista de contas para seguir.";
 
-function isPersonalEmailDomain(domain: string): boolean {
+/** Domínio de e-mail pessoal (exato, já minúsculo). Story 25.1: exportado. */
+export function isPersonalEmailDomain(domain: string): boolean {
   return PERSONAL_EMAIL_DOMAINS.has(domain);
 }
 
